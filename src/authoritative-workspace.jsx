@@ -99,7 +99,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   const sourceEmpty=bill&&documents.length===0&&adjustments.length===0;
   const showDocumentList=!bill||state.transactionType!=='VENDOR_CREDITS';
   const showAdjustmentList=!bill||state.transactionType!=='BILLS';
-  const showAdjustmentSection=showAdjustmentList&&(!sourceEmpty||!bill||state.transactionType==='VENDOR_CREDITS');
+  const showAdjustmentSection=showAdjustmentList&&(!bill||visibleAdjustments.length>0||state.transactionType==='VENDOR_CREDITS');
   const visibleResultCount=(showDocumentList?page.total:0)+(showAdjustmentList?visibleAdjustments.length:0);
   const statuses=[...new Set([...documents,...adjustments].map(row=>row?.status).filter(Boolean))].sort();
   const counterparties=[...new Set(documents.map(row=>row?.[counterpartyField]).filter(Boolean))].sort((left,right)=>left.localeCompare(right));
@@ -142,7 +142,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     <p className="muted sm authoritative-applied-scope" aria-live="polite">{appliedScope.length?appliedScope.join(' · '):bill?'All records':'All retained API rows'}</p>
     </section>
     {showDocumentList&&<section className="card" aria-label={`${workspaceLabel} document list facts`}>
-    {page.total?<AuthoritativeDocumentTable title={bill?'AP bills':'AR invoices'} documents={page.rows} kind={kind} onOpen={onOpenDocument}/>:documents.length?<StateBlock tone="empty" title={`No ${bill?'bills':'invoices'} match these presentation filters`}>Change a presentation filter to see retained list facts. A local no-match is not evidence of zero balance.</StateBlock>:sourceEmpty?<StateBlock tone="empty" title="No expenses found">Try changing the filters. This scoped API result is not evidence of zero activity.</StateBlock>:<AuthoritativeScopeEmpty subject={bill?'AP bills':'AR invoices'}/>}
+    {page.total?<AuthoritativeDocumentTable title={bill?'AP bills':'AR invoices'} documents={page.rows} kind={kind} onOpen={onOpenDocument}/>:sourceEmpty?<StateBlock tone="empty" title="No expenses found">Try changing the filters. This scoped API result is not evidence of zero activity.</StateBlock>:bill&&state.transactionType==='ALL'&&visibleResultCount===0?<StateBlock tone="empty" title="No expenses match these filters">Try changing or resetting the filters. This scoped result is not evidence of zero activity.</StateBlock>:documents.length?<StateBlock tone="empty" title={`No ${bill?'bills':'invoices'} match these presentation filters`}>Change a presentation filter to see retained list facts. A local no-match is not evidence of zero balance.</StateBlock>:<AuthoritativeScopeEmpty subject={bill?'AP bills':'AR invoices'}/>}
     {page.pageCount>1&&<nav className="pagination" aria-label={`${bill?'AP bills':'AR invoices'} pages`}><button type="button" className="btn btn-sm btn-ghost" disabled={page.page===1} onClick={()=>change({page:page.page-1})}>Previous</button><span>Page {page.page} of {page.pageCount}</span><button type="button" className="btn btn-sm btn-ghost" disabled={page.page===page.pageCount} onClick={()=>change({page:page.page+1})}>Next</button></nav>}
     </section>}
     {showAdjustmentSection&&<section className="card" aria-label={`${workspaceLabel} adjustment list facts`}>

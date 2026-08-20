@@ -67,7 +67,7 @@ assert.match(workspaceMarkup,/Reset filters/);
 assert.match(workspaceMarkup,/Status: PARTIALLY_PAID/);
 assert.match(workspaceMarkup,/2026-08-01/);
 assert.match(workspaceMarkup,/1 result/,'Expenses must summarize the currently rendered result set without exposing separate internal document and adjustment counts');
-assert.match(workspaceMarkup,/No adjustments match these presentation filters/);
+assert.doesNotMatch(workspaceMarkup,/No adjustments match these presentation filters/,'a mixed Expenses result must not append an empty adjustment card below visible Bills');
 assert.doesNotMatch(workspaceMarkup,/aria-label="Expenses API summary"/,'QBO-style Expenses keeps its result count beside the filters rather than repeating KPI cards');
 assert.doesNotMatch(workspaceMarkup,/authoritative-document-intro/,'AP/AR must not duplicate the evidence contract above the filters');
 assert.doesNotMatch(workspaceMarkup,/>Filters</,'Expenses must not repeat a heading above its already labelled filter controls');
@@ -79,6 +79,10 @@ assert.match(emptyExpenseMarkup,/No expenses found/);
 assert.match(emptyExpenseMarkup,/Try changing the filters\. This scoped API result is not evidence of zero activity\./);
 assert.equal((emptyExpenseMarkup.match(/No expenses found/g)||[]).length,1,'an empty Expenses scope must render one clear empty title');
 assert.doesNotMatch(emptyExpenseMarkup,/No authoritative adjustments in this scope/);
+
+const noMatchExpenseMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[bill]} adjustments={[adjustment]} view={{query:'No such expense',status:'ALL',transactionType:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
+assert.equal((noMatchExpenseMarkup.match(/No expenses match these filters/g)||[]).length,1,'a filtered mixed Expenses scope must render one clear empty state');
+assert.doesNotMatch(noMatchExpenseMarkup,/No bills match|No adjustments match|No authoritative adjustments/,'the mixed Expenses empty state must not split internal object families into separate cards');
 
 const creditsOnlyMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[bill]} adjustments={[adjustment]} view={{query:'',status:'ALL',transactionType:'VENDOR_CREDITS',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
 assert.match(creditsOnlyMarkup,/Vendor credits/);
