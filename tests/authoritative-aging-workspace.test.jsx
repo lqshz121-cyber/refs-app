@@ -9,10 +9,15 @@ const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222
 const markup=renderToStaticMarkup(<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})}/>);
 assert.match(markup,/Accounts receivable \/ aging report/);
 assert.match(markup,/Entity reporting scope/);
+assert.match(markup,/Accounting period/);
 assert.match(markup,/Configured period/);
 assert.match(markup,/As-of date/);
 assert.match(markup,/Refresh evidence/);
 assert.match(markup,/Loading authoritative AR aging/);
+assert.match(markup,/Read-only aging from the accounting API\./);
+assert.equal((markup.match(/Configured entity/g)||[]).length,1,'Aging must present entity scope once in the controls');
+assert.equal((markup.match(/Configured period/g)||[]).length,1,'Aging must present period scope once in the controls');
+assert.doesNotMatch(markup,/Immutable evidence scope|GET-only refresh/,'Aging must not repeat its labelled controls in a second scope block');
 assert.doesNotMatch(markup,/>Customize<|>Save<|>Print<|>Export<|>Email<|>More</i);
 
 const source=fs.readFileSync(path.join(process.cwd(),'src','authoritative-aging-workspace.jsx'),'utf8');
@@ -22,7 +27,6 @@ assert.match(source,/authoritative-aging-table/);
 assert.match(source,/tabIndex=\{0\}/);
 assert.match(source,/1–30 days/);
 assert.match(source,/31–60 days/);
-assert.match(source,/GET-only refresh/);
 assert.match(source,/backLabel='Back to invoices & receipts'/,'the existing Receivables-origin Back copy remains the default');
 const reportBackMarkup=renderToStaticMarkup(<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})} onBack={()=>{}} backLabel="Back to Reports"/>);
 assert.match(reportBackMarkup,/Back to Reports/,'the Reports shortcut must not imply that it returns to the Receivables list');
