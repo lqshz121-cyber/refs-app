@@ -400,9 +400,9 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
     </section>}</>}
     {workbenchTab==='CASH_AND_CAPITAL'&&<>
     <section className="card" aria-label="Statement of cash flows evidence">
-      <div className="card-head"><div><h2>Statement of cash flows</h2><p className="muted sm">Operating, investing, and financing classification requires an exact approved immutable mapping for every POSTED bank-cash journal counterpart.</p></div><span className="badge badge-muted">READ ONLY</span></div>
-      <div className="qbo-filter-grid"><button type="button" className="btn" disabled={cashFlowState.phase==='LOADING'} onClick={loadCashFlow}>{cashFlowState.phase==='LOADING'?'Loading…':'Load mapped cash-flow evidence'}</button></div>
-      <p className="muted sm">No source label, account description, or account-code prefix is used to infer a classification. A missing, ambiguous, invalid, or multi-cash mapping stays BLOCKED and prevents statement totals from being asserted.</p>
+      <div className="card-head"><div><h2>Statement of cash flows</h2><p className="muted sm">Review mapped operating, investing, and financing cash activity.</p></div><span className="badge badge-muted">READ ONLY</span></div>
+      <div className="qbo-filter-grid"><button type="button" className="btn" disabled={cashFlowState.phase==='LOADING'} onClick={loadCashFlow}>{cashFlowState.phase==='LOADING'?'Loading…':'Load cash flow'}</button></div>
+      <details className="authoritative-secondary-disclosure authoritative-cash-flow-rules"><summary><span>Classification rules</span></summary><section><p className="muted sm">Every POSTED bank-cash counterpart requires one exact approved mapping. Labels, descriptions, and account-code prefixes are never used to infer classification; missing, ambiguous, invalid, or multi-cash mappings remain BLOCKED.</p></section></details>
       {cashFlowState.phase==='LOADING'&&<StateBlock tone="loading">Loading mapping-backed POSTED cash-flow evidence...</StateBlock>}
       <ReadError state={cashFlowState} onRetry={loadCashFlow}/>
       {cashFlowState.phase==='READY'&&!cashFlowState.rows.length&&<StateBlock tone="empty" title="No POSTED bank-cash evidence returned">This scoped empty result is not evidence of zero operating, investing, or financing cash flow.</StateBlock>}
