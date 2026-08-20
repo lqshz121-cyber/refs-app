@@ -18,6 +18,7 @@ test('General Ledger workspace is a retained read-only, contained-table surface'
   const markup=renderToStaticMarkup(<AuthoritativeGeneralLedgerWorkspace config={displayConfig} fetcher={async()=>new Response(JSON.stringify({ok:true,data:[]}),{status:200})}/>);
   for(const text of ['GENERAL LEDGER | POSTED EVIDENCE','Apply','Refresh evidence','POSTED ledger lines'])assert.match(markup,new RegExp(text));
   assert.match(markup,/Entity Wan Pacific Real Estate Development LLC \| period 2026-08/);assert.doesNotMatch(markup,/>Entity 11111111-1111-4111-8111-111111111111/);
+  assert.match(markup,/<details class="authoritative-return-context"><summary>Scope rules<\/summary>/);assert.doesNotMatch(markup,/General Ledger reading path/);
   const source=String(AuthoritativeGeneralLedgerWorkspace);for(const text of ['Open evidence','Showing server page','scroll horizontally','ad-hoc date overrides are not supplied'])assert.match(source,new RegExp(text));
   assert.match(source,/AuthoritativeScopeEmpty/,'an empty GL read must name the posted-evidence admission boundary rather than imply a zero ledger');
   assert.match(source,/AuthoritativeReadFailure/,'a failed GL read must name the access, scope, protocol, or service diagnosis rather than look like zero posted evidence');
@@ -35,7 +36,7 @@ test('General Ledger keeps the demonstrated workbench hierarchy without importin
   const workspace=String(AuthoritativeGeneralLedgerWorkspace);
   const detail=String(AuthoritativeGeneralLedgerDetail);
   const presentation=String(AuthoritativeGeneralLedgerView);const detailPresentation=String(AuthoritativeGeneralLedgerDetailView);
-  assert.match(workspace,/AuthoritativeGeneralLedgerView/);assert.match(workspace,/General Ledger reading path/);
+  assert.match(workspace,/AuthoritativeGeneralLedgerView/);assert.doesNotMatch(workspace,/General Ledger reading path/);
   assert.match(detail,/AuthoritativeGeneralLedgerDetailView/);assert.match(detail,/Ledger line evidence reading path/);
   assert.match(presentation,/authoritative-general-ledger-presentation/);assert.match(detailPresentation,/authoritative-general-ledger-detail-presentation/);
   assert.doesNotMatch(`${workspace}\n${detail}`,/localStorage|seed\.js|repo\.js|legacy-demo-app/);
