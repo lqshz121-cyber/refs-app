@@ -17,11 +17,12 @@ function harness({resolved=fixture(),candidateCount=1}={}){
       async createBankPaymentMatch(args){calls.push(['match',args]);return {bank_match_id:bankMatchId,journal_line_id:journalLineId,ledger_line_id:ledgerLineId,revision:0,idempotent:false};}
     },
     maker:{
+      async proposeWbsTestBankMatchConfig(args){calls.push(['config-propose',args]);return {setting_snapshot_id:id(13),mapping_snapshot_id:id(14),status:'DRAFT',idempotent:false};},
       async createApPayment(args){calls.push(['payment',args]);return {payment_occurrence_id:paymentOccurrenceId,journal_entry_id:journalEntryId,business_document_id:businessDocumentId};},
       async bindWbsTestBankMatchPaymentSource(args){calls.push(['source-bind',args]);return {staging_item_id:id(11),source_link_id:id(12),idempotent:false};}
     },
     submitter:{async transitionJournal(args){calls.push(['submit',args]);return {status:'PENDING_REVIEW'};}},
-    reviewer:{async transitionJournal(args){calls.push(['review',args]);return {status:'PENDING_APPROVAL'};}},
+    reviewer:{async approveWbsTestBankMatchConfig(args){calls.push(['config-approve',args]);return {setting_snapshot_id:id(13),mapping_snapshot_id:id(14),status:'APPROVED',idempotent:false};},async transitionJournal(args){calls.push(['review',args]);return {status:'PENDING_APPROVAL'};}},
     approver:{async transitionJournal(args){calls.push(['approve',args]);return {status:'APPROVED'};}},
     poster:{async postJournal(args){calls.push(['post',args]);return {journal_entry_id:journalEntryId};}}
   };
@@ -35,7 +36,7 @@ test('posts one exact AP payment through six actors before creating one Bank Mat
   const {service,calls}=harness();
   const result=await service.run(input);
   assert.deepEqual(result,{status:'CONTROLLED_TEST_BANK_MATCH_ACTIVE',test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',idempotent:false,period_id:periodId,bank_account_ref:'WBS_TEST_BANK',bank_source_id:bankSourceId,business_document_id:businessDocumentId,payment_amount:'100.0000',currency:'USD',payment_occurrence_id:paymentOccurrenceId,journal_entry_id:journalEntryId,journal_line_id:journalLineId,ledger_line_id:ledgerLineId,bank_match_id:bankMatchId,revision:0});
-  assert.deepEqual(calls.map(([name])=>name),['authorize','resolve','payment','source-bind','submit','review','approve','post','candidates','match']);
+  assert.deepEqual(calls.map(([name])=>name),['authorize','resolve','config-propose','config-approve','payment','source-bind','submit','review','approve','post','candidates','match']);
   const payment=calls.find(([name])=>name==='payment')[1];
   assert.equal(payment.bankMemberRef,'WBS_TEST_BANK');assert.equal(payment.cashAccountCode,'111000');assert.equal(payment.amount,'100.0000');
   assert.match(payment.paymentNumber,/^WBS-MATCH-[0-9a-f]{32}$/);assert.equal(payment.idempotencyKey,`wbs-test-bank-match:${bankSourceId}:payment`);assert.ok(!payment.paymentNumber.includes(input.idempotencyKey));
@@ -47,7 +48,7 @@ test('replays an existing exact active match without new workflow or match comma
   const resolved=fixture({active_bank_match_id:bankMatchId,active_payment_occurrence_id:paymentOccurrenceId,active_journal_entry_id:journalEntryId,active_journal_line_id:journalLineId,active_ledger_line_id:ledgerLineId,active_match_revision:0});
   const {service,calls}=harness({resolved});const result=await service.run(input);
   assert.equal(result.idempotent,true);assert.equal(result.bank_match_id,bankMatchId);
-  assert.deepEqual(calls.map(([name])=>name),['authorize','resolve','payment','source-bind']);
+  assert.deepEqual(calls.map(([name])=>name),['authorize','resolve','config-propose','config-approve','payment','source-bind']);
 });
 
 test('fails closed on cross-scope, unsafe fixture, ambiguous candidate, or conflicting active match',async()=>{

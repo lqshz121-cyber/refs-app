@@ -1281,6 +1281,18 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async proposeWbsTestBankMatchConfig({tenantId,entityId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_propose_wbs_test_bank_match_config($1,$2) AS result',[tenantId,entityId]
+    ),'WBS_TEST_BANK_MATCH_CONFIG_PROPOSAL_FAILED','Controlled test Bank Match configuration proposal did not return a result').result);
+  }
+
+  async approveWbsTestBankMatchConfig({tenantId,entityId,settingSnapshotId,mappingSnapshotId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_approve_wbs_test_bank_match_config($1,$2,$3,$4) AS result',[tenantId,entityId,settingSnapshotId,mappingSnapshotId]
+    ),'WBS_TEST_BANK_MATCH_CONFIG_APPROVAL_FAILED','Controlled test Bank Match configuration approval did not return a result').result);
+  }
+
   async bindWbsTestBankMatchPaymentSource({tenantId,entityId,businessDocumentId,paymentOccurrenceId,journalEntryId}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_bind_wbs_test_bank_match_payment_source($1,$2,$3,$4,$5) AS result',

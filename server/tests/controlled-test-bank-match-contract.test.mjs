@@ -8,6 +8,8 @@ const periodUp=fs.readFileSync(new URL('../db/migrations/191_wbs_test_bank_match
 const periodDown=fs.readFileSync(new URL('../db/migrations/down/191_wbs_test_bank_match_period_scope.sql',import.meta.url),'utf8');
 const stage1Up=fs.readFileSync(new URL('../db/migrations/192_wbs_test_bank_match_stage1_source.sql',import.meta.url),'utf8');
 const stage1Down=fs.readFileSync(new URL('../db/migrations/down/192_wbs_test_bank_match_stage1_source.sql',import.meta.url),'utf8');
+const configUp=fs.readFileSync(new URL('../db/migrations/193_wbs_test_bank_match_config_workflow.sql',import.meta.url),'utf8');
+const configDown=fs.readFileSync(new URL('../db/migrations/down/193_wbs_test_bank_match_config_workflow.sql',import.meta.url),'utf8');
 const repository=fs.readFileSync(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
 
 test('isolated Bank Match fixture is private, exact, legacy-only and server-selected',()=>{
@@ -16,6 +18,14 @@ test('isolated Bank Match fixture is private, exact, legacy-only and server-sele
   for(const token of ['refs_bind_wbs_test_bank_match_payment_source',"refs_assert_scope(p_tenant,p_entity,'AP.PAYMENT.CREATE')","document_type='WBS_TEST_PAYABLE'","occurrence.occurrence_kind<>'AP_PAYMENT'","journal.journal_type<>'AUTO'","family='BANK'","refs_rule_evaluation_hash","'WBS_TEST_BANK_MATCH_PAYMENT'","'CONTROLLED_TEST_BANK_PAYMENT_SOURCE_BOUND'"])assert.match(up,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
   assert.match(down,/DROP FUNCTION IF EXISTS refs_bind_wbs_test_bank_match_payment_source/);
   assert.match(repository,/async resolveWbsTestBankMatchFixture/);assert.match(repository,/rows\.length!==1/);assert.match(repository,/async bindWbsTestBankMatchPaymentSource/);
+});
+
+test('193 provisions the isolated TEST_ONLY BANK evidence through distinct maker and reviewer actors only',()=>{
+  for(const token of ['refs_propose_wbs_test_bank_match_config','refs_approve_wbs_test_bank_match_config',"refs_assert_scope(p_tenant,p_entity,'WBS.TEST.IMPORT')","refs_assert_scope(p_tenant,p_entity,'AP.PAYMENT.CREATE')","refs_assert_scope(p_tenant,p_entity,'GL.JE.REVIEW')","refs_assert_scope(p_tenant,p_entity,'BANK.RECONCILIATION.REVIEW')","created_by=actor","WBS_TEST_BANK_MATCH_SETTING_V1","WBS_TEST_BANK_MATCH_MAPPING_INPUT_V1","status='APPROVED'","GRANT EXECUTE"])
+    assert.match(configUp,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+  assert.doesNotMatch(configUp,/p_(created|approved)_by|set_config\([^)]*actor/i);
+  assert.match(configDown,/Cannot remove migration 193 while controlled test Bank Match configuration evidence exists/);
+  assert.match(repository,/async proposeWbsTestBankMatchConfig/);assert.match(repository,/async approveWbsTestBankMatchConfig/);
 });
 
 test('192 admits only the legacy controlled Stage1 Payable identity while preserving the 191 period boundary',()=>{

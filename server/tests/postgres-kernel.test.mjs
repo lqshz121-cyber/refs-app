@@ -179,6 +179,7 @@ pgTest('controlled test AI source module and SERVICE_ACCOUNT audit actor are exp
   assert.match(definition,/actor,'SERVICE_ACCOUNT','AI\.TEST\.WORKFLOW'/);assert.doesNotMatch(definition,/actor,'SERVICE','AI\.TEST\.WORKFLOW'/);
   await adminPool.query("INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash) VALUES($1,$2,'CONTROLLED_TEST_AI_SOURCE_DERIVED','SOURCE_DOCUMENT',$3,'DERIVE_TEST_SOURCE','controlled-ai-source-maker','SERVICE_ACCOUNT','AI.TEST.WORKFLOW',$4,$4,$4,$5)",[ids.tenantId,ids.entityId,sourceId,'controlled-ai-audit-actor-test',hash('controlled-ai-audit-actor-test')]);
   assert.deepEqual((await adminPool.query("SELECT actor_type FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='CONTROLLED_TEST_AI_SOURCE_DERIVED'",[ids.tenantId,ids.entityId])).rows,[{actor_type:'SERVICE_ACCOUNT'}]);
+  await migrateDown(adminPool); // 193 is the isolated TEST_ONLY Bank Match configuration workflow.
   await migrateDown(adminPool); // 192 admits only the legacy controlled Stage1 Payable identity.
   await migrateDown(adminPool); // 191 scopes the isolated TEST_ONLY Bank Match fixture to one period.
   await migrateDown(adminPool); // 190 is the isolated TEST_ONLY Bank Match fixture reader.
@@ -190,6 +191,7 @@ pgTest('controlled test AI source module and SERVICE_ACCOUNT audit actor are exp
   await migrateUp(adminPool); // Restore the isolated TEST_ONLY Bank Match fixture reader.
   await migrateUp(adminPool); // Restore the period-scoped TEST_ONLY Bank Match fixture reader.
   await migrateUp(adminPool); // Restore the Stage1-compatible TEST_ONLY Bank Match source boundary.
+  await migrateUp(adminPool); // Restore the isolated TEST_ONLY Bank Match configuration workflow.
 });
 
 pgTest('Controller retains classifies and approves an exact WBS company catalog binding with SoD CAS audit and zero accounting mapping snapshots',async()=>{
@@ -3484,17 +3486,11 @@ pgTest('reconciliation rejects mixed currencies and non-posted hand-made match e
   await assert.rejects(clearer.setReconciliationClearance({...ids,reconciliationId:started.reconciliation_id,bankSourceId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Hand-made active match must not clear',idempotencyKey:'reconciliation-fake-clear-001'}),error=>error.code==='23514'&&/exact actively matched/i.test(error.message));
 });
 
-pgTest('192 isolated WBS TEST_ONLY Bank Match accepts the period-scoped Stage1 Payable, ignores a larger cross-period Payable, posts one exact payment, links GL, and replays with zero delta',async()=>{
+pgTest('193 isolated WBS TEST_ONLY Bank Match independently approves exact config, accepts the period-scoped Stage1 Payable, posts one payment, links GL, and replays',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null,extraMembers:[{memberRef:'WBS_TEST_BANK',memberType:'BANK',displayName:'Legacy WBS test Bank'}]});
   await adminPool.query("UPDATE entity SET source_system='REFS_STAGE1' WHERE tenant_id=$1 AND entity_id=$2",[ids.tenantId,ids.entityId]);
   const batchIds=[randomUUID(),randomUUID()],rawIds=[randomUUID(),randomUUID()],sourceIds=[randomUUID(),randomUUID()],billId=randomUUID(),bankSourceId=randomUUID();
   const decoyPeriodId=randomUUID(),decoyBatchId=randomUUID(),decoyRawId=randomUUID(),decoySourceId=randomUUID(),decoyBillId=randomUUID();
-  const settingId=randomUUID(),mappingId=randomUUID(),inputKeyHash=hash('wbs-test-bank-match-mapping');
-  const configHashes=(await adminPool.query("SELECT refs_jsonb_hash('{}'::jsonb) setting_hash,refs_jsonb_hash(jsonb_build_object('input_keys','{}'::jsonb,'output_rules','{}'::jsonb)) mapping_hash")).rows[0];
-  await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
-    VALUES($1,$2,$3::uuid,'BANK','ENTITY',$3::text,1,'2026-01-01','APPROVED','{}',$4,'fixture-setting-maker','fixture-setting-approver',now())`,[settingId,ids.tenantId,ids.entityId,configHashes.setting_hash]);
-  await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
-    VALUES($1,$2,$3::uuid,'BANK','ENTITY',$3::text,$4,1,0,'2026-01-01','APPROVED','{}','{}',$5,'fixture-mapping-maker','fixture-mapping-approver',now())`,[mappingId,ids.tenantId,ids.entityId,inputKeyHash,configHashes.mapping_hash]);
   await adminPool.query(`INSERT INTO import_batch(import_batch_id,tenant_id,entity_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash,status,row_count,started_at,completed_at)
     VALUES($1,$3,$4,'WBS_TEST','payable',$5,'match-payable-fixture',$6,'SUCCEEDED',1,now(),now()),($2,$3,$4,'WBS_TEST','bankFeed',$5,'match-bank-fixture',$7,'SUCCEEDED',1,now(),now())`,[...batchIds,ids.tenantId,ids.entityId,ids.sourceEntityId,hash('match-payable-batch'),hash('match-bank-batch')]);
   await adminPool.query(`INSERT INTO raw_event(raw_event_id,tenant_id,entity_id,import_batch_id,source_system,source_module,source_entity_id,source_record_id,source_version,event_type,occurred_at,payload_hash,payload_ref,correlation_id)
@@ -3515,7 +3511,13 @@ pgTest('192 isolated WBS TEST_ONLY Bank Match accepts the period-scoped Stage1 P
   await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
     VALUES($1,$2,$3,$4,'WBS_TEST_BANK','WBS-TEST-MATCH-LEGACY','2026-07-01','USD',-40)`,[bankSourceId,ids.tenantId,ids.entityId,sourceIds[1]]);
   const actors={importer:'wbs-match-importer',maker:'wbs-match-maker',submitter:'wbs-match-submitter',reviewer:'wbs-match-reviewer',approver:'wbs-match-approver',poster:'wbs-match-poster'};
-  const permissions={importer:['WBS.TEST.IMPORT','BANK.VIEW','AP.VIEW','BANK.MATCH.CREATE'],maker:['WBS.TEST.IMPORT','AP.PAYMENT.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST']};
+  const permissions={importer:['WBS.TEST.IMPORT','BANK.VIEW','AP.VIEW','BANK.MATCH.CREATE'],maker:['WBS.TEST.IMPORT','AP.PAYMENT.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW','BANK.RECONCILIATION.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST']};
+  const makerWithReview=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actors.maker,[...permissions.maker,...permissions.reviewer])});
+  const proposed=await makerWithReview.proposeWbsTestBankMatchConfig({tenantId:ids.tenantId,entityId:ids.entityId});
+  await assert.rejects(makerWithReview.approveWbsTestBankMatchConfig({tenantId:ids.tenantId,entityId:ids.entityId,settingSnapshotId:proposed.setting_snapshot_id,mappingSnapshotId:proposed.mapping_snapshot_id}),error=>error.code==='23514'&&/approval evidence/i.test(error.message));
+  const commandKey=`wbs-test-bank-match:${bankSourceId}`,partial=await makerWithReview.createApPayment({tenantId:ids.tenantId,entityId:ids.entityId,businessDocumentId:billId,periodId:ids.periodId,
+    paymentNumber:`WBS-MATCH-${createHash('sha256').update(commandKey,'utf8').digest('hex').slice(0,32)}`,paymentDate:'2026-07-01',cashAccountCode:'111000',bankMemberRef:'WBS_TEST_BANK',amount:'40.0000',reason:'TEST_ONLY Prove one isolated WBS TEST_ONLY posted-payment Bank Match',idempotencyKey:`${commandKey}:payment`});
+  assert.deepEqual((await adminPool.query('SELECT status,source_document_id FROM payment_occurrence WHERE payment_occurrence_id=$1',[partial.payment_occurrence_id])).rows,[{status:'DRAFT',source_document_id:null}]);
   const service=createControlledTestBankMatchService({scope:{tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'WBS_TEST_BANK',cashAccountCode:'111000',actors},authorize:async()=>{},kernelForActor:actorId=>{const role=Object.entries(actors).find(([,value])=>value===actorId)[0];return new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actorId,permissions[role])});}});
   const input={tenantId:ids.tenantId,entityId:ids.entityId,reason:'Prove one isolated WBS TEST_ONLY posted-payment Bank Match',idempotencyKey:'wbs-test-bank-match-pg-001'};
   const first=await service.run(input),replay=await service.run(input);
@@ -3533,6 +3535,12 @@ pgTest('192 isolated WBS TEST_ONLY Bank Match accepts the period-scoped Stage1 P
   assert.deepEqual(sourceEvidence,[{staging_count:1,rule_count:1,source_link_count:1,payment_source_document_id:sourceIds[0],bind_audit_count:1}]);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM reconciliation WHERE tenant_id=$1 AND entity_id=$2 AND bank_account_ref LIKE 'WBS_TEST_BANK_2026_%'",[ids.tenantId,ids.entityId])).rows[0].n,0);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM bank_match WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n,1);
+  const configEvidence=(await adminPool.query(`SELECT
+      (SELECT count(*)::int FROM setting_snapshot WHERE tenant_id=$1 AND entity_id=$2 AND family='BANK' AND status='APPROVED' AND created_by=$3 AND approved_by=$4) setting_count,
+      (SELECT count(*)::int FROM mapping_snapshot WHERE tenant_id=$1 AND entity_id=$2 AND family='BANK' AND status='APPROVED' AND created_by=$3 AND approved_by=$4) mapping_count,
+      (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='CONTROLLED_TEST_BANK_MATCH_CONFIG_PROPOSED') proposal_audits,
+      (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='CONTROLLED_TEST_BANK_MATCH_CONFIG_APPROVED') approval_audits`,[ids.tenantId,ids.entityId,actors.maker,actors.reviewer])).rows;
+  assert.deepEqual(configEvidence,[{setting_count:1,mapping_count:1,proposal_audits:2,approval_audits:2}]);
 });
 
 pgTest('061 bank match creates exact posted AP evidence once and fails closed for reversal and ambiguous cash account evidence',async()=>{
@@ -4247,6 +4255,7 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
   // retaining a completed 185 stage.  Remove only its synthetic stage facts;
   // production down remains fail-closed while any checkpoint is retained.
   await adminPool.query('TRUNCATE wbs_test_bank_import_stage_final,wbs_test_bank_import_stage_row,wbs_test_bank_import_stage_chunk,wbs_test_bank_import_stage');
+  await migrateDown(adminPool); // 193 is the isolated TEST_ONLY Bank Match configuration workflow.
   await migrateDown(adminPool); // 192 is the Stage1-compatible TEST_ONLY Match source boundary.
   await migrateDown(adminPool);
   await migrateDown(adminPool);
@@ -4267,6 +4276,7 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
     pg_get_functiondef('refs_create_wbs_controlled_test_bank_scope(uuid,uuid,uuid,text,jsonb,text,text,text)'::regprocedure) LIKE '%NOT BETWEEN 1 AND 500%' function_cap_restored,
     pg_get_functiondef('refs_guard_reconciliation_adjustment_lifecycle()'::regprocedure) LIKE '%adjustment.bank_delta<>(SELECT source.amount%' item_guard_retained`)).rows[0];
   assert.deepEqual(rolledBack,{item_reader_removed:true,evidence_retained:true,import_cap_restored:true,row_cap_restored:true,function_cap_restored:true,item_guard_retained:true});
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool); // Restore 192 after the older Bank rollback assertion.
@@ -4344,6 +4354,7 @@ pgTest('WBS TEST Bank monthly identity admits legacy July hashes, isolates month
   // Clear this test's synthetic 185 staging facts so rollback can cross 188/187/186
   // and 185 to reach 183, whose cross-month identity conflict is under test.
   await adminPool.query('TRUNCATE wbs_test_bank_import_stage_final,wbs_test_bank_import_stage_row,wbs_test_bank_import_stage_chunk,wbs_test_bank_import_stage');
+  await migrateDown(adminPool); // 193 is the isolated TEST_ONLY Bank Match configuration workflow.
   await migrateDown(adminPool); // 192 is above the monthly Bank identity migration.
   await migrateDown(adminPool);
   await migrateDown(adminPool);
@@ -4354,6 +4365,7 @@ pgTest('WBS TEST Bank monthly identity admits legacy July hashes, isolates month
   await migrateDown(adminPool);
   await migrateDown(adminPool);
   await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool); // Restore 192 after the monthly identity rollback assertion.
@@ -4428,6 +4440,7 @@ pgTest('WBS TEST Bank retained checkpoint rejects changed chunk replay and resum
   await adminPool.query('DROP TRIGGER refs_test_delay_wbs_bank_finalize ON import_batch');await adminPool.query('DROP FUNCTION refs_test_delay_wbs_bank_finalize()');
   assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM reconciliation WHERE tenant_id=$1) reconciliations,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports",[ids.tenantId])).rows[0],{staged:201,bank:201,reconciliations:1,imports:1});
   const beforeDown=(await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage_final WHERE tenant_id=$1) finals",[ids.tenantId])).rows[0];
+  await migrateDown(adminPool); // 193 is the isolated TEST_ONLY Bank Match configuration workflow.
   await migrateDown(adminPool); // 192 is above staged Bank import 185.
   await migrateDown(adminPool);
   await migrateDown(adminPool);
@@ -4437,6 +4450,7 @@ pgTest('WBS TEST Bank retained checkpoint rejects changed chunk replay and resum
   await migrateDown(adminPool);
   await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
   assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage_final WHERE tenant_id=$1) finals",[ids.tenantId])).rows[0],beforeDown);
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool); // Restore 192 after the staged import down guard.
