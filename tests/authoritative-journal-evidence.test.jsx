@@ -108,6 +108,12 @@ assert.match(styles,/\.journal-evidence-scope\{display:grid;grid-template-column
   'the five Journal scope facts must remain on one desktop row instead of orphaning Journal date');
 assert.match(styles,/\.journal-evidence-scope\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\);\}/,
   'Journal scope facts must keep the existing two-column tablet fallback');
+assert.match(styles,/@media \(max-width:600px\)\{\.authoritative-journal-summary\{display:flex;gap:8px;overflow-x:auto;/,
+  'phone widths must keep Journal queue counts in one compact horizontally browsable status strip');
+assert.match(styles,/\.authoritative-journal-summary \.journal-summary-card\{flex:0 0 150px;min-height:84px;/,
+  'mobile Journal queue cards must remain readable without filling four vertical screens');
+assert.doesNotMatch(styles,/@media \(max-width:600px\)\{\.authoritative-journal-summary,\.journal-evidence-scope\{grid-template-columns:minmax\(0,1fr\);\}/,
+  'mobile Journal queues must never regress to four single-column cards');
 assert.match(workspace,/readAuthoritativeJournalEntryDetail/,'opening evidence must perform an exact authoritative detail read');
 assert.match(workspace,/journalCurrency:journal\.currency/);assert.match(workspace,/context\?\.periodId === journal\.period_id/);
 assert.match(workspace,/entityLabel:config\?\.scopePresentation\?\.entityLabel/,'loading and blocked Journal detail states must freeze the same readable company label as the ready drill');
