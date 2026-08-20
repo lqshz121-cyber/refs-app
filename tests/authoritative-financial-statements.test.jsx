@@ -133,7 +133,9 @@ async function main(){
   assert.match(markup,/authoritative-reports-presentation/);
   assert.match(workspace,/full-bleed qbo-transaction-report/,'report detail must replace the full workspace rather than append a card');
   assert.match(workspace,/AuthoritativeFullStatementReport/,'each core statement needs an API-backed full-page report rather than only an account evidence view');
-  assert.match(workspace,/Open full report/,'the catalog statement preview must expose a dedicated full-page report action');
+  assert.match(workspace,/View report/,'the catalog statement preview must expose a concise full-page report action');
+  assert.match(workspace,/View details/,'statement rows must use the same concise detail action in preview and full-report views');
+  assert.doesNotMatch(workspace,/accounts in retained evidence|Open full report/,'the first-screen report presentation must not expose internal evidence language');
   assert.match(workspace,/onClick=\{\(\)=>openFullStatement\(focusId,key\)\}/,'a core report shortcut must replace the catalog with the existing full-page report in one click');
   assert.match(workspace,/report=\{selected\.returnContext\.report\} rows=\{selected\.rows\}/,'a one-click report must render the rows frozen for that exact selected report, not the previous preview rows');
   assert.doesNotMatch(workspace,/aria-label="Financial statements"/,'the report preview must not repeat Favorites as a second statement tab row');
@@ -212,7 +214,7 @@ async function main(){
   assert.match(workspace,/onOpenArAging\('authoritative-report-ar-aging'/,'the A\/R aging report entry must be an explicit read-only Reports shortcut, not a favorite mutation');
   assert.match(workspace,/trial-balance-table/,'the Trial Balance table needs its dedicated narrow-table layout contract');
   assert.match(workspace,/const statementPreviewRows=rows\.slice\(0,12\)/,'the catalog must cap its statement preview instead of creating an arbitrarily long page');
-  assert.match(workspace,/Showing \{statementPreviewRows\.length\} of \{rows\.length\} accounts\. Open the full report for every row\./,'a capped preview must direct users to the existing full-page report');
+  assert.match(workspace,/Showing \{statementPreviewRows\.length\} of \{rows\.length\} accounts\. View the full report for every row\./,'a capped preview must direct users to the existing full-page report');
   assert.match(workspace,/report-section-row/,'statement rows must retain a readable section boundary instead of presenting a flat account list');
   assert.match(workspace,/scope="rowgroup"/,'each visible statement section must expose table grouping semantics');
   assert.match(workspace,/disabled=\{state\.phase==='LOADING'\} onClick=\{load\}>\{state\.phase==='LOADING'\?'Loading…':'Refresh'\}<\/button>/,'statement refresh must remain an API-read control with an explicit in-progress state');
