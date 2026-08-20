@@ -6,6 +6,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "test:ai-decision-human-draft": "node --test tests/ai-accounting-decision-human-draft-contract.test.mjs tests/ai-accounting-decision-human-draft-http.test.mjs",
     "test:wbs-signed-admission": "node --test tests/wbs-signed-delivery-admission.test.mjs",
     "test:wbs-cost-cwip": "node --test tests/wbs-admitted-cost-cwip-ingestion.test.mjs",
     "test:wbs-provider-signed-payable": "node --test tests/wbs-provider-signed-payable-admission.test.mjs tests/wbs-provider-signed-payable-contract.test.mjs tests/wbs-provider-signed-payable-auto-bridge-contract.test.mjs",

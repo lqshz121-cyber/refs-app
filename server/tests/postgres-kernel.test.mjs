@@ -2322,6 +2322,25 @@ pgTest('runtime roles create, submit, review, approve and post a manual journal 
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type IN ('JOURNAL_CREATED','JOURNAL_SUBMIT','JOURNAL_REVIEW','JOURNAL_APPROVE','JOURNAL_POSTED')",[created.journal_entry_id])).rows[0].n,5);
 });
 
+pgTest('retained AI decision requires human acceptance and creates only a standard Draft atomically',async()=>{
+  const ids=await seed({status:'DRAFT'}),sourceLineId=randomUUID(),auto=await attachAutoSource(ids,{linkJournal:false,sourceModule:'payable',sourceRecordPrefix:'AI-DECISION'}),sourceDocumentId=auto.documentId;
+  const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;
+  await adminPool.query("UPDATE source_document SET document_type='INVOICE',status='READY_FOR_DRAFT',gross_amount=125 WHERE source_document_id=$1",[sourceDocumentId]);
+  await adminPool.query("INSERT INTO source_document_line(source_document_line_id,tenant_id,entity_id,source_document_id,source_line_id,line_no,description,amount,direction,party_ref) VALUES($1,$2,$3,$4,'1',1,'AI decision source',125,'NONE','VENDOR-1')",[sourceLineId,ids.tenantId,ids.entityId,sourceDocumentId]);
+  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'provider')",[ids.tenantId,ids.entityId,sourceDocumentId,attachmentId]);
+  const packet={schema_version:'AI_ACCOUNTING_DECISION_PACKET_V1',status:'READY_FOR_HUMAN_REVIEW',tenant_id:ids.tenantId,entity_id:ids.entityId,company_code:ids.sourceEntityId,accounting_period_id:ids.periodId,accounting_date:'2026-07-16',settings_snapshot_id:randomUUID(),source:{source_document_id:sourceDocumentId,source_document_line_id:sourceLineId,currency:'USD'},reason:'Approved settings classify the retained invoice.',proposed_journal:{lines:[{line_number:1,side:'DEBIT',account_code:'111000',amount:'125.0000',member_ref:'BANK-1',project_ref:null,property_ref:null,cost_code_ref:null},{line_number:2,side:'CREDIT',account_code:'291001',amount:'125.0000',member_ref:'VENDOR-1',project_ref:null,property_ref:null,cost_code_ref:null}]},action_flags:{can_create_draft:false,can_review:false,can_approve:false,can_post:false}};
+  const producer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-controller',['AI.ANALYSIS.EXPLAIN'])});
+  const retained=await producer.retainAiAccountingDecision({tenantId:ids.tenantId,entityId:ids.entityId,packet,idempotencyKey:'retain-ai-decision-pg-1'});
+  assert.equal(retained.packet_status,'READY_FOR_HUMAN_REVIEW');assert.equal(retained.can_create_draft,false);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'human-ai-maker',['GL.JE.CREATE'])});
+  await assert.rejects(maker.createAiAccountingDecisionDraft({tenantId:ids.tenantId,entityId:ids.entityId,decisionId:retained.ai_accounting_decision_id,expectedDecisionHash:retained.decision_hash,expectedAcceptanceHash:hash('missing'),reason:'Attempt before acceptance must fail.',idempotencyKey:'draft-before-accept'}));
+  const accepted=await maker.humanDecideAiAccounting({tenantId:ids.tenantId,entityId:ids.entityId,decisionId:retained.ai_accounting_decision_id,expectedDecisionHash:retained.decision_hash,expectedRevision:0,outcome:'ACCEPTED',reason:'Human maker verified source, accounts, dimensions, and period.',idempotencyKey:'accept-ai-decision-pg-1'});
+  const draft=await maker.createAiAccountingDecisionDraft({tenantId:ids.tenantId,entityId:ids.entityId,decisionId:retained.ai_accounting_decision_id,expectedDecisionHash:retained.decision_hash,expectedAcceptanceHash:accepted.evidence_hash,reason:'Create standard Draft for separate workflow.',idempotencyKey:'draft-ai-decision-pg-1'});
+  assert.equal(draft.status,'DRAFT');assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[draft.journal_entry_id])).rows[0].status,'DRAFT');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[draft.journal_entry_id])).rows[0].n,0);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ai_accounting_decision_draft_evidence WHERE journal_entry_id=$1',[draft.journal_entry_id])).rows[0].n,1);
+});
+
 pgTest('authenticated HTTP commands traverse context issuance and PostgreSQL into the immutable ledger',async()=>{
   const ids=await seed({status:'DRAFT'});
   const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;

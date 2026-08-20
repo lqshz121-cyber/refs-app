@@ -75,6 +75,27 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async retainAiAccountingDecision({tenantId,entityId,packet,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query("SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',$1::uuid,'entity_id',$2::uuid,'packet',$3::jsonb)) AS request_hash",[tenantId,entityId,JSON.stringify(packet)]),'AI_DECISION_HASH_FAILED','AI accounting decision retention hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_retain_ai_accounting_decision($1,$2,$3,$4,$5) AS result',[tenantId,entityId,JSON.stringify(packet),idempotencyKey,requestHash]),'AI_DECISION_RETAIN_FAILED','AI accounting decision was not retained').result;
+    });
+  }
+
+  async humanDecideAiAccounting({tenantId,entityId,decisionId,expectedDecisionHash,expectedRevision,outcome,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query("SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',$1::uuid,'entity_id',$2::uuid,'decision_id',$3::uuid,'expected_hash',$4::text,'expected_revision',$5::bigint,'outcome',upper($6::text),'reason',btrim($7::text))) AS request_hash",[tenantId,entityId,decisionId,expectedDecisionHash,expectedRevision,outcome,reason]),'AI_HUMAN_DECISION_HASH_FAILED','Human AI accounting decision hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_human_decide_ai_accounting($1,$2,$3,$4,$5,$6,$7,$8,$9) AS result',[tenantId,entityId,decisionId,expectedDecisionHash,expectedRevision,outcome,reason,idempotencyKey,requestHash]),'AI_HUMAN_DECISION_FAILED','Human AI accounting decision was not retained').result;
+    });
+  }
+
+  async createAiAccountingDecisionDraft({tenantId,entityId,decisionId,expectedDecisionHash,expectedAcceptanceHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query("SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',$1::uuid,'entity_id',$2::uuid,'decision_id',$3::uuid,'expected_decision_hash',$4::text,'expected_acceptance_hash',$5::text,'reason',btrim($6::text))) AS request_hash",[tenantId,entityId,decisionId,expectedDecisionHash,expectedAcceptanceHash,reason]),'AI_DECISION_DRAFT_HASH_FAILED','AI decision Draft hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_create_ai_accounting_decision_draft($1,$2,$3,$4,$5,$6,$7,$8) AS result',[tenantId,entityId,decisionId,expectedDecisionHash,expectedAcceptanceHash,reason,idempotencyKey,requestHash]),'AI_DECISION_DRAFT_FAILED','Accepted AI accounting decision did not create a Draft').result;
+    });
+  }
+
   async createBusinessDocument(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
