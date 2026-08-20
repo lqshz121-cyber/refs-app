@@ -13,6 +13,9 @@ const markup=renderToStaticMarkup(<AuthoritativeSourceDocumentsWorkspace config=
 assert.match(markup,/Loading authoritative Source Document evidence/);
 const source=fs.readFileSync(path.join(process.cwd(),'src','authoritative-source-documents-workspace.jsx'),'utf8');
 const presentation=fs.readFileSync(path.join(process.cwd(),'src','authoritative-source-documents-view.jsx'),'utf8');
+const app=fs.readFileSync(path.join(process.cwd(),'src','authoritative-app.jsx'),'utf8');
+const sourceRoute=app.slice(app.indexOf("route === 'source-documents'"),app.indexOf("route === 'chart-of-accounts'"));
+assert.match(sourceRoute,/config=\{displayConfig\}/,'the authoritative Source Documents route must pass shared readable scope labels, not raw runtime config only');
 assert.match(source,/refreshAuthoritativeSourceDocuments/);assert.match(source,/readAuthoritativeSourceDocumentDetail/);assert.match(source,/does not expose attachment content, raw provider payloads/);assert.match(source,/Back to Source Documents/);
 assert.match(source,/AuthoritativeSourceDocumentsView/,'Source Documents must use the authoritative register presentation');
 assert.match(presentation,/full-bleed.*authoritative-source-documents-presentation/,'Source Documents must retain the authoritative full-page register frame');
