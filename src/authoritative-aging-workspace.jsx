@@ -7,8 +7,10 @@ import {AuthoritativeReadFailure,authoritativeReadFailurePhase} from './authorit
 // accounting scope supplied by the authoritative runtime; the only reader
 // choice supported by the API contract is the as-of date.
 const BUCKETS=[['current_amount','Current'],['days_1_30','1–30 days'],['days_31_60','31–60 days'],['days_61_90','61–90 days'],['days_91_plus','91+ days'],['total_open_balance','Total open']];
+const AGING_MONTHS=Object.freeze(['January','February','March','April','May','June','July','August','September','October','November','December']);
 const money=value=>{const m=/^(-?)([0-9]+)\.([0-9]{2})[0-9]{2}$/.exec(String(value??'0.0000'));if(!m)return String(value??'');const whole=m[2].replace(/\B(?=(\d{3})+(?!\d))/g,',');return `${m[1]}$${whole}.${m[3]}`;};
 const defaultAsOf=config=>/^\d{4}-\d{2}-\d{2}$/.test(config?.scopePresentation?.periodEnd||'')?config.scopePresentation.periodEnd:'';
+export const authoritativeAgingAsOfCaption=value=>{const match=/^(\d{4})-(\d{2})-(\d{2})$/.exec(value||'');if(!match)return '';const instant=new Date(`${value}T00:00:00.000Z`);if(!Number.isFinite(instant.getTime())||instant.toISOString().slice(0,10)!==value)return '';return `As of ${AGING_MONTHS[Number(match[2])-1]} ${Number(match[3])}, ${match[1]}`;};
 
 const agingContextMatches=(config,side,returnContext,expectedOrigin)=>!returnContext||(
   returnContext.entityId===config?.entityId
@@ -67,9 +69,10 @@ export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetc
   return <section className="authoritative-aging-workspace stack" aria-label={`${label} aging and control totals`}>
     <header className="authoritative-aging-heading">
       <div>
-        <div className="authoritative-eyebrow">{businessLabel} / aging report</div>
-        <h2>{label} aging &amp; control totals</h2>
-        <p className="page-subtitle">Read-only aging from the accounting API.</p>
+        <div className="authoritative-eyebrow">{businessLabel}</div>
+        <h2>{businessLabel} aging summary</h2>
+        {authoritativeAgingAsOfCaption(asOf)&&<p className="authoritative-report-period-caption">{authoritativeAgingAsOfCaption(asOf)}</p>}
+        <p className="page-subtitle">Review aging and control totals.</p>
       </div>
       <div className="authoritative-aging-actions">
         {typeof onBack==='function'&&<button type="button" className="btn btn-sm" onClick={onBack}>{backLabel}</button>}
@@ -80,7 +83,7 @@ export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetc
       <output className="authoritative-aging-scope" title={`Entity ID: ${config.entityId}`}><i>Entity reporting scope</i><b>{entityLabel}</b></output>
       <output className="authoritative-aging-scope" title={`Period ID: ${config.periodId}`}><i>Accounting period</i><b>{periodLabel}</b></output>
       <label><span>As-of date</span><input type="text" inputMode="numeric" pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}" placeholder="YYYY-MM-DD" aria-label={`${label} aging as-of date`} value={asOf} onChange={event=>setAsOf(event.target.value)}/></label>
-      <button type="submit" className="btn btn-sm">Refresh evidence</button>
+      <button type="submit" className="btn btn-sm">Refresh</button>
     </form>
     {!scopeMatches&&<StateBlock tone="blocked" title="BLOCKED — immutable aging scope mismatch">The full-page aging report no longer matches the entity, configured period, AP/AR side, or parent route retained by its return context. Return to the parent report; no aging result is asserted from this mismatched scope.</StateBlock>}
     {scopeMatches&&<>
