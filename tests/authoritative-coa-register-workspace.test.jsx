@@ -9,6 +9,8 @@ import {AuthoritativeAccountRegisterView,AuthoritativeChartOfAccountsView} from 
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222',baseUrl:'https://api.example',getAccessToken:async()=> 'a'.repeat(48)};
 const markup=renderToStaticMarkup(<AuthoritativeChartOfAccountsWorkspace config={config} fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})}/>);
 assert.match(markup,/Chart of Accounts/);assert.match(markup,/Account name or number/);assert.match(markup,/Master status/);assert.match(markup,/Posted currency/);assert.match(markup,/Rows per page/);assert.match(markup,/READ ONLY/);assert.match(markup,/Loading authoritative account master/);assert.doesNotMatch(markup,/Accounts returned|Exact API snapshot/,'COA must remain a compact list instead of repeating account counts as summary cards');
+assert.match(markup,/<span class="result-count" aria-live="polite">/,'COA result changes must be announced without adding another summary card');
+assert.match(markup,/<button type="button" class="btn btn-sm" disabled="">Loading…<\/button>/,'COA must prevent duplicate refresh reads while its GET is pending');
 const source=fs.readFileSync(path.join(process.cwd(),'src','authoritative-coa-register-workspace.jsx'),'utf8');
 const presentation=fs.readFileSync(path.join(process.cwd(),'src','authoritative-coa-view.jsx'),'utf8');
 const app=fs.readFileSync(path.join(process.cwd(),'src','authoritative-app.jsx'),'utf8');
@@ -27,6 +29,7 @@ assert.doesNotMatch(source,/localStorage|from ['"]\.\/repo|from ['"]\.\/seed|fro
 const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
 assert.match(styles,/\.authoritative-register-scope/);assert.match(styles,/\.authoritative-coa-filter/);assert.match(styles,/\.authoritative-coa-presentation \.authoritative-coa-filter\{padding:10px 0;border:0;border-radius:0;background:transparent;box-shadow:none;\}/);assert.match(styles,/\.authoritative-coa-pagination/);assert.match(styles,/\.authoritative-status\.is-active/);assert.match(styles,/@media \(max-width:600px\)/);
 assert.match(source,/AuthoritativeChartOfAccountsView/);assert.match(source,/AuthoritativeAccountRegisterView/);assert.doesNotMatch(source,/Chart of Accounts reading path/,'QBO-style COA must not add a reading rail above a simple list');assert.doesNotMatch(source,/Account register reading path/,'Account Register must not repeat its scope and table structure as a reading rail');
+assert.match(source,/authoritative-register-filter[\s\S]*aria-live="polite"[\s\S]*disabled=\{state\.phase==='LOADING'\}[\s\S]*'Loading…':'Refresh evidence'/,'Register must announce result changes and prevent duplicate refresh reads while loading');
 assert.match(source,/<details className="authoritative-return-context authoritative-register-return"><summary>Chart of Accounts filters retained<\/summary>/,'Register Back context must remain available in a concise native disclosure');
 assert.match(source,/scrollY:Number\(environment\?\.scrollY\)\|\|0,tableX:Number\(tableRef\.current\?\.scrollLeft\)\|\|0/,'opening a Register must freeze both page and contained-table scroll positions');
 assert.match(source,/ref=\{tableRef\} className="table-wrap authoritative-coa-table"/,'the account table scroller must be retained for exact Back restoration');
