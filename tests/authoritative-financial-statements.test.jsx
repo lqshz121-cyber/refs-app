@@ -219,6 +219,8 @@ async function main(){
   assert.match(workspace,/Showing \{statementPreviewRows\.length\} of \{rows\.length\} accounts\. View the full report for every row\./,'a capped preview must direct users to the existing full-page report');
   assert.match(workspace,/report-section-row/,'statement rows must retain a readable section boundary instead of presenting a flat account list');
   assert.match(workspace,/scope="rowgroup"/,'each visible statement section must expose table grouping semantics');
+  assert.match(workspace,/<thead><tr><th>Account<\/th><th>Period debit<\/th><th>Period credit<\/th><th>Balance<\/th><th>Details<\/th><\/tr><\/thead>/,'financial statements must use the section group row instead of repeating a Section column on every account');
+  assert.match(workspace,/className="report-section-row"><th colSpan="5" scope="rowgroup">/,'section group headings must span the compact five-column statement table');
   assert.match(workspace,/disabled=\{state\.phase==='LOADING'\} onClick=\{load\}>\{state\.phase==='LOADING'\?'Loading…':'Refresh'\}<\/button>/,'statement refresh must remain an API-read control with an explicit in-progress state');
   for(const [stateName,loadName] of [
     ['statementSnapshotState','loadStatementSnapshot'],['cashFlowState','loadCashFlow'],['comparisonState','loadComparison'],['cwipState','loadCwip'],['constructionLoanState','loadConstructionLoan'],['prepaidState','loadPrepaid'],['amortizationScheduleState','loadAmortizationSchedules'],['intercompanyState','loadIntercompany'],['budgetState','loadBudget'],['consolidationState','loadConsolidation'],['dimensionState','loadDimension'],
