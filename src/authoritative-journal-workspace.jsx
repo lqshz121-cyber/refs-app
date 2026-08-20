@@ -101,7 +101,7 @@ export function AuthoritativeJournalTable({ journals = [], entityId=null, view =
         <td>{next?<button type="button" className="btn btn-sm" disabled={busy} aria-disabled={busy} onClick={()=>onWorkflowAction?.(row,next)}>{busy?`${next.label}...`:next.label}</button>:<span className="muted sm">Not available</span>}</td>
       </tr>;})}</tbody>
     </table></div>}
-    {page.pageCount>1&&<nav className="pagination" aria-label="Journal entry pages"><button type="button" disabled={page.page===1} onClick={()=>change({page:page.page-1})}>Previous</button><span>Page {page.page} of {page.pageCount}</span><button type="button" disabled={page.page===page.pageCount} onClick={()=>change({page:page.page+1})}>Next</button></nav>}
+    {page.pageCount>1&&<nav className="pagination" aria-label="Journal entry pages"><button type="button" className="btn btn-sm btn-ghost" disabled={page.page===1} onClick={()=>change({page:page.page-1})}>Previous</button><span>Page {page.page} of {page.pageCount}</span><button type="button" className="btn btn-sm btn-ghost" disabled={page.page===page.pageCount} onClick={()=>change({page:page.page+1})}>Next</button></nav>}
   </AuthoritativeJournalView>;
 }
 

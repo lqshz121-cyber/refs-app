@@ -99,6 +99,8 @@ assert.match(workspace,/context\?\.journalRevision === journal\.revision/);
 assert.match(workspace,/BLOCKED - immutable Journal scope mismatch/);
 assert.match(workspace,/setQueue\('REVIEW_REQUIRED'\)/,'Needs review must include the retained review and approval statuses it counts');
 assert.match(workspace,/table-wrap authoritative-journal-table/,'Journal facts must use the shared, page-contained table scroller');
+assert.match(workspace,/<nav className="pagination"[\s\S]*?className="btn btn-sm btn-ghost"[\s\S]*?Previous[\s\S]*?className="btn btn-sm btn-ghost"[\s\S]*?Next/,'Journal pagination must use the shared button system instead of browser-native controls');
+assert.match(styles,/\.pagination\{display:flex;justify-content:flex-end;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 20px;\}/,'Journal pagination must receive the shared contained layout');
 assert.doesNotMatch(workspace,/<dt>Date<\/dt>|<dt>Status<\/dt>|<dt>Revision<\/dt>/,'Journal date, status and revision must not repeat below their scope/header presentation');
 assert.match(styles,/\.journal-evidence-scope\{display:grid;grid-template-columns:repeat\(5,minmax\(0,1fr\)\);/,
   'the five Journal scope facts must remain on one desktop row instead of orphaning Journal date');
