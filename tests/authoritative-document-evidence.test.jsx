@@ -146,8 +146,14 @@ assert.match(adjustmentDetail,/vendor Evidence Vendor/);
 assert.match(adjustmentDetail,/transaction type VENDOR_CREDIT/);
 assert.match(adjustmentDetail,/page 2/);
 assert.match(adjustmentDetail,/Read-only retained evidence\. Adjustment actions are unavailable here\./);
+assert.match(adjustmentDetail,/class="authoritative-document-detail-summary" aria-label="AP adjustment evidence summary"/,
+  'adjustment evidence must elevate amount, period, currency, and revision into the shared compact summary');
+assert.match(adjustmentDetail,/<details class="authoritative-secondary-disclosure authoritative-adjustment-fields"><summary><span>Adjustment evidence fields<\/span><span class="badge badge-muted">READ ONLY<\/span><\/summary>/,
+  'secondary adjustment audit fields must remain available in a default-closed disclosure');
+assert.doesNotMatch(adjustmentDetail,/authoritative-adjustment-fields"[^>]* open/,'secondary adjustment fields must not lengthen the default page');
 assert.match(adjustmentList,/class="table-wrap authoritative-adjustment-table" role="region" tabindex="0" aria-label="AP adjustments; scroll horizontally to view every column"/,'the adjustment list must own a keyboard-focusable table scroller instead of inheriting document-table widths');
 assert.match(adjustmentDetail,/class="table-wrap authoritative-document-detail-table" role="region" tabindex="0" aria-label="AP adjustment evidence fields; scroll horizontally to view every column"/);
+assert.match(adjustmentDetail,/<th scope="row">Reason<\/th><td colSpan="3">Retained credit evidence<\/td>/,'the compact detail must retain the complete adjustment reason');
 
 const completeAdjustment={...adjustment,status:'POSTED',journal_entry_id:postedJournalId,journal_status:'POSTED',journal_revision:5,lineage:{...completeBill.lineage,record_id:adjustment.business_adjustment_id,record_revision:2,posted_journal_entry_id:postedJournalId,posted_journal_revision:5}};
 assert.equal(authoritativeLineageFor(completeAdjustment,entityId)?.posted_journal_revision,5,'adjustment lineage must also bind to its own exact immutable revision');
