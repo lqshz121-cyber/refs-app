@@ -264,4 +264,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"256_ai_accounting_decision_batch_retain.sql",up:"6a368cc9245ea42d76f3b94c631b58e8cc250a182a878f7eae457540c005cce5",down:"811ffab7c754ff9ccfb46db80a8865c71e7d25b3aaaf8a210de1d3abcf76da78"}),
   Object.freeze({name:"257_ai_invoice_classification_dimension_source_read.sql",up:"21b52afc99201302e68dfd02a02d77a93de3524a72530fd1dbd6fbed32c803b7",down:"9a90066d32cf1c5f4a2ef6c015d81a9f20ebad1d74feb794827349f6322a547f"}),
   Object.freeze({name:"258_ai_vendor_monthly_spend_population_read.sql",up:"4ea6aa6df437b3ee228ab296d6c9f5649942743388dcd71421805d651652dca1",down:"297d0f8c57616649f5ec33e86b9418afec1d0fc7edd2152b358f2f49f84a3396"}),
+  Object.freeze({name:"259_ai_construction_loan_decision_chain.sql",up:"9063a30d282419a24784b9a020ab564d3660cb34621bf4d1cda1779830eeea2d",down:"7375629ab88e4efb7fce247a54c17d3439df1e238fdf10193e598cb0dcdb5d7c"}),
 ]);

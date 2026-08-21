@@ -8,11 +8,11 @@ const freeze=value=>{if(value&&typeof value==='object'&&!Object.isFrozen(value))
 const falseActions=value=>value&&Object.keys(ACTIONS).every(key=>value[key]===false);
 const exactFalseActions=value=>falseActions(value)&&Object.keys(value).length===4;
 
-export function createAiAccountingApprovedDecisionService({sourceReader,classificationService,scheduleReader,settingsAdapter}={}){
-  if(typeof sourceReader!=='function'||typeof classificationService?.analyze!=='function'||typeof scheduleReader!=='function'||typeof settingsAdapter?.buildInvoice!=='function')throw new TypeError('Approved AI decision service requires authoritative source, classification, schedule, and settings adapters.');
+export function createAiAccountingApprovedDecisionService({sourceReader,loanSourceReader=null,classificationService,scheduleReader,settingsAdapter}={}){
+  if(typeof sourceReader!=='function'||(loanSourceReader!==null&&typeof loanSourceReader!=='function')||typeof classificationService?.analyze!=='function'||typeof scheduleReader!=='function'||typeof settingsAdapter?.buildInvoice!=='function'||(loanSourceReader!==null&&typeof settingsAdapter?.buildLoan!=='function'))throw new TypeError('Approved AI decision service requires authoritative invoice, loan, classification, schedule, and settings adapters.');
   return freeze({async analyze({tenantId,entityId,accountingPeriodId,limit=100}={}){
     if(!UUID.test(tenantId||'')||!UUID.test(entityId||'')||!UUID.test(accountingPeriodId||'')||!Number.isSafeInteger(limit)||limit<1||limit>500)fail('AI_ACCOUNTING_DECISION_SCOPE_INVALID','AI accounting decisions require tenant, entity, period, and limit 1-500.');
-    const [sources,classifications,schedules]=await Promise.all([sourceReader({tenantId,entityId,accountingPeriodId,limit}),classificationService.analyze({tenantId,entityId,accountingPeriodId,limit}),scheduleReader({tenantId,entityId,limit:SCHEDULE_READ_LIMIT})]);
+    const [sources,loanSources,classifications,schedules]=await Promise.all([sourceReader({tenantId,entityId,accountingPeriodId,limit}),loanSourceReader===null?[]:loanSourceReader({tenantId,entityId,accountingPeriodId,limit}),classificationService.analyze({tenantId,entityId,accountingPeriodId,limit}),scheduleReader({tenantId,entityId,limit:SCHEDULE_READ_LIMIT})]);
     if(!Array.isArray(sources)||!Array.isArray(classifications?.results)||classifications.results.length!==sources.length||!Array.isArray(schedules))fail('AI_ACCOUNTING_DECISION_POPULATION_MISMATCH','Retained source and classification populations must match exactly.');
     const byLine=new Map(sources.map(row=>[row.source_document_line_id,row]));if(byLine.size!==sources.length)fail('AI_ACCOUNTING_DECISION_POPULATION_MISMATCH','Retained source lines must be unique.');
     const packets=[];
@@ -24,7 +24,9 @@ export function createAiAccountingApprovedDecisionService({sourceReader,classifi
       const schedule=scheduleMatches.length===1?{schedule_id:scheduleMatches[0].ai_amortization_schedule_id,schedule_hash:scheduleMatches[0].proposal_hash}:null;
       packets.push(await settingsAdapter.buildInvoice({tenantId,entityId,accountingPeriodId,retainedSource:source,classification,amortizationScheduleTrace:schedule}));
     }
-    if(packets.length!==sources.length)fail('AI_ACCOUNTING_DECISION_POPULATION_MISMATCH','Every retained source must produce exactly one decision.');
+    if(!Array.isArray(loanSources)||loanSources.length>limit||new Set(loanSources.map(row=>row.source_document_line_id)).size!==loanSources.length)fail('AI_ACCOUNTING_DECISION_POPULATION_MISMATCH','Construction loan decision population is unsafe or incomplete.');
+    for(const source of loanSources)packets.push(await settingsAdapter.buildLoan({tenantId,entityId,accountingPeriodId,retainedSource:source}));
+    if(packets.length!==sources.length+loanSources.length||packets.length>limit)fail('AI_ACCOUNTING_DECISION_POPULATION_MISMATCH','Every retained source must produce exactly one complete decision within the caller bound.');
     if(new Set(packets.map(row=>row.settings_snapshot_id)).size>1||new Set(packets.map(row=>row.settings_snapshot_hash)).size>1)fail('AI_ACCOUNTING_APPROVED_SETTINGS_UNAVAILABLE','AI accounting decisions require one exact approved settings snapshot for the entire batch.');
     return freeze({schema_version:'AI_ACCOUNTING_DECISION_PACKET_FULL_BATCH_V1',scope:{tenant_id:tenantId,entity_id:entityId,accounting_period_id:accountingPeriodId},row_count:packets.length,decision_counts:{ready_for_human_review:packets.filter(row=>row.status==='READY_FOR_HUMAN_REVIEW').length,exception:packets.filter(row=>row.status==='EXCEPTION').length},packets,action_flags:ACTIONS});
   }});

@@ -9,7 +9,7 @@ const details={
   INVOICE:{execution_evidence:{account_master:[{account_code:'211000',active:true,required_member_type:null,requires_member:false},{account_code:'610000',active:true,required_member_type:null,requires_member:false}],attachments:[{attachment_id:id(6),content_hash:hash(6),finalization_status:'VERIFIED_CLEAN',scan_status:'CLEAN',storage_version:'version-6'}]},invoice_date:'2026-07-15',invoice_number:'INV-7',service_period_end:'2026-07-31',service_period_start:'2026-07-01'},
   PAYMENT:{bank_transaction_id:id(20),payee_ref:'VENDOR-7',payment_date:'2026-07-16'},
   BANK_TRANSACTION:{bank_account_ref:'BANK-1',bank_transaction_id:id(23),memo:'ACH payment',transaction_date:'2026-07-16'},
-  LOAN_TRANSACTION:{lender_ref:'LENDER-1',loan_ref:'LOAN-1',transaction_kind:'DRAW'},
+  LOAN_TRANSACTION:{execution_evidence:{account_master:[{account_code:'211000',active:true,required_member_type:null,requires_member:false},{account_code:'610000',active:true,required_member_type:null,requires_member:false}],attachments:[{attachment_id:id(6),content_hash:hash(6),evidence_type:'source_attachment',finalization_status:'VERIFIED_CLEAN',scan_status:'CLEAN',storage_version:'version-6'}],import_lineage:{raw_event_id:id(25),source_record_id:'LOAN-TXN-1',source_version:'v1'}},lender_ref:'LENDER-1',loan_ref:'LOAN-1',transaction_kind:'DRAW'},
   CONSTRUCTION_COST:{contract_ref:'CONTRACT-1',purchase_order_ref:'PO-1',work_order_ref:'WO-1'},
   PROPERTY_MANAGEMENT:{report_kind:'RENT_ROLL',report_period_end:'2026-07-31',report_period_start:'2026-07-01'},
   TAX_STATEMENT:{coverage_period_end:'2027-06-30',coverage_period_start:'2026-07-01',jurisdiction:'TX',tax_kind:'PROPERTY_TAX'},
@@ -97,7 +97,7 @@ test('source semantics require tax and loan policy even when the selected classi
   for(const classification of ['LOAN','EXPENSE','PREPAID','CAPITALIZATION']){
     assert.throws(()=>buildAiAccountingDecisionPacketFullV1(input({source:source('LOAN_TRANSACTION'),classification,policyTraces:traces.filter(trace=>trace.policy_type!=='LOAN_CAPITALIZATION')})),error=>error.code==='AI_ACCOUNTING_DECISION_POLICY_INVALID');
   }
-  const blocked=buildAiAccountingDecisionPacketFullV1(input({source:source('LOAN_TRANSACTION',{completeness_status:'INCOMPLETE'}),classification:'BLOCKED',policyTraces:traces.filter(trace=>trace.policy_type!=='LOAN_CAPITALIZATION'),proposedJournal:{status:'SUGGESTED_ONLY',balanced:false,reversal_policy:'NONE',lines:[]},expectedReportDeltas:[]}));
+  const blocked=buildAiAccountingDecisionPacketFullV1(input({source:source('LOAN_TRANSACTION',{duplicate_status:'POSSIBLE'}),classification:'BLOCKED',policyTraces:traces.filter(trace=>trace.policy_type!=='LOAN_CAPITALIZATION'),proposedJournal:{status:'SUGGESTED_ONLY',balanced:false,reversal_policy:'NONE',lines:[]},expectedReportDeltas:[]}));
   assert.equal(blocked.status,'EXCEPTION');
 });
 
