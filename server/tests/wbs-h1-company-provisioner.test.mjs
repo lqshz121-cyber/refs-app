@@ -26,7 +26,8 @@ test('provisions one entity and six periods per WBS company in one transaction',
   assert.equal(result.status,'WBS_H1_COMPANY_SCOPES_READY');assert.equal(result.company_count,2);assert.equal(result.period_count,12);
   assert.equal(sql[0][0],'BEGIN');assert.equal(sql.at(-2)[0],'COMMIT');assert.equal(sql.at(-1)[0],'RELEASE');
   assert.ok(sql.some(([text])=>/INSERT INTO runtime_actor_grant/.test(text)));assert.ok(sql.some(([text])=>/INSERT INTO account_master/.test(text)));
-  assert.ok(sql.some(([text])=>/source_system='WBS',source_entity_id='WBPA'/.test(text)));
+  assert.ok(sql.some(([text])=>/UPDATE entity SET entity_code='WBPA',name=/.test(text)));
+  assert.equal(sql.filter(([text])=>/INSERT INTO entity\(/.test(text)).length,1);
 });
 
 test('fails closed on duplicate company identity before provisioning',async()=>{
