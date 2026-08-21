@@ -72,7 +72,7 @@ assert.match(detail,/Back to Journal entries/); assert.match(detail,/Wan Pacific
 assert.match(detail,/search JE-100/); assert.match(detail,/status POSTED/); assert.match(detail,/from Aug 1, 2026/); assert.match(detail,/through Aug 31, 2026/); assert.match(detail,/page 2/);
 assert.match(detail,/Journal entry JE-100/); assert.match(detail,/Journal evidence scope/); assert.match(detail,/authoritative-journal-readonly-note/);
 assert.match(detail,/Journal ID/); assert.match(detail,/22222222-2222-4222-8222-222222222222/);
-assert.match(detail,/JOURNAL ENTRY/);assert.match(detail,/Review journal lines and posting details\./);assert.match(detail,/JOURNAL LINES/);assert.match(detail,/Ordered debit and credit lines\. Ledger line IDs appear after posting\./);assert.match(detail,/2 lines/);assert.doesNotMatch(detail,/EXACT READ EVIDENCE|GET-only facts|EXACT API LINE FACTS|retained lines/);assert.match(detail,/Not posted/);assert.match(detail,/property/);
+assert.match(detail,/JOURNAL ENTRY/);assert.match(detail,/Review journal lines and posting details\./);assert.match(detail,/JOURNAL LINES/);assert.match(detail,/Ordered debit and credit lines\./);assert.match(detail,/2 lines/);assert.doesNotMatch(detail,/EXACT READ EVIDENCE|GET-only facts|EXACT API LINE FACTS|retained lines/);assert.match(detail,/Not posted/);assert.match(detail,/property/);
 assert.match(detail,/READ ONLY/);
 assert.match(detail,/No editing, workflow, posting, reversing, export, or inferred source links\./);
 assert.doesNotMatch(detail,/No write or inferred drill authority|state-block[^>]*tone="blocked"/,'a normal read-only Journal policy must not render as a blocked empty-state card');
@@ -85,6 +85,8 @@ const journalWithExactLines={...journal,status:'POSTED',posted_at:'2026-08-01T01
 const exactDetail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journalWithExactLines} entityId={entityId} returnContext={{...returnContext,view:{}}} onBack={()=>{}}/>);
 assert.match(exactDetail,/JOURNAL LINES/);assert.match(exactDetail,/Journal lines/);assert.match(exactDetail,/111000/);assert.match(exactDetail,/25\.0000/);assert.match(exactDetail,/33333333-3333-4333-8333-333333333333/);
 assert.match(exactDetail,/class="table-wrap authoritative-journal-line-table" tabindex="0" aria-label="Journal line evidence; scroll horizontally to view every column"/);
+assert.match(exactDetail,/<details class="authoritative-return-context authoritative-journal-line-identifiers"><summary>Audit identifiers<\/summary>/,'Journal line IDs must remain available without widening the default accounting table');
+assert.doesNotMatch(exactDetail,/authoritative-journal-line-identifiers"[^>]* open/,'Journal line audit identifiers must remain collapsed by default');
 assert.doesNotMatch(exactDetail,/immutable Journal scope mismatch/,'an exact API detail matching the frozen context must be shown');
 
 const empty=renderToStaticMarkup(<AuthoritativeJournalTable journals={[]} onOpen={()=>{}}/>);
@@ -136,8 +138,10 @@ assert.doesNotMatch(evidenceWorkspace,/\u8def|鈥|路/,'authority Journal worksp
 assert.doesNotMatch(detail,/\u8def|鈥|路/,'authority Journal detail must render English-only separators');
 assert.match(styles,/\.authoritative-journal-table \.tbl\{min-width:1060px;table-layout:fixed;\}/,
   'the journal evidence columns must scroll inside the table container rather than squeezing or widening the page');
-assert.match(styles,/\.authoritative-journal-line-table \.tbl\{min-width:1420px;table-layout:fixed;\}/,
-  'exact Journal line evidence must remain in a keyboard-focusable local table scroller');
+assert.match(styles,/\.authoritative-journal-line-table \.tbl\{min-width:980px;table-layout:fixed;\}/,
+  'core Journal line facts must remain in a keyboard-focusable local table scroller without permanent UUID columns');
+assert.match(styles,/\.authoritative-journal-line-id-item\{display:grid;grid-template-columns:70px repeat\(3,minmax\(0,1fr\)\);/,
+  'the closed audit disclosure must retain every immutable line identifier in a readable evidence grid');
 
 async function verifyJournalWorkflow(){
   let workflowCalls=[];

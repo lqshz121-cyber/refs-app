@@ -120,11 +120,11 @@ const BankQueueSummary=({rows=[]})=>{
   const matched=rows.filter(row=>row.match_status==='ACTIVE').length;
   const journaled=rows.filter(row=>Boolean(row.journal_entry_id)).length;
   const unmatched=Math.max(0,rows.length-matched);
-  return <section className="qbo-grid authoritative-bank-summary-grid" aria-label="Bank queue read summary">
-    <div className="qbo-card"><h4>Returned sources</h4><div className="qbo-big">{rows.length}</div><div className="qbo-sub">Current API response</div></div>
-    <div className="qbo-card"><h4>Active Matches</h4><div className="qbo-big">{matched}</div><div className="qbo-sub">Retained evidence only</div></div>
-    <div className="qbo-card"><h4>Unmatched sources</h4><div className="qbo-big">{unmatched}</div><div className="qbo-sub">Not a reconciliation state</div></div>
-    <div className="qbo-card"><h4>Journal references</h4><div className="qbo-big">{journaled}</div><div className="qbo-sub">When supplied by the API</div></div>
+  return <section className="authoritative-bank-summary-strip" aria-label="Bank queue read summary">
+    <span><i>Returned</i><b>{rows.length}</b></span>
+    <span><i>Active matches</i><b>{matched}</b></span>
+    <span><i>Unmatched</i><b>{unmatched}</b></span>
+    <span><i>Journal references</i><b>{journaled}</b></span>
   </section>;
 };
 
@@ -308,7 +308,6 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
     <AuthoritativeSecondaryDisclosure label="External WBS evidence"><AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.bank} title="External WBS bank observations"/></AuthoritativeSecondaryDisclosure>
   </AuthoritativeWorkspaceView>;
 }
-
 export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.fetch,environment=globalThis}){
   const [scope,setScope]=useState({bankAccountRef:'',statementEndingDate:''});
   const [scopeDiscovery,setScopeDiscovery]=useState({phase:'LOADING',rows:[],error:null});
@@ -330,7 +329,7 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
     restoreAuthoritativeReturnContext(environment,config,context);
   };
   if(selected)return <AuthoritativeReconciliationDetail row={selected.row} scope={{...scope,entityId:config.entityId,entityLabel:entityLabel(config)}} onBack={closeEvidence} config={config} fetcher={fetcher} onChanged={()=>load(null,{preserveDetail:true})}/>;
-  return <AuthoritativeWorkspaceView area="Reconcile" className="stack authoritative-reconciliation-workspace"><AuthoritativeWorkspaceHeader eyebrow="BANKING" title="Reconcile" description="Match the books to bank records."/>
+  return <AuthoritativeWorkspaceView area="Reconcile" className="stack authoritative-reconciliation-workspace"><AuthoritativeWorkspaceHeader eyebrow="BANKING" title="Reconcile" description="Match the books to the bank records."/>
     <section className="report-workbench authoritative-reconciliation-scope-picker" aria-label="Reconciliation history"><div className="report-workbench-head"><div><b>Reconciliation history</b><div className="page-subtitle">Choose an existing statement to review.</div></div><span className="badge badge-muted">READ ONLY</span></div>
       {scopeDiscovery.phase==='LOADING'&&<StateBlock tone="loading">Loading reconciliation history...</StateBlock>}
       {scopeDiscovery.phase==='ERROR'&&<BankReadFailure error={scopeDiscovery.error} onRetry={loadScopes} subject="reconciliation scopes"/>}

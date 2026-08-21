@@ -22,7 +22,7 @@ const namedBankInitial=renderToStaticMarkup(<AuthoritativeBankWorkspace config={
 assert.match(namedBankInitial,/Wan Pacific Real Estate Development LLC/);assert.doesNotMatch(namedBankInitial,/Entity 11111111-1111-4111-8111-111111111111/);
 
 const reconciliationInitial=renderToStaticMarkup(<AuthoritativeReconciliationWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
-assert.match(reconciliationInitial,/Reconcile/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/Match the books to bank records\./);assert.doesNotMatch(reconciliationInitial,/Match retained statements to the books\./);
+assert.match(reconciliationInitial,/Reconcile/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/Match the books to the bank records\./);assert.doesNotMatch(reconciliationInitial,/Match retained statements to the books\./,'Reconcile must use the observed concise customer-facing language rather than storage terminology');
 assert.match(reconciliationInitial,/Choose an existing statement to review\./);assert.doesNotMatch(reconciliationInitial,/The API rejects missing or cross-scope statement evidence/);
 assert.match(reconciliationInitial,/Reconciliation history/);assert.match(reconciliationInitial,/Loading reconciliation history/);assert.match(reconciliationInitial,/READ ONLY/);
 assert.match(reconciliationInitial,/Choose a statement/);assert.match(reconciliationInitial,/Select a bank account and statement ending date\./);assert.doesNotMatch(reconciliationInitial,/Reconciliation evidence|Available reconciliation scopes|Discovering reconciliation scopes|No read requested yet/,'the first screen must use concise accounting language');
@@ -33,8 +33,9 @@ assert.match(admittedInitial,/Signed statement read not requested/);assert.match
 const bankTable=renderToStaticMarkup(<AuthoritativeBankTable rows={[bankRow]}/>);
 assert.match(bankTable,/BANK-LINE-1/);assert.match(bankTable,/SOURCE-1/);assert.match(bankTable,/UNMATCHED/);assert.match(bankTable,/READ ONLY/);assert.match(bankTable,/Open detail/);assert.doesNotMatch(bankTable,/>\s*(Match|Clear|Post|Delete|Create)\s*</);
 assert.match(bankTable,/BANK ACTIVITY/);assert.match(bankTable,/Status does not reconcile or post them/);assert.match(bankTable,/Spent/);assert.match(bankTable,/Received/);assert.match(bankTable,/>\$125\.25/);assert.doesNotMatch(bankTable,/>-\$125\.25/);assert.match(bankTable,/v3/);
-assert.match(bankTable,/Bank queue read summary/);assert.match(bankTable,/Returned sources/);assert.match(bankTable,/Active Matches/);assert.match(bankTable,/Unmatched sources/);assert.match(bankTable,/Journal references/);assert.doesNotMatch(bankTable,/Create reviewed Match|Unmatch evidence/);
-assert.equal((bankTable.match(/class="qbo-card"/g)||[]).length,4,'Bank summary must use the shared demonstration card presentation');
+assert.match(bankTable,/Bank queue read summary/);assert.match(bankTable,/Returned/);assert.match(bankTable,/Active matches/);assert.match(bankTable,/Unmatched/);assert.match(bankTable,/Journal references/);assert.doesNotMatch(bankTable,/Create reviewed Match|Unmatch evidence/);
+assert.equal((bankTable.match(/class="qbo-card"/g)||[]).length,0,'Bank queue counts must not expand into four dashboard cards');
+assert.equal((bankTable.match(/<span><i>/g)||[]).length,4,'Bank queue counts must remain four compact read-only facts');
 const emptyBank=renderToStaticMarkup(<AuthoritativeBankTable rows={[]} readAt="2026-08-14T10:00:00.000Z"/>);assert.match(emptyBank,/No bank transactions in this scope/);assert.match(emptyBank,/does not confirm a zero cash balance/);assert.match(emptyBank,/API records returned: 0/);assert.match(emptyBank,/Source freshness: not supplied by this endpoint/);assert.doesNotMatch(emptyBank,/<table/);
 
 const bankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}}/>);
@@ -165,7 +166,8 @@ assert.doesNotMatch(source,/[\u4E00-\u9FFF\uFFFD]/,'authoritative Bank/Reconcile
 const css=readFileSync('index.html','utf8');
 assert.match(css,/\.authoritative-bank-scope-strip/,'Bank/Reconcile detail scope must have a dedicated responsive hierarchy');
 assert.match(css,/\.authoritative-evidence-stage/,'Bank/Reconcile must render a text-labelled lifecycle hierarchy rather than infer state from colour');
-assert.match(source,/className="qbo-grid authoritative-bank-summary-grid"/,'Bank queue summary must use the shared authoritative card grid');
+assert.match(source,/className="authoritative-bank-summary-strip"/,'Bank queue counts must use one compact strip instead of four page-lengthening cards');
+assert.match(css,/\.authoritative-bank-summary-strip\{display:flex;[\s\S]*?overflow-x:auto/,'the compact Bank summary must remain contained and horizontally reachable at narrow widths');
 assert.match(source,/report-workbench recon-summary authoritative-reconciliation-summary/,'Reconciliation summary must use the shared demonstration reconciliation workbench');
 assert.match(readFileSync('src/ui.jsx','utf8'),/blocked: 'empty empty-state state-block state-blocked'/,'The shared state system must represent an authoritative BLOCKED result distinctly from an ordinary empty result');
 assert.match(css,/\.state-blocked\{border-color:var\(--qb-warn-line\)/,'The BLOCKED state must have a visible warning treatment without becoming a disabled action');

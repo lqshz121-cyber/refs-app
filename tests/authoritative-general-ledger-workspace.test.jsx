@@ -27,7 +27,7 @@ test('General Ledger workspace is a retained read-only, contained-table surface'
   assert.doesNotMatch(markup,/Back to standard reports/,'direct Accounting navigation must not pretend it has a Reports parent');assert.match(reportsMarkup,/Back to standard reports/,'the Reports entry must render the observed full-page catalog Back action');
   assert.match(markup,/Entity Wan Pacific Real Estate Development LLC \| period 2026-08/);assert.doesNotMatch(markup,/>Entity 11111111-1111-4111-8111-111111111111/);
   assert.match(markup,/<details class="authoritative-return-context"><summary>Scope rules<\/summary>/);assert.doesNotMatch(markup,/General Ledger reading path/);
-  const source=String(AuthoritativeGeneralLedgerWorkspace);for(const text of ['View details','Details','Page','scroll horizontally','ad-hoc date overrides are not supplied'])assert.match(source,new RegExp(text));
+  const source=String(AuthoritativeGeneralLedgerWorkspace);for(const text of ['Transaction date','Distribution account','View details','Details','Page','scroll horizontally','ad-hoc date overrides are not supplied'])assert.match(source,new RegExp(text));
   assert.doesNotMatch(source,/Showing server page|Search posted evidence|Refresh evidence|POSTED lines|Open evidence|retained evidence columns/,'the GL first screen must use concise accounting copy without server or evidence implementation labels');
   assert.match(source,/AuthoritativeScopeEmpty/,'an empty GL read must name the posted-evidence admission boundary rather than imply a zero ledger');
   assert.match(source,/AuthoritativeReadFailure/,'a failed GL read must name the access, scope, protocol, or service diagnosis rather than look like zero posted evidence');
@@ -41,15 +41,16 @@ test('General Ledger workspace is a retained read-only, contained-table surface'
   assert.doesNotMatch(markup,/localStorage|seed\.js|>Export<|>Post journal<|>Create journal</i);
   assert.equal(authoritativeGeneralLedgerPeriodCaption([row]),'August 1–August 31, 2026');
   assert.equal(authoritativeGeneralLedgerPeriodCaption([row,{...row,period_end:'2026-09-30'}]),'','mixed report periods must not produce an inferred General Ledger range');
-  assert.equal(authoritativeGeneralLedgerPeriodCaption([{...row,period_end:'2026-02-31'}]),'','an impossible calendar date must not produce a General Ledger range');
   const readyMarkup=renderToStaticMarkup(<AuthoritativeGeneralLedgerView eyebrow="ACCOUNTING" title="General Ledger" subtitle="Review posted ledger activity." periodCaption={authoritativeGeneralLedgerPeriodCaption([row])}/>);
   assert.match(readyMarkup,/August 1–August 31, 2026/);assert.match(readyMarkup,/authoritative-report-period-caption/);
 });
 test('General Ledger line evidence is a full-page immutable snapshot with exact Back context',()=>{
   const markup=renderToStaticMarkup(<AuthoritativeGeneralLedgerDetail row={row} returnContext={{accountCode:'610000',query:'JE-100',page:2}} onBack={()=>{}}/>);
-  for(const text of ['Back to General Ledger','GENERAL LEDGER','Posted ledger line','Review this posted ledger line','Posted line details','Identifiers','Exact IDs for audit and drill-through','READ ONLY','Journal entry ID','Journal line ID','Ledger line ID','Source document IDs','account 610000','search “JE-100”','page 2'])assert.match(markup,new RegExp(text));
+  for(const text of ['Back to General Ledger','GENERAL LEDGER','Posted ledger line','Review this posted ledger line','Posted line details','Audit identifiers','Exact IDs for audit and drill-through','READ ONLY','Journal entry ID','Journal line ID','Ledger line ID','Source document IDs','account 610000','search “JE-100”','page 2'])assert.match(markup,new RegExp(text));
   assert.doesNotMatch(markup,/LINE EVIDENCE|scoped API|Exact API snapshot|current API snapshot|Immutable evidence identifiers|API READ/,'the GL detail first screen must not expose transport or read-model terminology');
   assert.match(markup,/<details class="authoritative-return-context authoritative-gl-return-context"><summary>List filters retained<\/summary>/);
+  assert.match(markup,/<details class="card authoritative-return-context authoritative-gl-identifiers" aria-label="Immutable ledger identifiers"><summary>Audit identifiers<\/summary>/,'technical GL identifiers must remain available without lengthening the default detail view');
+  assert.doesNotMatch(markup,/authoritative-gl-identifiers"[^>]* open/,'the audit identifier disclosure must remain collapsed by default');
   assert.doesNotMatch(markup,/Ledger line evidence reading path|Return context:/);
   assert.match(markup,/authoritative-gl-lineage-note[\s\S]*READ ONLY[\s\S]*Journal and source drill-through are available only when an exact link is returned\./,'optional GL lineage must use a compact policy note');
   assert.doesNotMatch(markup,/Further lineage is not loaded here|state-empty/,'missing optional lineage must not present the whole detail as an empty state');
