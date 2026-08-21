@@ -129,11 +129,18 @@ export async function reconcileWbsTestImportActorGrants({grantSync,scope}={}){
   return Object.freeze(results);
 }
 
-export function createWbsTestImportService({pilotService,kernelForActor,authorizeBank,scope}={}){
+export function createWbsTestImportService({pilotService,kernelForActor,authorizeBank,scope,resolveScope=null}={}){
   if(!pilotService||typeof pilotService.readObservation!=='function'||typeof kernelForActor!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Test-import dependencies are unavailable.');
+  if(resolveScope!==null&&typeof resolveScope!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Test-import scope resolver is invalid.');
   assertConfiguration(scope);
   const actors=Object.freeze(Object.fromEntries(ACTOR_ROLES.map(role=>[role,scope.actors[role].trim()])));
   const kernels=()=>Object.fromEntries(ACTOR_ROLES.map(role=>[role,kernelForActor(actors[role])]));
+  const requestedScope=async({tenantId,entityId,companyCode})=>{
+    const resolved=resolveScope===null?scope:await resolveScope({tenantId,entityId,companyCode});
+    assertConfiguration({...resolved,actors});
+    if(resolved.tenantId!==tenantId||resolved.entityId!==entityId||resolved.companyCode!==companyCode||resolved.tenantId!==scope.tenantId)fail('WBS_TEST_IMPORT_SCOPE_DENIED','The selected entity is not the authoritative WBS company scope.');
+    return Object.freeze({...resolved,actors});
+  };
   const assertPayableKernels=value=>{
     const required={importer:['finalizeWbsTestImportSource'],maker:['createWbsTestPayableDraft'],submitter:['transitionJournal'],reviewer:['transitionJournal'],approver:['transitionJournal'],poster:['postJournal']};
     for(const role of ACTOR_ROLES)if(!value[role]||required[role].some(method=>typeof value[role][method]!=='function'))fail('WBS_TEST_IMPORT_CONFIG_INVALID',`Test-import ${role} kernel is unavailable.`);
@@ -188,7 +195,8 @@ export function createWbsTestImportService({pilotService,kernelForActor,authoriz
   };
   return Object.freeze({
     async importPayables({tenantId,entityId,periodId,companyCode,dateFrom,dateTo,limit,idempotencyKey}={}){
-      assertSelection({tenantId,entityId,periodId,companyCode,dateFrom,dateTo,limit},scope);
+      const selectedScope=await requestedScope({tenantId,entityId,companyCode});
+      assertSelection({tenantId,entityId,periodId,companyCode,dateFrom,dateTo,limit},selectedScope);
       if(typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>160)fail('WBS_TEST_IMPORT_IDEMPOTENCY_REQUIRED','A bounded test-import idempotency key is required.');
       const observation=await pilotService.readObservation({tenantId,entityId,tool:'list_payables',limit,company_code:companyCode,date_from:dateFrom,date_to:dateTo});
       assertWbsLivePilotResult(observation,{entityId,tool:'list_payables',limit});
@@ -200,7 +208,8 @@ export function createWbsTestImportService({pilotService,kernelForActor,authoriz
       return Object.freeze(assertWbsTestImportResult({status:'WBS_TEST_PAYABLE_IMPORT_COMPLETE',imported_count:imported,replayed_count:replayed,posted_count:posted,failed_count:0,test_only:true}));
     },
     async importBankTransactions({tenantId,entityId,periodId,companyCode,dateFrom,dateTo,limit,idempotencyKey}={}){
-      assertSelection({tenantId,entityId,periodId,companyCode,dateFrom,dateTo,limit},scope);
+      const selectedScope=await requestedScope({tenantId,entityId,companyCode});
+      assertSelection({tenantId,entityId,periodId,companyCode,dateFrom,dateTo,limit},selectedScope);
       if(typeof authorizeBank!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Controlled test Bank caller authorization is unavailable.');
       if(typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>160)fail('WBS_TEST_IMPORT_IDEMPOTENCY_REQUIRED','A bounded test-import idempotency key is required.');
       await authorizeBank({tenantId,entityId});
@@ -215,9 +224,10 @@ export function createWbsTestImportService({pilotService,kernelForActor,authoriz
       return Object.freeze(assertWbsControlledTestBankResult(result));
     },
     async importRange({tenantId,entityId,companyCode,dateFrom,dateTo,pageSize=10,maxPages=WBS_TEST_MONTH_MAX_PAGES,idempotencyKey}={}){
-      if(tenantId!==scope.tenantId||entityId!==scope.entityId)fail('WBS_TEST_IMPORT_SCOPE_DENIED','Test import is restricted to its configured tenant and entity.');
+      const selectedScope=await requestedScope({tenantId,entityId,companyCode});
+      if(tenantId!==selectedScope.tenantId||entityId!==selectedScope.entityId)fail('WBS_TEST_IMPORT_SCOPE_DENIED','Test import is restricted to an authoritative WBS company entity.');
       const periodCode=typeof dateFrom==='string'?dateFrom.slice(0,7):'',month=/^2026-0[1-6]$/.test(periodCode)?Number(periodCode.slice(5,7)):0,monthEnd=month?new Date(Date.UTC(2026,month,0)).toISOString().slice(0,10):null;
-      if(companyCode!==scope.companyCode||dateFrom!==`${periodCode}-01`||dateTo!==monthEnd||pageSize!==10)fail('WBS_TEST_IMPORT_SELECTION_INVALID','The month import requires one exact 2026 H1 calendar month and ten-row provider pages.');
+      if(companyCode!==selectedScope.companyCode||dateFrom!==`${periodCode}-01`||dateTo!==monthEnd||pageSize!==10)fail('WBS_TEST_IMPORT_SELECTION_INVALID','The month import requires one exact WBS company, one 2026 H1 calendar month, and ten-row provider pages.');
       if(typeof pilotService.readObservationPage!=='function'||typeof authorizeBank!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Paged WBS test-import dependencies are unavailable.');
       if(!Number.isSafeInteger(maxPages)||maxPages<1||maxPages>WBS_TEST_MONTH_MAX_PAGES||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>80)fail('WBS_TEST_IMPORT_SELECTION_INVALID','Paged month import requires bounded pages and one idempotency key.');
       await authorizeBank({tenantId,entityId});

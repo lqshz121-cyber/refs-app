@@ -349,7 +349,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
       const kernelForActor=actorId=>kernelFor({trusted:true,tenantId:wbsTestImport.tenantId,actorId});
       const authorizeBank=scope=>kernelFor(principal).assertWbsTestImport(scope);
       return Object.freeze({
-        ...createWbsTestImportService({scope:wbsTestImport,pilotService:createWbsLivePilotReadService({client:wbsLivePilotClient,authorize:scope=>kernelFor(principal).assertWbsAutoRecView(scope)}),authorizeBank,kernelForActor}),
+        ...createWbsTestImportService({scope:wbsTestImport,resolveScope:selection=>kernelFor(principal).resolveWbsTestImportScope(selection),pilotService:createWbsLivePilotReadService({client:wbsLivePilotClient,authorize:scope=>kernelFor(principal).assertWbsAutoRecView(scope)}),authorizeBank,kernelForActor}),
         ...createControlledTestBankWorkflowService({scope:{...wbsTestImport,bankAccountRef:'WBS_TEST_BANK',cashAccountCode:'111000',offsetAccountCode:'610000'},authorize:authorizeBank,kernelForActor}),
         runBankMatch:createControlledTestBankMatchService({scope:{...wbsTestImport,bankAccountRef:'WBS_TEST_BANK',cashAccountCode:'111000'},authorize:authorizeBank,kernelForActor}).run
       });

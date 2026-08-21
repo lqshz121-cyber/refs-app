@@ -66,6 +66,22 @@ export class PostgresAccountingKernel{
     })));
   }
 
+  async resolveWbsTestImportScope({tenantId,entityId,companyCode}){
+    return this.inSession(async client=>{
+      const row=(await client.query(`
+        SELECT tenant_id::text,entity_id::text,entity_code AS company_code
+        FROM entity
+        WHERE tenant_id=$1 AND entity_id=$2 AND entity_code=$3 AND active
+          AND (
+            (source_system='WBS' AND source_entity_id=$3)
+            OR ($3='WBPA' AND source_system='REFS_STAGE1' AND source_entity_id='REFS_US_001')
+          )
+      `,[tenantId,entityId,companyCode])).rows[0];
+      if(!row)throw new KernelError('WBS_TEST_IMPORT_SCOPE_DENIED','The selected entity is not the authoritative WBS company scope');
+      return {tenantId:row.tenant_id,entityId:row.entity_id,companyCode:row.company_code};
+    });
+  }
+
   async readCompletedWbsTestMonthImport({tenantId,entityId,companyCode,periodCode}){
     return this.inSession(async client=>{
       const completion=(await client.query(
