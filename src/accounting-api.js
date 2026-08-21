@@ -821,6 +821,26 @@ export async function refreshAuthoritativeScope({config,fetcher=globalThis.fetch
   }catch{return unreachable('The browser could not complete the authoritative scope read; no HTTP response was produced.');}
 }
 
+const AUTHORITATIVE_SCOPE_CATALOG_FIELDS=['base_currency','entity_code','entity_id','entity_name','period_code','period_end','period_id','period_start','period_status','source_entity_id'];
+
+export async function refreshAuthoritativeScopeCatalog({config,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function')return notConfigured();
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/accounting-scopes`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response,'AUTHORITATIVE_SCOPE_CATALOG');
+    const body=await response.json(),values=body?.data;
+    if(body?.ok!==true||!Array.isArray(values))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid company and period catalog.'};
+    const keys=new Set(),rows=[];
+    for(const value of values){
+      if(!exactObjectKeys(value,AUTHORITATIVE_SCOPE_CATALOG_FIELDS)||!UUID.test(value.entity_id||'')||!UUID.test(value.period_id||'')||typeof value.entity_name!=='string'||!value.entity_name.trim()||typeof value.entity_code!=='string'||!value.entity_code.trim()||typeof value.source_entity_id!=='string'||!value.source_entity_id.trim()||!/^[A-Z]{3}$/.test(value.base_currency||'')||!exactMonthlyPeriod(value)||!['OPEN','SOFT_CLOSED','CLOSED'].includes(value.period_status))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned malformed company or period scope.'};
+      const key=`${value.entity_id}\u001f${value.period_id}`;if(keys.has(key))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned duplicate company and period scope.'};keys.add(key);
+      rows.push(Object.freeze({...value,entity_name:value.entity_name.trim(),entity_code:value.entity_code.trim(),source_entity_id:value.source_entity_id.trim()}));
+    }
+    return {ok:true,rows:Object.freeze(rows)};
+  }catch{return unreachable('The browser could not read the available company and period scopes; no HTTP response was produced.');}
+}
+
 const CURRENT_ACCESS_KEYS=['actor_id','configured_permissions','entity_id','grant_set_version','permissions','session_refresh_required','tenant_id'];
 const PERMISSION_CODE=/^(?:\*|[A-Z][A-Z0-9_.]+)$/;
 const CONFIGURED_PERMISSION_CODE=/^[A-Z][A-Z0-9_.]+$/;

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { accountingApiConfig, activateAuthoritativeReadAccess, refreshAuthoritativeChartOfAccounts, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries, refreshAuthoritativeScope, refreshCurrentActorAccess } from './accounting-api.js';
+import { accountingApiConfig, activateAuthoritativeReadAccess, refreshAuthoritativeChartOfAccounts, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries, refreshAuthoritativeScope, refreshAuthoritativeScopeCatalog, refreshCurrentActorAccess } from './accounting-api.js';
 import { AuthoritativeSourceDocumentsWorkspace } from './authoritative-source-documents-workspace.jsx';
 import { BrowserOidcClient, RENEWAL_MIN_INTERVAL_MS, oidcRuntimeConfig, silentRenewalSchedule } from './oidc-client.js';
 import { AuthoritativeBankWorkspace, AuthoritativeReconciliationWorkspace } from './authoritative-bank-workspace.jsx';
@@ -154,6 +154,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const [sharedAccountingLoaded, setSharedAccountingLoaded] = useState(false);
   const [scopeRows,setScopeRows]=useState([]);
   const [scopeMetadata,setScopeMetadata]=useState(null);
+  const [scopeCatalog,setScopeCatalog]=useState([]);
+  const [selectedScope,setSelectedScope]=useState(null);
   const [accessState,setAccessState]=useState({status:'LOADING'});
   // A direct selection of Reports is an explicit catalog entry, not a
   // continuation of the last report drill. React preserves a mounted route
@@ -198,7 +200,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     return () => window.removeEventListener('keydown', onEscape);
   }, [navOpen]);
   const oidcClient = useMemo(() => configured ? new BrowserOidcClient({ environment, fetcher:boundFetcher }) : null, [configured, environment, boundFetcher]);
-  const config = useMemo(() => configured ? accountingApiConfig(environment) : null, [configured, environment, phase]);
+  const baseConfig = useMemo(() => configured ? accountingApiConfig(environment) : null, [configured, environment, phase]);
+  const config = useMemo(() => baseConfig&&selectedScope?{...baseConfig,entityId:selectedScope.entity_id,periodId:selectedScope.period_id}:baseConfig, [baseConfig, selectedScope]);
 
   // This public, credential-free call is deliberately ahead of OIDC and every
   // accounting reader. A green readiness response alone is not evidence that
@@ -463,6 +466,16 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeChartOfAccounts({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeRows(result.ok?result.rows:[]);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeScope({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeMetadata(result.ok?result.row:null);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};setAccessState({status:'LOADING'});refreshCurrentActorAccess({config,fetcher:boundFetcher}).then(result=>{if(current)setAccessState(result.ok?{status:'READY',row:result.row}:{status:'ERROR',code:result.code,message:result.message});});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
+  useEffect(()=>{let current=true;if(phase!=='READY'||!baseConfig)return()=>{current=false;};refreshAuthoritativeScopeCatalog({config:baseConfig,fetcher:boundFetcher}).then(result=>{if(current&&result.ok)setScopeCatalog([...result.rows]);});return()=>{current=false;};},[phase,baseConfig,boundFetcher]);
+  const applyScope=useCallback(next=>{
+    if(!next||next.entity_id===config?.entityId&&next.period_id===config?.periodId)return;
+    setSelectedScope(next);setData({ap:{bills:[],adjustments:[]},ar:{invoices:[],adjustments:[]},journals:[]});setSharedAccountingLoaded(false);setScopeRows([]);setScopeMetadata(null);setDocumentDetail(null);setAdjustmentDetail(null);setAgingDetail(null);setReportAgingDetail(null);setReportGeneralLedgerDetail(null);setReportCatalogReturn(null);setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}});setWorkspaceRefreshVersion(current=>current+1);
+  },[config]);
+  const selectEntityScope=useCallback(entityId=>{
+    const choices=scopeCatalog.filter(row=>row.entity_id===entityId).sort((a,b)=>b.period_start.localeCompare(a.period_start));
+    applyScope(choices.find(row=>row.period_code===scopeMetadata?.period_code)||choices[0]);
+  },[scopeCatalog,scopeMetadata,applyScope]);
+  const selectPeriodScope=useCallback(periodId=>applyScope(scopeCatalog.find(row=>row.entity_id===config?.entityId&&row.period_id===periodId)),[scopeCatalog,config,applyScope]);
   const scopePresentation=useMemo(()=>authoritativeScopePresentation(config,scopeRows,scopeMetadata),[config,scopeRows,scopeMetadata]);
   const displayConfig=useMemo(()=>({...config,scopePresentation}),[config,scopePresentation]);
   if (!configured) return <RuntimeErrorPage code="CONFIGURATION_REQUIRED"/>;
@@ -526,7 +539,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
           <button type="button" className="btn btn-sm btn-ghost authoritative-signout" onClick={logout}>Sign out</button>
         </div>
       </header>}
-      <AuthoritativeTopbar navOpenerRef={navOpenerRef} navOpen={navOpen} onOpenNavigation={() => setNavOpen(true)} entityLabel={scopePresentation.entityLabel} periodLabel={scopePresentation.periodLabel} theme={theme} onToggleTheme={toggleTheme} onRefresh={refresh} onSignOut={logout}/>
+      <AuthoritativeTopbar navOpenerRef={navOpenerRef} navOpen={navOpen} onOpenNavigation={() => setNavOpen(true)} entityLabel={scopePresentation.entityLabel} periodLabel={scopePresentation.periodLabel} scopes={scopeCatalog} entityId={config.entityId} periodId={config.periodId} onEntityChange={selectEntityScope} onPeriodChange={selectPeriodScope} theme={theme} onToggleTheme={toggleTheme} onRefresh={refresh} onSignOut={logout}/>
       <main className="content">
         <section className="authoritative-scope-bar" aria-label="Authoritative accounting scope">
           <span title={`${scopePresentation.entityHint ? `${scopePresentation.entityHint} ` : ''}Entity ID: ${scopePresentation.entityDetail}`}><b>Entity</b> {scopePresentation.entityLabel}{scopePresentation.entityHint&&<small className="muted sm"> — display name not returned by API</small>}</span>

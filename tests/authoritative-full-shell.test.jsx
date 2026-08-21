@@ -76,7 +76,9 @@ assert.equal(mountedRoute,'wbs-autorec-evidence','an unknown hash must fail clos
 stopWatchingRoute();
 assert.equal(routeListeners.has('hashchange'),false,'the authoritative app must remove its hash listener on unmount');
 const topbarMarkup = renderToStaticMarkup(<AuthoritativeTopbar navOpen={false} entityLabel="WBHO WB Home LLC" periodLabel="2026-07" theme="light" navOpenerRef={{current:null}} onOpenNavigation={() => {}} onRefresh={() => {}} onToggleTheme={() => {}} onSignOut={() => {}}/>);
+const selectableTopbarMarkup = renderToStaticMarkup(<AuthoritativeTopbar navOpen={false} entityLabel="WBHO WB Home LLC" periodLabel="2026-07" entityId="11111111-1111-4111-8111-111111111111" periodId="22222222-2222-4222-8222-222222222222" scopes={[{entity_id:'11111111-1111-4111-8111-111111111111',entity_name:'WB Home LLC',entity_code:'WBHO',period_id:'22222222-2222-4222-8222-222222222222',period_code:'2026-07',period_start:'2026-07-01'}]} onEntityChange={() => {}} onPeriodChange={() => {}} theme="light" navOpenerRef={{current:null}} onOpenNavigation={() => {}} onRefresh={() => {}} onToggleTheme={() => {}} onSignOut={() => {}}/>);
 assert.match(topbarMarkup, /WBHO WB Home LLC/);
+assert.match(selectableTopbarMarkup, /aria-label="Authoritative company"/);assert.match(selectableTopbarMarkup, /aria-label="Accounting period"/);assert.match(selectableTopbarMarkup, /WB Home LLC \(WBHO\)/);
 assert.match(topbarMarkup, /class="mobile-nav-btn" aria-label="Open navigation"[^>]*><svg[^>]*width="24"[^>]*viewBox="0 0 24 24"/,'the compact navigation opener must use the shared 24px line icon');
 assert.doesNotMatch(topbarMarkup, />Menu<\/button>/,'fixed-width mobile navigation must not render overflowing text');
 assert.doesNotMatch(topbarMarkup, /Search or jump|Help is unavailable|Notifications are unavailable|disabled=/,
@@ -208,8 +210,8 @@ assert.match(appSource, /route === 'bank-batch-pipeline'[\s\S]*?AuthoritativeBan
   'the composed Bank and Reconciliation readers must receive the same readable company and period scope as their direct routes');
 assert.match(appSource, /authoritative-topbar/, 'the formal app must use the complete workbench-style top bar rather than the old title-only header');
 assert.match(appSource, /AuthoritativeTopbar/, 'the production app must use the dedicated authoritative topbar');
-assert.match(appSource, /Authoritative entity \$\{config\.entityId\}/, 'the top bar must expose the configured API entity as scope, not a local selector');
-assert.match(appSource, /Authoritative period \$\{config\.periodId\}/, 'the top bar must expose the configured API period as scope');
+assert.match(appSource, /refreshAuthoritativeScopeCatalog/, 'the top bar company and period choices must come from the authenticated API rather than browser authority');
+assert.match(appSource, /setData\(\{ap:\{bills:\[\],adjustments:\[\]\},ar:\{invoices:\[\],adjustments:\[\]\},journals:\[\]\}\)/, 'changing company or period must clear stale accounting rows before the next scoped read');
 assert.match(appSource, /Refresh authoritative accounting evidence/, 'the top-bar refresh control must name its real GET-only outcome');
 assert.match(appSource, /Authenticated OIDC session/, 'the user chip must describe an authenticated session without fabricating a demo user');
 assert.match(appSource, /onClick=\{logout\}>Sign out/, 'the visual shell keeps the real OIDC sign-out command');
