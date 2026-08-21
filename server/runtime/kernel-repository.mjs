@@ -75,13 +75,19 @@ export class PostgresAccountingKernel{
           WHERE tenant_id=$1 AND entity_id=$2 AND period_code=$4
             AND starts_on=($4||'-01')::date AND status='OPEN'
         ), payable AS (
-          SELECT count(*) FILTER (WHERE s.accounting_date BETWEEN DATE '2026-01-01' AND DATE '2026-06-30')::integer AS h1_count,
-            count(*) FILTER (WHERE s.accounting_date BETWEEN p.starts_on AND p.ends_on)::integer AS month_count,
-            bool_and(s.status='POSTED' AND j.status='POSTED') AS all_posted
+          SELECT
+            (SELECT count(*)::integer FROM wbs_test_import_draft d
+              WHERE d.tenant_id=$1 AND d.entity_id=$2) AS h1_count,
+            (SELECT count(*)::integer FROM wbs_test_import_draft d
+              WHERE d.tenant_id=$1 AND d.entity_id=$2 AND d.period_id=p.period_id) AS month_count,
+            NOT EXISTS (
+              SELECT 1 FROM wbs_test_import_draft d
+              LEFT JOIN source_document s ON s.tenant_id=d.tenant_id AND s.entity_id=d.entity_id AND s.source_document_id=d.source_document_id
+              LEFT JOIN journal_entry j ON j.tenant_id=d.tenant_id AND j.entity_id=d.entity_id AND j.journal_entry_id=d.journal_entry_id
+              WHERE d.tenant_id=$1 AND d.entity_id=$2 AND d.period_id=p.period_id
+                AND (s.status IS DISTINCT FROM 'POSTED' OR j.status IS DISTINCT FROM 'POSTED')
+            ) AS all_posted
           FROM period_scope p
-          JOIN wbs_test_import_draft d ON d.tenant_id=$1 AND d.entity_id=$2
-          JOIN source_document s ON s.tenant_id=d.tenant_id AND s.entity_id=d.entity_id AND s.source_document_id=d.source_document_id
-          JOIN journal_entry j ON j.tenant_id=d.tenant_id AND j.entity_id=d.entity_id AND j.journal_entry_id=d.journal_entry_id
         ), bank AS (
           SELECT count(*)::integer AS import_count,coalesce(sum(b.row_count),0)::integer AS row_count,
             (array_agg(b.reconciliation_id ORDER BY b.reconciliation_id) FILTER (WHERE b.reconciliation_id IS NOT NULL))[1]::text AS reconciliation_id
