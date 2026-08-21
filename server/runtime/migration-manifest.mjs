@@ -266,4 +266,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"258_ai_vendor_monthly_spend_population_read.sql",up:"4ea6aa6df437b3ee228ab296d6c9f5649942743388dcd71421805d651652dca1",down:"297d0f8c57616649f5ec33e86b9418afec1d0fc7edd2152b358f2f49f84a3396"}),
   Object.freeze({name:"259_ai_construction_loan_decision_chain.sql",up:"9063a30d282419a24784b9a020ab564d3660cb34621bf4d1cda1779830eeea2d",down:"7375629ab88e4efb7fce247a54c17d3439df1e238fdf10193e598cb0dcdb5d7c"}),
   Object.freeze({name:"260_wbs_h1_completion_receipt_read.sql",up:"9f149b11d23f1ca3e9fa8488e25f65a57dfc589b119778015591c75f8e52546a",down:"b7e3a569c88788f2286549a63d991ff93a3dfb90762d0efae6f9704e55beaf73"}),
+  Object.freeze({name:"261_wbs_h1_completion_population_scope.sql",up:"767d3ec16e44c228101e4d4fdfd7c636b839b392ef5b923a7165098197e00441",down:"bd98ebac8bc840e3195111b4e8ce9cc64a6dfd2ba22abf4770f8a3cb7d0c98ff"}),
 ]);
