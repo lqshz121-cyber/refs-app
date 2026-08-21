@@ -47,6 +47,16 @@ try{
     journal_no:candidate.journal_no};
   const sourceRecordHash=sha(JSON.stringify(sourceIdentity));
   const providerContentHash=hex(JSON.stringify({dataset:'wbs_h1_import.ap_business',manifest:'wbs-h1-2026',source:sourceIdentity}));
+  const mappings=(await admin.query(`SELECT stable_key,payload->>'id' setting_id,payload->>'journal_code' account_code,
+      payload->>'account' account_name,payload->>'start_date' starts_at,payload->>'end_date' ends_at
+    FROM wbs_h1_import.reference_row
+    WHERE domain='accounting_setting' AND company_code=$1 AND payload->>'business_type'='4'
+      AND payload->>'category'='Payable' AND payload->>'type'='Debit' AND payload->>'detail'=$2 AND payload->>'pj_code'=$1
+      AND $3::timestamp BETWEEN (payload->>'start_date')::timestamp AND (payload->>'end_date')::timestamp`,
+    [companyCode,candidate.cost_code,sourceDate])).rows;
+  if(mappings.length!==1)throw new Error(`WBS Payable mapping is ${mappings.length===0?'missing':'ambiguous'} for the selected row`);
+  const mapping=mappings[0];
+  if(!/^[A-Z0-9][A-Z0-9._-]{1,31}$/i.test(mapping.account_code||'')||!mapping.account_name)throw new Error('WBS Payable mapping account is invalid');
 
   await admin.query('INSERT INTO tenant(tenant_id,tenant_code,name) VALUES($1,$2,$3) ON CONFLICT (tenant_id) DO NOTHING',
     [tenantId,'WBSH1TEST','WBS H1 2026 controlled test']);
@@ -58,6 +68,10 @@ try{
   await admin.query(`INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type,active)
     VALUES($1,$2,'291001','Accounts Payable',true,'VENDOR',true)
     ON CONFLICT (tenant_id,entity_id,account_code) DO UPDATE SET account_name=EXCLUDED.account_name,requires_member=true,required_member_type='VENDOR',active=true`,[tenantId,entityId]);
+  await admin.query(`INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type,active)
+    VALUES($1,$2,$3,$4,false,NULL,true)
+    ON CONFLICT (tenant_id,entity_id,account_code) DO UPDATE SET account_name=EXCLUDED.account_name,active=true`,
+    [tenantId,entityId,mapping.account_code,mapping.account_name]);
 
   const row={source_record_hash:sourceRecordHash,currency:'USD',accounting_date:sourceDate,amount,status:candidate.business_status||'UNREVIEWED'};
   const observationWithoutHash={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',
@@ -92,11 +106,31 @@ try{
   if(sourceStatus==='READY_FOR_DRAFT')await importer.finalizeWbsTestImportSource({tenantId,entityId,sourceDocumentId:draft.source_document_id,
     businessDocumentId:draft.business_document_id,journalEntryId:draft.journal_entry_id,idempotencyKey:`${key}:finalize`});
 
+  const reclassMaker=kernel('wbs-h1-mapping-maker',['GL.JE.CREATE']);
+  const reclass=await reclassMaker.createManualJournal({tenantId,entityId,periodId,journalNumber:`WBS-MAP-${sourceRecordHash.slice(7,19).toUpperCase()}`,
+    journalDate:sourceDate,currency:'USD',description:`Apply approved WBS Payable setting ${mapping.setting_id}`,
+    attachmentIds:[draft.attachment_id],idempotencyKey:`${key}:mapping-reclass`,lines:[
+      {line_no:1,account_code:mapping.account_code,debit_amount:Number(amount),credit_amount:0,member_ref:null,
+        description:`WBS setting ${mapping.setting_id}: ${mapping.account_name}`,dimensions:{project_ref:candidate.project_code||null,cost_code_ref:candidate.cost_code||null}},
+      {line_no:2,account_code:'610000',debit_amount:0,credit_amount:Number(amount),member_ref:null,
+        description:'Reverse controlled-import placeholder expense',dimensions:{project_ref:candidate.project_code||null,cost_code_ref:candidate.cost_code||null}}
+    ]});
+  let reclassState=(await admin.query('SELECT status::text,revision FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[tenantId,entityId,reclass.journal_entry_id])).rows[0];
+  if(reclassState.status==='DRAFT')await submitter.transitionJournal({tenantId,entityId,journalEntryId:reclass.journal_entry_id,action:'SUBMIT',expectedRevision:Number(reclassState.revision),idempotencyKey:`${key}:mapping-submit`});
+  reclassState=(await admin.query('SELECT status::text,revision FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[tenantId,entityId,reclass.journal_entry_id])).rows[0];
+  if(reclassState.status==='PENDING_REVIEW')await reviewer.transitionJournal({tenantId,entityId,journalEntryId:reclass.journal_entry_id,action:'REVIEW',expectedRevision:Number(reclassState.revision),idempotencyKey:`${key}:mapping-review`});
+  reclassState=(await admin.query('SELECT status::text,revision FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[tenantId,entityId,reclass.journal_entry_id])).rows[0];
+  if(reclassState.status==='PENDING_APPROVAL')await approver.transitionJournal({tenantId,entityId,journalEntryId:reclass.journal_entry_id,action:'APPROVE',expectedRevision:Number(reclassState.revision),idempotencyKey:`${key}:mapping-approve`});
+  reclassState=(await admin.query('SELECT status::text,revision FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[tenantId,entityId,reclass.journal_entry_id])).rows[0];
+  if(reclassState.status==='APPROVED')await poster.postJournal({tenantId,entityId,periodId,journalEntryId:reclass.journal_entry_id,expectedRevision:Number(reclassState.revision),idempotencyKey:`${key}:mapping-post`});
+  await admin.query(`INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,journal_entry_id,created_by)
+    VALUES($1,$2,'SOURCE_TO_JE',$3,$4,'wbs-h1-mapping-maker') ON CONFLICT DO NOTHING`,[tenantId,entityId,draft.source_document_id,reclass.journal_entry_id]);
+
   const ledger=await reader.listGeneralLedger({tenantId,entityId,periodId,accountCode:null,query:null,limit:50,offset:0});
   const statements=await reader.getFinancialStatements({tenantId,entityId,periodId});
-  const exactLedger=ledger.filter(item=>item.journal_entry_id===draft.journal_entry_id);
-  const trialBalance=statements.filter(item=>item.statement_type==='TRIAL_BALANCE'&&['610000','291001'].includes(item.account_code));
-  const incomeStatement=statements.filter(item=>item.statement_type==='INCOME_STATEMENT'&&item.account_code==='610000');
+  const exactLedger=ledger.filter(item=>[draft.journal_entry_id,reclass.journal_entry_id].includes(item.journal_entry_id));
+  const trialBalance=statements.filter(item=>item.statement_type==='TRIAL_BALANCE'&&[mapping.account_code,'291001'].includes(item.account_code));
+  const incomeStatement=statements.filter(item=>item.statement_type==='INCOME_STATEMENT'&&item.account_code===mapping.account_code);
   const balanceSheet=statements.filter(item=>item.statement_type==='BALANCE_SHEET'&&item.account_code==='291001');
 
   await admin.query(`CREATE TABLE IF NOT EXISTS wbs_h1_import.e2e_run(
@@ -105,6 +139,9 @@ try{
     source_document_id uuid NOT NULL,journal_entry_id uuid NOT NULL,journal_status text NOT NULL,ledger_line_count integer NOT NULL,
     trial_balance_ready boolean NOT NULL,income_statement_ready boolean NOT NULL,balance_sheet_ready boolean NOT NULL,
     provenance_mode text NOT NULL,completed_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(company_code,source_record_hash))`);
+  await admin.query(`ALTER TABLE wbs_h1_import.e2e_run ADD COLUMN IF NOT EXISTS wbs_setting_id text,
+    ADD COLUMN IF NOT EXISTS mapped_account_code text,ADD COLUMN IF NOT EXISTS mapped_account_name text,
+    ADD COLUMN IF NOT EXISTS reclass_journal_entry_id uuid`);
   await admin.query(`INSERT INTO wbs_h1_import.e2e_run(company_code,source_record_hash,source_date,amount,project_present,cost_code_present,
       period_code,refs_entity_id,source_document_id,journal_entry_id,journal_status,ledger_line_count,trial_balance_ready,income_statement_ready,balance_sheet_ready,provenance_mode)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'POSTED',$11,$12,$13,$14,'UNSIGNED_TEST_ONLY')
@@ -113,10 +150,15 @@ try{
       balance_sheet_ready=EXCLUDED.balance_sheet_ready,completed_at=now()`,[companyCode,sourceRecordHash,sourceDate,amount,
       Boolean(candidate.project_code),Boolean(candidate.cost_code),periodCode,entityId,draft.source_document_id,draft.journal_entry_id,exactLedger.length,
       trialBalance.length===2,incomeStatement.length===1,balanceSheet.length===1]);
+  await admin.query(`UPDATE wbs_h1_import.e2e_run SET wbs_setting_id=$3,mapped_account_code=$4,mapped_account_name=$5,
+    reclass_journal_entry_id=$6 WHERE company_code=$1 AND source_record_hash=$2`,
+    [companyCode,sourceRecordHash,mapping.setting_id,mapping.account_code,mapping.account_name,reclass.journal_entry_id]);
 
   console.log(JSON.stringify({status:'COMPLETE',company_code:companyCode,source_scope:'REAL_WBS_H1_2026',provenance_mode:'UNSIGNED_TEST_ONLY',
     source_record_hash:sourceRecordHash,accounting_date:sourceDate,amount,period_code:periodCode,project_present:Boolean(candidate.project_code),
-    cost_code_present:Boolean(candidate.cost_code),workflow:['DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED','POSTED'],
+    cost_code_present:Boolean(candidate.cost_code),wbs_mapping:{setting_id:mapping.setting_id,account_code:mapping.account_code,
+      account_name:mapping.account_name,effective_from:mapping.starts_at.slice(0,10),effective_to:mapping.ends_at.slice(0,10)},
+    workflow:['DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED','POSTED'],
     journal_entry_id:draft.journal_entry_id,source_document_id:draft.source_document_id,ledger_lines:exactLedger.map(line=>({account_code:line.account_code,
       debit_amount:line.debit_amount,credit_amount:line.credit_amount,currency:line.currency})),reports:{trial_balance:trialBalance.length===2,
       income_statement:incomeStatement.length===1,balance_sheet:balanceSheet.length===1}},null,2));
