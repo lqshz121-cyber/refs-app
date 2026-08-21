@@ -68,36 +68,11 @@ export class PostgresAccountingKernel{
 
   async readCompletedWbsTestMonthImport({tenantId,entityId,companyCode,periodCode}){
     return this.inSession(async client=>{
-      const row=(await client.query(`
-        WITH period_scope AS (
-          SELECT period_id,starts_on,ends_on
-          FROM accounting_period
-          WHERE tenant_id=$1 AND entity_id=$2 AND period_code=$4
-            AND starts_on=($4||'-01')::date AND status='OPEN'
-        ), payable AS (
-          SELECT
-            (SELECT count(*)::integer FROM wbs_test_import_draft d
-              WHERE d.tenant_id=$1 AND d.entity_id=$2) AS h1_count,
-            (SELECT count(*)::integer FROM wbs_test_import_draft d
-              WHERE d.tenant_id=$1 AND d.entity_id=$2 AND d.period_id=p.period_id) AS month_count
-          FROM period_scope p
-        ), bank AS (
-          SELECT count(*)::integer AS import_count,coalesce(sum(b.row_count),0)::integer AS row_count,
-            (array_agg(b.reconciliation_id ORDER BY b.reconciliation_id) FILTER (WHERE b.reconciliation_id IS NOT NULL))[1]::text AS reconciliation_id
-          FROM period_scope p
-          LEFT JOIN wbs_controlled_test_bank_import b ON b.tenant_id=$1 AND b.entity_id=$2
-            AND b.period_id=p.period_id AND b.company_code=$3
-            AND b.bank_account_ref='WBS_TEST_BANK_'||replace($4,'-','_')
-        )
-        SELECT p.period_id::text,p.starts_on::text,p.ends_on::text,q.h1_count,q.month_count,
-          b.import_count,b.row_count,b.reconciliation_id
-        FROM period_scope p CROSS JOIN payable q CROSS JOIN bank b
-        -- The final Bank import row is written only after the service has
-        -- completed every Payable lifecycle for this month.  It is therefore
-        -- the durable completion receipt; replay must not rescan Journal and
-        -- Source RLS populations merely to return an HTTP response.
-        WHERE q.h1_count>0 AND b.import_count=1 AND b.row_count>0
-      `,[tenantId,entityId,companyCode,periodCode])).rows[0];
+      const completion=(await client.query(
+        'SELECT refs_read_wbs_h1_month_completion($1,$2,$3,$4) AS result',
+        [tenantId,entityId,companyCode,periodCode]
+      )).rows[0]?.result;
+      const row=completion&&typeof completion==='object'?completion:null;
       if(!row)return null;
       return {
         status:'WBS_TEST_MONTH_IMPORT_COMPLETE',period_code:periodCode,date_from:row.starts_on,date_to:row.ends_on,page_size:10,
