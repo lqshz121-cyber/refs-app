@@ -31,7 +31,8 @@ assert.match(collapsedNavMarkup, /aria-label="Expand navigation panel" aria-expa
 assert.match(collapsedNavMarkup, /aria-expanded="false" aria-controls="authoritative-navigation-active-group" aria-label="Auto Reconciliation"/,
   'a collapsed secondary menu must not be announced as expanded by its active rail group');
 assert.doesNotMatch(reportNavMarkup, /authoritative-sidebar-direct/, 'the multi-page Reports workspace must expose its secondary navigation');
-assert.match(reportNavMarkup, /Financial statements/, 'the Reports workspace must expose its financial-statements page');
+assert.match(reportNavMarkup, /Standard reports/, 'the Reports workspace must expose its standard-reports page using the observed QBO catalog name');
+assert.doesNotMatch(reportNavMarkup, /Financial statements/, 'the report navigation must not use the narrower legacy label');
 assert.match(reportNavMarkup, /Accounting Analysis Report/, 'the Reports workspace must expose its AI analysis page');
 assert.doesNotMatch(journalNavMarkup, /Journal entries/, 'a one-page Journal workspace must not repeat its only child in a secondary menu');
 assert.match(reportNavMarkup, /aria-label="Accounting workspace navigation"/, 'the Reports secondary menu must retain its navigation landmark');

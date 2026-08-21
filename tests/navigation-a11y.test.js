@@ -9,6 +9,10 @@ const authoritativeShell=readFileSync('src/authoritative-navigation-shell.jsx','
 const ui=readFileSync('src/ui.jsx','utf8');
 const unavailableWorkspace=readFileSync('src/authoritative-unavailable-workspace.jsx','utf8');
 const styles=readFileSync('index.html','utf8');
+assert.equal(styles.startsWith('<!DOCTYPE html>\n<html lang="en">'),true,
+  'the production HTML source must begin with its doctype and may not contain tool output or warning text');
+assert.doesNotMatch(styles,/^Warning: truncated output|^Total output lines:/m,
+  'tool truncation diagnostics must never become visible production markup');
 assert.match(app,/<button className="mobile-nav-scrim" tabIndex=\{-1\} aria-label="Close navigation"/);
 assert.match(app,/<button className="mobile-nav-close" aria-label="Close navigation" onClick=\{\(\)=>setMobileNav\(false\)\}>Close<\/button>/);
 assert.match(app,/aria-expanded=\{isSingleton\?undefined:opened\}/,'multi-item group headers must expose expanded state');
