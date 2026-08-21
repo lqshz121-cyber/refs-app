@@ -32,7 +32,8 @@ try{
       min(s.payload->>'account') account_name,min(refs_jsonb_hash(s.payload)) setting_hash
     FROM scoped a LEFT JOIN wbs_h1_import.reference_row s ON s.domain='accounting_setting' AND s.company_code=a.company_code
       AND s.payload->>'business_type'='4' AND s.payload->>'category'='Payable' AND s.payload->>'type'='Debit'
-      AND s.payload->>'detail'=a.cost_code AND s.payload->>'pj_code'=a.company_code
+      AND s.payload->>'detail'=a.cost_code
+      AND (COALESCE(s.payload->>'pj_code','')='' OR a.project_code=ANY(regexp_split_to_array(s.payload->>'pj_code','\\s*,\\s*')))
       AND a.source_date BETWEEN (s.payload->>'start_date')::date AND (s.payload->>'end_date')::date
     GROUP BY a.company_code,a.wbs_uuid
   ), classified AS(

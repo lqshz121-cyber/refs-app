@@ -34,6 +34,12 @@ try{
     WHERE company_code=$1 AND COALESCE(review_status,'')<>'Y'
       AND COALESCE(NULLIF(posting_date,''),NULLIF(invoice_date,''),NULLIF(incurred_date,'')) BETWEEN '2026-01-01' AND '2026-06-30'
       AND amount ~ '^-?[0-9]+(\\.[0-9]+)?$' AND amount::numeric<>0
+      AND EXISTS(SELECT 1 FROM wbs_h1_import.reference_row s WHERE s.domain='accounting_setting'
+        AND s.company_code=ap_business.company_code AND s.payload->>'business_type'='4'
+        AND s.payload->>'category'='Payable' AND s.payload->>'type'='Debit' AND s.payload->>'detail'=ap_business.cost_code
+        AND (COALESCE(s.payload->>'pj_code','')='' OR ap_business.project_code=ANY(regexp_split_to_array(s.payload->>'pj_code','\\s*,\\s*')))
+        AND COALESCE(NULLIF(posting_date,''),NULLIF(invoice_date,''),NULLIF(incurred_date,''))::date
+          BETWEEN (s.payload->>'start_date')::date AND (s.payload->>'end_date')::date)
     ORDER BY (NULLIF(cost_code,'') IS NOT NULL) DESC,(NULLIF(project_code,'') IS NOT NULL) DESC,
       COALESCE(NULLIF(posting_date,''),NULLIF(invoice_date,''),NULLIF(incurred_date,'')),wbs_uuid LIMIT 1`,[companyCode])).rows[0];
   if(!candidate)throw new Error(`No eligible H1 2026 WBS Payable row found for ${companyCode}`);
@@ -51,9 +57,10 @@ try{
       payload->>'account' account_name,payload->>'start_date' starts_at,payload->>'end_date' ends_at
     FROM wbs_h1_import.reference_row
     WHERE domain='accounting_setting' AND company_code=$1 AND payload->>'business_type'='4'
-      AND payload->>'category'='Payable' AND payload->>'type'='Debit' AND payload->>'detail'=$2 AND payload->>'pj_code'=$1
+      AND payload->>'category'='Payable' AND payload->>'type'='Debit' AND payload->>'detail'=$2
+      AND (COALESCE(payload->>'pj_code','')='' OR $4=ANY(regexp_split_to_array(payload->>'pj_code','\\s*,\\s*')))
       AND $3::timestamp BETWEEN (payload->>'start_date')::timestamp AND (payload->>'end_date')::timestamp`,
-    [companyCode,candidate.cost_code,sourceDate])).rows;
+    [companyCode,candidate.cost_code,sourceDate,candidate.project_code])).rows;
   if(mappings.length!==1)throw new Error(`WBS Payable mapping is ${mappings.length===0?'missing':'ambiguous'} for the selected row`);
   const mapping=mappings[0];
   if(!/^[A-Z0-9][A-Z0-9._-]{1,31}$/i.test(mapping.account_code||'')||!mapping.account_name)throw new Error('WBS Payable mapping account is invalid');
