@@ -90,6 +90,7 @@
     "wbs:provider-signed-payables:admit": "node tools/admit-wbs-provider-signed-payables.mjs",
     "wbs:full-company-plan:verify": "node tools/verify-wbs-full-company-delivery-plan.mjs",
     "wbs:full-company-plan:build": "node tools/build-wbs-full-company-delivery-plan.mjs",
+    "wbs:h1:import-companies": "node tools/import-wbs-h1-all-companies.mjs",
     "test:wbs-provider-final1": "node --test tests/wbs-provider-final1-delivery.test.mjs tests/wbs-provider-final1-business-delivery.test.mjs tests/wbs-provider-final1-business-admission-contract.test.mjs",
     "test:wbs-provider-final1-normalizer": "node --test tests/wbs-provider-final1-payable-normalizer.test.mjs",
     "test:wbs-provider-final1-insurance": "node --test tests/wbs-provider-final1-insurance-normalizer.test.mjs",
