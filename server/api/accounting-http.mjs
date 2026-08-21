@@ -152,6 +152,19 @@ const optionalAdmittedStatementLimit=value=>{if(value==null||value==='')return 5
 const optionalAmortizationLimit=value=>{if(value==null||value==='')return 50;if(!/^[1-9]\d{0,2}$/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','limit must be an integer between 1 and 100');const limit=Number(value);if(limit>100)throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','limit must be an integer between 1 and 100');return limit;};
 const controlledTestAiSourceLimit=value=>{if(value==null)return 100;if(!/^[1-9]\d{0,2}$/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','limit must be an integer between 1 and 100');const limit=Number(value);if(limit>100)throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','limit must be an integer between 1 and 100');return limit;};
 const requireExactQuery=(searchParams,allowed)=>{const permitted=new Set(allowed);for(const key of searchParams.keys())if(!permitted.has(key))throw new AccountingApiError(400,'UNEXPECTED_QUERY_PARAMETER',`Unexpected query parameter: ${key}`);for(const key of allowed)if(searchParams.getAll(key).length>1)throw new AccountingApiError(400,'DUPLICATE_QUERY_PARAMETER',`Query parameter must not be repeated: ${key}`);};
+const assertAccountingScopeCatalog=value=>{
+  const keys=['base_currency','entity_code','entity_id','entity_name','period_code','period_end','period_id','period_start','period_status','source_entity_id'];
+  if(!Array.isArray(value))throw new AccountingApiError(500,'ACCOUNTING_SCOPE_CATALOG_INVALID','Accounting scope catalog must be an array');
+  const identities=new Set();
+  for(const row of value){
+    if(!row||typeof row!=='object'||Array.isArray(row)||Object.keys(row).length!==keys.length||keys.some(key=>!Object.hasOwn(row,key)))throw new AccountingApiError(500,'ACCOUNTING_SCOPE_CATALOG_INVALID','Accounting scope catalog row has an invalid shape');
+    if(!UUID.test(row.entity_id||'')||!UUID.test(row.period_id||'')||typeof row.entity_name!=='string'||!row.entity_name.trim()||typeof row.entity_code!=='string'||!row.entity_code.trim()||typeof row.source_entity_id!=='string'||!row.source_entity_id.trim()||!/^[A-Z]{3}$/.test(row.base_currency||'')||!/^\d{4}-\d{2}$/.test(row.period_code||'')||!/^\d{4}-\d{2}-\d{2}$/.test(row.period_start||'')||!/^\d{4}-\d{2}-\d{2}$/.test(row.period_end||'')||!['OPEN','SOFT_CLOSED','CLOSED'].includes(row.period_status))throw new AccountingApiError(500,'ACCOUNTING_SCOPE_CATALOG_INVALID','Accounting scope catalog row contains invalid values');
+    const start=new Date(`${row.period_start}T00:00:00.000Z`),end=new Date(`${row.period_end}T00:00:00.000Z`);
+    if(start.toISOString().slice(0,10)!==row.period_start||end.toISOString().slice(0,10)!==row.period_end||row.period_start>row.period_end||row.period_code!==row.period_start.slice(0,7)||row.period_code!==row.period_end.slice(0,7))throw new AccountingApiError(500,'ACCOUNTING_SCOPE_CATALOG_INVALID','Accounting scope dates are inconsistent');
+    const identity=`${row.entity_id}:${row.period_id}`;if(identities.has(identity))throw new AccountingApiError(500,'ACCOUNTING_SCOPE_CATALOG_INVALID','Accounting scope catalog contains a duplicate');identities.add(identity);
+  }
+  return value;
+};
 const requireIdempotency=headers=>{const value=header(headers,'idempotency-key');if(typeof value!=='string'||value.length<8||value.length>200)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_REQUIRED','Idempotency-Key must be 8-200 characters');return value;};
 const requireRevision=headers=>{const raw=header(headers,'if-match');if(raw==null)throw new AccountingApiError(428,'IF_MATCH_REQUIRED','If-Match is required');const value=String(raw).trim();if(value.startsWith('W/'))throw new AccountingApiError(412,'WEAK_IF_MATCH_REJECTED','If-Match must use a strong revision validator');const match=/^"(\d+)"$/.exec(value);if(!match)throw new AccountingApiError(400,'INVALID_IF_MATCH','If-Match must be a quoted non-negative strong revision');const revision=Number(match[1]);if(!Number.isSafeInteger(revision))throw new AccountingApiError(400,'INVALID_IF_MATCH','If-Match must contain a safe non-negative revision');return revision;};
 const requireReviewReason=value=>{if(typeof value!=='string'||value!==value.trim()||value.length<8||value.length>2000||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_REASON','reason must be a canonical 8-2000 character review explanation');return value;};
@@ -211,6 +224,15 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       const principal=await authenticate({method,url,headers});
       if(!principal||principal.trusted!==true||!UUID.test(principal.tenantId||'')||!principal.actorId)throw new AccountingApiError(401,'AUTHENTICATION_REQUIRED','Authenticated principal is required');
       const parsedUrl=new URL(url,'http://refs.local');const pathname=parsedUrl.pathname;const parts=pathname.split('/').filter(Boolean);
+      if(parts[0]==='api'&&parts[1]==='v1'&&parts.length===3&&parts[2]==='accounting-scopes'){
+        if(method!=='GET')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Accounting scope reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.listAccountingScopes!=='function')throw new AccountingApiError(503,'ACCOUNTING_SCOPE_CATALOG_UNAVAILABLE','Accounting scope catalog is unavailable');
+        const scopes=assertAccountingScopeCatalog(await kernel.listAccountingScopes({tenantId:principal.tenantId}));
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:scopes}};
+      }
       if(parts[0]!=='api'||parts[1]!=='v1'||parts[2]!=='entities')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
       const entityId=requireUuid(parts[3],'entityId');const payload=method==='GET'&&body==null?{}:validateBody(body);
       let result;

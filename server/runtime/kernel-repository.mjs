@@ -50,6 +50,22 @@ export class PostgresAccountingKernel{
     ),'CONTROLLED_DEMO_TENANT_NOT_FOUND','Controlled DEMO tenant status is unavailable'));
   }
 
+  async listAccountingScopes({tenantId}){
+    return this.inSession(async client=>(await client.query(`
+      SELECT e.entity_id,e.name AS entity_name,e.entity_code,e.base_currency,
+        e.source_entity_id,p.period_id,p.period_code,p.starts_on AS period_start,
+        p.ends_on AS period_end,p.status::text AS period_status
+      FROM entity e
+      JOIN accounting_period p ON p.tenant_id=e.tenant_id AND p.entity_id=e.entity_id
+      WHERE e.tenant_id=$1 AND e.active AND refs_entity_allowed(e.entity_id) IS TRUE
+      ORDER BY e.name,e.entity_code,p.starts_on DESC,p.period_id
+    `,[tenantId])).rows.map(row=>({
+      ...row,
+      period_start:publicDate(row.period_start),
+      period_end:publicDate(row.period_end),
+    })));
+  }
+
   async updateDraftDescription({tenantId,entityId,journalEntryId,expectedRevision,description,idempotencyKey,requestHash}){
     requestHash=canonicalRequestHash({tenantId,entityId,journalEntryId,expectedRevision,description});
     return this.inSession(async client=>{
