@@ -55,10 +55,14 @@ export async function provisionWbsCompanyScopes({pool,tenantId,templateEntityId,
     await client.query('BEGIN');
     const template=(await client.query(`SELECT entity_id::text,source_system,source_entity_id,base_currency FROM entity
       WHERE tenant_id=$1 AND entity_id=$2 AND active FOR UPDATE`,[tenantId,templateEntityId])).rows[0];
-    if(!template||template.source_system!=='WBS'||template.source_entity_id!=='WBPA'||template.base_currency!=='USD')throw new Error('The configured REFS staging entity is not the expected WBS WBPA scope');
+    const expectedTemplate=template&&template.base_currency==='USD'&&(
+      (template.source_system==='REFS_STAGE1'&&template.source_entity_id==='REFS_US_001')||
+      (template.source_system==='WBS'&&template.source_entity_id==='WBPA')
+    );
+    if(!expectedTemplate)throw new Error('The configured REFS staging entity is not the expected legacy or WBS WBPA scope');
     const wbpa=catalog.companies.find(row=>row.company_code==='WBPA');
     if(!wbpa)throw new Error('The WBS company catalog does not contain WBPA');
-    await client.query(`UPDATE entity SET entity_code='WBPA',name=$3
+    await client.query(`UPDATE entity SET entity_code='WBPA',source_system='WBS',source_entity_id='WBPA',name=$3
       WHERE tenant_id=$1 AND entity_id=$2`,[tenantId,templateEntityId,wbpa.company_name]);
     let created=0,reused=0;
     for(const company of catalog.companies){
