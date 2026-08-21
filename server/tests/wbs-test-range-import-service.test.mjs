@@ -9,7 +9,7 @@ const scope={tenantId,entityId,companyCode:'WBPA',actors};
 const digest=value=>value.length===64?value:value.repeat(64),hash=value=>`sha256:${digest(value)}`;
 const observation=(tool,identity,date='2026-01-15')=>({schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool,environment:'PRODUCTION',entity_id:entityId,captured_at:'2026-08-19T12:00:00.000Z',provider_content_sha256:digest(identity),scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-01-31']},record_count:1,rows:[tool==='list_payables'?{source_record_hash:hash(identity),currency:'USD',accounting_date:date,amount:'10.0000',status:'OPEN'}:{source_record_hash:hash(identity),currency:'USD',accounting_date:date,amount:'20.0000',direction:'DEBIT',status:'OPEN'}],signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash(identity)});
 
-function harness({duplicate=false,loop=false,identityMismatch=false,identityMismatchTool=null,outOfOrder=false,reverseRows=false,repartition=null,payableCount=2,payableDates=null,bankCount=2,bankPartial=false,tokenMode=false,pipelineDelayMs=0,failWorkflowIndexes=[],serializeWorkflowIndexes=[],completedReceipt=null}={}){
+function harness({duplicate=false,loop=false,identityMismatch=false,identityMismatchTool=null,outOfOrder=false,reverseRows=false,repartition=null,payableCount=2,payableDates=null,bankCount=2,bankPartial=false,tokenMode=false,pipelineDelayMs=0,failWorkflowIndexes=[],serializeWorkflowIndexes=[],completedReceipt=null,resolveScope=null}={}){
   const calls=[];let draft=0,bank=0,active=0,maxActive=0,completed=0;const draftReceipts=new Map(),postReceipts=new Map(),bankReceipts=new Map(),workflowFailures=new Set(failWorkflowIndexes),serializationFailures=new Set(serializeWorkflowIndexes),journalSourceIndexes=new Map();
   const page=(tool,facts)=>{const base=observation(tool,facts[0][0],facts[0][1]),rows=facts.map(([letter,date])=>observation(tool,letter,date).rows[0]);return {...base,record_count:rows.length,rows};};
   const payableFacts=repartition?[['a','2026-01-15'],['b','2026-01-20'],['c','2026-01-30']]:Array.from({length:payableCount},(_,index)=>[(index+1).toString(16).padStart(2,'0').repeat(32),payableDates?.[index]||`2026-01-${String(10+(index%20)).padStart(2,'0')}`]),bankFacts=repartition?[['d','2026-01-15'],['e','2026-01-20'],['f','2026-01-30']]:Array.from({length:bankCount},(_,index)=>([(10000+index).toString(16).padStart(4,'0').repeat(16),`2026-01-${String(10+(index%20)).padStart(2,'0')}`]));
@@ -28,7 +28,8 @@ function harness({duplicate=false,loop=false,identityMismatch=false,identityMism
     async finalizeWbsTestImportSource(args){calls.push(['finalize',actor,args]);if(pipelineDelayMs)await new Promise(resolve=>setTimeout(resolve,pipelineDelayMs));active--;completed++;return {status:'POSTED',test_only:true,idempotent:false};},
     async createWbsControlledTestBankScope(args){calls.push(['bank',actor,args]);const capabilities={can_import:false,can_match:false,can_create_draft:false,can_post:false};if(bankPartial)return {status:'WBS_TEST_BANK_IMPORT_PARTIAL',stage_id:uuid(999),next_chunk_index:20,chunk_count:Math.ceil(args.observation.rows.length/100),transaction_count:args.observation.rows.length,test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',idempotent:false,...capabilities};if(bankReceipts.has(args.idempotencyKey))return {...bankReceipts.get(args.idempotencyKey),idempotent:true};const n=++bank,ids=args.observation.rows.map((_,index)=>uuid(120+n+index)),result={wbs_controlled_test_bank_import_id:uuid(100+n),reconciliation_id:uuid(110+n),bank_source_ids:ids,bank_account_ref:args.bankAccountRef,statement_ending_date:args.observation.rows.at(-1).accounting_date,transaction_count:ids.length,status:'DRAFT',provenance_mode:'CONTROLLED_TEST_UNSIGNED',test_only:true,idempotent:false,...capabilities};bankReceipts.set(args.idempotencyKey,result);return result;}
   });
-  return {calls,deltaCount:()=>draftReceipts.size+postReceipts.size+bankReceipts.size,activity:()=>({active,maxActive,completed}),clearWorkflowFailures:()=>workflowFailures.clear(),service:createWbsTestImportService({pilotService,kernelForActor,authorizeBank:async args=>calls.push(['authorize',args]),scope})};
+  const scopeResolver=resolveScope===null?null:async args=>{calls.push(['resolve',args]);return resolveScope(args);};
+  return {calls,deltaCount:()=>draftReceipts.size+postReceipts.size+bankReceipts.size,activity:()=>({active,maxActive,completed}),clearWorkflowFailures:()=>workflowFailures.clear(),service:createWbsTestImportService({pilotService,kernelForActor,authorizeBank:async args=>calls.push(['authorize',args]),scope,resolveScope:scopeResolver})};
 }
 
 const input={tenantId,entityId,companyCode:'WBPA',dateFrom:'2026-01-01',dateTo:'2026-01-31',pageSize:10,maxPages:1000,idempotencyKey:'wbs-month-2026-01-v1'};
@@ -37,6 +38,22 @@ test('returns an already completed month before any Provider reread or accountin
   const completedReceipt={status:'WBS_TEST_MONTH_IMPORT_COMPLETE',period_code:'2026-01',date_from:'2026-01-01',date_to:'2026-01-31',page_size:10,payables:{provider_page_count:124,h1_record_count:1237,record_count:280,imported_count:0,replayed_count:280,posted_count:280},bank:{provider_page_count:189,record_count:1888,reconciliation:{bank_account_ref:'WBS_TEST_BANK_2026_01',period_code:'2026-01',period_id:uuid(201),reconciliation_id:uuid(301),transaction_count:1888},bank_source_count:1888},test_only:true};
   const {service,calls}=harness({completedReceipt}),result=await service.importRange(input);
   assert.deepEqual(result,completedReceipt);assert.deepEqual(calls.map(([kind])=>kind),['authorize','receipt']);
+});
+
+test('resolves a provisioned WBS company entity instead of pinning every import to WBPA',async()=>{
+  const alternateEntity=uuid(77),alternateCompany='WBS_ALT',completedReceipt={status:'WBS_TEST_MONTH_IMPORT_COMPLETE',period_code:'2026-01',date_from:'2026-01-01',date_to:'2026-01-31',page_size:10,payables:{provider_page_count:1,h1_record_count:1,record_count:1,imported_count:0,replayed_count:1,posted_count:1},bank:{provider_page_count:1,record_count:1,reconciliation:{bank_account_ref:'WBS_TEST_BANK_2026_01',period_code:'2026-01',period_id:uuid(201),reconciliation_id:uuid(301),transaction_count:1},bank_source_count:1},test_only:true};
+  const fixture=harness({completedReceipt,resolveScope:async args=>({tenantId:args.tenantId,entityId:alternateEntity,companyCode:alternateCompany})});
+  const result=await fixture.service.importRange({...input,entityId:alternateEntity,companyCode:alternateCompany});
+  assert.deepEqual(result,completedReceipt);
+  assert.deepEqual(fixture.calls.map(([kind])=>kind),['resolve','authorize','receipt']);
+  assert.deepEqual(fixture.calls[0][1],{tenantId,entityId:alternateEntity,companyCode:alternateCompany});
+  assert.equal(fixture.calls[2][2].entityId,alternateEntity);
+});
+
+test('fails closed when the requested company does not match the provisioned entity',async()=>{
+  const fixture=harness({resolveScope:async()=>({tenantId,entityId:uuid(77),companyCode:'WBS_OTHER'})});
+  await assert.rejects(fixture.service.importRange({...input,entityId:uuid(77),companyCode:'WBS_ALT'}),error=>error.code==='WBS_TEST_IMPORT_SCOPE_DENIED');
+  assert.deepEqual(fixture.calls.map(([kind])=>kind),['resolve']);
 });
 
 test('reads every real cursor-only page despite changing capture times before any monthly accounting write',async()=>{
