@@ -66,6 +66,44 @@ export class PostgresAccountingKernel{
     })));
   }
 
+  async readCompletedWbsTestMonthImport({tenantId,entityId,companyCode,periodCode}){
+    return this.inSession(async client=>{
+      const row=(await client.query(`
+        WITH period_scope AS (
+          SELECT period_id,starts_on,ends_on
+          FROM accounting_period
+          WHERE tenant_id=$1 AND entity_id=$2 AND period_code=$4
+            AND starts_on=($4||'-01')::date AND status='OPEN'
+        ), payable AS (
+          SELECT count(*) FILTER (WHERE s.accounting_date BETWEEN DATE '2026-01-01' AND DATE '2026-06-30')::integer AS h1_count,
+            count(*) FILTER (WHERE s.accounting_date BETWEEN p.starts_on AND p.ends_on)::integer AS month_count,
+            bool_and(s.status='POSTED' AND j.status='POSTED') AS all_posted
+          FROM period_scope p
+          JOIN wbs_test_import_draft d ON d.tenant_id=$1 AND d.entity_id=$2
+          JOIN source_document s ON s.tenant_id=d.tenant_id AND s.entity_id=d.entity_id AND s.source_document_id=d.source_document_id
+          JOIN journal_entry j ON j.tenant_id=d.tenant_id AND j.entity_id=d.entity_id AND j.journal_entry_id=d.journal_entry_id
+        ), bank AS (
+          SELECT count(*)::integer AS import_count,coalesce(sum(b.row_count),0)::integer AS row_count,
+            (array_agg(b.reconciliation_id ORDER BY b.reconciliation_id) FILTER (WHERE b.reconciliation_id IS NOT NULL))[1]::text AS reconciliation_id
+          FROM period_scope p
+          LEFT JOIN wbs_controlled_test_bank_import b ON b.tenant_id=$1 AND b.entity_id=$2
+            AND b.period_id=p.period_id AND b.company_code=$3
+            AND b.bank_account_ref='WBS_TEST_BANK_'||replace($4,'-','_')
+        )
+        SELECT p.period_id::text,p.starts_on::text,p.ends_on::text,q.h1_count,q.month_count,q.all_posted,
+          b.import_count,b.row_count,b.reconciliation_id
+        FROM period_scope p CROSS JOIN payable q CROSS JOIN bank b
+        WHERE q.h1_count>0 AND q.all_posted IS TRUE AND b.import_count=1 AND b.row_count>0
+      `,[tenantId,entityId,companyCode,periodCode])).rows[0];
+      if(!row)return null;
+      return {
+        status:'WBS_TEST_MONTH_IMPORT_COMPLETE',period_code:periodCode,date_from:row.starts_on,date_to:row.ends_on,page_size:10,
+        payables:{provider_page_count:Math.ceil(row.h1_count/10),h1_record_count:row.h1_count,record_count:row.month_count,imported_count:0,replayed_count:row.month_count,posted_count:row.month_count},
+        bank:{provider_page_count:Math.ceil(row.row_count/10),record_count:row.row_count,reconciliation:{bank_account_ref:`WBS_TEST_BANK_${periodCode.replace('-','_')}`,period_code:periodCode,period_id:row.period_id,reconciliation_id:row.reconciliation_id,transaction_count:row.row_count},bank_source_count:row.row_count},test_only:true
+      };
+    });
+  }
+
   async updateDraftDescription({tenantId,entityId,journalEntryId,expectedRevision,description,idempotencyKey,requestHash}){
     requestHash=canonicalRequestHash({tenantId,entityId,journalEntryId,expectedRevision,description});
     return this.inSession(async client=>{
