@@ -89,7 +89,7 @@ export class PostgresAccountingKernel{
             AND b.period_id=p.period_id AND b.company_code=$3
             AND b.bank_account_ref='WBS_TEST_BANK_'||replace($4,'-','_')
         )
-        SELECT p.period_id::text,p.starts_on::text,p.ends_on::text,q.h1_count,q.month_count,q.all_posted,
+        SELECT p.period_id::text,p.starts_on::text,p.ends_on::text,q.h1_count,q.month_count,
           b.import_count,b.row_count,b.reconciliation_id
         FROM period_scope p CROSS JOIN payable q CROSS JOIN bank b
         -- The final Bank import row is written only after the service has
