@@ -37,9 +37,9 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Entity-scoped source-document list and immutable detail endpoints.',
       'Separate authorised attachment-read contract; upload and finalise endpoints are not a document reader.',
     ]),
-    item('integration-hub', 'Integration Hub', 'API_UNAVAILABLE', [
-      'Read-only connector health, immutable receipt, and source-version evidence scoped to this entity.',
-      'No provider synchronisation control is shown until a server-authorised contract exists.',
+    item('integration-hub', 'WBS Data Import', 'API_READ', [
+      'Read production WBS Payables, Bank, AutoRec and Journal evidence for one explicit company and date scope.',
+      'The controlled H1 test import remains server-authorised, TEST ONLY, company-scoped and fully auditable.',
     ]),
     item('mapping-exceptions', 'Mapping Exceptions', 'API_UNAVAILABLE', [
       'Entity- and period-scoped exception read model with mapping version, reason, and retained audit evidence.',
@@ -86,7 +86,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
   group('Payables & Receivables', [
     item('payables', 'Bills & expenses', 'API_READ'), item('receivables', 'Invoices & receipts', 'API_READ'),
   ]),
-  group('Reports', [item('reports', 'Financial statements', 'API_READ')]),
+  group('Reports', [item('reports', 'Standard reports', 'API_READ'),item('accounting-analysis-report', 'Accounting Analysis Report', 'API_READ')]),
   group('Administration', [
     item('master-data', 'Master Data'), item('bank-accounts', 'Bank Accounts'),
     item('audit-log', 'Audit Log'), item('users-settings', 'Users & settings'),

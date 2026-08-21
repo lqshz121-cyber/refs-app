@@ -1,0 +1,27 @@
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SHA256=/^sha256:[0-9a-f]{64}$/;
+const DATE=/^\d{4}-\d{2}-\d{2}$/;
+const MONEY4=/^-[1-9]\d*\.\d{4}$/;
+const POSITIVE_MONEY4=/^(?:0|[1-9]\d*)\.\d{4}$/;
+const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+const text=(value,max)=>typeof value==='string'&&value.trim().length>0&&value.trim().length<=max&&!/[\u0000-\u001f\u007f]/.test(value);
+const validDate=value=>typeof value==='string'&&DATE.test(value)&&!Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+const units=value=>BigInt(value.replace('.',''));
+const validRow=row=>row&&typeof row==='object'&&!Array.isArray(row)&&UUID.test(row.bank_source_id||'')&&UUID.test(row.source_document_id||'')&&UUID.test(row.source_document_line_id||'')&&SHA256.test(row.source_payload_hash||'')&&SHA256.test(row.source_line_hash||'')&&UUID.test(row.entity_id||'')&&UUID.test(row.accounting_period_id||'')&&text(row.bank_account_ref,128)&&text(row.external_bank_line_id,256)&&validDate(row.transaction_date)&&/^[A-Z]{3}$/.test(row.currency||'')&&MONEY4.test(row.amount||'')&&(row.counterparty_name===null||text(row.counterparty_name,256))&&(row.bank_memo===null||text(row.bank_memo,1000))&&row.source_admission_status==='ADMITTED'&&row.signature_verified===true;
+const validPolicy=policy=>policy&&policy.schema_version==='AI_BANK_UNUSUAL_PAYMENT_POLICY_V1'&&UUID.test(policy.setting_snapshot_id||'')&&SHA256.test(policy.setting_snapshot_hash||'')&&Number.isSafeInteger(policy.policy_version)&&policy.policy_version>=1&&POSITIVE_MONEY4.test(policy.minimum_absolute_payment||'')&&units(policy.minimum_absolute_payment)>0n&&Array.isArray(policy.weekend_days)&&policy.weekend_days.length>0&&policy.weekend_days.length<=7&&policy.weekend_days.every(day=>Number.isInteger(day)&&day>=0&&day<=6)&&new Set(policy.weekend_days).size===policy.weekend_days.length&&Array.isArray(policy.holiday_dates)&&policy.holiday_dates.length<=366&&policy.holiday_dates.every(validDate)&&new Set(policy.holiday_dates).size===policy.holiday_dates.length;
+
+export function detectUnusualBankPayments(rows,{currentAccountingPeriodId,policy,limit=500}={}){
+  if(!Array.isArray(rows)||rows.length>500||!UUID.test(currentAccountingPeriodId||'')||!Number.isSafeInteger(limit)||limit<1||limit>500)throw Object.assign(new Error('Unusual bank-payment analysis requires one accounting period and at most 500 retained bank rows.'),{code:'AI_BANK_UNUSUAL_PAYMENT_SCOPE_INVALID'});
+  if(!validPolicy(policy))throw Object.assign(new Error('Unusual bank-payment analysis requires an approved hash-bound business-calendar policy.'),{code:'AI_BANK_UNUSUAL_PAYMENT_POLICY_REQUIRED'});
+  if(rows.some(row=>!validRow(row)))throw Object.assign(new Error('Unusual bank-payment analysis accepts only complete admitted signed payment evidence.'),{code:'AI_BANK_UNUSUAL_PAYMENT_SOURCE_INVALID'});
+  const holidayDates=new Set(policy.holiday_dates),findings=[];
+  for(const row of rows){
+    if(row.accounting_period_id!==currentAccountingPeriodId||-units(row.amount)<units(policy.minimum_absolute_payment))continue;
+    const day=new Date(`${row.transaction_date}T00:00:00Z`).getUTCDay(),isWeekend=policy.weekend_days.includes(day),isHoliday=holidayDates.has(row.transaction_date);
+    if(!isWeekend&&!isHoliday)continue;
+    const ruleIds=[];if(isWeekend)ruleIds.push('BANK_PAYMENT_WEEKEND_DATE');if(isHoliday)ruleIds.push('BANK_PAYMENT_APPROVED_HOLIDAY_DATE');
+    findings.push(Object.freeze({schema_version:'AI_BANK_UNUSUAL_PAYMENT_FINDING_V1',finding_type:'BANK_PAYMENT_UNUSUAL_TIMING',risk_level:isHoliday&&isWeekend?'HIGH':'MEDIUM',rule_ids:Object.freeze(ruleIds),entity_id:row.entity_id,accounting_period_id:row.accounting_period_id,bank_account_ref:row.bank_account_ref,transaction_date:row.transaction_date,currency:row.currency,amount:row.amount,counterparty_name:row.counterparty_name,bank_memo:row.bank_memo,source_trace:Object.freeze({bank_source_id:row.bank_source_id,source_document_id:row.source_document_id,source_document_line_id:row.source_document_line_id,source_payload_hash:row.source_payload_hash,source_line_hash:row.source_line_hash,external_bank_line_id:row.external_bank_line_id}),reason:`A retained bank payment of ${row.currency} ${row.amount.slice(1)} occurred on ${isWeekend?'an approved weekend day':'an approved holiday'}${isWeekend&&isHoliday?' that is also in the approved holiday calendar':''}.`,suggested_action:'Verify the payee, invoice or contract, payment approval, bank memo, entity, urgency, and preparer-approver separation before reconciliation close. Unusual timing alone is not proof of an invalid payment.',confidence:isHoliday&&isWeekend?0.94:0.86,owner_role:'CONTROLLER_REVIEW',due_basis:'BEFORE_BANK_RECONCILIATION_CLOSE',required_human_fields:Object.freeze(['payee_identity','invoice_or_contract_support','payment_approval','business_urgency','preparer_approver_separation','valid_or_suspicious_conclusion','resolution_reason']),policy_evidence:Object.freeze({...policy,weekend_days:Object.freeze([...policy.weekend_days]),holiday_dates:Object.freeze([...policy.holiday_dates])}),action_flags:ACTIONS}));
+    if(findings.length===limit)break;
+  }
+  return Object.freeze({schema_version:'AI_BANK_UNUSUAL_PAYMENT_BATCH_V1',current_accounting_period_id:currentAccountingPeriodId,scanned_payment_count:rows.filter(row=>row.accounting_period_id===currentAccountingPeriodId).length,finding_count:findings.length,findings:Object.freeze(findings),action_flags:ACTIONS});
+}

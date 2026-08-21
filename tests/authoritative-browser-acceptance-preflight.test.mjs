@@ -21,9 +21,13 @@ assert.match(styles,/\.authoritative-list-filters input,\.authoritative-list-fil
 assert.match(styles,/@media \(max-width:1400px\)\{\.authoritative-list-filters\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\);/);
 assert.match(styles,/@media \(max-width:720px\)\{[\s\S]*?\.authoritative-list-filters\{grid-template-columns:minmax\(0,1fr\);/);
 assert.match(styles,/input:focus-visible,select:focus-visible,textarea:focus-visible\{/);
-assert.match(workspace,/<label>\{bill\?'Vendor':'Customer'\} <select/);
+assert.match(workspace,/<label>\{bill\?'Payee':'Customer'\} <select/);
 assert.match(workspace,/className="authoritative-list-more-filters"/);
-assert.match(workspace,/open=\{moreFilterCount>0\|\|undefined\}/);
+assert.match(workspace,/onToggle=\{event=>\{if\(event\.currentTarget\.open\)setFilterDraft/);
+assert.match(workspace,/placeholder="YYYY-MM-DD"/);
+assert.doesNotMatch(workspace,/<input type="date"[^>]*filterDraft/);
+assert.match(workspace,/disabled=\{invalidDateFilter\} onClick=\{\(\)=>change\(filterDraft\)\}>Apply<\/button>/);
+assert.match(workspace,/>Reset filters<\/button>/,'staged secondary filters must not remove the existing all-filter reset');
 assert.match(sourceDocuments,/detailReturnRef\.current/);
 assert.doesNotMatch(`${workspace}\n${navigationShell}`,/localStorage|sessionStorage|seed\.js|repo\.js|legacy-demo-app/);
 // Provider trace is bundled as a read-only parser/UI contract. Authenticated

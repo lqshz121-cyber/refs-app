@@ -1,0 +1,22 @@
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SHA256=/^sha256:[0-9a-f]{64}$/;
+const MONEY4=/^-?(?:0|[1-9]\d{0,15})\.\d{4}$/;
+const DATE=/^\d{4}-\d{2}-\d{2}$/;
+const PERIOD=/^\d{4}-(?:0[1-9]|1[0-2])$/;
+const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+const text=(value,max)=>typeof value==='string'&&value.trim().length>0&&value.trim().length<=max;
+const valid=row=>row&&typeof row==='object'&&!Array.isArray(row)&&UUID.test(row.entity_id||'')&&UUID.test(row.current_accounting_period_id||'')&&UUID.test(row.invoice_accounting_period_id||'')&&UUID.test(row.business_document_id||'')&&UUID.test(row.source_document_id||'')&&UUID.test(row.posted_journal_entry_id||'')&&SHA256.test(row.source_payload_hash||'')&&text(row.vendor_ref,200)&&text(row.vendor_name,300)&&text(row.document_number,200)&&/^[A-Z]{3}$/.test(row.currency||'')&&MONEY4.test(row.gross_amount||'')&&DATE.test(row.invoice_business_date||'')&&DATE.test(row.accounting_date||'')&&DATE.test(row.current_period_starts_on||'')&&DATE.test(row.current_period_ends_on||'')&&PERIOD.test(row.current_period_code||'')&&PERIOD.test(row.invoice_period_code||'')&&['OPEN','SOFT_CLOSED','CLOSED'].includes(row.invoice_period_status)&&row.posted_journal_status==='POSTED';
+
+export function detectApInvoiceCutoffRisks(rows,{currentAccountingPeriodId}={}){
+  if(!Array.isArray(rows)||rows.length>2000||!UUID.test(currentAccountingPeriodId||''))throw Object.assign(new Error('AP invoice cutoff analysis scope is invalid.'),{code:'AI_AP_INVOICE_CUTOFF_SCOPE_INVALID'});
+  if(rows.some(row=>!valid(row)))throw Object.assign(new Error('AP invoice cutoff review accepts only source-bound Posted AP evidence with exact accounting-period resolution.'),{code:'AI_AP_INVOICE_CUTOFF_SOURCE_INVALID'});
+  if(new Set(rows.map(row=>row.business_document_id)).size!==rows.length)throw Object.assign(new Error('AP invoice cutoff review requires unique business-document evidence.'),{code:'AI_AP_INVOICE_CUTOFF_SOURCE_DUPLICATE'});
+  const findings=[];
+  for(const row of rows){
+    if(row.current_accounting_period_id!==currentAccountingPeriodId||row.accounting_date<row.current_period_starts_on||row.accounting_date>row.current_period_ends_on)throw Object.assign(new Error('AP invoice accounting date is outside the selected authoritative period.'),{code:'AI_AP_INVOICE_CUTOFF_PERIOD_MISMATCH'});
+    if(row.invoice_business_date>=row.current_period_starts_on)continue;
+    const risk=row.invoice_period_status==='CLOSED'?'HIGH':'MEDIUM';
+    findings.push(Object.freeze({schema_version:'AI_AP_INVOICE_CUTOFF_FINDING_V1',finding_type:'AP_INVOICE_PRIOR_PERIOD_CUTOFF_RISK',risk_level:risk,rule_id:'AI_AP_INVOICE_BUSINESS_DATE_VS_POSTED_PERIOD_V1',entity_id:row.entity_id,accounting_period_id:row.current_accounting_period_id,current_period_code:row.current_period_code,invoice_period_id:row.invoice_accounting_period_id,invoice_period_code:row.invoice_period_code,invoice_period_status:row.invoice_period_status,vendor_ref:row.vendor_ref,vendor_name:row.vendor_name,document_number:row.document_number,currency:row.currency,gross_amount:row.gross_amount,invoice_business_date:row.invoice_business_date,accounting_date:row.accounting_date,source_trace:Object.freeze({business_document_id:row.business_document_id,source_document_id:row.source_document_id,source_payload_hash:row.source_payload_hash,posted_journal_entry_id:row.posted_journal_entry_id}),reason:`The invoice business date resolves to ${row.invoice_period_code}, but the Posted AP document is recorded in ${row.current_period_code}.`,suggested_action:'Verify the goods-or-services receipt date, invoice receipt date, prior-period close status, materiality, and approved cutoff policy before concluding whether a reviewed adjustment or current-period treatment is appropriate.',confidence:row.invoice_period_status==='CLOSED'?0.99:0.92,owner_role:'CONTROLLER_REVIEW',due_basis:'BEFORE_PERIOD_CLOSE',required_human_fields:Object.freeze(['goods_services_received_date','invoice_received_date','source_completeness','prior_period_close_assessment','materiality_assessment','account_mapping','cutoff_conclusion','resolution_reason']),action_flags:ACTIONS}));
+  }
+  return Object.freeze({schema_version:'AI_AP_INVOICE_CUTOFF_BATCH_V1',current_accounting_period_id:currentAccountingPeriodId,scanned_posted_invoice_count:rows.length,finding_count:findings.length,findings:Object.freeze(findings),action_flags:ACTIONS});
+}

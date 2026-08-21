@@ -128,11 +128,11 @@ assert.equal(navDrawerIsInert(true, true), false, 'an open drawer must never be 
 assert.equal(navDrawerIsInert(false, false), false,
   'a desktop drawer is permanently visible and must never be inert - inerting it would make the product unnavigable');
 assert.equal(navDrawerIsInert(false, true), false, 'a desktop drawer must never be inert');
-assert.deepEqual(navDrawerAttributes(true, false), { inert: '', 'aria-hidden': 'true' },
+assert.deepEqual(navDrawerAttributes(true, false), { inert: '', 'aria-hidden': 'true', role: undefined, 'aria-modal': undefined, 'aria-label': undefined },
   'the closed off-canvas drawer must leave both the tab order and the accessibility tree');
-assert.deepEqual(navDrawerAttributes(true, true), { inert: undefined, 'aria-hidden': undefined },
-  'the open drawer must be fully reachable');
-assert.deepEqual(navDrawerAttributes(false, false), { inert: undefined, 'aria-hidden': undefined });
+assert.deepEqual(navDrawerAttributes(true, true), { inert: undefined, 'aria-hidden': undefined, role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Navigation menu' },
+  'the open drawer must be fully reachable and announced as a modal navigation dialog');
+assert.deepEqual(navDrawerAttributes(false, false), { inert: undefined, 'aria-hidden': undefined, role: undefined, 'aria-modal': undefined, 'aria-label': undefined });
 // React 18 drops a boolean `true` for an attribute it does not know. The empty
 // string is the HTML spelling of a present boolean attribute.
 assert.equal(navDrawerAttributes(true, false).inert, '',

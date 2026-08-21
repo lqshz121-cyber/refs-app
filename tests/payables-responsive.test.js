@@ -12,12 +12,16 @@ assert.match(workspace,/authoritative-list-filters authoritative-compact-list-fi
   'the responsive contract must cover the shared authoritative AP/AR filter surface');
 assert.match(workspace,/className="authoritative-list-more-filters"/,
   'secondary AP/AR filters must use one keyboard-native collapsed disclosure');
-assert.match(workspace,/<summary>More filters\{moreFilterCount\?/,
-  'the collapsed disclosure must surface the active secondary-filter count');
-assert.match(workspace,/<label>\{bill\?'Vendor':'Customer'\} <select/,
-  'the responsive contract must retain the authoritative Vendor and Customer selectors');
+assert.match(workspace,/<summary>\{bill\?'Filter':'More filters'\}\{moreFilterCount\?/,
+  'the collapsed disclosure must use the observed concise Expenses label and surface the active secondary-filter count');
+assert.match(workspace,/<label>\{bill\?'Payee':'Customer'\} <select/,
+  'the responsive contract must retain the observed AP Payee and authoritative AR Customer selectors');
+assert.match(workspace,/type="text" inputMode="numeric" autoComplete="off" maxLength=\{10\} pattern="\[0-9\]\{4\}-\[0-9\]\{2\}-\[0-9\]\{2\}" placeholder="YYYY-MM-DD"/,
+  'date filters must expose one stable English YYYY-MM-DD contract instead of a browser-localized native control');
+assert.doesNotMatch(workspace,/<input type="date"[^>]*filterDraft/,
+  'AP/AR filter dates must never regress to locale-dependent native placeholders');
 assert.match(styles,/\.authoritative-compact-list-filters\{grid-template-columns:minmax\(220px,2fr\) minmax\(150px,1fr\) auto auto auto;\}/,
-  'wide AP/AR lists must keep Search, Status, More filters, Reset and result count on one compact row');
+  'wide AP/AR lists must keep Search, Status, Filter, Reset and result count on one compact row');
 assert.match(styles,/\.authoritative-list-more-filter-grid\{display:grid;grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/,
   'expanded secondary filters must use a contained grid instead of lengthening the default page');
 assert.match(styles,/@media\(max-width:1400px\)\{\.authoritative-compact-list-filters,\.authoritative-list-more-filter-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\);\}\}/,
@@ -32,6 +36,10 @@ assert.match(styles,/@media\(max-width:900px\)\{[\s\S]*?\.expense-toolbar>\*\{mi
   'legacy Payables toolbar labels and selects must also fit their tablet grid tracks');
 assert.match(styles,/@media\s*\(max-width:720px\)[\s\S]*?\.authoritative-list-filters\{grid-template-columns:minmax\(0,1fr\);\}/,
   'phone widths must collapse authoritative Payables filters to one safe column');
+assert.match(styles,/@media\(min-width:421px\) and \(max-width:720px\)\{\.authoritative-expense-filter-card \.authoritative-compact-list-filters\{grid-template-columns:minmax\(120px,1fr\) auto auto auto;/,
+  'observed 525px Expenses must keep its secondary controls in one compact row below Search');
+assert.match(styles,/\.authoritative-expense-filter-card \.authoritative-compact-list-filters>label:first-child\{grid-column:1\/-1;\}/,
+  'Expenses Search must retain a full-width first row while secondary controls stay compact');
 assert.match(styles,/\.authoritative-document-workspace,\.authoritative-document-workspace>\*,\.authoritative-document-table,\.authoritative-adjustment-table\{min-width:0;max-width:100%;\}/,
   'the authoritative workspace must remain shrinkable while tables own their horizontal scrolling');
 assert.match(styles,/\.authoritative-register-table,\.authoritative-coa-table,\.authoritative-journal-table,\.authoritative-journal-line-table,\.authoritative-general-ledger-table,\.authoritative-document-table,\.authoritative-adjustment-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,

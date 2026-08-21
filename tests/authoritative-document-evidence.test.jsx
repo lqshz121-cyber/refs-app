@@ -10,6 +10,7 @@ import {
   AuthoritativeDocumentTable,
   AuthoritativeDocumentWorkspace,
   authoritativeLineageFor,
+  isAuthoritativeDateFilterValue,
 } from '../src/authoritative-workspace.jsx';
 
 const entityId='11111111-1111-4111-8111-111111111111';
@@ -34,13 +35,16 @@ assert.match(workspaceMarkup,/Payables presentation filters/);
 assert.match(workspaceMarkup,/authoritative-document-page-head/,'payables and receivables must use the shared authoritative workspace header');
 assert.match(workspaceMarkup,/aria-selected="true" class="tab tab-on">All transactions</,'the mixed AP state must have an explicit selected tab rather than masquerading as Bills');
 const workspaceSource=fs.readFileSync(path.join(process.cwd(),'src','authoritative-workspace.jsx'),'utf8');
+assert.doesNotMatch(workspaceSource,/'Not retained'/,'AP/AR visible missing-value placeholders must use plain product language instead of storage terminology');
 assert.doesNotMatch(workspaceSource,/\{bill&&<label>Transaction type <select/,'Expenses tabs already select All transactions, Bills, or Vendor credits; the filter toolbar must not repeat the same control');
 assert.match(workspaceMarkup,/Vendor credits/);
 assert.match(workspaceMarkup,/Category <select/);
-assert.match(workspaceMarkup,/All vendors/);
+assert.match(workspaceMarkup,/Payee/);
+assert.match(workspaceMarkup,/All payees/);
 assert.match(workspaceMarkup,/All categories/);
 assert.doesNotMatch(workspaceMarkup,/Category \(offset account\)|All retained vendors|All retained offset accounts/,'Expenses filters should use concise accounting labels without exposing storage terminology');
 assert.match(workspaceMarkup,/Reset filters/);
+assert.match(workspaceMarkup,/>Reset<\/button><button[^>]*>Apply<\/button>/,'Expenses secondary filters must stage Reset and Apply without removing the global reset');
 assert.match(workspaceMarkup,/EXPENSES \/ ACCOUNTS PAYABLE/);
 assert.match(workspaceMarkup,/Review bills, vendor credits, and AP aging\./);
 assert.doesNotMatch(workspaceMarkup,/Bills, credits, and AP aging from the accounting API/,'the Expenses header must not expose implementation-oriented API copy');
@@ -63,7 +67,18 @@ assert.doesNotMatch(apArPresentationSource,/seed\.js|repo\.js|localStorage|legac
   'the AP/AR presentation shell must receive authority facts as slots and never load local or API state itself');
 assert.doesNotMatch(workspaceMarkup,/Document and adjustment evidence/,'the compact workspace must not repeat a long internal contract block');
 assert.match(workspaceMarkup,/Search <input/);
-  assert.match(workspaceMarkup,/Vendor/);
+assert.match(workspaceMarkup,/<summary>Filter \(4\)<\/summary>/,'Expenses must use the observed concise QBO Filter label while showing its active-filter count');
+assert.doesNotMatch(workspaceMarkup,/<summary>More filters/,'Expenses must not retain the longer disclosure label');
+assert.match(workspaceMarkup,/>From <input[^>]*type="text"[^>]*inputMode="numeric"[^>]*placeholder="YYYY-MM-DD"/);
+assert.match(workspaceMarkup,/>To <input[^>]*type="text"[^>]*inputMode="numeric"[^>]*placeholder="YYYY-MM-DD"/,'Expenses must use the observed QBO From / To labels without exposing a browser-localized native date placeholder');
+assert.doesNotMatch(workspaceMarkup,/<label>(?:From|To|Through) <input[^>]*type="date"/,'authoritative AP/AR date filters must not localize their visible format through the browser');
+assert.equal(isAuthoritativeDateFilterValue(''),true);
+assert.equal(isAuthoritativeDateFilterValue('2024-02-29'),true);
+assert.equal(isAuthoritativeDateFilterValue('2026-02-29'),false);
+assert.equal(isAuthoritativeDateFilterValue('2026-02-30'),false);
+assert.equal(isAuthoritativeDateFilterValue('08/20/2026'),false);
+assert.match(workspaceMarkup,/To: 2026-08-31/,'the applied Expenses scope must use the same visible To vocabulary');
+assert.match(workspaceMarkup,/Payee: Evidence Vendor/);
 assert.match(workspaceMarkup,/Category: 610000/);
 assert.match(workspaceMarkup,/Reset filters/);
 assert.match(workspaceMarkup,/Status: PARTIALLY_PAID/);
@@ -134,6 +149,7 @@ assert.match(arWorkspaceMarkup,/Invoices/);
 assert.match(arWorkspaceMarkup,/Invoice, customer, account, or reference/);
 assert.match(arWorkspaceMarkup,/All customers/);
 assert.match(arWorkspaceMarkup,/More filters/,'AR secondary date and customer filters must be collapsed by default');
+assert.match(arWorkspaceMarkup,/>Through <input[^>]*type="text"[^>]*placeholder="YYYY-MM-DD"/,'Receivables keeps its existing label while sharing the stable English date format');
 assert.doesNotMatch(arWorkspaceMarkup,/<details class="authoritative-list-more-filters" open=""/,'AR More filters must stay closed when no secondary filter is active');
 assert.doesNotMatch(arWorkspaceMarkup,/All retained customers/,'the AR customer filter must not expose storage terminology');
 assert.doesNotMatch(arWorkspaceMarkup,/Category \(offset account\)/,'AR must not expose the AP-only category filter');
@@ -145,10 +161,11 @@ assert.match(arNoMatchMarkup,/No adjustments found/);
 assert.doesNotMatch(arNoMatchMarkup,/match these presentation filters|see retained list facts|>No authoritative adjustments in this scope</,
   'AR empty states must use concise user-facing language while retaining the zero-balance caveat');
 const arFilteredMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AR" documents={[invoice]} adjustments={[]} view={{query:'',status:'ALL',from:'2026-08-01',through:'',counterparty:'Evidence Customer',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
-assert.match(arFilteredMarkup,/<details class="authoritative-list-more-filters" open="">/,'active AR secondary filters must remain visible');
+assert.doesNotMatch(arFilteredMarkup,/<details class="authoritative-list-more-filters" open="">/,'active AR secondary filters must stay summarized rather than lengthening the page');
 assert.match(arFilteredMarkup,/More filters \(2\)/);
 
-const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} config={displayConfig} returnContext={{view:{query:'Evidence',status:'PARTIALLY_PAID',transactionType:'ALL',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
+const documentReturnContext={entityId,periodId,documentId:bill.business_document_id,documentRevision:bill.revision,documentKind:'AP',documentPeriodId:periodId,view:{query:'Evidence',status:'PARTIALLY_PAID',transactionType:'ALL',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}};
+const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} config={displayConfig} returnContext={documentReturnContext} onBack={()=>{}}/>);
 assert.match(detail,/Back to AP bills/);
 assert.match(detail,/<details class="authoritative-return-context"><summary>List filters retained<\/summary>/,
   'the exact list return scope must remain available without forcing a long filter string into the Back row');
@@ -180,7 +197,7 @@ const completeBill={...bill,posted_journal_entry_id:postedJournalId,journal_entr
 const completeLineage=authoritativeLineageFor(completeBill,entityId);
 assert.equal(completeLineage?.posted_journal_entry_id,postedJournalId,'only a lineage set bound to the same exact record and posted journal may be exposed');
 assert.equal(completeLineage?.audit_event_ids.length,2);
-const completeDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={completeBill} kind="AP" entityId={entityId} onBack={()=>{}}/>);
+const completeDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={completeBill} kind="AP" entityId={entityId} config={displayConfig} returnContext={documentReturnContext} onBack={()=>{}}/>);
 assert.match(completeDetail,/Immutable authoritative lineage/);
 assert.match(completeDetail,/<details class="authoritative-secondary-disclosure authoritative-lineage" aria-label="Bill immutable lineage"><summary><span>Immutable authoritative lineage<\/span><span class="badge badge-muted">POSTED EVIDENCE<\/span><\/summary>/,
   'complete lineage must remain available in one default-closed shared disclosure');
@@ -189,11 +206,14 @@ assert.match(completeDetail,/Mapping snapshot/);
 assert.doesNotMatch(completeDetail,/authoritative lineage unavailable/,'a complete same-revision API lineage response must not be unconditionally blocked');
 const mismatchedLineage={...completeBill,lineage:{...completeBill.lineage,record_revision:2}};
 assert.equal(authoritativeLineageFor(mismatchedLineage,entityId),null,'a stale or mismatched record revision must fail closed');
-const mismatchedDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={mismatchedLineage} kind="AP" entityId={entityId} onBack={()=>{}}/>);
+const mismatchedDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={mismatchedLineage} kind="AP" entityId={entityId} config={displayConfig} returnContext={documentReturnContext} onBack={()=>{}}/>);
 assert.match(mismatchedDetail,/BLOCKED[\s\S]*authoritative lineage unavailable/);
 assert.match(mismatchedDetail,/Source, receipt, mapping, audit, journal, and ledger links were not returned for this revision\./);
 assert.match(mismatchedDetail,/List facts remain read only\./);
 assert.doesNotMatch(mismatchedDetail,/The list reader has not returned|The retained list facts below/);
+const crossPeriodDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={{...bill,period_id:'55555555-5555-4555-8555-555555555555'}} kind="AP" entityId={entityId} config={displayConfig} returnContext={documentReturnContext} onBack={()=>{}}/>);
+assert.match(crossPeriodDetail,/BLOCKED — immutable document scope mismatch/,'a document from another period must never mount evidence under the selected period return context');
+assert.doesNotMatch(crossPeriodDetail,/Original amount|Offset account/,'cross-period list facts must block before detail evidence');
 
 const adjustmentList=renderToStaticMarkup(<AuthoritativeAdjustmentSummary title="AP adjustments" adjustments={[adjustment]} kind="AP" onOpen={()=>{}}/>);
 assert.match(adjustmentList,/AP_VENDOR_CREDIT/);
@@ -275,8 +295,9 @@ assert.match(styles,/\.pagination\{display:flex;justify-content:flex-end;align-i
 assert.match(styles,/\.authoritative-list-filters\{display:grid;grid-template-columns:minmax\(220px,2fr\)/,'wide AP\/AR filters must align as a readable grid');
 assert.match(styles,/@media\s*\(max-width:1400px\)\s*\{\.authoritative-list-filters\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,'AP/AR filters must collapse before the permanent navigation leaves too little workspace width at desktop zoom and tablet sizes');
 assert.match(styles,/\.authoritative-list-filters input,\.authoritative-list-filters select\{min-width:0;width:100%;max-width:100%;\}/,'AP/AR controls must not exceed their responsive grid tracks');
-assert.match(workspaceSource,/className="authoritative-list-more-filters" open=\{moreFilterCount>0\|\|undefined\}/,'AP/AR must keep secondary filters in a compact native disclosure and reveal active filters');
-assert.match(workspaceSource,/<label>\{bill\?'Vendor':'Customer'\} <select[\s\S]*?\{bill&&\(accountCodes\.length>0\?<label>Category <select/,'the compact disclosure must retain shared counterparty behavior and AP-only Category');
+assert.match(workspaceSource,/className="authoritative-list-more-filters" onToggle=/,'AP/AR must keep secondary filters in a compact native disclosure');
+assert.match(workspaceSource,/<label>\{bill\?'Payee':'Customer'\} <select value=\{filterDraft\.counterparty\}[\s\S]*?\{bill&&\(accountCodes\.length>0\?<label>Category <select value=\{filterDraft\.accountCode\}/,'the compact disclosure must stage the observed AP Payee, shared counterparty behavior, and AP-only Category');
+assert.match(workspaceSource,/onClick=\{\(\)=>change\(filterDraft\)\}>Apply<\/button>/,'secondary filter edits must not change the visible result until Apply');
 assert.match(styles,/\.authoritative-list-more-filters\[open\]\{grid-column:1\/-1;\}/,'expanded AP/AR filters must stay contained within the filter region');
 assert.match(styles,/@media\s*\(max-width:720px\)\s*\{\.authoritative-document-intro(?:,\.authoritative-source-intro)?\{grid-template-columns:minmax\(0,1fr\)/,'narrow AP\/AR filters and evidence guidance must collapse before the page overflows');
 assert.doesNotMatch(styles,/repeat\(2,minmax\(0,1fr\);/,'a malformed narrow-layout grid declaration must never prevent later responsive rules from parsing');

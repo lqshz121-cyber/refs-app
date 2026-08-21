@@ -1,0 +1,4 @@
+BEGIN;
+DO $$BEGIN IF EXISTS(SELECT 1 FROM ai_vendor_invoice_near_duplicate_finding LIMIT 1) THEN RAISE EXCEPTION 'Cannot remove retained vendor near-duplicate findings';END IF;END$$;
+DROP FUNCTION refs_materialize_ai_vendor_invoice_near_duplicate_batch(uuid,uuid,uuid,jsonb,text,text);DROP FUNCTION refs_ai_vendor_invoice_near_duplicate_batch_hash(uuid,uuid,uuid,jsonb);DROP TABLE ai_vendor_invoice_near_duplicate_source;DROP TABLE ai_vendor_invoice_near_duplicate_finding;
+COMMIT;

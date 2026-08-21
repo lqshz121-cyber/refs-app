@@ -25,6 +25,22 @@ const money=value=>{
   return `${negative?'-':''}$${whole}.${cents}`;
 };
 
+const absoluteMoney=value=>{
+  const units=fixed4Units(value);
+  if(units===null)return 'Unavailable';
+  const absolute=units<0n?-units:units;
+  const whole=(absolute/10000n).toString().replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  const cents=((absolute%10000n)/100n).toString().padStart(2,'0');
+  return `$${whole}.${cents}`;
+};
+
+const bankAmountColumn=(value,side)=>{
+  const units=fixed4Units(value);
+  if(units===null)return 'Unavailable';
+  if(side==='SPENT')return units<0n?absoluteMoney(value):'—';
+  return units>0n?absoluteMoney(value):'—';
+};
+
 const direction=value=>{
   const units=fixed4Units(value);
   return units===null?'UNAVAILABLE':units<0n?'OUTFLOW':'INFLOW';
@@ -104,28 +120,27 @@ const BankQueueSummary=({rows=[]})=>{
   const matched=rows.filter(row=>row.match_status==='ACTIVE').length;
   const journaled=rows.filter(row=>Boolean(row.journal_entry_id)).length;
   const unmatched=Math.max(0,rows.length-matched);
-  return <section className="qbo-grid authoritative-bank-summary-grid" aria-label="Bank queue read summary">
-    <div className="qbo-card"><h4>Returned sources</h4><div className="qbo-big">{rows.length}</div><div className="qbo-sub">Current API response</div></div>
-    <div className="qbo-card"><h4>Active Matches</h4><div className="qbo-big">{matched}</div><div className="qbo-sub">Retained evidence only</div></div>
-    <div className="qbo-card"><h4>Unmatched sources</h4><div className="qbo-big">{unmatched}</div><div className="qbo-sub">Not a reconciliation state</div></div>
-    <div className="qbo-card"><h4>Journal references</h4><div className="qbo-big">{journaled}</div><div className="qbo-sub">When supplied by the API</div></div>
+  return <section className="authoritative-bank-summary-strip" aria-label="Bank queue read summary">
+    <span><i>Returned</i><b>{rows.length}</b></span>
+    <span><i>Active matches</i><b>{matched}</b></span>
+    <span><i>Unmatched</i><b>{unmatched}</b></span>
+    <span><i>Journal references</i><b>{journaled}</b></span>
   </section>;
 };
 
 export const AuthoritativeBankTable=({rows=[],readAt=null,onOpen=()=>{}})=><section className="bank-queue-card authoritative-bank-queue" aria-label="Authoritative bank transaction evidence">
-  <div className="card-head"><div><p className="eyebrow">SOURCE → MATCH → JOURNAL</p><h2>Bank transactions</h2><p className="muted sm">Read-only source and retained match evidence from the accounting API. Match review happens only after you open one scoped source item.</p></div><span className="badge badge-muted">READ ONLY</span></div>
-  <div className="authoritative-bank-queue-note"><b>{rows.length}</b> retained source item{rows.length===1?'':'s'} in this response. Queue status never implies reconciliation, clearance, or posting.</div>
+  <div className="card-head"><div><p className="eyebrow">BANK ACTIVITY</p><h2>Transactions</h2><p className="muted sm">Review retained bank activity and match evidence.</p></div><span className="badge badge-muted">READ ONLY</span></div>
+  <div className="authoritative-bank-queue-note"><b>{rows.length}</b> transaction{rows.length===1?'':'s'}. Status does not reconcile or post them.</div>
   {!!rows.length&&<BankQueueSummary rows={rows}/>}
-  {!rows.length?<StateBlock tone="empty" title="SCOPE_EMPTY — no authoritative bank records returned">
-    <p>The authenticated API returned 0 bank transactions for the selected entity, account, and date scope.</p>
-    <p>This is not TRUE_EMPTY: this endpoint does not return a source-completeness control total, so it is not evidence of a zero cash balance.</p>
-    <p>Next step: verify the bank account and date range, then refresh the same authoritative scope.</p>
+  {!rows.length?<StateBlock tone="empty" title="No bank transactions in this scope">
+    <p>Check the bank account and date range, then refresh.</p>
+    <p>This result does not confirm a zero cash balance.</p>
     <BankReadMetadata count={0} readAt={readAt} subject="Bank transactions"/>
   </StateBlock>:<div className="table-wrap authoritative-bank-evidence-table" role="region" tabIndex={0} aria-label="Bank transactions; scroll horizontally to view every column"><table className="tbl">
-    <thead><tr><th>Date</th><th>Source evidence</th><th>Direction</th><th>Amount</th><th>Match evidence</th><th>Source version</th><th>Evidence</th></tr></thead>
+    <thead><tr><th>Date</th><th>Source evidence</th><th>Spent</th><th>Received</th><th>Match evidence</th><th>Source version</th><th>Evidence</th></tr></thead>
     <tbody>{rows.map(row=><tr key={row.bank_source_id}>
       <td>{row.transaction_date}</td><td><b>{row.external_bank_line_id}</b><div className="muted sm">{row.source_ref}</div></td>
-      <td><b>{direction(row.amount)}</b><div className="muted sm">{row.document_type}</div></td><td className="num">{money(row.amount)} <span className="muted sm">{row.currency}</span></td>
+      <td className="num">{bankAmountColumn(row.amount,'SPENT')} <span className="muted sm">{row.currency}</span></td><td className="num">{bankAmountColumn(row.amount,'RECEIVED')} <span className="muted sm">{row.currency}</span></td>
       <td><EvidenceBadge>{row.match_status||'UNMATCHED'}</EvidenceBadge>{row.journal_entry_id&&<div className="muted sm">Journal retained</div>}</td><td>v{row.version}</td>
       <td><button id={`authoritative-bank-${row.bank_source_id}`} type="button" className="btn btn-sm" onClick={()=>onOpen(row,`authoritative-bank-${row.bank_source_id}`)}>Open detail</button></td>
     </tr>)}</tbody>
@@ -278,22 +293,21 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
     restoreAuthoritativeReturnContext(environment,config,context,{getTable:()=>environment?.document?.getElementById?.(context?.focusId)?.closest?.('.table-wrap')});
   };
   if(selected)return <AuthoritativeBankDetail row={selected.row} scope={{...scope,entityId:config.entityId,entityLabel:entityLabel(config)}} onBack={closeEvidence} config={config} fetcher={fetcher} onMatchChanged={()=>load(null,{preserveDetail:true,offset:state.offset})}/>;
-  return <AuthoritativeWorkspaceView area="Bank transaction evidence" className="stack authoritative-bank-workspace"><AuthoritativeWorkspaceHeader eyebrow="BANKING | SOURCE EVIDENCE" title="Bank transaction evidence" description="Entity-scoped, OIDC-authenticated records only. Browser seeds and local storage are never used."/>
+  return <AuthoritativeWorkspaceView area="Bank transactions" className="stack authoritative-bank-workspace"><AuthoritativeWorkspaceHeader eyebrow="BANKING" title="Bank transactions" description="Review bank activity for one account and date range."/>
     <form className="filterbar" onSubmit={load} aria-label="Bank transaction scope">
       <label>Bank account<input required maxLength={128} value={scope.bankAccountRef} onChange={event=>setScope(current=>({...current,bankAccountRef:event.target.value}))}/></label>
       <label>From<input type="date" value={scope.from} onChange={event=>setScope(current=>({...current,from:event.target.value}))}/></label>
       <label>Through<input type="date" value={scope.through} onChange={event=>setScope(current=>({...current,through:event.target.value}))}/></label>
-      <button type="submit" className="btn btn-primary" disabled={state.phase==='LOADING'}>Load evidence</button>
+      <button type="submit" className="btn btn-primary" disabled={state.phase==='LOADING'}>Refresh</button>
     </form>
-    <p className="muted sm">{entityLabel(config)}. Account and date scope are required at the API boundary.</p>
-    {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and an optional date range to read authoritative evidence.</StateBlock>}
-    {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative bank transaction evidence...</StateBlock>}
+    <p className="muted sm">{entityLabel(config)}</p>
+    {state.phase==='IDLE'&&<StateBlock tone="empty" title="Choose a bank account">Add an optional date range, then refresh.</StateBlock>}
+    {state.phase==='LOADING'&&<StateBlock tone="loading">Loading bank transactions…</StateBlock>}
     {state.phase==='ERROR'&&<BankReadFailure error={state.error} onRetry={load} subject="bank transactions"/>}
     {state.phase==='READY'&&<><AuthoritativeBankTable rows={state.rows} readAt={state.readAt} onOpen={openEvidence}/>{state.rows.length>0&&<BankReadMetadata count={state.rows.length} readAt={state.readAt} subject="Bank transactions"/>}<div className="button-row authoritative-bank-pagination" aria-label="Bank transaction pagination"><button type="button" className="btn btn-sm" disabled={state.phase==='LOADING'||state.offset===0} onClick={()=>load(null,{offset:Math.max(0,state.offset-100)})}>Previous page</button><span className="muted sm">Offset {state.offset}</span><button type="button" className="btn btn-sm" disabled={state.phase==='LOADING'||state.rows.length<100} onClick={()=>load(null,{offset:state.offset+100})}>Next page</button></div></>}
     <AuthoritativeSecondaryDisclosure label="External WBS evidence"><AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.bank} title="External WBS bank observations"/></AuthoritativeSecondaryDisclosure>
   </AuthoritativeWorkspaceView>;
 }
-
 export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.fetch,environment=globalThis}){
   const [scope,setScope]=useState({bankAccountRef:'',statementEndingDate:''});
   const [scopeDiscovery,setScopeDiscovery]=useState({phase:'LOADING',rows:[],error:null});
@@ -315,11 +329,11 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
     restoreAuthoritativeReturnContext(environment,config,context);
   };
   if(selected)return <AuthoritativeReconciliationDetail row={selected.row} scope={{...scope,entityId:config.entityId,entityLabel:entityLabel(config)}} onBack={closeEvidence} config={config} fetcher={fetcher} onChanged={()=>load(null,{preserveDetail:true})}/>;
-  return <AuthoritativeWorkspaceView area="Reconciliation evidence" className="stack authoritative-reconciliation-workspace"><AuthoritativeWorkspaceHeader eyebrow="BANKING | RECONCILIATION" title="Reconciliation evidence" description="Review one retained statement for one entity and bank account."/>
-    <section className="report-workbench authoritative-reconciliation-scope-picker" aria-label="Available reconciliation scopes"><div className="report-workbench-head"><div><b>Available reconciliation scopes</b><div className="page-subtitle">Selecting a retained statement fills the account and cutoff. No lifecycle action runs.</div></div><span className="badge badge-muted">READ ONLY</span></div>
-      {scopeDiscovery.phase==='LOADING'&&<StateBlock tone="loading">Discovering reconciliation scopes...</StateBlock>}
+  return <AuthoritativeWorkspaceView area="Reconcile" className="stack authoritative-reconciliation-workspace"><AuthoritativeWorkspaceHeader eyebrow="BANKING" title="Reconcile" description="Match the books to the bank records."/>
+    <section className="report-workbench authoritative-reconciliation-scope-picker" aria-label="Reconciliation history"><div className="report-workbench-head"><div><b>Reconciliation history</b><div className="page-subtitle">Choose an existing statement to review.</div></div><span className="badge badge-muted">READ ONLY</span></div>
+      {scopeDiscovery.phase==='LOADING'&&<StateBlock tone="loading">Loading reconciliation history...</StateBlock>}
       {scopeDiscovery.phase==='ERROR'&&<BankReadFailure error={scopeDiscovery.error} onRetry={loadScopes} subject="reconciliation scopes"/>}
-      {scopeDiscovery.phase==='READY'&&!scopeDiscovery.rows.length&&<StateBlock tone="empty" title="No existing reconciliation scopes">No Draft, review, reopened, or signed reconciliation exists for this entity yet. A signed admitted statement may still be selected below.</StateBlock>}
+      {scopeDiscovery.phase==='READY'&&!scopeDiscovery.rows.length&&<StateBlock tone="empty" title="No reconciliations found">No Draft, review, reopened, or signed statement is available for this entity. You can still review an admitted statement below.</StateBlock>}
       {scopeDiscovery.phase==='READY'&&scopeDiscovery.rows.length>0&&<label>Existing statement<select aria-label="Existing reconciliation statement" value={scope.bankAccountRef&&scope.statementEndingDate?`${scope.bankAccountRef}|${scope.statementEndingDate}`:''} onChange={event=>{const row=scopeDiscovery.rows.find(item=>`${item.bank_account_ref}|${item.statement_ending_date}`===event.target.value);if(row)setScope({bankAccountRef:row.bank_account_ref,statementEndingDate:row.statement_ending_date});}}><option value="">Choose a retained reconciliation</option>{scopeDiscovery.rows.map(row=><option key={row.reconciliation_id} value={`${row.bank_account_ref}|${row.statement_ending_date}`}>{row.bank_account_ref} · {row.statement_ending_date} · {row.status}</option>)}</select></label>}
     </section>
     <form className="filterbar" onSubmit={load} aria-label="Reconciliation statement scope">
@@ -328,7 +342,7 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
       <button type="submit" className="btn btn-primary" disabled={state.phase==='LOADING'}>Load statement</button>
     </form>
     <AuthoritativeAdmittedStatements config={config} bankAccountRef={scope.bankAccountRef} fetcher={fetcher} onStarted={handleAdmittedStarted}/>
-    {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and statement ending date to read reconciliation evidence.</StateBlock>}
+    {state.phase==='IDLE'&&<StateBlock tone="empty" title="Choose a statement">Select a bank account and statement ending date.</StateBlock>}
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative reconciliation evidence...</StateBlock>}
     {state.phase==='ERROR'&&<BankReadFailure error={state.error} onRetry={load} subject="reconciliation statements"/>}
     {state.phase==='READY'&&<AuthoritativeReconciliationSummary row={state.row} scope={{...scope,entityId:config.entityId,entityLabel:entityLabel(config)}} readAt={state.readAt} onOpen={openEvidence}/>}

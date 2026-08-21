@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {detectBankPayeeVendorMismatches} from '../runtime/ai-bank-payee-vendor-mismatch.mjs';
+
+const id=n=>`${String(n).padStart(8,'0')}-0000-4000-8000-${String(n).padStart(12,'0')}`;
+const hash=c=>`sha256:${c.repeat(64)}`;
+const period=id(2);
+const trace=n=>({source_document_id:id(n),source_document_line_id:id(n+10),source_payload_hash:hash(String(n%10)),source_line_hash:hash(String((n+1)%10))});
+const row=(overrides={})=>({bank_match_id:id(20),bank_match_hash:hash('a'),match_status:'ACTIVE',entity_id:id(1),accounting_period_id:period,bank_account_ref:'111000-CASH',external_bank_line_id:'BANK-42',transaction_date:'2026-08-19',currency:'USD',amount:'-500.0000',bank_payee_name:'ACME CONSTRUCTION LLC',vendor_ref:'VENDOR-ACME',vendor_name:'Acme Construction, LLC',bank_source_trace:trace(30),invoice_source_trace:trace(40),bank_admission_status:'ADMITTED',invoice_admission_status:'ADMITTED',bank_signature_verified:true,invoice_signature_verified:true,...overrides});
+const policy={schema_version:'AI_BANK_PAYEE_VENDOR_POLICY_V1',setting_snapshot_id:id(90),setting_snapshot_hash:hash('f'),policy_version:1,approved_aliases_by_vendor:{'VENDOR-ACME':['Acme Construction LLC','ACME Construction']}};
+
+test('accepts an approved normalized payee alias without a finding',()=>{const result=detectBankPayeeVendorMismatches([row()],{policy,currentAccountingPeriodId:period});assert.equal(result.finding_count,0);assert.deepEqual(result.action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});});
+test('flags a matched payment to an unapproved payee with both immutable source traces',()=>{const result=detectBankPayeeVendorMismatches([row({bank_payee_name:'Unknown Holdings'})],{policy,currentAccountingPeriodId:period}),finding=result.findings[0];assert.equal(result.finding_count,1);assert.equal(finding.risk_level,'HIGH');assert.equal(finding.bank_match_hash,hash('a'));assert.equal(finding.bank_source_trace.source_document_id,id(30));assert.equal(finding.invoice_source_trace.source_document_id,id(40));assert.equal(finding.policy_evidence.vendor_ref,'VENDOR-ACME');assert.deepEqual(finding.action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});});
+test('fails closed when the matched vendor has no approved alias evidence',()=>{assert.throws(()=>detectBankPayeeVendorMismatches([row({vendor_ref:'VENDOR-UNKNOWN'})],{policy,currentAccountingPeriodId:period}),error=>error.code==='AI_BANK_PAYEE_VENDOR_ALIAS_MISSING');});
+test('rejects unsigned, inactive, malformed, or unscoped evidence',()=>{for(const changed of [{bank_signature_verified:false},{invoice_signature_verified:false},{match_status:'REVERSED'},{bank_match_hash:'bad'},{amount:'500.0000'}])assert.throws(()=>detectBankPayeeVendorMismatches([row(changed)],{policy,currentAccountingPeriodId:period}),error=>error.code==='AI_BANK_PAYEE_VENDOR_SOURCE_INVALID');assert.throws(()=>detectBankPayeeVendorMismatches([row()],{currentAccountingPeriodId:period}),error=>error.code==='AI_BANK_PAYEE_VENDOR_POLICY_REQUIRED');});

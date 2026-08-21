@@ -17,11 +17,50 @@ test('accounting OpenAPI is 3.1, authenticated and operation ids match the runti
   assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitProviderSignedWbsPayables','admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','approveFinancialStatementSnapshot','approveWbsCompanyCatalogRow','approveWbsInsurancePcMappingProposal','assignAiFindingAction','attestObservedWbsPayables','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','classifyWbsCompanyCatalogRow','createAiAmortizationDraft','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','createReviewedWbsCostCwipDraft','createReviewedWbsPayableApDraft','createWbsAutoRecAutocDraft','createWbsAutoRecPayableIncurDraft','createWbsInsurancePcMappingProposal','explainAiAccountingAnalysis','finalizeAttachment','finalizeWbsAutoRecG11Incur','importWbsTestPayables','ingestAdmittedWbsPayables','postJournal','prepareFinancialStatementSnapshot','proposeAiAmortizationSchedule','recordAiAmortizationCoverageEvidence','recordWbsSnapshot','reserveAttachment','reserveWbsPayableAttachment','resolveAiFindingAction','retainProviderSignedWbsFinal1Bank','retainProviderSignedWbsFinal1CostControl','retainProviderSignedWbsFinal1Insurance','retainProviderSignedWbsFinal1Payables','retainProviderSignedWbsFinal1PropertyControl','retainWbsCompanyCatalogCandidate','reviewAdmittedWbsCostCwip','reviewAdmittedWbsPayable','reviewAiWbsPayableDraftProposal','reviewWbsAutoRecBankMatch','runControlledTestAiWorkflow','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','startReconciliationFromAdmittedWbsStatement','transitionJournal','transitionReconciliation','unmatchBankPayment','upgradeStage1WbsOperatorAccess','verifyWbsAutoRecTransitionContract']);
   }
   const operationIds=operations.map(operation=>operation.operationId);
-  assert.equal(operationIds.length,71);
+  assert.equal(operationIds.length,90);
   assert.equal(new Set(operationIds).size,operationIds.length);
   assert.ok(operationIds.includes('importWbsControlledTestBankTransactions'));
   assert.ok(operationIds.includes('runControlledTestAiWorkflow'));
   assert.ok(operationIds.includes('runWbsControlledTestBankMatch'));
+  assert.ok(operationIds.includes('materializeInvoiceAccountingClassifications'));
+  assert.ok(operationIds.includes('materializeManualJournalRisks'));
+  assert.ok(operationIds.includes('materializeBankDuplicatePayments'));
+  assert.ok(operationIds.includes('proposeAiConstructionLoanEntry'));
+  assert.ok(operationIds.includes('reviewFixedAssetRegister'));
+  assert.ok(operationIds.includes('reviewFixedAssetDisposal'));
+  assert.ok(operationIds.includes('reviewFixedAssetImpairment'));
+  const securityDepositRead=contract.paths['/entities/{entityId}/ai/security-deposits/liability-review']?.get;
+  assert.equal(securityDepositRead.operationId,'reviewAiSecurityDepositLiability');
+  assert.equal(securityDepositRead.responses['200'].headers['Cache-Control'].schema.const,'no-store');
+  assert.equal(securityDepositRead.responses['200'].content['application/json'].schema.properties.data.$ref,'#/components/schemas/AiSecurityDepositLiabilityReviewResult');
+  const bankGlRead=contract.paths['/entities/{entityId}/ai/bank/gl-balance-reconciliation']?.get;
+  assert.equal(bankGlRead.operationId,'reviewAiBankGlBalanceReconciliation');
+  assert.equal(bankGlRead.responses['200'].headers['Cache-Control'].schema.const,'no-store');
+  assert.equal(bankGlRead.responses['200'].content['application/json'].schema.properties.data.$ref,'#/components/schemas/AiBankGlBalanceReconciliationResult');
+  assert.equal(contract.components.schemas.AiBankGlBalanceReconciliationFinding.additionalProperties,false);
+  assert.equal(contract.components.schemas.AiBankGlBalanceReconciliationFinding.properties.action_flags.$ref,'#/components/schemas/AiInvoiceNoAccountingActions');
+  const vendorAnomalyRead=contract.paths['/entities/{entityId}/ai/vendor-invoice-amount-anomalies'].get;
+  assert.equal(vendorAnomalyRead.operationId,'analyzeVendorInvoiceAmountAnomalies');
+  assert.equal(vendorAnomalyRead.responses['200'].headers['Cache-Control'].schema.const,'no-store');
+  assert.ok(operationIds.includes('materializeVendorInvoiceAmountAnomalies'));
+  const bankDuplicateRead=contract.paths['/entities/{entityId}/ai/bank-duplicate-payments'].get;
+  assert.equal(bankDuplicateRead.operationId,'analyzeBankDuplicatePayments');assert.equal(bankDuplicateRead.responses['200'].headers['Cache-Control'].schema.const,'no-store');assert.equal(bankDuplicateRead.responses['200'].content['application/json'].schema.$ref,'#/components/schemas/AiBankDuplicatePaymentEnvelope');
+  const bankDuplicate=contract.components.schemas.AiBankDuplicatePaymentFinding;
+  assert.equal(bankDuplicate.additionalProperties,false);assert.equal(bankDuplicate.properties.source_trace.minItems,2);assert.equal(bankDuplicate.properties.action_flags.$ref,'#/components/schemas/AiInvoiceNoAccountingActions');
+  const vendorFrequencyRead=contract.paths['/entities/{entityId}/ai/vendor-invoice-frequency-anomalies'].get;
+  assert.equal(vendorFrequencyRead.operationId,'analyzeVendorInvoiceFrequencyAnomalies');
+  assert.equal(vendorFrequencyRead.responses['200'].headers['Cache-Control'].schema.const,'no-store');
+  assert.ok(operationIds.includes('materializeVendorInvoiceFrequencyAnomalies'));
+  const vendorDropRead=contract.paths['/entities/{entityId}/ai/vendor-invoice-amount-drop-anomalies'].get;
+  assert.equal(vendorDropRead.operationId,'analyzeVendorInvoiceAmountDropAnomalies');
+  assert.equal(vendorDropRead.responses['200'].headers['Cache-Control'].schema.const,'no-store');
+  assert.ok(operationIds.includes('materializeVendorInvoiceAmountDropAnomalies'));
+  const vendorDrop=contract.components.schemas.AiVendorInvoiceAmountDropFinding;
+  assert.equal(vendorDrop.additionalProperties,false);assert.equal(vendorDrop.properties.required_human_fields.maxItems,6);assert.equal(vendorDrop.properties.action_flags.$ref,'#/components/schemas/AiInvoiceNoAccountingActions');
+  const nearDuplicateRead=contract.paths['/entities/{entityId}/ai/vendor-invoice-near-duplicates'].get;
+  assert.equal(nearDuplicateRead.operationId,'analyzeVendorInvoiceNearDuplicates');assert.equal(nearDuplicateRead.responses['200'].headers['Cache-Control'].schema.const,'no-store');assert.ok(operationIds.includes('materializeVendorInvoiceNearDuplicates'));
+  const nearDuplicate=contract.components.schemas.AiVendorInvoiceNearDuplicateFinding;
+  assert.equal(nearDuplicate.additionalProperties,false);assert.equal(nearDuplicate.properties.source_trace.minItems,2);assert.equal(nearDuplicate.properties.source_trace.maxItems,2);assert.equal(nearDuplicate.properties.required_human_fields.maxItems,5);assert.equal(nearDuplicate.properties.action_flags.$ref,'#/components/schemas/AiInvoiceNoAccountingActions');
 });
 
 test('AI amortization schedule exposes immutable line identity and a closed Draft-only receipt',()=>{
@@ -52,7 +91,7 @@ test('controlled test Bank import is a separate closed staging-only reconciliati
   const operation=contract.paths['/entities/{entityId}/wbs/test-import/bank-transactions'].post;
   assert.equal(operation.operationId,'importWbsControlledTestBankTransactions');assert.match(operation.description,/Staging-only authenticated bridge/i);assert.match(operation.description,/WBS\.TEST\.IMPORT/);assert.match(operation.description,/Provider-signed admission route is unchanged/i);assert.match(operation.description,/never claims signature.*formal admission.*Match.*Review.*Sign-off.*Journal.*posting authority/i);
   const body=operation.requestBody.content['application/json'].schema;assert.equal(body.additionalProperties,false);assert.deepEqual(body.required,['periodId','companyCode','dateFrom','dateTo','limit']);
-  const result=contract.components.schemas.WbsControlledTestBankResult;assert.equal(result.oneOf.length,2);const [complete,partial]=result.oneOf;assert.equal(complete.additionalProperties,false);assert.equal(complete.properties.test_only.const,true);assert.equal(complete.properties.provenance_mode.const,'CONTROLLED_TEST_UNSIGNED');assert.equal(complete.properties.bank_account_ref.pattern,'^WBS_TEST_BANK(?:_2026_0[1-6])?$');assert.equal(complete.properties.status.const,'DRAFT');assert.equal(partial.properties.status.const,'WBS_TEST_BANK_IMPORT_PARTIAL');
+  const result=contract.components.schemas.WbsControlledTestBankResult;assert.equal(result.oneOf.length,2);const [complete,partial]=result.oneOf;assert.equal(complete.additionalProperties,false);assert.equal(complete.properties.test_only.const,true);assert.equal(complete.properties.provenance_mode.const,'CONTROLLED_TEST_UNSIGNED');for(const capability of ['can_import','can_match','can_create_draft','can_post']){assert.equal(complete.properties[capability].const,false);assert.equal(partial.properties[capability].const,false);}assert.equal(complete.properties.bank_account_ref.pattern,'^WBS_TEST_BANK(?:_2026_0[1-6])?$');assert.equal(complete.properties.status.const,'DRAFT');assert.equal(partial.properties.status.const,'WBS_TEST_BANK_IMPORT_PARTIAL');
 });
 
 test('isolated controlled test Bank Match is a closed server-selected command',()=>{
@@ -224,6 +263,14 @@ test('AP and AR aging are no-store authenticated GETs with a required as-of date
   assert.equal(contract.components.schemas.ArAgingRow.additionalProperties,false);
 });
 
+test('AP and AR counterparty aging snapshots are closed no-store summary and detail reads',()=>{
+  const summary=contract.paths['/entities/{entityId}/{subledger}/aging-summary'].get,detail=contract.paths['/entities/{entityId}/{subledger}/aging-detail'].get;
+  assert.equal(summary.operationId,'getApArAgingSnapshotSummary');assert.deepEqual(summary.parameters.slice(1).map(parameter=>[parameter.name,parameter.required]),[['subledger',true],['periodId',true],['asOf',true]]);assert.equal(summary.responses['200'].headers['Cache-Control'].schema.const,'no-store');
+  assert.equal(detail.operationId,'getApArAgingSnapshotDetail');assert.deepEqual(detail.parameters.slice(1).map(parameter=>[parameter.name,parameter.required]),[['subledger',true],['periodId',true],['asOf',true],['counterpartyRef',true],['counterpartyName',true],['currency',true],['limit',undefined],['offset',undefined]]);assert.equal(detail.responses['200'].headers['Cache-Control'].schema.const,'no-store');
+  for(const name of ['AgingSnapshotScope','AgingSnapshotSummaryRow','AgingSnapshotSummaryEnvelope','AgingSnapshotDetailScope','AgingSnapshotDetailRow','AgingSnapshotDetailEnvelope'])assert.equal(contract.components.schemas[name].additionalProperties,false,`${name} must remain closed`);
+  assert.deepEqual(contract.components.schemas.AgingSnapshotScope.properties.period_status.enum,['OPEN','SOFT_CLOSED','CLOSED']);assert.equal(contract.components.schemas.AgingSnapshotDetailRow.required.includes('posted_journal_entry_id'),true);
+});
+
 test('AP and AR control totals are no-store authenticated GETs',()=>{
   for(const [path,operationId] of [['/entities/{entityId}/ap/control-totals','getApControlTotal'],['/entities/{entityId}/ar/control-totals','getArControlTotal']]){
     const operation=contract.paths[path].get;
@@ -240,6 +287,7 @@ test('AP Bill and AR Invoice list reads are authenticated no-store operations',(
   for(const [path,operationId] of [['/entities/{entityId}/ap/bills','listApBills'],['/entities/{entityId}/ar/invoices','listArInvoices']]){
     const operation=contract.paths[path].get;
     assert.equal(operation.operationId,operationId);assert.equal(operation.responses['200'].$ref,'#/components/responses/BusinessDocumentReadOk');
+    assert.deepEqual(operation.parameters.slice(1).map(parameter=>[parameter.name,parameter.required]),[['periodId',true],['limit',false],['offset',false]]);
   }
   const row=contract.components.schemas.BusinessDocumentReadRow;
   assert.equal(row.additionalProperties,false);
@@ -249,9 +297,11 @@ test('AP Bill and AR Invoice list reads are authenticated no-store operations',(
 test('Journal Entry list read is authenticated, scoped and no-store',()=>{
   const operation=contract.paths['/entities/{entityId}/journal-entries'].get;
   assert.equal(operation.operationId,'listJournalEntries');assert.equal(operation.responses['200'].$ref,'#/components/responses/JournalEntryReadOk');
+  assert.deepEqual(operation.parameters.slice(1).map(parameter=>[parameter.name,parameter.required]),[['periodId',true],['limit',false],['offset',false]]);
   const row=contract.components.schemas.JournalEntryReadRow;
   assert.equal(row.additionalProperties,false);
-  assert.deepEqual(row.required,['journal_entry_id','journal_number','journal_type','status','journal_date','currency','revision','created_at','ledger_line_count']);
+  assert.deepEqual(row.required,['journal_entry_id','journal_number','journal_type','status','journal_date','currency','revision','created_at','ledger_line_count','period_id']);
+  assert.deepEqual(contract.components.schemas.JournalEntryReadEnvelope.required,['ok','data','scope']);
   assert.equal(contract.components.responses.JournalEntryReadOk.headers['Cache-Control'].schema.const,'no-store');
 });
 
@@ -388,9 +438,11 @@ test('AP and AR adjustment list reads expose only the authoritative scoped adjus
   for(const [path,operationId] of [['/entities/{entityId}/ap/adjustments','listApAdjustments'],['/entities/{entityId}/ar/adjustments','listArAdjustments']]){
     const operation=contract.paths[path].get;
     assert.equal(operation.operationId,operationId);assert.equal(operation.responses['200'].$ref,'#/components/responses/BusinessAdjustmentReadOk');
+    assert.deepEqual(operation.parameters.slice(1).map(parameter=>[parameter.name,parameter.required]),[['periodId',true],['limit',false],['offset',false]]);
   }
   const row=contract.components.schemas.BusinessAdjustmentReadRow;
   assert.equal(row.additionalProperties,false);assert.deepEqual(row.required,['business_adjustment_id','adjustment_kind','amount','currency','accounting_date','period_id','reason','status','version','created_at']);
+  assert.deepEqual(contract.components.schemas.BusinessAdjustmentReadEnvelope.required,['ok','data','scope']);
 });
 
 test('AP Bill and AR Invoice create commands are Draft-only and require a canonical business document body',()=>{

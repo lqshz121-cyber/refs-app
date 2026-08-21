@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { accountingApiConfig, activateAuthoritativeReadAccess, refreshAuthoritativeChartOfAccounts, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries, refreshAuthoritativeScope, refreshCurrentActorAccess } from './accounting-api.js';
+import { accountingApiConfig, activateAuthoritativeReadAccess, refreshAuthoritativeChartOfAccounts, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries, refreshAuthoritativeScope, refreshAuthoritativeScopeCatalog, refreshCurrentActorAccess } from './accounting-api.js';
 import { AuthoritativeSourceDocumentsWorkspace } from './authoritative-source-documents-workspace.jsx';
 import { BrowserOidcClient, RENEWAL_MIN_INTERVAL_MS, oidcRuntimeConfig, silentRenewalSchedule } from './oidc-client.js';
 import { AuthoritativeBankWorkspace, AuthoritativeReconciliationWorkspace } from './authoritative-bank-workspace.jsx';
 import { AuthoritativeBankBatchPipelineWorkspace } from './authoritative-bank-batch-pipeline-workspace.jsx';
-import { StateBlock } from './ui.jsx';
+import { Icon, StateBlock } from './ui.jsx';
 import { focusFirstControl, navDrawerAttributes, readOffCanvas, restoreFocus, watchOffCanvas } from './nav-drawer.js';
 import { RuntimeErrorPage, RuntimeErrorPanel } from './runtime-error-page.jsx';
 import { verifyAuthoritativeApiRelease } from './authoritative-release-gate.js';
@@ -17,6 +17,7 @@ import { AuthoritativeWbsTransitionWorkspace } from './authoritative-wbs-transit
 import { AuthoritativeWbsPayableReviewWorkspace } from './authoritative-wbs-payable-review-workspace.jsx';
 import { AuthoritativeAiAuditWorkspace } from './authoritative-ai-audit-workspace.jsx';
 import { AuthoritativeAiJeWorkspace } from './authoritative-ai-je-workspace.jsx';
+import { AuthoritativeAccountingAnalysisReport } from './authoritative-accounting-analysis-report.jsx';
 import { AuthoritativeAccrualWorkspace } from './authoritative-accrual-workspace.jsx';
 import { AuthoritativeAmortizationWorkspace } from './authoritative-amortization-workspace.jsx';
 import { AuthoritativePropertyRentWorkspace } from './authoritative-property-rent-workspace.jsx';
@@ -131,6 +132,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const [adjustmentDetail, setAdjustmentDetail] = useState(null);
   const [agingDetail, setAgingDetail] = useState(null);
   const [reportAgingDetail, setReportAgingDetail] = useState(null);
+  const [reportGeneralLedgerDetail, setReportGeneralLedgerDetail] = useState(null);
   const [reportCatalogReturn, setReportCatalogReturn] = useState(null);
   const [listViews, setListViews] = useState(() => ({
     AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},
@@ -152,6 +154,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const [sharedAccountingLoaded, setSharedAccountingLoaded] = useState(false);
   const [scopeRows,setScopeRows]=useState([]);
   const [scopeMetadata,setScopeMetadata]=useState(null);
+  const [scopeCatalog,setScopeCatalog]=useState([]);
+  const [selectedScope,setSelectedScope]=useState(null);
   const [accessState,setAccessState]=useState({status:'LOADING'});
   // A direct selection of Reports is an explicit catalog entry, not a
   // continuation of the last report drill. React preserves a mounted route
@@ -165,6 +169,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   // previously had no opener at all, which made the navigation unreachable on a
   // tablet as well as untabbable - both are fixed by the same three pieces.
   const [navOpen, setNavOpen] = useState(false);
+  const [navPanelCollapsed, setNavPanelCollapsed] = useState(false);
   const [expandedNavigationGroups, setExpandedNavigationGroups] = useState(() => {
     const initial = AUTHORITATIVE_NAVIGATION.find(group => group.items.some(item => item.route === readRetainedRoute(environment)))?.label;
     return initial ? [initial] : [];
@@ -195,7 +200,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     return () => window.removeEventListener('keydown', onEscape);
   }, [navOpen]);
   const oidcClient = useMemo(() => configured ? new BrowserOidcClient({ environment, fetcher:boundFetcher }) : null, [configured, environment, boundFetcher]);
-  const config = useMemo(() => configured ? accountingApiConfig(environment) : null, [configured, environment, phase]);
+  const baseConfig = useMemo(() => configured ? accountingApiConfig(environment) : null, [configured, environment, phase]);
+  const config = useMemo(() => baseConfig&&selectedScope?{...baseConfig,entityId:selectedScope.entity_id,periodId:selectedScope.period_id}:baseConfig, [baseConfig, selectedScope]);
 
   // This public, credential-free call is deliberately ahead of OIDC and every
   // accounting reader. A green readiness response alone is not evidence that
@@ -224,7 +230,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       tableX,
     });
     if (!returnContext) return;
-    setDocumentDetail({kind,row,returnContext});
+    setDocumentDetail({kind,row,returnContext:{...returnContext,documentId:row.business_document_id,documentRevision:Number(row.revision),documentKind:kind,documentPeriodId:row.period_id}});
   }, [config, environment, listViews]);
 
   const openAdjustmentEvidence = useCallback((side, row, focusId, tableX) => {
@@ -283,13 +289,30 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     restoreAuthoritativeReturnContext(environment,config,context);
   }, [reportAgingDetail, environment, config]);
 
+  const openReportGeneralLedger = useCallback((focusId, catalog) => {
+    const returnContext=createAuthoritativeReturnContext({config,view:DEFAULT_AUTHORITATIVE_LIST_VIEW,focusId,scrollY:Number(environment?.scrollY)||0});
+    if (!returnContext) return;
+    setReportGeneralLedgerDetail({returnContext,catalog});
+    setRouteState('general-ledger');
+    retainRoute(environment, 'general-ledger');
+  }, [config, environment]);
+
+  const closeReportGeneralLedger = useCallback(() => {
+    const context=reportGeneralLedgerDetail?.returnContext;
+    setReportCatalogReturn(reportGeneralLedgerDetail?.catalog || null);
+    setReportGeneralLedgerDetail(null);
+    setRouteState('reports');
+    retainRoute(environment, 'reports');
+    restoreAuthoritativeReturnContext(environment,config,context);
+  }, [reportGeneralLedgerDetail, environment, config]);
+
   const setRoute = useCallback(next => {
-    setDocumentDetail(null); setAdjustmentDetail(null); setAgingDetail(null); setReportAgingDetail(null); setReportCatalogReturn(null);
+    setDocumentDetail(null); setAdjustmentDetail(null); setAgingDetail(null); setReportAgingDetail(null); setReportGeneralLedgerDetail(null); setReportCatalogReturn(null);
     if (next === 'reports') setReportsNavigationVersion(current => current + 1);
     setRouteState(next); retainRoute(environment, next);
   }, [environment]);
   useEffect(() => watchRetainedRoute(environment, next => {
-    setDocumentDetail(null); setAdjustmentDetail(null); setAgingDetail(null); setReportAgingDetail(null); setReportCatalogReturn(null);
+    setDocumentDetail(null); setAdjustmentDetail(null); setAgingDetail(null); setReportAgingDetail(null); setReportGeneralLedgerDetail(null); setReportCatalogReturn(null);
     if (next === 'reports') setReportsNavigationVersion(current => current + 1);
     setRouteState(next);
     retainRoute(environment, next);
@@ -302,6 +325,9 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     // Selecting a workspace always opens its first available page and replaces
     // the previous secondary menu instead of retaining several expanded trees.
     setExpandedNavigationGroups([group.label]);
+    // Selecting a rail group explicitly exposes its secondary navigation, so
+    // the disclosure state remains truthful after a desktop collapse.
+    setNavPanelCollapsed(false);
     if (group.items?.[0]?.route) setRoute(group.items[0].route);
     setNavOpen(false);
   }, [setRoute]);
@@ -440,6 +466,16 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeChartOfAccounts({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeRows(result.ok?result.rows:[]);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeScope({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeMetadata(result.ok?result.row:null);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};setAccessState({status:'LOADING'});refreshCurrentActorAccess({config,fetcher:boundFetcher}).then(result=>{if(current)setAccessState(result.ok?{status:'READY',row:result.row}:{status:'ERROR',code:result.code,message:result.message});});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
+  useEffect(()=>{let current=true;if(phase!=='READY'||!baseConfig)return()=>{current=false;};refreshAuthoritativeScopeCatalog({config:baseConfig,fetcher:boundFetcher}).then(result=>{if(current&&result.ok)setScopeCatalog([...result.rows]);});return()=>{current=false;};},[phase,baseConfig,boundFetcher]);
+  const applyScope=useCallback(next=>{
+    if(!next||next.entity_id===config?.entityId&&next.period_id===config?.periodId)return;
+    setSelectedScope(next);setData({ap:{bills:[],adjustments:[]},ar:{invoices:[],adjustments:[]},journals:[]});setSharedAccountingLoaded(false);setScopeRows([]);setScopeMetadata(null);setDocumentDetail(null);setAdjustmentDetail(null);setAgingDetail(null);setReportAgingDetail(null);setReportGeneralLedgerDetail(null);setReportCatalogReturn(null);setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}});setWorkspaceRefreshVersion(current=>current+1);
+  },[config]);
+  const selectEntityScope=useCallback(entityId=>{
+    const choices=scopeCatalog.filter(row=>row.entity_id===entityId).sort((a,b)=>b.period_start.localeCompare(a.period_start));
+    applyScope(choices.find(row=>row.period_code===scopeMetadata?.period_code)||choices[0]);
+  },[scopeCatalog,scopeMetadata,applyScope]);
+  const selectPeriodScope=useCallback(periodId=>applyScope(scopeCatalog.find(row=>row.entity_id===config?.entityId&&row.period_id===periodId)),[scopeCatalog,config,applyScope]);
   const scopePresentation=useMemo(()=>authoritativeScopePresentation(config,scopeRows,scopeMetadata),[config,scopeRows,scopeMetadata]);
   const displayConfig=useMemo(()=>({...config,scopePresentation}),[config,scopePresentation]);
   if (!configured) return <RuntimeErrorPage code="CONFIGURATION_REQUIRED"/>;
@@ -464,7 +500,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   return <div className="app authoritative-app">
     <AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route={route} expandedGroups={expandedNavigationGroups}
       onSelectGroup={selectNavigationGroup} onSelectItem={selectNavigationItem} navOpen={navOpen}
-      navDrawerRef={navDrawerRef} drawerAttributes={navDrawerAttributes(navOffCanvas, navOpen)} onClose={() => setNavOpen(false)}/>
+      navDrawerRef={navDrawerRef} drawerAttributes={navDrawerAttributes(navOffCanvas, navOpen)} onClose={() => setNavOpen(false)}
+      panelCollapsed={navPanelCollapsed} onTogglePanel={() => setNavPanelCollapsed(current => !current)}/>
     {false && <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar ${navOpen ? 'mobile-open' : ''}`}
       {...navDrawerAttributes(navOffCanvas, navOpen)}>
       <div className="brand"><span className="logo">REFS</span><span className="brand-sub">Authoritative</span></div>
@@ -487,7 +524,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     {navOpen && <button type="button" className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={() => setNavOpen(false)}/>}
     <div className="main">
       {false && <header className="topbar authoritative-topbar">
-        <button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>Menu</button>
+        <button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}><Icon name="menu" size={24}/></button>
         <div className="authoritative-entity-chip" aria-label={`Authoritative entity ${config.entityId}`}>
           <span className="authoritative-top-label">Entity</span><strong>{config.entityId}</strong>
         </div>
@@ -502,7 +539,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
           <button type="button" className="btn btn-sm btn-ghost authoritative-signout" onClick={logout}>Sign out</button>
         </div>
       </header>}
-      <AuthoritativeTopbar navOpenerRef={navOpenerRef} navOpen={navOpen} onOpenNavigation={() => setNavOpen(true)} entityLabel={scopePresentation.entityLabel} periodLabel={scopePresentation.periodLabel} theme={theme} onToggleTheme={toggleTheme} onRefresh={refresh} onSignOut={logout}/>
+      <AuthoritativeTopbar navOpenerRef={navOpenerRef} navOpen={navOpen} onOpenNavigation={() => setNavOpen(true)} entityLabel={scopePresentation.entityLabel} periodLabel={scopePresentation.periodLabel} scopes={scopeCatalog} entityId={config.entityId} periodId={config.periodId} onEntityChange={selectEntityScope} onPeriodChange={selectPeriodScope} theme={theme} onToggleTheme={toggleTheme} onRefresh={refresh} onSignOut={logout}/>
       <main className="content">
         <section className="authoritative-scope-bar" aria-label="Authoritative accounting scope">
           <span title={`${scopePresentation.entityHint ? `${scopePresentation.entityHint} ` : ''}Entity ID: ${scopePresentation.entityDetail}`}><b>Entity</b> {scopePresentation.entityLabel}{scopePresentation.entityHint&&<small className="muted sm"> — display name not returned by API</small>}</span>
@@ -517,17 +554,18 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {error && <RuntimeErrorPanel code={error.code} detail={error.message} onRetry={refresh} onSignIn={startLogin}/>}
         {phase === 'LOADING_ACCOUNTING' && <StateBlock tone="loading">Loading authoritative accounting records...</StateBlock>}
         {phase === 'READY' && route === 'overview' && <AuthoritativeOverview counts={counts} onNavigate={setRoute} scope={{entityId:config.entityId,periodId:config.periodId}} config={displayConfig} fetcher={boundFetcher}/>}
-        {phase === 'READY' && route === 'payables' && (agingDetail?.side==='AP'?<AuthoritativeAgingWorkspace config={displayConfig} side="ap" fetcher={boundFetcher} onBack={closeAgingEvidence} backLabel="Back to bills & expenses" returnContext={agingDetail.returnContext} expectedOrigin="PAYABLES"/>:documentDetail?.kind==='AP'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AP" entityId={config.entityId} config={displayConfig} returnContext={documentDetail.returnContext} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AP'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AP" entityId={config.entityId} config={displayConfig} returnContext={adjustmentDetail.returnContext} onBack={closeAdjustmentEvidence}/>:<AuthoritativeDocumentWorkspace kind="AP" documents={data.ap.bills} adjustments={data.ap.adjustments} view={listViews.AP} onViewChange={view=>updateListView('AP',view)} onOpenDocument={(row,focusId,tableX)=>openDocumentEvidence('AP',row,focusId,tableX)} onOpenAdjustment={(row,focusId,tableX)=>openAdjustmentEvidence('AP',row,focusId,tableX)} onOpenAging={()=>openAgingEvidence('AP','authoritative-ap-aging-launch','PAYABLES')} config={displayConfig} fetcher={boundFetcher}/>)}
-        {phase === 'READY' && route === 'receivables' && (reportAgingDetail?<AuthoritativeAgingWorkspace config={displayConfig} side="ar" fetcher={boundFetcher} onBack={closeReportAgingEvidence} backLabel="Back to Reports" returnContext={reportAgingDetail.returnContext} expectedOrigin="REPORTS"/>:agingDetail?.side==='AR'?<AuthoritativeAgingWorkspace config={displayConfig} side="ar" fetcher={boundFetcher} onBack={closeAgingEvidence} returnContext={agingDetail.returnContext} expectedOrigin="RECEIVABLES"/>:documentDetail?.kind==='AR'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AR" entityId={config.entityId} config={displayConfig} returnContext={documentDetail.returnContext} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AR'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AR" entityId={config.entityId} config={displayConfig} returnContext={adjustmentDetail.returnContext} onBack={closeAdjustmentEvidence}/>:<AuthoritativeDocumentWorkspace kind="AR" documents={data.ar.invoices} adjustments={data.ar.adjustments} view={listViews.AR} onViewChange={view=>updateListView('AR',view)} onOpenDocument={(row,focusId,tableX)=>openDocumentEvidence('AR',row,focusId,tableX)} onOpenAdjustment={(row,focusId,tableX)=>openAdjustmentEvidence('AR',row,focusId,tableX)} onOpenAging={()=>openAgingEvidence('AR','authoritative-ar-aging-launch','RECEIVABLES')}/>) }
+        {phase === 'READY' && route === 'payables' && (agingDetail?.side==='AP'?<AuthoritativeAgingWorkspace config={displayConfig} side="ap" fetcher={boundFetcher} onBack={closeAgingEvidence} backLabel="Back to bills & expenses" returnContext={agingDetail.returnContext} expectedOrigin="PAYABLES"/>:documentDetail?.kind==='AP'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AP" entityId={config.entityId} config={displayConfig} returnContext={documentDetail.returnContext} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AP'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AP" entityId={config.entityId} config={displayConfig} returnContext={adjustmentDetail.returnContext} onBack={closeAdjustmentEvidence}/>:<AuthoritativeDocumentWorkspace kind="AP" documents={data.ap.bills} adjustments={data.ap.adjustments} readScopes={{documents:data.ap.scope,adjustments:data.ap.adjustmentsScope}} view={listViews.AP} onViewChange={view=>updateListView('AP',view)} onOpenDocument={(row,focusId,tableX)=>openDocumentEvidence('AP',row,focusId,tableX)} onOpenAdjustment={(row,focusId,tableX)=>openAdjustmentEvidence('AP',row,focusId,tableX)} onOpenAging={()=>openAgingEvidence('AP','authoritative-ap-aging-launch','PAYABLES')} config={displayConfig} fetcher={boundFetcher}/>)}
+        {phase === 'READY' && route === 'receivables' && (reportAgingDetail?<AuthoritativeAgingWorkspace config={displayConfig} side="ar" fetcher={boundFetcher} onBack={closeReportAgingEvidence} backLabel="Back to Reports" returnContext={reportAgingDetail.returnContext} expectedOrigin="REPORTS"/>:agingDetail?.side==='AR'?<AuthoritativeAgingWorkspace config={displayConfig} side="ar" fetcher={boundFetcher} onBack={closeAgingEvidence} returnContext={agingDetail.returnContext} expectedOrigin="RECEIVABLES"/>:documentDetail?.kind==='AR'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AR" entityId={config.entityId} config={displayConfig} returnContext={documentDetail.returnContext} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AR'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AR" entityId={config.entityId} config={displayConfig} returnContext={adjustmentDetail.returnContext} onBack={closeAdjustmentEvidence}/>:<AuthoritativeDocumentWorkspace kind="AR" documents={data.ar.invoices} adjustments={data.ar.adjustments} readScopes={{documents:data.ar.scope,adjustments:data.ar.adjustmentsScope}} view={listViews.AR} onViewChange={view=>updateListView('AR',view)} onOpenDocument={(row,focusId,tableX)=>openDocumentEvidence('AR',row,focusId,tableX)} onOpenAdjustment={(row,focusId,tableX)=>openAdjustmentEvidence('AR',row,focusId,tableX)} onOpenAging={()=>openAgingEvidence('AR','authoritative-ar-aging-launch','RECEIVABLES')}/>) }
         {phase === 'READY' && route === 'bank-batch-pipeline' && <AuthoritativeBankBatchPipelineWorkspace key={`bank-batch-pipeline-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'bank' && <AuthoritativeBankWorkspace key={`bank-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'reconciliation' && <AuthoritativeReconciliationWorkspace key={`reconciliation-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'wbs-payable-review' && <AuthoritativeWbsPayableReviewWorkspace key={`wbs-payable-review-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'ai-audit' && <AuthoritativeAiAuditWorkspace key={`ai-audit-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onAccountingRefresh={refreshAfterControlledTestWorkflow}/>}
         {phase === 'READY' && route === 'ai-je-workbench' && <AuthoritativeAiJeWorkspace key={`ai-je-workbench-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onAccountingRefresh={refreshAfterControlledTestWorkflow}/>}
+        {phase === 'READY' && route === 'accounting-analysis-report' && <AuthoritativeAccountingAnalysisReport key={`accounting-analysis-report-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onNavigate={setRoute}/>}
         {phase === 'READY' && route === 'accruals' && <AuthoritativeAccrualWorkspace key={`accruals-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
-        {phase === 'READY' && route === 'wbs-autorec-evidence' && <AuthoritativeWbsTransitionWorkspace key={`wbs-autorec-evidence-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onAccountingRefresh={async()=>{const [documents,journals]=await Promise.all([refreshAuthoritativeDocuments({config,fetcher:boundFetcher}),refreshAuthoritativeJournalEntries({config,fetcher:boundFetcher})]);if(documents.ok&&journals.ok){setData({ap:documents.ap,ar:documents.ar,journals:journals.journals});setSharedAccountingLoaded(true);}}}/>}
-        {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace key={`reports-${workspaceRefreshVersion}-${reportsNavigationVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={reportCatalogReturn||DEFAULT_AUTHORITATIVE_REPORTS_CATALOG} onOpenArAging={openReportAgingEvidence}/>}
+        {phase === 'READY' && ['wbs-autorec-evidence','integration-hub'].includes(route) && <AuthoritativeWbsTransitionWorkspace key={`${route}-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onAccountingRefresh={async()=>{const [documents,journals]=await Promise.all([refreshAuthoritativeDocuments({config,fetcher:boundFetcher}),refreshAuthoritativeJournalEntries({config,fetcher:boundFetcher})]);if(documents.ok&&journals.ok){setData({ap:documents.ap,ar:documents.ar,journals:journals.journals});setSharedAccountingLoaded(true);}}}/>}
+        {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace key={`reports-${workspaceRefreshVersion}-${reportsNavigationVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={reportCatalogReturn||DEFAULT_AUTHORITATIVE_REPORTS_CATALOG} onOpenArAging={openReportAgingEvidence} onOpenGeneralLedger={openReportGeneralLedger}/>}
         {phase === 'READY' && route === 'project-cost-cwip' && <AuthoritativeReportsWorkspace key={`project-cost-cwip-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="PROJECT" workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Project Cost & CWIP" workspaceDescription="Project profitability, CWIP rollforward, construction-loan, prepaid, and budget evidence are read from existing OIDC-authenticated accounting APIs. Cost-code, vendor, and project transaction registers remain unavailable until their own server read contracts exist."/>}
         {phase === 'READY' && route === 'unit-cost-ledger' && <AuthoritativeReportsWorkspace key={`unit-cost-ledger-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="UNIT" workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Unit / Lot profitability" workspaceDescription="Unit and lot profitability reads only exact Unit dimensions retained on same-entity, same-period POSTED ledger lines. Select a canonical Unit reference to load its report, then drill back through the retained evidence. Unit transfer, pricing, and browser-side allocation workflows remain unavailable."/>}
         {phase === 'READY' && route === 'property-ops-pickup' && <AuthoritativePropertyRentWorkspace key={`property-ops-pickup-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} propertyPnlTitle="Property operating P&amp;L" onBack={()=>setRoute('overview')}/>}
@@ -538,8 +576,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'journals' && <AuthoritativeJournalWorkspace journals={data.journals} config={displayConfig} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'source-documents' && <AuthoritativeSourceDocumentsWorkspace key={`source-documents-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && ['chart-of-accounts','account-inquiry'].includes(route) && <AuthoritativeChartOfAccountsWorkspace key={`coa-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
-        {phase === 'READY' && route === 'general-ledger' && <AuthoritativeGeneralLedgerWorkspace key={`general-ledger-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
-        {phase === 'READY' && !['overview','payables','receivables','bank-batch-pipeline','bank','reconciliation','wbs-payable-review','ai-audit','ai-je-workbench','wbs-autorec-evidence','reports','project-cost-cwip','unit-cost-ledger','property-ops-pickup','construction-loan','amortization','intercompany','consolidation','journals','source-documents','chart-of-accounts','account-inquiry','general-ledger','accruals'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
+        {phase === 'READY' && route === 'general-ledger' && <AuthoritativeGeneralLedgerWorkspace key={`general-ledger-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} onBack={reportGeneralLedgerDetail?closeReportGeneralLedger:null}/>}
+        {phase === 'READY' && !['overview','payables','receivables','bank-batch-pipeline','bank','reconciliation','wbs-payable-review','ai-audit','ai-je-workbench','accounting-analysis-report','wbs-autorec-evidence','integration-hub','reports','project-cost-cwip','unit-cost-ledger','property-ops-pickup','construction-loan','amortization','intercompany','consolidation','journals','source-documents','chart-of-accounts','account-inquiry','general-ledger','accruals'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
       </main>
     </div>
   </div>;

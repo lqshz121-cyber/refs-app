@@ -107,6 +107,7 @@ const requiredCommands = [
   { name: 'server-test', command: 'npm.cmd --prefix server test', requiredExit: 0, scope: 'server unit/integration gate' },
   { name: 'server-pg15-fresh', command: 'POSTGRES_IMAGE=postgres:15-alpine npm.cmd --prefix server run test:postgres:fresh', requiredExit: 0, scope: 'fresh PostgreSQL 15 gate with cleanup evidence' },
   { name: 'server-pg16-fresh', command: 'POSTGRES_IMAGE=postgres:16-alpine npm.cmd --prefix server run test:postgres:fresh', requiredExit: 0, scope: 'fresh PostgreSQL 16 gate with cleanup evidence' },
+  { name: 'server-pg18-fresh', command: 'POSTGRES_IMAGE=postgres:18-alpine npm.cmd --prefix server run test:postgres:fresh', requiredExit: 0, scope: 'fresh PostgreSQL 18 gate with cleanup evidence' },
   { name: 'server-attachments-containers', command: 'npm.cmd --prefix server run test:attachments:containers', requiredExit: 0, scope: 'versioned object storage and malware scanner container gate' },
   { name: 'live-ui-23-page', command: 'npm.cmd run verify:authoritative-runtime-evidence', requiredExit: 0, scope: 'real authenticated evidence for all 23 authoritative business pages, including AP/AR/JE/Bank/Reconciliation/WBS/Insurance amortization/Property Rent/real-estate reports; not satisfied by local simulation' },
   { name: 'provider-s3-scanner', command: 'npm.cmd run verify:release-s3-scanner', requiredExit: 0, scope: 'real provider S3/scanner lifecycle; not satisfied by local simulation' },

@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {readFileSync} from 'node:fs';
+const up=readFileSync(new URL('../db/migrations/242_fixed_asset_impairment_assessment.sql',import.meta.url),'utf8');
+const http=readFileSync(new URL('../api/accounting-http.mjs',import.meta.url),'utf8');
+const kernel=readFileSync(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
+const openapi=JSON.parse(readFileSync(new URL('../api/openapi-accounting.json',import.meta.url),'utf8'));
+
+test('impairment assessment binds independent valuation to asset-level POSTED carrying value',()=>{for(const token of ["'FIXED_ASSET.IMPAIRMENT.REVIEW'",'asset.reviewed_by=actor','source.payload_hash',"j.status='POSTED'","l.dimensions->>'fixed_asset_register_evidence_id'",'loss:=greatest(carrying-p_recoverable,0)','INDEPENDENTLY_REVIEWED','refs_read_ai_fixed_asset_impairment_assessments'])assert.ok(up.includes(token),`missing ${token}`);});
+test('assessment writes evidence/audit/outbox/receipt but no accounting rows',()=>{for(const token of ['INSERT INTO fixed_asset_impairment_assessment_evidence','INSERT INTO audit_event','INSERT INTO outbox_event','UPDATE idempotency_receipt'])assert.ok(up.includes(token));assert.doesNotMatch(up,/INSERT INTO (journal_entry|journal_line|ledger_line)/i);});
+test('formal impairment API is closed, idempotent and no-action',()=>{const path=openapi.paths['/entities/{entityId}/ai/fixed-assets/impairment-reviews']?.post,schema=path.requestBody.content['application/json'].schema;assert.equal(path.operationId,'reviewFixedAssetImpairment');assert.equal(schema.additionalProperties,false);assert.deepEqual(schema.required,['fixedAssetRegisterEvidenceId','accountingPeriodId','valuationSourceDocumentId','assessmentDate','recoverableAmount','impairmentExpenseAccountCode','accumulatedImpairmentAccountCode','reason']);for(const token of ['reviewFixedAssetImpairment','IF_MATCH_NOT_ALLOWED','INVALID_RECOVERABLE_AMOUNT','FIXED_ASSET_IMPAIRMENT_ASSESSMENT_EVIDENCE_V1','can_create_draft!==false','can_post!==false'])assert.ok(http.includes(token),`missing HTTP ${token}`);for(const token of ['refs_review_fixed_asset_impairment_hash','refs_review_fixed_asset_impairment('])assert.ok(kernel.includes(token),`missing kernel ${token}`);});

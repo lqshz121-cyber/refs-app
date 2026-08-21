@@ -44,9 +44,13 @@ export function navDrawerIsInert(offCanvas, open) {
 // contradict `inert`, because both are derived from the same boolean.
 export function navDrawerAttributes(offCanvas, open) {
   const inert = navDrawerIsInert(offCanvas, open);
+  const dialog = Boolean(offCanvas) && Boolean(open);
   return {
     inert: inert ? '' : undefined,
     'aria-hidden': inert ? 'true' : undefined,
+    role: dialog ? 'dialog' : undefined,
+    'aria-modal': dialog ? 'true' : undefined,
+    'aria-label': dialog ? 'Navigation menu' : undefined,
   };
 }
 

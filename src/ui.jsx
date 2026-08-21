@@ -22,6 +22,9 @@ const ICON_PATHS = {
   wallet:     ['M4.4 7.6a1.6 1.6 0 0 1 1.6-1.6h12a1.6 1.6 0 0 1 1.6 1.6v10a1.6 1.6 0 0 1-1.6 1.6H6a1.6 1.6 0 0 1-1.6-1.6z', 'M4.4 10.6h15.2', 'M15.4 14.6h1.8'],
   bank:       ['M3.8 9.6L12 4.6l8.2 5', 'M5.6 9.6v8.2M10 9.6v8.2M14 9.6v8.2M18.4 9.6v8.2', 'M3.8 20.2h16.4'],
   check:      ['M5.6 12.4l4 4 8.8-9'],
+  menu:       ['M4.5 6.5h15', 'M4.5 12h15', 'M4.5 17.5h15'],
+  'chevron-left':  ['M14.8 5.8L8.6 12l6.2 6.2'],
+  'chevron-right': ['M9.2 5.8l6.2 6.2-6.2 6.2'],
 };
 export function Icon({name, size=24, className}) {
   const paths = ICON_PATHS[name] || ICON_PATHS.document;

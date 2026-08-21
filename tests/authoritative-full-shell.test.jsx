@@ -13,29 +13,39 @@ import { watchRetainedRoute } from '../src/authoritative-app.jsx';
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the production catalog keeps the complete major workspace taxonomy discoverable');
 assert.ok(AUTHORITATIVE_ROUTES.includes('project-cost-cwip'));
 assert.ok(AUTHORITATIVE_ROUTES.includes('ai-audit'));
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'ai-audit', 'ai-je-workbench', 'amortization', 'bank', 'bank-batch-pipeline', 'chart-of-accounts', 'consolidation', 'construction-loan', 'general-ledger', 'intercompany', 'journals', 'overview', 'payables', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'reconciliation', 'reports', 'source-documents', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'accounting-analysis-report', 'ai-audit', 'ai-je-workbench', 'amortization', 'bank', 'bank-batch-pipeline', 'chart-of-accounts', 'consolidation', 'construction-loan', 'general-ledger', 'integration-hub', 'intercompany', 'journals', 'overview', 'payables', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'reconciliation', 'reports', 'source-documents', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
-const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation','Source & Staging']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation','Source & Staging']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}} onTogglePanel={() => {}}/>);
+const inertToggleMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const collapsedNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}} panelCollapsed={true} onTogglePanel={() => {}}/>);
 const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroups={['Reports']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const journalNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="journals" expandedGroups={['Journal Entry']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const mobileReportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroups={['Reports']} navOpen={true} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const routeWinsMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="wbs-autorec-evidence" expandedGroups={['General Ledger']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 assert.match(navMarkup, /Control Center/); assert.match(navMarkup, /Accounting Operations/); assert.match(reportNavMarkup, /Reports/);
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
-assert.match(reportNavMarkup, /authoritative-sidebar-direct/, 'a one-page Reports workspace must open directly from its primary rail control');
-assert.doesNotMatch(reportNavMarkup, /Financial statements/, 'a one-page Reports workspace must not repeat its only child in a secondary menu');
+assert.match(navMarkup, /aria-label="Collapse navigation panel" aria-expanded="true"/, 'an open multi-page workspace must expose a labelled desktop panel control');
+assert.doesNotMatch(inertToggleMarkup, /navigation panel/, 'the reusable shell must not render an inoperative collapse control without a handler');
+assert.match(collapsedNavMarkup, /authoritative-sidebar-panel-collapsed/, 'the desktop panel may collapse without changing the active accounting route');
+assert.match(collapsedNavMarkup, /aria-label="Expand navigation panel" aria-expanded="false"/, 'the collapsed panel must retain a labelled restore control');
+assert.match(collapsedNavMarkup, /aria-expanded="false" aria-controls="authoritative-navigation-active-group" aria-label="Auto Reconciliation"/,
+  'a collapsed secondary menu must not be announced as expanded by its active rail group');
+assert.doesNotMatch(reportNavMarkup, /authoritative-sidebar-direct/, 'the multi-page Reports workspace must expose its secondary navigation');
+assert.match(reportNavMarkup, /Standard reports/, 'the Reports workspace must expose its standard-reports page using the observed QBO catalog name');
+assert.doesNotMatch(reportNavMarkup, /Financial statements/, 'the report navigation must not use the narrower legacy label');
+assert.match(reportNavMarkup, /Accounting Analysis Report/, 'the Reports workspace must expose its AI analysis page');
 assert.doesNotMatch(journalNavMarkup, /Journal entries/, 'a one-page Journal workspace must not repeat its only child in a secondary menu');
-assert.doesNotMatch(reportNavMarkup, /aria-label="Accounting workspace navigation"/, 'a suppressed secondary menu must not leave an empty navigation landmark');
-assert.match(mobileReportNavMarkup, /aria-label="Close navigation"/, 'a direct-entry workspace must retain a reachable Close control in the mobile drawer');
+assert.match(reportNavMarkup, /aria-label="Accounting workspace navigation"/, 'the Reports secondary menu must retain its navigation landmark');
+assert.match(mobileReportNavMarkup, /aria-label="Close navigation"/, 'the Reports workspace must retain a reachable Close control in the mobile drawer');
 assert.match(navMarkup, /Bank transaction matching/); assert.match(navMarkup, /aria-label="Auto Reconciliation"/);
 assert.match(navMarkup, /aria-expanded="true" aria-controls="authoritative-navigation-active-group" aria-label="Auto Reconciliation"/,
   'a multi-page rail group must announce the one secondary panel it currently exposes');
 assert.doesNotMatch(navMarkup, /aria-current="page"[^>]*aria-label="Auto Reconciliation"/,
   'a multi-page workspace group is expanded, not itself the current page');
-assert.match(reportNavMarkup, /aria-current="page" aria-label="Reports"/,
-  'a one-page workspace rail control is the direct current page');
-assert.doesNotMatch(reportNavMarkup, /aria-expanded="[^"]+"[^>]*aria-label="Reports"/,
-  'a one-page workspace must not announce a secondary menu that is intentionally suppressed');
+assert.match(reportNavMarkup, /aria-expanded="true" aria-controls="authoritative-navigation-active-group" aria-label="Reports"/,
+  'the multi-page Reports rail control must announce its expanded secondary menu');
+assert.doesNotMatch(reportNavMarkup, /aria-current="page"[^>]*aria-label="Reports"/,
+  'the Reports group is expanded while its selected child is the current page');
 assert.doesNotMatch(navMarkup, /Source Documents/, 'an old workspace must not remain in the secondary panel after navigation');
 assert.match(navMarkup, /authoritative-navigation-active-group/, 'only the current workspace menu is rendered');
 assert.doesNotMatch(navMarkup, />API</); assert.doesNotMatch(navMarkup, />Unavailable</);
@@ -66,7 +76,11 @@ assert.equal(mountedRoute,'wbs-autorec-evidence','an unknown hash must fail clos
 stopWatchingRoute();
 assert.equal(routeListeners.has('hashchange'),false,'the authoritative app must remove its hash listener on unmount');
 const topbarMarkup = renderToStaticMarkup(<AuthoritativeTopbar navOpen={false} entityLabel="WBHO WB Home LLC" periodLabel="2026-07" theme="light" navOpenerRef={{current:null}} onOpenNavigation={() => {}} onRefresh={() => {}} onToggleTheme={() => {}} onSignOut={() => {}}/>);
+const selectableTopbarMarkup = renderToStaticMarkup(<AuthoritativeTopbar navOpen={false} entityLabel="WBHO WB Home LLC" periodLabel="2026-07" entityId="11111111-1111-4111-8111-111111111111" periodId="22222222-2222-4222-8222-222222222222" scopes={[{entity_id:'11111111-1111-4111-8111-111111111111',entity_name:'WB Home LLC',entity_code:'WBHO',period_id:'22222222-2222-4222-8222-222222222222',period_code:'2026-07',period_start:'2026-07-01'}]} onEntityChange={() => {}} onPeriodChange={() => {}} theme="light" navOpenerRef={{current:null}} onOpenNavigation={() => {}} onRefresh={() => {}} onToggleTheme={() => {}} onSignOut={() => {}}/>);
 assert.match(topbarMarkup, /WBHO WB Home LLC/);
+assert.match(selectableTopbarMarkup, /aria-label="Authoritative company"/);assert.match(selectableTopbarMarkup, /aria-label="Accounting period"/);assert.match(selectableTopbarMarkup, /WB Home LLC \(WBHO\)/);
+assert.match(topbarMarkup, /class="mobile-nav-btn" aria-label="Open navigation"[^>]*><svg[^>]*width="24"[^>]*viewBox="0 0 24 24"/,'the compact navigation opener must use the shared 24px line icon');
+assert.doesNotMatch(topbarMarkup, />Menu<\/button>/,'fixed-width mobile navigation must not render overflowing text');
 assert.doesNotMatch(topbarMarkup, /Search or jump|Help is unavailable|Notifications are unavailable|disabled=/,
   'the authoritative topbar must not render inert product controls');
 assert.match(topbarMarkup, /Period/);
@@ -97,10 +111,12 @@ const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspac
 assert.doesNotMatch(unavailableMarkup, /Entity-scoped source-document list|attachment-read contract/,
   'customer-facing setup pages must not expose implementation contracts');
 assert.match(unavailableMarkup, /Your finance administrator/);
-assert.match(unavailableMarkup, /For now:/);
-assert.match(unavailableMarkup, /Source Documents is being prepared/);
-assert.match(unavailableMarkup, /Nothing to review here yet/);
-assert.match(unavailableMarkup, /What happens next/);
+assert.match(unavailableMarkup, /Source Documents is not available yet/);
+assert.match(unavailableMarkup, /aria-label="Source Documents setup workspace"/);
+assert.doesNotMatch(unavailableMarkup, /workspace workspace/);
+assert.match(unavailableMarkup, /Your finance administrator must confirm the company connection and access\. No sample data or accounting actions are available\./);
+assert.match(unavailableMarkup, /role="status"/);
+assert.doesNotMatch(unavailableMarkup, /Nothing to review here yet|What happens next|Configured company|Configured period|qbo-toolgrid/);
 assert.doesNotMatch(unavailableMarkup, /SETUP REQUIRED|SETUP NEEDED/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
@@ -144,13 +160,19 @@ assert.match(appSource, /initialCatalog=\{reportCatalogReturn\|\|DEFAULT_AUTHORI
   'A\/R aging Back must restore the exact Reports catalog without browser storage');
 assert.match(appSource, /backLabel="Back to Reports"/,
   'the A\/R aging full page must name its actual Reports parent on Back');
+assert.match(appSource, /openReportGeneralLedger/,
+  'the Reports catalog must route to the existing authoritative General Ledger reader');
+assert.match(appSource, /reportGeneralLedgerDetail\?closeReportGeneralLedger:null/,
+  'General Ledger must expose its catalog Back action only when Reports supplied an immutable parent context');
+assert.match(appSource, /onOpenGeneralLedger=\{openReportGeneralLedger\}/,
+  'the Reports workspace must receive the explicit General Ledger route bridge');
 assert.match(appSource, /AuthoritativeGeneralLedgerWorkspace/);
 assert.match(appSource, /AuthoritativeDocumentWorkspace[\s\S]*?kind="AP"[\s\S]*?config=\{displayConfig\}/,
   'the embedded WBS Payables observation must receive the same readable scope presentation as the authoritative shell');
 assert.match(appSource, /route === 'ai-audit'[\s\S]*?AuthoritativeAiAuditWorkspace[\s\S]*?config=\{displayConfig\}/,
   'AI Audit must receive the authoritative entity and period presentation rather than expose raw scope IDs');
-assert.match(appSource, /route === 'wbs-autorec-evidence'[\s\S]*?AuthoritativeWbsTransitionWorkspace[\s\S]*?config=\{displayConfig\}/,
-  'WBS evidence must receive the authoritative entity display name from the scope reader');
+assert.match(appSource, /\['wbs-autorec-evidence','integration-hub'\]\.includes\(route\)[\s\S]*?AuthoritativeWbsTransitionWorkspace[\s\S]*?config=\{displayConfig\}/,
+  'WBS evidence and the Source & Staging import entry must mount the same authoritative WBS workspace');
 assert.match(appSource, /route === 'reports'[\s\S]*?AuthoritativeReportsWorkspace[\s\S]*?config=\{displayConfig\}/,
   'Reports and drill-back context must retain authoritative human-readable scope labels');
 assert.match(appSource, /route === 'project-cost-cwip'/, 'Project Cost & CWIP must mount existing authenticated report readers rather than an unavailable demo route');
@@ -178,8 +200,9 @@ assert.match(appSource, /AuthoritativeWbsTransitionWorkspace/, 'WBS evidence mus
 assert.match(appSource, /AuthoritativeWbsPayableReviewWorkspace/, 'WBS Payable Review must mount the signed-and-admitted evidence queue rather than an unavailable or browser-backed route');
 assert.match(appSource, /AuthoritativeAiAuditWorkspace/, 'AI Audit Center must mount the authenticated server-backed finding reader rather than a browser-backed audit model');
 assert.match(appSource, /route === 'ai-audit'/, 'AI Audit Center must mount at its stable authoritative route');
-assert.match(appSource, /'ai-audit','ai-je-workbench','wbs-autorec-evidence'/, 'AI Audit and AI JE workspaces must not fall through to the unavailable workspace after mounting');
+assert.match(appSource, /'ai-audit','ai-je-workbench','accounting-analysis-report','wbs-autorec-evidence'/, 'AI Audit, AI JE, and Accounting Analysis Report workspaces must not fall through to the unavailable workspace after mounting');
 assert.match(appSource, /AuthoritativeAiJeWorkspace/, 'AI JE Workbench must mount the authoritative proposal-to-Draft workspace');
+assert.match(appSource, /AuthoritativeAccountingAnalysisReport/, 'Accounting Analysis Report must mount the authoritative retained-report workspace');
 assert.match(appSource, /route === 'wbs-payable-review'/, 'the WBS Payable Review entry must have a stable authoritative route');
 assert.match(appSource, /AuthoritativeBankBatchPipelineWorkspace/, 'Bank Batch Pipeline must compose existing authoritative Bank and Reconciliation readers rather than fail closed as an unavailable route');
 assert.match(appSource, /route === 'bank-batch-pipeline'/, 'the API-backed Bank Batch Pipeline must mount at its stable navigation route');
@@ -187,8 +210,8 @@ assert.match(appSource, /route === 'bank-batch-pipeline'[\s\S]*?AuthoritativeBan
   'the composed Bank and Reconciliation readers must receive the same readable company and period scope as their direct routes');
 assert.match(appSource, /authoritative-topbar/, 'the formal app must use the complete workbench-style top bar rather than the old title-only header');
 assert.match(appSource, /AuthoritativeTopbar/, 'the production app must use the dedicated authoritative topbar');
-assert.match(appSource, /Authoritative entity \$\{config\.entityId\}/, 'the top bar must expose the configured API entity as scope, not a local selector');
-assert.match(appSource, /Authoritative period \$\{config\.periodId\}/, 'the top bar must expose the configured API period as scope');
+assert.match(appSource, /refreshAuthoritativeScopeCatalog/, 'the top bar company and period choices must come from the authenticated API rather than browser authority');
+assert.match(appSource, /setData\(\{ap:\{bills:\[\],adjustments:\[\]\},ar:\{invoices:\[\],adjustments:\[\]\},journals:\[\]\}\)/, 'changing company or period must clear stale accounting rows before the next scoped read');
 assert.match(appSource, /Refresh authoritative accounting evidence/, 'the top-bar refresh control must name its real GET-only outcome');
 assert.match(appSource, /Authenticated OIDC session/, 'the user chip must describe an authenticated session without fabricating a demo user');
 assert.match(appSource, /onClick=\{logout\}>Sign out/, 'the visual shell keeps the real OIDC sign-out command');

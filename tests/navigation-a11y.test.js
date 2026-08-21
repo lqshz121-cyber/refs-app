@@ -4,9 +4,15 @@ import {focusFirstControl, navDrawerAttributes, navDrawerIsInert, readOffCanvas,
 
 const app=readFileSync('src/legacy-demo-app.jsx','utf8');
 const authoritative=readFileSync('src/authoritative-app.jsx','utf8');
+const authoritativeTopbar=readFileSync('src/authoritative-topbar.jsx','utf8');
 const authoritativeShell=readFileSync('src/authoritative-navigation-shell.jsx','utf8');
+const ui=readFileSync('src/ui.jsx','utf8');
 const unavailableWorkspace=readFileSync('src/authoritative-unavailable-workspace.jsx','utf8');
 const styles=readFileSync('index.html','utf8');
+assert.match(styles,/^<!DOCTYPE html>\r?\n<html lang="en">/,
+  'the production HTML source must begin with its doctype and may not contain tool output or warning text');
+assert.doesNotMatch(styles,/^Warning: truncated output|^Total output lines:/m,
+  'tool truncation diagnostics must never become visible production markup');
 assert.match(app,/<button className="mobile-nav-scrim" tabIndex=\{-1\} aria-label="Close navigation"/);
 assert.match(app,/<button className="mobile-nav-close" aria-label="Close navigation" onClick=\{\(\)=>setMobileNav\(false\)\}>Close<\/button>/);
 assert.match(app,/aria-expanded=\{isSingleton\?undefined:opened\}/,'multi-item group headers must expose expanded state');
@@ -31,8 +37,10 @@ assert.equal(navDrawerIsInert(true,false),true,'closed at a narrow width: nothin
 assert.equal(navDrawerIsInert(true,true),false,'open: everything inside must be reachable');
 assert.equal(navDrawerIsInert(false,false),false,'at desktop widths the drawer is permanently visible and must never be inert');
 assert.equal(navDrawerIsInert(false,true),false,'at desktop widths the drawer is permanently visible and must never be inert');
-assert.deepEqual(navDrawerAttributes(true,false),{inert:'','aria-hidden':'true'});
-assert.deepEqual(navDrawerAttributes(true,true),{inert:undefined,'aria-hidden':undefined});
+assert.deepEqual(navDrawerAttributes(true,false),{inert:'','aria-hidden':'true',role:undefined,'aria-modal':undefined,'aria-label':undefined});
+assert.deepEqual(navDrawerAttributes(true,true),{inert:undefined,'aria-hidden':undefined,role:'dialog','aria-modal':'true','aria-label':'Navigation menu'});
+assert.deepEqual(navDrawerAttributes(false,true),{inert:undefined,'aria-hidden':undefined,role:undefined,'aria-modal':undefined,'aria-label':undefined},
+  'desktop navigation remains a normal sidebar rather than announcing a modal dialog');
 assert.equal(navDrawerAttributes(true,false).inert,'','React 18 drops a boolean true for an attribute it does not know');
 
 // The viewport class is read synchronously at mount. One frame of the wrong
@@ -80,6 +88,11 @@ for (const [name,source,open] of [['src/legacy-demo-app.jsx',app,'mobileNav'],['
   assert.match(source,/aria-controls="(primary|authoritative)-navigation" aria-expanded=\{(mobileNav|navOpen)\}/,`${name}: the opener must announce what it controls and whether it is open`);
   assert.match(source,/className="mobile-nav-close"/,`${name}: an off-canvas drawer needs a visible way out`);
 }
+assert.match(authoritativeTopbar,/<Icon name="menu" size=\{24\}\/>/,'the active authoritative topbar must use the shared menu glyph');
+assert.match(authoritative,/<Icon name="menu" size=\{24\}\/>/,'the retained duplicate shell must not reintroduce clipped Menu text');
+assert.doesNotMatch(`${authoritativeTopbar}\n${authoritative}`,/>Menu<\/button>/,'authoritative navigation openers must not overflow their fixed square control');
+assert.match(ui,/menu:\s+\['M4\.5 6\.5h15', 'M4\.5 12h15', 'M4\.5 17\.5h15'\]/,'the menu glyph must stay in the self-authored currentColor icon family');
+assert.match(styles,/\.mobile-nav-btn svg\{display:block;width:24px;height:24px;\}/,'the 24px menu glyph must remain contained inside the fixed navigation control');
 
 // The authoritative surface must expose the same presentation-only theme
 // control as the legacy shell.  It is deliberately an explicit button rather
@@ -135,10 +148,18 @@ assert.match(authoritativeShell,/\{!opensDirectly && <nav aria-label="Accounting
   'a direct-entry workspace must not expose an empty or duplicate secondary navigation landmark');
 assert.match(styles,/\.authoritative-app \.sidebar\.authoritative-sidebar-direct\{width:var\(--qb-rail-w\); flex-basis:var\(--qb-rail-w\);\}/,
   'a direct-entry workspace must release the unused desktop panel width');
-assert.doesNotMatch(authoritativeShell,/nav-panel-toggle/,
+assert.doesNotMatch(authoritativeShell,/className="nav-panel-toggle"/,
   'the selected workspace must replace the previous menu instead of stacking expanded trees');
+assert.match(authoritativeShell,/className="desktop-nav-panel-toggle"[\s\S]*aria-label=\{`\$\{desktopPanelCollapsed \? 'Expand' : 'Collapse'\} navigation panel`\}[\s\S]*aria-expanded=\{!desktopPanelCollapsed\}/,
+  'the one desktop panel toggle must expose its action and current expanded state without creating another workspace tree');
+assert.match(authoritativeShell,/aria-expanded=\{!direct \? active && !desktopPanelCollapsed : undefined\}/,
+  'the active rail group must report its secondary navigation as collapsed when hidden');
+assert.match(authoritativeShell,/const canTogglePanel = !opensDirectly && typeof onTogglePanel === 'function'/,
+  'the reusable shell must fail closed instead of rendering an inoperative panel control without a handler');
 assert.match(authoritative,/setExpandedNavigationGroups\(\[group\.label\]\)/,
   'a primary workspace selection must replace the previous secondary menu');
+assert.match(authoritative,/setNavPanelCollapsed\(false\)/,
+  'selecting a primary workspace must expose its secondary navigation after a collapse');
 assert.match(authoritative,/setRoute\(group\.items\[0\]\.route\)/,
   'a primary workspace selection must open its first available page');
 assert.doesNotMatch(authoritativeShell,/authoritative-new-disabled|\+ New/,
@@ -159,8 +180,12 @@ assert.doesNotMatch(authoritativeShell,/compactLabel|authoritative-nav-status|AP
   'navigation rows must not expose implementation statuses or letter abbreviations to finance readers');
 assert.match(unavailableWorkspace,/WORKSPACE SETUP|SETUP REQUIRED|SETUP NEEDED/,
   'an unconfigured workspace must explain setup in finance-reader language');
-assert.match(unavailableWorkspace,/What happens next|finance administrator|company connection is ready/,
-  'a setup page must explain the responsible person and the safe next step in finance-reader language');
+assert.match(unavailableWorkspace,/finance administrator must confirm the company connection and access/,
+  'a concise setup page must explain the responsible person and the safe next step');
+assert.match(unavailableWorkspace,/No sample data or accounting actions are available/,
+  'a concise setup page must retain the fail-closed data and action boundary');
+assert.doesNotMatch(unavailableWorkspace,/qbo-toolgrid|Configured company|Configured period|What happens next/,
+  'the topbar scope and one concise setup state must not be repeated as cards and long instructions');
 assert.doesNotMatch(unavailableWorkspace,/config\?\.entityId \|\| 'Not configured'|config\?\.periodId \|\| 'Not configured'/,
   'raw scope identifiers must not be rendered as the visible workspace value');
 assert.doesNotMatch(authoritativeShell,/legacy-demo-app|from ['"]\.\/data|from ['"]\.\/seed|from ['"]\.\/repo|localStorage/,

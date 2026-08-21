@@ -3,7 +3,7 @@ import {createAccountingApi,createAccountingHttpServer} from '../api/accounting-
 
 const tenantId=randomUUID(),entityId=randomUUID(),journalEntryId=randomUUID(),periodId=randomUUID();
 const calls=[];const invoke=name=>async args=>{calls.push([name,args]);return {journal_entry_id:journalEntryId,status:'DRAFT',idempotent:false};};
-const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createApPaymentReversal:invoke('createApPaymentReversal'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),getArAging:invoke('getArAging'),getApAging:invoke('getApAging'),getArControlTotal:invoke('getArControlTotal'),getApControlTotal:invoke('getApControlTotal'),listBusinessDocuments:invoke('listBusinessDocuments'),listBusinessAdjustments:invoke('listBusinessAdjustments'),listJournalEntries:invoke('listJournalEntries'),getJournalWorkflowCapabilities:invoke('getJournalWorkflowCapabilities'),listBankTransactions:invoke('listBankTransactions'),listBankMatchCandidates:invoke('listBankMatchCandidates'),getReconciliationSummary:invoke('getReconciliationSummary'),listReconciliationScopes:invoke('listReconciliationScopes'),listAdmittedWbsBankStatementReceipts:invoke('listAdmittedWbsBankStatementReceipts'),getAdmittedWbsBankStatementReceipt:invoke('getAdmittedWbsBankStatementReceipt'),listReconciliationWorksheet:invoke('listReconciliationWorksheet'),getSignedReconciliationSnapshot:invoke('getSignedReconciliationSnapshot'),getFinancialStatements:invoke('getFinancialStatements'),getFinancialStatementSnapshot:invoke('getFinancialStatementSnapshot'),prepareFinancialStatementSnapshot:invoke('prepareFinancialStatementSnapshot'),approveFinancialStatementSnapshot:invoke('approveFinancialStatementSnapshot'),createBankPaymentMatch:invoke('createBankPaymentMatch'),unmatchBankPayment:invoke('unmatchBankPayment'),startReconciliation:invoke('startReconciliation'),startReconciliationFromAdmittedWbsStatement:invoke('startReconciliationFromAdmittedWbsStatement'),setReconciliationClearance:invoke('setReconciliationClearance'),setReconciliationAdjustmentClearance:invoke('setReconciliationAdjustmentClearance'),transitionReconciliation:invoke('transitionReconciliation'),createReconciliationAdjustmentDraft:invoke('createReconciliationAdjustmentDraft'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createArRefund:invoke('createArRefund'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit'),recordWbsSnapshot:invoke('recordWbsSnapshot')};
+const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createApPaymentReversal:invoke('createApPaymentReversal'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),getArAging:invoke('getArAging'),getApAging:invoke('getApAging'),getAgingSnapshotSummary:invoke('getAgingSnapshotSummary'),getAgingSnapshotDetail:invoke('getAgingSnapshotDetail'),getArControlTotal:invoke('getArControlTotal'),getApControlTotal:invoke('getApControlTotal'),listBusinessDocuments:invoke('listBusinessDocuments'),listBusinessAdjustments:invoke('listBusinessAdjustments'),listJournalEntries:invoke('listJournalEntries'),getJournalWorkflowCapabilities:invoke('getJournalWorkflowCapabilities'),listBankTransactions:invoke('listBankTransactions'),listBankMatchCandidates:invoke('listBankMatchCandidates'),getReconciliationSummary:invoke('getReconciliationSummary'),listReconciliationScopes:invoke('listReconciliationScopes'),listAdmittedWbsBankStatementReceipts:invoke('listAdmittedWbsBankStatementReceipts'),getAdmittedWbsBankStatementReceipt:invoke('getAdmittedWbsBankStatementReceipt'),listReconciliationWorksheet:invoke('listReconciliationWorksheet'),getSignedReconciliationSnapshot:invoke('getSignedReconciliationSnapshot'),getFinancialStatements:invoke('getFinancialStatements'),getFinancialStatementSnapshot:invoke('getFinancialStatementSnapshot'),prepareFinancialStatementSnapshot:invoke('prepareFinancialStatementSnapshot'),approveFinancialStatementSnapshot:invoke('approveFinancialStatementSnapshot'),createBankPaymentMatch:invoke('createBankPaymentMatch'),unmatchBankPayment:invoke('unmatchBankPayment'),startReconciliation:invoke('startReconciliation'),startReconciliationFromAdmittedWbsStatement:invoke('startReconciliationFromAdmittedWbsStatement'),setReconciliationClearance:invoke('setReconciliationClearance'),setReconciliationAdjustmentClearance:invoke('setReconciliationAdjustmentClearance'),transitionReconciliation:invoke('transitionReconciliation'),createReconciliationAdjustmentDraft:invoke('createReconciliationAdjustmentDraft'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createArRefund:invoke('createArRefund'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit'),recordWbsSnapshot:invoke('recordWbsSnapshot')};
 const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel});
 const command=(path,body={},headers={})=>api({method:'POST',url:path,body,headers:{'Idempotency-Key':'idem-key-0001',...headers}});
 
@@ -487,6 +487,17 @@ test('AP aging is an authenticated read scoped to entity and a strict as-of date
   assert.deepEqual(calls[0][1],{tenantId,entityId,asOfDate:'2026-08-31'});
 });
 
+test('AP and AR counterparty aging snapshots require exact period, as-of, party and bounded page scopes',async()=>{
+  for(const [module,kind] of [['ap','AP_BILL'],['ar','AR_INVOICE']]){
+    calls.length=0;let response=await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/aging-summary?periodId=${periodId}&asOf=2026-08-31`,body:null,headers:{}});
+    assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(calls[0],['getAgingSnapshotSummary',{tenantId,entityId,documentKind:kind,periodId,asOfDate:'2026-08-31'}]);
+    calls.length=0;response=await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/aging-detail?periodId=${periodId}&asOf=2026-08-31&counterpartyRef=V-1&counterpartyName=Vendor&currency=USD&limit=25&offset=50`,body:null,headers:{}});
+    assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(calls[0],['getAgingSnapshotDetail',{tenantId,entityId,documentKind:kind,periodId,asOfDate:'2026-08-31',counterpartyRef:'V-1',counterpartyName:'Vendor',currency:'USD',limit:25,offset:50}]);
+    for(const url of [`/api/v1/entities/${entityId}/${module}/aging-summary?asOf=2026-08-31`,`/api/v1/entities/${entityId}/${module}/aging-summary?periodId=${periodId}&asOf=2026-02-30`,`/api/v1/entities/${entityId}/${module}/aging-detail?periodId=${periodId}&asOf=2026-08-31&counterpartyRef=V-1&counterpartyName=Vendor&currency=usd`])assert.equal((await api({method:'GET',url,body:null,headers:{}})).status,400);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/aging-summary?periodId=${periodId}&asOf=2026-08-31`,body:null,headers:{'Idempotency-Key':'forbidden'}})).status,400);
+  }
+});
+
 test('AP and AR control totals are authenticated entity-scoped reads',async()=>{
   for(const [module,method] of [['ap','getApControlTotal'],['ar','getArControlTotal']]){
     calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/control-totals?periodId=${periodId}`,body:null,headers:{}});
@@ -497,30 +508,36 @@ test('AP and AR control totals are authenticated entity-scoped reads',async()=>{
   }
 });
 
-test('AP Bills and AR Invoices refresh from authenticated entity-scoped business document reads',async()=>{
+test('AP Bills and AR Invoices require an exact period and bounded no-store page',async()=>{
   for(const [module,collection,kind] of [['ap','bills','AP_BILL'],['ar','invoices','AR_INVOICE']]){
-    calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/${collection}`,body:null,headers:{}});
+    calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/${collection}?periodId=${periodId}&limit=25&offset=50`,body:null,headers:{}});
     assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');
-    assert.deepEqual(calls[0],['listBusinessDocuments',{tenantId,entityId,documentKind:kind}]);
-    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/${collection}`,body:null,headers:{'Idempotency-Key':'read-not-allowed'}})).status,400);
+    assert.deepEqual(calls[0],['listBusinessDocuments',{tenantId,entityId,documentKind:kind,periodId,limit:25,offset:50}]);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/${collection}`,body:null,headers:{}})).status,400);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/${collection}?periodId=${randomUUID()}&limit=201`,body:null,headers:{}})).status,400);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/${collection}?periodId=${periodId}`,body:null,headers:{'Idempotency-Key':'read-not-allowed'}})).status,400);
   }
 });
 
-test('AP and AR adjustments refresh only through authenticated entity-scoped reads',async()=>{
+test('AP and AR adjustments require the exact authoritative period and bounded no-store page',async()=>{
   for(const [module,expected] of [['ap','AP'],['ar','AR']]){
-    calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/adjustments`,body:null,headers:{}});
+    calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/adjustments?periodId=${periodId}&limit=25&offset=50`,body:null,headers:{}});
     assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');
-    assert.deepEqual(calls[0],['listBusinessAdjustments',{tenantId,entityId,module:expected}]);
-    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/adjustments`,body:null,headers:{'Idempotency-Key':'read-not-allowed'}})).status,400);
+    assert.deepEqual(calls[0],['listBusinessAdjustments',{tenantId,entityId,module:expected,periodId,limit:25,offset:50}]);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/adjustments`,body:null,headers:{}})).status,400);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/adjustments?periodId=not-a-uuid`,body:null,headers:{}})).status,400);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/adjustments?periodId=${periodId}&limit=201`,body:null,headers:{}})).status,400);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/adjustments?periodId=${periodId}`,body:null,headers:{'Idempotency-Key':'read-not-allowed'}})).status,400);
   }
 });
 
-test('Journal Entries refresh only through an authenticated entity-scoped read',async()=>{
-  calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/journal-entries`,body:null,headers:{}});
+test('Journal Entries require the same exact period used by detail evidence',async()=>{
+  calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/journal-entries?periodId=${periodId}&limit=50&offset=100`,body:null,headers:{}});
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');
-  assert.deepEqual(calls[0],['listJournalEntries',{tenantId,entityId}]);
+  assert.deepEqual(calls[0],['listJournalEntries',{tenantId,entityId,periodId,limit:50,offset:100}]);
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/journal-entries`,body:null,headers:{'Idempotency-Key':'read-not-allowed'}})).status,400);
-  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/journal-entries`,body:{unexpected:true},headers:{}})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/journal-entries`,body:null,headers:{}})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/journal-entries?periodId=${periodId}`,body:{unexpected:true},headers:{}})).status,400);
 });
 
 test('Journal workflow capabilities are a fixed current-actor read with no permission selector',async()=>{
@@ -704,8 +721,8 @@ test('HTTP CORS permits only configured browser origins and preflights without a
     const base=`http://127.0.0.1:${server.address().port}`;
     let response=await fetch(`${base}/api/v1/entities/${entityId}/ap/bills`,{method:'OPTIONS',headers:{origin,'access-control-request-method':'GET','access-control-request-headers':'authorization'}});
     assert.equal(response.status,204);assert.equal(response.headers.get('access-control-allow-origin'),origin);assert.equal(response.headers.get('access-control-allow-credentials'),'true');assert.match(response.headers.get('access-control-allow-headers'),/(^|,\s*)authorization(,|$)/);assert.match(response.headers.get('access-control-allow-headers'),/idempotency-key/);assert.match(response.headers.get('access-control-allow-headers'),/(^|,\s*)cache-control(,|$)/);
-    response=await fetch(`${base}/api/v1/entities/${entityId}/ap/bills`,{headers:{origin}});assert.equal(response.status,200);assert.equal(response.headers.get('access-control-allow-origin'),origin);assert.equal(response.headers.get('vary'),'Origin');
-    response=await fetch(`${base}/api/v1/entities/${entityId}/ap/bills`,{headers:{origin:'https://attacker.example'}});assert.equal(response.status,403);assert.equal(response.headers.get('access-control-allow-origin'),null);assert.equal((await response.json()).code,'CORS_ORIGIN_FORBIDDEN');
+    response=await fetch(`${base}/api/v1/entities/${entityId}/ap/bills?periodId=${periodId}`,{headers:{origin}});assert.equal(response.status,200);assert.equal(response.headers.get('access-control-allow-origin'),origin);assert.equal(response.headers.get('vary'),'Origin');
+    response=await fetch(`${base}/api/v1/entities/${entityId}/ap/bills?periodId=${periodId}`,{headers:{origin:'https://attacker.example'}});assert.equal(response.status,403);assert.equal(response.headers.get('access-control-allow-origin'),null);assert.equal((await response.json()).code,'CORS_ORIGIN_FORBIDDEN');
   }finally{await new Promise(resolve=>server.close(resolve));}
 });
 

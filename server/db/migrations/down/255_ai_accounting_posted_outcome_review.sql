@@ -1,0 +1,10 @@
+BEGIN;
+DO $$ BEGIN IF EXISTS(SELECT 1 FROM ai_accounting_posted_outcome_review) THEN RAISE EXCEPTION 'Cannot remove retained AI accounting Posted outcome reviews' USING ERRCODE='55000'; END IF; END $$;
+REVOKE ALL ON FUNCTION refs_read_ai_accounting_posted_outcome_reviews(uuid,uuid,uuid,integer) FROM refs_app;
+REVOKE ALL ON FUNCTION refs_retain_ai_accounting_posted_outcome_review(uuid,uuid,uuid,text,bigint,text,text) FROM refs_app;
+DROP FUNCTION refs_read_ai_accounting_posted_outcome_reviews(uuid,uuid,uuid,integer);
+DROP FUNCTION refs_retain_ai_accounting_posted_outcome_review(uuid,uuid,uuid,text,bigint,text,text);
+DROP TRIGGER ai_accounting_posted_outcome_review_append_only ON ai_accounting_posted_outcome_review;
+DROP POLICY ai_accounting_posted_outcome_review_scope ON ai_accounting_posted_outcome_review;
+DROP TABLE ai_accounting_posted_outcome_review;
+COMMIT;
