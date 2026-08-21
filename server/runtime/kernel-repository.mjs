@@ -79,14 +79,7 @@ export class PostgresAccountingKernel{
             (SELECT count(*)::integer FROM wbs_test_import_draft d
               WHERE d.tenant_id=$1 AND d.entity_id=$2) AS h1_count,
             (SELECT count(*)::integer FROM wbs_test_import_draft d
-              WHERE d.tenant_id=$1 AND d.entity_id=$2 AND d.period_id=p.period_id) AS month_count,
-            NOT EXISTS (
-              SELECT 1 FROM wbs_test_import_draft d
-              LEFT JOIN source_document s ON s.tenant_id=d.tenant_id AND s.entity_id=d.entity_id AND s.source_document_id=d.source_document_id
-              LEFT JOIN journal_entry j ON j.tenant_id=d.tenant_id AND j.entity_id=d.entity_id AND j.journal_entry_id=d.journal_entry_id
-              WHERE d.tenant_id=$1 AND d.entity_id=$2 AND d.period_id=p.period_id
-                AND (s.status IS DISTINCT FROM 'POSTED' OR j.status IS DISTINCT FROM 'POSTED')
-            ) AS all_posted
+              WHERE d.tenant_id=$1 AND d.entity_id=$2 AND d.period_id=p.period_id) AS month_count
           FROM period_scope p
         ), bank AS (
           SELECT count(*)::integer AS import_count,coalesce(sum(b.row_count),0)::integer AS row_count,
@@ -99,7 +92,11 @@ export class PostgresAccountingKernel{
         SELECT p.period_id::text,p.starts_on::text,p.ends_on::text,q.h1_count,q.month_count,q.all_posted,
           b.import_count,b.row_count,b.reconciliation_id
         FROM period_scope p CROSS JOIN payable q CROSS JOIN bank b
-        WHERE q.h1_count>0 AND q.all_posted IS TRUE AND b.import_count=1 AND b.row_count>0
+        -- The final Bank import row is written only after the service has
+        -- completed every Payable lifecycle for this month.  It is therefore
+        -- the durable completion receipt; replay must not rescan Journal and
+        -- Source RLS populations merely to return an HTTP response.
+        WHERE q.h1_count>0 AND b.import_count=1 AND b.row_count>0
       `,[tenantId,entityId,companyCode,periodCode])).rows[0];
       if(!row)return null;
       return {
