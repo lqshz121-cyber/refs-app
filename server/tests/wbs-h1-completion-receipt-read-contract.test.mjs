@@ -37,3 +37,11 @@ test('260 rollback removes only its function and indexes',async()=>{
   assert.match(down,/DROP INDEX wbs_test_import_draft_completion_scope_idx/);
   assert.doesNotMatch(down,/DROP TABLE/);
 });
+
+test('261 excludes non-H1 legacy traces from the H1 population total',async()=>{
+  const up=await readFile(new URL('../db/migrations/261_wbs_h1_completion_population_scope.sql',import.meta.url),'utf8');
+  assert.match(up,/JOIN accounting_period hp/);
+  assert.match(up,/hp\.period_code BETWEEN '2026-01' AND '2026-06'/);
+  assert.match(up,/hp\.starts_on BETWEEN DATE '2026-01-01' AND DATE '2026-06-01'/);
+  assert.match(up,/hp\.ends_on BETWEEN DATE '2026-01-31' AND DATE '2026-06-30'/);
+});
