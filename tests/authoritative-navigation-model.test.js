@@ -4,7 +4,7 @@ import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTE
 
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the formal navigation must retain the full product taxonomy');
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'every formal route needs a stable unique identity');
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry','accounting-analysis-report','ai-audit','ai-je-workbench','amortization','bank','bank-batch-pipeline','chart-of-accounts','consolidation','construction-loan','general-ledger','intercompany','journals','overview','payables','project-cost-cwip','property-ops-pickup','receivables','reconciliation','reports','source-documents','unit-cost-ledger','wbs-autorec-evidence','wbs-payable-review'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry','accounting-analysis-report','ai-audit','ai-je-workbench','amortization','bank','bank-batch-pipeline','chart-of-accounts','consolidation','construction-loan','general-ledger','integration-hub','intercompany','journals','overview','payables','project-cost-cwip','property-ops-pickup','receivables','reconciliation','reports','source-documents','unit-cost-ledger','wbs-autorec-evidence','wbs-payable-review'].sort());
 for (const group of AUTHORITATIVE_NAVIGATION) {
   assert.ok(group.items.length > 0, `${group.label} may not be empty`);
   for (const item of group.items) assert.ok(AUTHORITATIVE_ROUTES.includes(item.route));
@@ -17,6 +17,8 @@ assert.equal(navigationItemForRoute('amortization').availability, 'API_READ');
 assert.equal(navigationItemForRoute('intercompany').availability, 'API_READ');
 assert.equal(navigationItemForRoute('consolidation').availability, 'API_READ');
 assert.equal(navigationItemForRoute('wbs-autorec-evidence').availability, 'API_READ');
+assert.equal(navigationItemForRoute('integration-hub').label, 'WBS Data Import');
+assert.equal(navigationItemForRoute('integration-hub').availability, 'API_READ');
 assert.equal(navigationItemForRoute('wbs-payable-review').availability, 'API_READ');
 assert.equal(navigationItemForRoute('bank-batch-pipeline').availability, 'API_READ');
 assert.equal(navigationItemForRoute('bank').availability, 'API_READ');

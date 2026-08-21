@@ -13,7 +13,7 @@ import { watchRetainedRoute } from '../src/authoritative-app.jsx';
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the production catalog keeps the complete major workspace taxonomy discoverable');
 assert.ok(AUTHORITATIVE_ROUTES.includes('project-cost-cwip'));
 assert.ok(AUTHORITATIVE_ROUTES.includes('ai-audit'));
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'accounting-analysis-report', 'ai-audit', 'ai-je-workbench', 'amortization', 'bank', 'bank-batch-pipeline', 'chart-of-accounts', 'consolidation', 'construction-loan', 'general-ledger', 'intercompany', 'journals', 'overview', 'payables', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'reconciliation', 'reports', 'source-documents', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'accounting-analysis-report', 'ai-audit', 'ai-je-workbench', 'amortization', 'bank', 'bank-batch-pipeline', 'chart-of-accounts', 'consolidation', 'construction-loan', 'general-ledger', 'integration-hub', 'intercompany', 'journals', 'overview', 'payables', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'reconciliation', 'reports', 'source-documents', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
 const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation','Source & Staging']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}} onTogglePanel={() => {}}/>);
 const inertToggleMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
@@ -169,8 +169,8 @@ assert.match(appSource, /AuthoritativeDocumentWorkspace[\s\S]*?kind="AP"[\s\S]*?
   'the embedded WBS Payables observation must receive the same readable scope presentation as the authoritative shell');
 assert.match(appSource, /route === 'ai-audit'[\s\S]*?AuthoritativeAiAuditWorkspace[\s\S]*?config=\{displayConfig\}/,
   'AI Audit must receive the authoritative entity and period presentation rather than expose raw scope IDs');
-assert.match(appSource, /route === 'wbs-autorec-evidence'[\s\S]*?AuthoritativeWbsTransitionWorkspace[\s\S]*?config=\{displayConfig\}/,
-  'WBS evidence must receive the authoritative entity display name from the scope reader');
+assert.match(appSource, /\['wbs-autorec-evidence','integration-hub'\]\.includes\(route\)[\s\S]*?AuthoritativeWbsTransitionWorkspace[\s\S]*?config=\{displayConfig\}/,
+  'WBS evidence and the Source & Staging import entry must mount the same authoritative WBS workspace');
 assert.match(appSource, /route === 'reports'[\s\S]*?AuthoritativeReportsWorkspace[\s\S]*?config=\{displayConfig\}/,
   'Reports and drill-back context must retain authoritative human-readable scope labels');
 assert.match(appSource, /route === 'project-cost-cwip'/, 'Project Cost & CWIP must mount existing authenticated report readers rather than an unavailable demo route');
