@@ -47,3 +47,8 @@ test('payable mapping source stage counts both new inserts and exact prior match
   const source=readFileSync(new URL('../tools/stage-wbs-h1-payable-mapping-source.mjs',import.meta.url),'utf8');
   assert.match(source,/source_fact_hash=i\.source_fact_hash\)\+\(SELECT count\(\*\) FROM inserted\)/);
 });
+
+test('signed payable mapping migration accepts nonzero adjustments and refuses unsafe down',()=>{
+  const up=readFileSync(new URL('../db/migrations/263_wbs_h1_signed_payable_mapping_amount.sql',import.meta.url),'utf8'),down=readFileSync(new URL('../db/migrations/down/263_wbs_h1_signed_payable_mapping_amount.sql',import.meta.url),'utf8');
+  assert.match(up,/CHECK\(amount <> 0\)/);assert.match(down,/REFUSE DATA LOSS/);assert.match(down,/amount < 0/);
+});
