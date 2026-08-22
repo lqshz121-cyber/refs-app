@@ -35,3 +35,8 @@ test('migration creates private append-only source and settings stages and refus
   for(const token of ['wbs_h1_payable_mapping_source_stage','wbs_h1_accounting_setting_stage','source_fact_hash','setting_hash','reject_mutation','REVOKE ALL'])assert.match(up,new RegExp(token));
   assert.match(down,/REFUSE DATA LOSS/);assert.match(down,/EXISTS\(SELECT 1 FROM wbs_h1_payable_mapping_source_stage\)/);
 });
+
+test('accounting setting stage counts both new inserts and command-snapshot matches',()=>{
+  const source=readFileSync(new URL('../tools/stage-wbs-h1-accounting-settings.mjs',import.meta.url),'utf8');
+  assert.match(source,/count\(\*\)::integer FROM inserted\)\+\(SELECT count\(\*\)::integer FROM input i JOIN wbs_h1_accounting_setting_stage/);
+});

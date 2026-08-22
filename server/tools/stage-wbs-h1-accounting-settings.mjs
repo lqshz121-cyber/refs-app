@@ -35,7 +35,7 @@ async function main(){
       ), inserted AS (
         INSERT INTO wbs_h1_accounting_setting_stage SELECT input.*,clock_timestamp() FROM input ON CONFLICT DO NOTHING RETURNING 1
       ) SELECT (SELECT count(*)::integer FROM input) AS expected_count,(SELECT count(*)::integer FROM inserted) AS inserted_count,
-        (SELECT count(*)::integer FROM input i JOIN wbs_h1_accounting_setting_stage s USING(tenant_id,company_code,setting_id,setting_hash)) AS exact_count`,[JSON.stringify(rows)])).rows[0];
+        ((SELECT count(*)::integer FROM inserted)+(SELECT count(*)::integer FROM input i JOIN wbs_h1_accounting_setting_stage s USING(tenant_id,company_code,setting_id,setting_hash))) AS exact_count`,[JSON.stringify(rows)])).rows[0];
     if(receipt.expected_count!==rows.length||receipt.exact_count!==rows.length)throw new Error('WBS accounting settings stage replay is incomplete');
     process.stdout.write(`${JSON.stringify({status:'WBS_H1_ACCOUNTING_SETTINGS_STAGED',row_count:rows.length,inserted_count:receipt.inserted_count})}\n`);
   }finally{await pool.end();}
