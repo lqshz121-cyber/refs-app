@@ -10,7 +10,8 @@ const ACCOUNT=/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const CONTROL=/[\u0000-\u001f\u007f]/;
 const strictDate=value=>{
   const raw=typeof value==='string'?value.trim():'';if(!/^\d{4}-\d{2}-\d{2}(?:[ T].*)?$/.test(raw))return null;
-  const date=raw.slice(0,10),[year,month,day]=date.split('-').map(Number),parsed=new Date(Date.UTC(year,month-1,day));return parsed.getUTCFullYear()===year&&parsed.getUTCMonth()===month-1&&parsed.getUTCDate()===day?date:null;
+  const date=raw.slice(0,10),[year,month,day]=date.split('-').map(Number);if(year<1)return null;
+  const parsed=new Date(0);parsed.setUTCHours(0,0,0,0);parsed.setUTCFullYear(year,month-1,day);return parsed.getUTCFullYear()===year&&parsed.getUTCMonth()===month-1&&parsed.getUTCDate()===day?date:null;
 };
 const field=(value,max,{empty=false}={})=>{const out=value==null?'':String(value).trim();if((!empty&&!out)||out.length>max||CONTROL.test(out))return null;return out;};
 const readStdin=async()=>{const chunks=[];for await(const chunk of process.stdin)chunks.push(Buffer.from(chunk));return Buffer.concat(chunks).toString('utf8');};

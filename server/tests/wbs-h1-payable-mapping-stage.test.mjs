@@ -26,6 +26,7 @@ test('only exact WBS Payable Debit settings enter the private stage contract',()
   const normalized=normalizeWbsH1AccountingSetting({id:42,type:'Debit',category:'Payable',business_type:4,detail:'14T041',pj_code:'PROJECT-1,PROJECT-2',journal_code:'140100',account:'Prepaid Insurance',company_code:'OPPO',start_date:'2026-01-01 00:00:00',end_date:'2026-12-31 00:00:00',supplementary:''},{tenantId});
   assert.equal(normalized.company_code,'OPPO');assert.equal(normalized.journal_code,'140100');assert.match(normalized.setting_hash,/^sha256:[0-9a-f]{64}$/);
   assert.equal(normalizeWbsH1AccountingSetting({id:43,type:'Debit',category:'Payable',business_type:4,detail:'',pj_code:null,journal_code:null,account:null,company_code:'OPPO',start_date:'2026-01-01',end_date:'2026-12-31',supplementary:null},{tenantId}).journal_code,'');
+  assert.equal(normalizeWbsH1AccountingSetting({id:44,type:'Debit',category:'Payable',business_type:4,detail:'',pj_code:null,journal_code:null,account:null,company_code:'OPPO',start_date:'0031-01-12',end_date:'2026-12-31',supplementary:null},{tenantId}).effective_from,'0031-01-12');
   assert.throws(()=>normalizeWbsH1AccountingSetting({...normalized,type:'Credit'},{tenantId}));
   assert.throws(()=>normalizeWbsH1AccountingSetting({...normalized,start_date:'2026-02-30'},{tenantId}));
 });
