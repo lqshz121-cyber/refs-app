@@ -27,6 +27,18 @@ export function normalizeDirectWbsH1CatalogRows(rows,{tenantId,entityByCompany,p
   return Object.freeze(normalized);
 }
 
+export function partitionDirectWbsH1CatalogRows(rows,existingRows=[]){
+  const existing=new Map(existingRows.map(row=>[`${row.entity_id}:${row.source_record_hash}`,row.source_fact_hash]));
+  const missing=[],summary={existing_exact_count:0,existing_drift_count:0};
+  for(const row of rows){
+    const retained=existing.get(`${row.entity_id}:${row.source_record_hash}`);
+    if(retained===undefined)missing.push(row);
+    else if(retained===row.source_fact_hash)summary.existing_exact_count++;
+    else summary.existing_drift_count++;
+  }
+  return Object.freeze({missing:Object.freeze(missing),...summary});
+}
+
 async function main(){
   const input=(await readStdin()).trim();if(!input)throw new Error('Direct WBS catalog JSON is required on stdin');
   const tenantId=process.env.REFS_WBS_TEST_IMPORT_TENANT_ID?.trim()||'';if(!UUID.test(tenantId))throw new Error('REFS_WBS_TEST_IMPORT_TENANT_ID is required');
@@ -38,8 +50,14 @@ async function main(){
     const entityByCompany=new Map(scopes.map(row=>[row.company_code,row.entity_id]));if(entityByCompany.size!==companyCodes.length)throw new Error('Every direct WBS catalog company must be provisioned exactly once in REFS');
     const providerContentHash=`sha256:${createHash('sha256').update(input,'utf8').digest('hex')}`,capturedAt=new Date().toISOString(),rows=normalizeDirectWbsH1CatalogRows(parsed,{tenantId,entityByCompany,providerContentHash,capturedAt});
     const grouped=new Map();for(const row of rows){const group=grouped.get(row.company_code)||[];group.push(row);grouped.set(row.company_code,group);}
-    for(const group of grouped.values())await retainWbsH1PayableMappingSourceRows(pool,group);
-    process.stdout.write(`${JSON.stringify({status:'WBS_H1_DIRECT_PAYABLE_CATALOG_STAGED',company_count:grouped.size,row_count:rows.length})}\n`);
+    const receipt={status:'WBS_H1_DIRECT_PAYABLE_CATALOG_STAGED',company_count:grouped.size,row_count:rows.length,inserted_candidate_count:0,existing_exact_count:0,existing_drift_count:0};
+    for(const group of grouped.values()){
+      const entityId=group[0].entity_id,hashes=group.map(row=>row.source_record_hash);
+      const existing=(await pool.query(`SELECT entity_id::text,source_record_hash,source_fact_hash FROM wbs_h1_payable_mapping_source_stage WHERE tenant_id=$1 AND entity_id=$2 AND source_record_hash=ANY($3::text[])`,[tenantId,entityId,hashes])).rows;
+      const partition=partitionDirectWbsH1CatalogRows(group,existing);receipt.inserted_candidate_count+=partition.missing.length;receipt.existing_exact_count+=partition.existing_exact_count;receipt.existing_drift_count+=partition.existing_drift_count;
+      await retainWbsH1PayableMappingSourceRows(pool,partition.missing);
+    }
+    process.stdout.write(`${JSON.stringify(receipt)}\n`);
   }finally{await pool.end();}
 }
 
