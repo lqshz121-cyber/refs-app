@@ -1,0 +1,98 @@
+{
+  "schema_version": "WBS_BOOKKEEPING_INSTRUCTION_EVIDENCE_V1",
+  "archive_sha256": "1950fbc748fd54ff5c249c314fe042c9262f7fa8e98faebd8ae82499ecb0fc87",
+  "evidence_status": "UNAPPROVED_SOURCE_INSTRUCTION",
+  "action_flags": {
+    "can_create_draft": false,
+    "can_submit": false,
+    "can_review": false,
+    "can_approve": false,
+    "can_post": false
+  },
+  "rules": [
+    {
+      "rule_id": "DEPRECIATION_RESIDENTIAL_HOMES",
+      "source": {"workbook": "Depreciation policy.xlsx", "sheet": "Depreciation Policy", "rows": [5], "sha256": "e2f59d47525c2de8b5a6e390ae48c38a9df679133d2b6b93ea30f21460a51227"},
+      "fact": {"category": "Residential Homes", "gaap_useful_life_years": "27.5", "tax_useful_life_years": "27.5"},
+      "required_binding": ["company", "entity", "asset", "placed_in_service_date", "approved_fixed_asset_account", "approved_accumulated_depreciation_account", "open_period"]
+    },
+    {
+      "rule_id": "DEPRECIATION_FURNITURE_FIXTURE",
+      "source": {"workbook": "Depreciation policy.xlsx", "sheet": "Depreciation Policy", "rows": [6], "sha256": "e2f59d47525c2de8b5a6e390ae48c38a9df679133d2b6b93ea30f21460a51227"},
+      "fact": {"category": "Furniture and Fixture", "gaap_useful_life_years": "7", "tax_useful_life_years": "7"},
+      "required_binding": ["company", "entity", "asset", "placed_in_service_date", "approved_fixed_asset_account", "approved_accumulated_depreciation_account", "open_period"]
+    },
+    {
+      "rule_id": "DEPRECIATION_LAND_IMPROVEMENTS",
+      "source": {"workbook": "Depreciation policy.xlsx", "sheet": "Depreciation Policy", "rows": [7], "sha256": "e2f59d47525c2de8b5a6e390ae48c38a9df679133d2b6b93ea30f21460a51227"},
+      "fact": {"category": "Depreciable Land Improvements", "gaap_useful_life_years": "15", "tax_useful_life_years": "15"},
+      "required_binding": ["company", "entity", "asset", "placed_in_service_date", "approved_fixed_asset_account", "approved_accumulated_depreciation_account", "open_period"]
+    },
+    {
+      "rule_id": "DEPRECIATION_SOFTWARE",
+      "source": {"workbook": "Depreciation policy.xlsx", "sheet": "Depreciation Policy", "rows": [8], "sha256": "e2f59d47525c2de8b5a6e390ae48c38a9df679133d2b6b93ea30f21460a51227"},
+      "fact": {"category": "Software", "gaap_useful_life_years": "3", "tax_useful_life_years": "3"},
+      "required_binding": ["company", "entity", "asset", "placed_in_service_date", "approved_fixed_asset_account", "approved_accumulated_depreciation_account", "open_period"]
+    },
+    {
+      "rule_id": "DEPRECIATION_BUILDING_IMPROVEMENTS",
+      "source": {"workbook": "Depreciation policy.xlsx", "sheet": "Depreciation Policy", "rows": [9], "sha256": "e2f59d47525c2de8b5a6e390ae48c38a9df679133d2b6b93ea30f21460a51227"},
+      "fact": {"category": "Building Improvements", "gaap_useful_life_years": "15", "tax_useful_life_years": "15"},
+      "required_binding": ["company", "entity", "asset", "placed_in_service_date", "approved_fixed_asset_account", "approved_accumulated_depreciation_account", "open_period"]
+    },
+    {
+      "rule_id": "DEPRECIATION_STARTUP_ASSETS",
+      "source": {"workbook": "Depreciation policy.xlsx", "sheet": "Depreciation Policy", "rows": [10], "sha256": "e2f59d47525c2de8b5a6e390ae48c38a9df679133d2b6b93ea30f21460a51227"},
+      "fact": {"category": "Start-Up Assets (Costs)", "gaap_useful_life_years": "7", "tax_useful_life_years": "7"},
+      "required_binding": ["company", "entity", "asset", "placed_in_service_date", "approved_fixed_asset_account", "approved_accumulated_depreciation_account", "open_period"]
+    },
+    {
+      "rule_id": "INVOICE_PROPERTY_ALLOCATION",
+      "source": {"workbook": "Invoice allocation principle for Rayzor, Bluewater, Brooklyn, Audra.xlsx", "sheet": "Principle", "rows": [2, 7], "sha256": "1149c746d852d6c0f22c3ac4a4f5de1c6ee3a3de58a5e0c1ab1920f1f8e02d06"},
+      "fact": {"explicit_property": "NO_SPLIT", "missing_property": "ALLOCATE_BY_UNIT_COUNT", "rayzor_townhomes": ["RAY1", "RAY3"], "rayzor_single_family": ["RAY2", "RAY4"]},
+      "required_binding": ["invoice_scope", "property_membership", "approved_unit_count_snapshot", "allocation_precision", "residual_rule"]
+    },
+    {
+      "rule_id": "INVOICE_ALLOCATION_REVIEW",
+      "source": {"workbook": "Invoice allocation principle for Rayzor, Bluewater, Brooklyn, Audra.xlsx", "sheet": "Principle", "rows": [3, 4, 5, 6], "sha256": "1149c746d852d6c0f22c3ac4a4f5de1c6ee3a3de58a5e0c1ab1920f1f8e02d06"},
+      "fact": {"initial_reviewer": "OPERATIONS", "final_reviewer": "FINANCE", "property_mismatch": "RETURN_FOR_CONFIRMATION", "historical_inconsistency": "RETURN_FOR_CONFIRMATION"},
+      "required_binding": ["operations_decision", "finance_decision", "source_invoice", "allocation_snapshot", "audit_reason"]
+    },
+    {
+      "rule_id": "VERTICAL_CWIP_BEFORE_COMPLETION",
+      "source": {"workbook": "2. 竖向开发业务梳理0117.xlsx", "sheet": "业务流程总结", "rows": [5, 6, 7, 8], "sha256": "8f32fa2e159049b4c19613c11a898b4f605d2a2400fae410e0d023b121fa9a3a"},
+      "fact": {"before_completion": ["DIRECT_COST", "ROE_COST", "INCOME_COST", "CONSULTING_COST", "INTEREST", "LOAN_COST_AMORTIZATION", "PROPERTY_TAX", "HOA_FEE", "DISTRIBUTION"], "treatment": "CWIP", "after_completion_other_costs": "EXPENSE", "final_cost_lock": "CWIP_TO_INVENTORY"},
+      "required_binding": ["project", "completion_or_co_date", "cost_lock", "approved_cost_code_account", "open_period"]
+    },
+    {
+      "rule_id": "LOAN_DRAW",
+      "source": {"workbook": "2. 竖向开发业务梳理0117.xlsx", "sheet": "附1-贷款", "rows": [1, 4], "sha256": "8f32fa2e159049b4c19613c11a898b4f605d2a2400fae410e0d023b121fa9a3a"},
+      "fact": {"debit_role": "CASH", "credit_role": "CONSTRUCTION_LOAN", "loan_dimension": "PROJECT"},
+      "required_binding": ["loan", "bank_account", "project", "approved_cash_account", "approved_loan_account", "open_period"]
+    },
+    {
+      "rule_id": "LOAN_CLOSING_COST",
+      "source": {"workbook": "2. 竖向开发业务梳理0117.xlsx", "sheet": "附1-贷款", "rows": [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21], "sha256": "8f32fa2e159049b4c19613c11a898b4f605d2a2400fae410e0d023b121fa9a3a"},
+      "fact": {"debit": "LOAN_CLOSING_COSTS", "credit": "CASH", "cost_code": "193 financing closing cost", "dimension": "PROJECT"},
+      "required_binding": ["loan", "fee_type", "project", "approved_closing_cost_account", "approved_cash_account", "supporting_evidence", "open_period"]
+    },
+    {
+      "rule_id": "LOAN_COST_AMORTIZATION",
+      "source": {"workbook": "2. 竖向开发业务梳理0117.xlsx", "sheet": "附1-贷款", "rows": [22], "sha256": "8f32fa2e159049b4c19613c11a898b4f605d2a2400fae410e0d023b121fa9a3a"},
+      "fact": {"before_completion_debit": "CWIP_LOAN_COST", "after_completion_debit": "AMORTIZATION_EXPENSE", "credit": "ACCUMULATED_AMORTIZATION_LOAN_CLOSING_COSTS"},
+      "required_binding": ["loan", "project", "completion_or_co_date", "approved_amortization_schedule", "approved_accounts", "open_period"]
+    },
+    {
+      "rule_id": "LOAN_INTEREST",
+      "source": {"workbook": "2. 竖向开发业务梳理0117.xlsx", "sheet": "附1-贷款", "rows": [23], "sha256": "8f32fa2e159049b4c19613c11a898b4f605d2a2400fae410e0d023b121fa9a3a"},
+      "fact": {"before_completion_debit": "CWIP_CAPITALIZED_INTEREST", "after_completion_debit": "INTEREST_EXPENSE", "credit": "CASH"},
+      "required_binding": ["loan", "project", "completion_or_co_date", "approved_interest_evidence", "approved_accounts", "open_period"]
+    },
+    {
+      "rule_id": "LOAN_PRINCIPAL_REPAYMENT",
+      "source": {"workbook": "2. 竖向开发业务梳理0117.xlsx", "sheet": "附1-贷款", "rows": [24, 26], "sha256": "8f32fa2e159049b4c19613c11a898b4f605d2a2400fae410e0d023b121fa9a3a"},
+      "fact": {"debit_role": "CONSTRUCTION_LOAN", "credit_role": "CASH", "loan_dimension": "ENTITY"},
+      "required_binding": ["loan", "bank_account", "approved_loan_account", "approved_cash_account", "open_period"]
+    }
+  ]
+}
