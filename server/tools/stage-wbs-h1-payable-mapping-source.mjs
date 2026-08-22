@@ -59,7 +59,7 @@ export async function retainWbsH1PayableMappingSourceRows(pool,rows){
       ON CONFLICT DO NOTHING RETURNING 1
     )
     SELECT count(*)::integer AS expected_count,
-      count(*) FILTER(WHERE s.source_fact_hash=i.source_fact_hash)::integer AS exact_count,
+      (count(*) FILTER(WHERE s.source_fact_hash=i.source_fact_hash)+(SELECT count(*) FROM inserted))::integer AS exact_count,
       (SELECT count(*)::integer FROM inserted) AS inserted_count
     FROM input i LEFT JOIN wbs_h1_payable_mapping_source_stage s
       ON s.tenant_id=i.tenant_id AND s.entity_id=i.entity_id AND s.source_record_hash=i.source_record_hash`,[JSON.stringify(rows)]);

@@ -41,3 +41,8 @@ test('accounting setting stage counts both new inserts and command-snapshot matc
   const source=readFileSync(new URL('../tools/stage-wbs-h1-accounting-settings.mjs',import.meta.url),'utf8');
   assert.match(source,/count\(\*\)::integer FROM inserted\)\+\(SELECT count\(\*\)::integer FROM input i JOIN wbs_h1_accounting_setting_stage/);
 });
+
+test('payable mapping source stage counts both new inserts and exact prior matches',()=>{
+  const source=readFileSync(new URL('../tools/stage-wbs-h1-payable-mapping-source.mjs',import.meta.url),'utf8');
+  assert.match(source,/source_fact_hash=i\.source_fact_hash\)\+\(SELECT count\(\*\) FROM inserted\)/);
+});
