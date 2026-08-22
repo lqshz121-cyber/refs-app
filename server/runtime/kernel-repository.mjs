@@ -98,6 +98,16 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async readWbsH1ImportInventory({tenantId,entityId,limit=50,offset=0}){
+    return this.inSession(async client=>{
+      const row=requireRow(await client.query(
+        'SELECT refs_read_wbs_h1_import_inventory($1,$2,$3,$4) AS result',
+        [tenantId,entityId,limit,offset]
+      ),'WBS_H1_IMPORT_INVENTORY_UNAVAILABLE','WBS H1 import inventory was not returned');
+      return row.result;
+    });
+  }
+
   async updateDraftDescription({tenantId,entityId,journalEntryId,expectedRevision,description,idempotencyKey,requestHash}){
     requestHash=canonicalRequestHash({tenantId,entityId,journalEntryId,expectedRevision,description});
     return this.inSession(async client=>{

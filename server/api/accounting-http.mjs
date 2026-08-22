@@ -24,6 +24,7 @@ import {assertAiAccountingDecisionPacketBatch} from '../runtime/ai-accounting-de
 import {assertAiAccountingDecisionPacketFullBatch} from '../runtime/ai-accounting-approved-decision-service.mjs';
 import {safeAiEvidenceTree} from '../runtime/ai-secret-safety.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
+import {assertWbsH1ImportInventory} from '../runtime/wbs-h1-import-inventory.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AI_ACCRUAL_HASH=/^sha256:[0-9a-f]{64}$/;
@@ -284,6 +285,16 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         if(selection.date_from){scopedSelection.date_from=selection.date_from;scopedSelection.date_to=selection.date_to;}
         result=await service.readObservation(scopedSelection);
         assertWbsLivePilotResult(result,{entityId,tool:selection.tool,limit:selection.limit});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='h1-import-inventory'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','WBS H1 inventory reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit','offset']);
+        const limit=optionalReadLimit(parsedUrl.searchParams.get('limit')),offset=optionalReadOffset(parsedUrl.searchParams.get('offset'));
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readWbsH1ImportInventory!=='function')throw new AccountingApiError(503,'WBS_H1_IMPORT_INVENTORY_UNAVAILABLE','WBS H1 import inventory is unavailable');
+        try{result=assertWbsH1ImportInventory(await kernel.readWbsH1ImportInventory({tenantId:principal.tenantId,entityId,limit,offset}),{limit,offset});}
+        catch{throw new AccountingApiError(502,'WBS_H1_IMPORT_INVENTORY_PROTOCOL','WBS H1 import inventory did not match the closed read contract');}
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='POST'&&parts.length===7&&parts[4]==='wbs'&&parts[5]==='test-import'&&parts[6]==='payables'){

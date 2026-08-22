@@ -4801,6 +4801,16 @@ pgTest('WBS H1 TEST_ONLY period provisioning creates six exact OPEN months idemp
   assert.deepEqual(conflictRows,[{period_code:'2026-03'}]);
 });
 
+pgTest('WBS H1 import inventory reads exact company source rows and exposes zero accounting authority',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),capturedAt='2026-08-22T12:00:00.000Z';
+  const rows=[['2026-01-15','125.0000'],['2026-06-30','-25.0000']];
+  for(const [date,amount] of rows){const sourceHash=hash(`h1-inventory-${date}`),wbsUuid=`row-${date}`;await adminPool.query(`INSERT INTO wbs_h1_payable_mapping_source_stage(tenant_id,entity_id,company_code,period_code,wbs_uuid,source_record_hash,accounting_date,amount,project_code,cost_code,vendor_no,source_fact_hash,provider_content_hash,captured_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NULL,'100','V-1',$9,$10,$11)`,[ids.tenantId,ids.entityId,ids.sourceEntityId,date.slice(0,7),wbsUuid,sourceHash,date,amount,hash(`fact-${date}`),hash(`provider-${date}`),capturedAt]);}
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-h1-inventory-reader',['WBS.AUTOREC.VIEW'])});
+  const result=await reader.readWbsH1ImportInventory({tenantId:ids.tenantId,entityId:ids.entityId,limit:1,offset:0});
+  assert.equal(result.schema_version,'WBS_H1_IMPORT_INVENTORY_V1');assert.equal(result.company_code,ids.sourceEntityId);assert.equal(result.totals.source_record_count,2);assert.equal(result.totals.source_amount,'100.0000');assert.equal(result.rows.length,1);assert.equal(result.rows[0].mapping_state,'MAPPING_MISSING');assert.equal(result.months.length,6);assert.equal(result.months[0].source_record_count,1);assert.equal(result.months[5].source_record_count,1);assert.deepEqual({create:result.can_create_draft,review:result.can_review,approve:result.can_approve,post:result.can_post},{create:false,review:false,approve:false,post:false});
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-h1-inventory-denied',['AP.VIEW'])});await assert.rejects(denied.readWbsH1ImportInventory({tenantId:ids.tenantId,entityId:ids.entityId,limit:50,offset:0}),error=>error.code==='42501');
+});
+
 pgTest('WBS H1 paged import preserves prior July rows with the same source hashes and posts nine new monthly AP journals',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null});
   await adminPool.query('DELETE FROM journal_line WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,ids.journalId]);
