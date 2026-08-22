@@ -9,8 +9,9 @@ const tenantId='11111111-1111-4111-8111-111111111111',entityId='22222222-2222-42
 test('WBS payable mapping source retains exact company, period, immutable key and accounting facts',()=>{
   const normalized=normalizeWbsH1PayableMappingRow({ap_guid:'33333333-3333-4333-8333-333333333333',company_code:'OPPO',posting_date:'2026-02-28 00:00:00',incurred_date:'2026-02-20 00:00:00',amount:'125.50000',pj_code:'PROJECT-1',cost_code:'14T041',vendor_no:'VENDOR-1'},{tenantId,entityId,companyCode:'OPPO',periodCode:'2026-02',providerContentHash,capturedAt});
   assert.equal(normalized.accounting_date,'2026-02-28');assert.equal(normalized.amount,'125.5000');assert.equal(normalized.cost_code,'14T041');assert.match(normalized.source_record_hash,/^sha256:[0-9a-f]{64}$/);assert.match(normalized.source_fact_hash,/^sha256:[0-9a-f]{64}$/);
+  assert.equal(normalizeWbsH1PayableMappingRow({ap_guid:'WORK-33333333-3333-4333-8333-333333333333',company_code:'OPPO',posting_date:'2026-02-28',amount:'-1.2500'},{tenantId,entityId,companyCode:'OPPO',periodCode:'2026-02',providerContentHash,capturedAt}).amount,'-1.2500');
   assert.equal(normalizeWbsH1PayableMappingRow({...normalized,ap_guid:'44444444-4444-4444-8444-444444444444',company_code:'OTHER',posting_date:'2026-02-01'},{tenantId,entityId,companyCode:'OPPO',periodCode:'2026-02',providerContentHash,capturedAt}),null);
-  assert.throws(()=>normalizeWbsH1PayableMappingRow({ap_guid:'not-a-uuid',company_code:'OPPO',posting_date:'2026-02-01',amount:'1.0000'},{tenantId,entityId,companyCode:'OPPO',periodCode:'2026-02',providerContentHash,capturedAt}));
+  assert.throws(()=>normalizeWbsH1PayableMappingRow({ap_guid:'unsafe provider id',company_code:'OPPO',posting_date:'2026-02-01',amount:'1.0000'},{tenantId,entityId,companyCode:'OPPO',periodCode:'2026-02',providerContentHash,capturedAt}));
   assert.throws(()=>normalizeWbsH1PayableMappingRow({ap_guid:'33333333-3333-4333-8333-333333333333',company_code:'OPPO',posting_date:'2026-02-30',amount:'1.0000'},{tenantId,entityId,companyCode:'OPPO',periodCode:'2026-02',providerContentHash,capturedAt}));
 });
 

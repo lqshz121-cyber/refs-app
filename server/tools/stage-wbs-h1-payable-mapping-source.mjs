@@ -7,6 +7,7 @@ import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {createWbsLivePilotClient} from '../runtime/wbs-live-pilot-read-service.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PROVIDER_ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA=/^sha256:[0-9a-f]{64}$/;
 const COMPANY=/^[A-Z0-9][A-Z0-9_:-]{0,63}$/;
 const CONTROL=/[\u0000-\u001f\u007f]/;
@@ -19,7 +20,7 @@ const strictDate=value=>{
 };
 const money4=value=>{
   const raw=typeof value==='number'&&Number.isFinite(value)?String(value):typeof value==='string'?value.trim():'';
-  if(!/^(?:0|[1-9]\d{0,15})(?:\.\d+)?$/.test(raw))return null;
+  if(!/^-?(?:0|[1-9]\d{0,15})(?:\.\d+)?$/.test(raw))return null;
   const [whole,fraction='']=raw.split('.');
   if(fraction.length>4&&!/^0+$/.test(fraction.slice(4)))return null;
   return `${whole}.${fraction.slice(0,4).padEnd(4,'0')}`;
@@ -37,7 +38,7 @@ const sourceHash=wbsUuid=>`sha256:${createHash('sha256').update(`list_payables\u
 
 export function normalizeWbsH1PayableMappingRow(row,{tenantId,entityId,companyCode,periodCode,providerContentHash,capturedAt}={}){
   const wbsUuid=optional(row?.ap_guid),accountingDate=strictDate(row?.posting_date)||strictDate(row?.incurred_date),amount=money4(row?.amount);
-  if(!UUID.test(tenantId||'')||!UUID.test(entityId||'')||!COMPANY.test(companyCode||'')||!MONTH.test(periodCode||'')||!wbsUuid||!UUID.test(wbsUuid)||!accountingDate||!amount||amount==='0.0000'||!SHA.test(providerContentHash||'')||Number.isNaN(Date.parse(capturedAt||'')))throw new Error('WBS H1 payable mapping source row is invalid');
+  if(!UUID.test(tenantId||'')||!UUID.test(entityId||'')||!COMPANY.test(companyCode||'')||!MONTH.test(periodCode||'')||!wbsUuid||!PROVIDER_ID.test(wbsUuid)||!accountingDate||!amount||Number(amount)===0||!SHA.test(providerContentHash||'')||Number.isNaN(Date.parse(capturedAt||'')))throw new Error('WBS H1 payable mapping source row is invalid');
   if(row.company_code!==companyCode||accountingDate<`${periodCode}-01`||accountingDate>monthEnd(periodCode))return null;
   const facts={tenant_id:tenantId,entity_id:entityId,company_code:companyCode,period_code:periodCode,wbs_uuid:wbsUuid,source_record_hash:sourceHash(wbsUuid),accounting_date:accountingDate,amount,project_code:optional(row.pj_code),cost_code:optional(row.cost_code),vendor_no:optional(row.vendor_no)};
   return Object.freeze({...facts,provider_content_hash:providerContentHash,captured_at:new Date(capturedAt).toISOString(),source_fact_hash:canonicalRequestHash(facts)});
