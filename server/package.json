@@ -96,6 +96,7 @@
     "wbs:h1:provision-direct-companies": "node tools/provision-wbs-h1-direct-companies.mjs",
     "wbs:h1:stage-payable-mapping-source": "node tools/stage-wbs-h1-payable-mapping-source.mjs",
     "wbs:h1:stage-payable-mapping-direct-snapshot": "node tools/stage-wbs-h1-payable-mapping-direct-snapshot.mjs",
+    "wbs:h1:stage-payable-mapping-direct-catalog": "node tools/stage-wbs-h1-payable-mapping-direct-catalog.mjs",
     "wbs:h1:stage-accounting-settings": "node tools/stage-wbs-h1-accounting-settings.mjs",
     "wbs:h1:stage-payable-cost-codes": "node tools/stage-wbs-h1-payable-cost-codes.mjs",
     "wbs:h1:apply-payable-mappings": "node tools/apply-wbs-h1-payable-mappings.mjs",
