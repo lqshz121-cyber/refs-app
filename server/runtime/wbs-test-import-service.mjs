@@ -141,6 +141,14 @@ export function createWbsTestImportService({pilotService,kernelForActor,authoriz
     if(resolved.tenantId!==tenantId||resolved.entityId!==entityId||resolved.companyCode!==companyCode||resolved.tenantId!==scope.tenantId)fail('WBS_TEST_IMPORT_SCOPE_DENIED','The selected entity is not the authoritative WBS company scope.');
     return Object.freeze({...resolved,actors});
   };
+  // A company month imports only the rows whose accounting_date belongs to
+  // that month, but the Provider's authoritative Payables population is the
+  // same complete 2026 H1 cursor traversal for all six calls.  Retain exactly
+  // one bounded in-memory population for the current company so the sequential
+  // all-company runner does not reread hundreds of identical Provider pages
+  // six times.  Replacing (rather than accumulating) the entry bounds memory
+  // to one company, and a rejected read is never cached.
+  let h1PayablePopulationCache=null;
   const assertPayableKernels=value=>{
     const required={importer:['finalizeWbsTestImportSource'],maker:['createWbsTestPayableDraft'],submitter:['transitionJournal'],reviewer:['transitionJournal'],approver:['transitionJournal'],poster:['postJournal']};
     for(const role of ACTOR_ROLES)if(!value[role]||required[role].some(method=>typeof value[role][method]!=='function'))fail('WBS_TEST_IMPORT_CONFIG_INVALID',`Test-import ${role} kernel is unavailable.`);
@@ -237,9 +245,8 @@ export function createWbsTestImportService({pilotService,kernelForActor,authoriz
         const completed=await importer.readCompletedWbsTestMonthImport({tenantId,entityId,companyCode,periodCode});
         if(completed!==null)return Object.freeze(assertWbsTestRangeImportResult(completed));
       }
-      const readPages=async(tool,rowValidator,readFrom,readTo,includeRow=()=>true,aggregateBinding=null)=>{
-        const pages=[],sourceHashes=new Set(),cursors=new Set();let cursor=null,snapshotToken=null,frozenIdentity=null;
-        const normalize=()=>{
+      const readPages=async(tool,rowValidator,readFrom,readTo,includeRow=()=>true,aggregateBinding=null,populationCacheKey=null)=>{
+        const normalize=({pages,providerRecordCount})=>{
           if(!pages.length)return {pages:[],providerPageCount:0,providerRecordCount:0};
           // Provider cursors define traversal, not global stable-key ordering.
           // After every authenticated page has been exhausted and duplicate
@@ -253,29 +260,41 @@ export function createWbsTestImportService({pilotService,kernelForActor,authoriz
             const hashCore={...core};delete hashCore.captured_at;
             normalized.push(Object.freeze({...core,observation_hash:`sha256:${createHash('sha256').update(canonicalRequestBody(hashCore),'utf8').digest('hex')}`}));
           }
-          return {pages:normalized,providerPageCount:pages.length,providerRecordCount:sourceHashes.size};
+          return {pages:normalized,providerPageCount:pages.length,providerRecordCount};
         };
-        for(let pageIndex=0;pageIndex<maxPages;pageIndex++){
-          const page=await pilotService.readObservationPage({tenantId,entityId,tool,limit:10,company_code:companyCode,date_from:readFrom,date_to:readTo,cursor,snapshot_token:snapshotToken});
-          if(!exactObject(page,['cursor_next','observation','pagination'])||!exactObject(page.pagination,['captured_at','contract_version','environment','first_stable_key','last_stable_key','snapshot_token','source_hash']))fail('WBS_TEST_IMPORT_ROW_INVALID','Provider page envelope is invalid.');
-          // captured_at is per HTTP read in the Provider V2 keyset contract,
-          // not a snapshot identity.  Freeze only the published source and
-          // contract identity plus an optional provider token.  A token, when
-          // present, must remain exact across every page.
-          const identity={contract_version:page.pagination.contract_version,environment:page.pagination.environment,source_hash:page.pagination.source_hash,snapshot_token:page.pagination.snapshot_token};
-          if(pageIndex===0){frozenIdentity=identity;snapshotToken=page.pagination.snapshot_token;}else if(!exactObject(identity,Object.keys(frozenIdentity))||Object.keys(frozenIdentity).some(key=>identity[key]!==frozenIdentity[key]))fail('WBS_TEST_IMPORT_ROW_INVALID','Provider pagination snapshot identity changed during the range read.');
-          const observation=assertWbsLivePilotResult(page.observation,{entityId,tool,limit:pageSize});
-          if(observation.scope?.company_codes?.length!==1||observation.scope.company_codes[0]!==companyCode||observation.scope?.date_range?.[0]!==readFrom||observation.scope.date_range[1]!==readTo)fail('WBS_TEST_IMPORT_SCOPE_DENIED','Provider page did not retain the configured test-import scope.');
-          if(observation.rows.length===0&&page.cursor_next!==null)fail('WBS_TEST_IMPORT_ROW_INVALID','Provider returned an empty non-terminal WBS page.');
-          for(const row of observation.rows){rowValidator(row);if(row.accounting_date<'2026-01-01'||row.accounting_date>'2026-06-30'||sourceHashes.has(row.source_record_hash))fail('WBS_TEST_IMPORT_ROW_INVALID','Provider range contains an out-of-H1 or duplicate sanitized source identity.');sourceHashes.add(row.source_record_hash);if(sourceHashes.size>WBS_TEST_MONTH_MAX_ROWS)fail('WBS_TEST_IMPORT_PAGE_LIMIT_EXCEEDED','WBS range exceeds the bounded 10,000-row import capacity.');}
-          if(observation.rows.length)pages.push(observation);
-          if(page.cursor_next===null)return normalize();
-          if(cursors.has(page.cursor_next))fail('WBS_TEST_IMPORT_ROW_INVALID','Provider repeated a WBS pagination cursor.');
-          cursors.add(page.cursor_next);cursor=page.cursor_next;
+        const readPopulation=async()=>{
+          const pages=[],sourceHashes=new Set(),cursors=new Set();let cursor=null,snapshotToken=null,frozenIdentity=null;
+          for(let pageIndex=0;pageIndex<maxPages;pageIndex++){
+            const page=await pilotService.readObservationPage({tenantId,entityId,tool,limit:10,company_code:companyCode,date_from:readFrom,date_to:readTo,cursor,snapshot_token:snapshotToken});
+            if(!exactObject(page,['cursor_next','observation','pagination'])||!exactObject(page.pagination,['captured_at','contract_version','environment','first_stable_key','last_stable_key','snapshot_token','source_hash']))fail('WBS_TEST_IMPORT_ROW_INVALID','Provider page envelope is invalid.');
+            // captured_at is per HTTP read in the Provider V2 keyset contract,
+            // not a snapshot identity.  Freeze only the published source and
+            // contract identity plus an optional provider token.  A token, when
+            // present, must remain exact across every page.
+            const identity={contract_version:page.pagination.contract_version,environment:page.pagination.environment,source_hash:page.pagination.source_hash,snapshot_token:page.pagination.snapshot_token};
+            if(pageIndex===0){frozenIdentity=identity;snapshotToken=page.pagination.snapshot_token;}else if(!exactObject(identity,Object.keys(frozenIdentity))||Object.keys(frozenIdentity).some(key=>identity[key]!==frozenIdentity[key]))fail('WBS_TEST_IMPORT_ROW_INVALID','Provider pagination snapshot identity changed during the range read.');
+            const observation=assertWbsLivePilotResult(page.observation,{entityId,tool,limit:pageSize});
+            if(observation.scope?.company_codes?.length!==1||observation.scope.company_codes[0]!==companyCode||observation.scope?.date_range?.[0]!==readFrom||observation.scope.date_range[1]!==readTo)fail('WBS_TEST_IMPORT_SCOPE_DENIED','Provider page did not retain the configured test-import scope.');
+            if(observation.rows.length===0&&page.cursor_next!==null)fail('WBS_TEST_IMPORT_ROW_INVALID','Provider returned an empty non-terminal WBS page.');
+            for(const row of observation.rows){rowValidator(row);if(row.accounting_date<'2026-01-01'||row.accounting_date>'2026-06-30'||sourceHashes.has(row.source_record_hash))fail('WBS_TEST_IMPORT_ROW_INVALID','Provider range contains an out-of-H1 or duplicate sanitized source identity.');sourceHashes.add(row.source_record_hash);if(sourceHashes.size>WBS_TEST_MONTH_MAX_ROWS)fail('WBS_TEST_IMPORT_PAGE_LIMIT_EXCEEDED','WBS range exceeds the bounded 10,000-row import capacity.');}
+            if(observation.rows.length)pages.push(observation);
+            if(page.cursor_next===null)return Object.freeze({pages:Object.freeze(pages),providerRecordCount:sourceHashes.size});
+            if(cursors.has(page.cursor_next))fail('WBS_TEST_IMPORT_ROW_INVALID','Provider repeated a WBS pagination cursor.');
+            cursors.add(page.cursor_next);cursor=page.cursor_next;
+          }
+          fail('WBS_TEST_IMPORT_PAGE_LIMIT_EXCEEDED','WBS month exceeds the configured 1,000-page import bound.');
+        };
+        let population;
+        if(populationCacheKey===null)population=await readPopulation();
+        else{
+          if(h1PayablePopulationCache?.key!==populationCacheKey)h1PayablePopulationCache={key:populationCacheKey,promise:readPopulation()};
+          try{population=await h1PayablePopulationCache.promise;}
+          catch(error){if(h1PayablePopulationCache?.key===populationCacheKey)h1PayablePopulationCache=null;throw error;}
         }
-        fail('WBS_TEST_IMPORT_PAGE_LIMIT_EXCEEDED','WBS month exceeds the configured 1,000-page import bound.');
+        return normalize(population);
       };
-      const [payableRead,bankRead]=await Promise.all([readPages('list_payables',assertRow,'2026-01-01','2026-06-30',row=>row.accounting_date>=dateFrom&&row.accounting_date<=dateTo,{period_code:periodCode,date_from:dateFrom,date_to:dateTo}),readPages('list_bank_transactions',assertBankRow,dateFrom,dateTo)]),payablePages=payableRead.pages,bankPages=bankRead.pages;
+      const payableCacheKey=`${tenantId}:${entityId}:${companyCode}:2026-H1:${pageSize}:${maxPages}`;
+      const [payableRead,bankRead]=await Promise.all([readPages('list_payables',assertRow,'2026-01-01','2026-06-30',row=>row.accounting_date>=dateFrom&&row.accounting_date<=dateTo,{period_code:periodCode,date_from:dateFrom,date_to:dateTo},payableCacheKey),readPages('list_bank_transactions',assertBankRow,dateFrom,dateTo)]),payablePages=payableRead.pages,bankPages=bankRead.pages;
       if(payablePages.length===0&&bankPages.length===0)fail('WBS_TEST_IMPORT_EMPTY','The selected WBS month contains no Payable or Bank rows.');
       if(typeof importer?.ensureWbsTestH12026Periods!=='function'||typeof importer?.createWbsControlledTestBankScope!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','H1 period and controlled Bank importer kernels are unavailable.');
       const periodResult=await importer.ensureWbsTestH12026Periods({tenantId,entityId});

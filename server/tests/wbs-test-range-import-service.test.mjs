@@ -123,6 +123,18 @@ test('reads the exact H1 Payables scope then selects the target accounting month
   assert.ok(drafts.every(([, ,args])=>args.observation.scope.date_range[0]==='2026-01-01'&&args.observation.scope.date_range[1]==='2026-06-30'));
 });
 
+test('reuses one complete H1 Payables traversal across consecutive company months while rereading each exact Bank month',async()=>{
+  const fixture=harness({payableCount:4,payableDates:['2026-01-04','2026-02-11','2026-06-20','2026-06-30']}),january=await fixture.service.importRange(input);
+  const payableReadsAfterJanuary=fixture.calls.filter(([kind,args])=>kind==='read'&&args.tool==='list_payables').length;
+  const february=await fixture.service.importRange({...input,dateFrom:'2026-02-01',dateTo:'2026-02-28',idempotencyKey:'wbs-month-2026-02-v1'});
+  assert.equal(january.payables.h1_record_count,4);assert.equal(january.payables.record_count,1);
+  assert.equal(february.payables.h1_record_count,4);assert.equal(february.payables.record_count,1);
+  assert.equal(fixture.calls.filter(([kind,args])=>kind==='read'&&args.tool==='list_payables').length,payableReadsAfterJanuary);
+  assert.equal(fixture.calls.filter(([kind,args])=>kind==='read'&&args.tool==='list_bank_transactions').length,4);
+  const drafts=fixture.calls.filter(([kind])=>kind==='draft');assert.deepEqual(drafts.map(([, ,args])=>args.row.accounting_date),['2026-01-04','2026-02-11']);
+  assert.notEqual(drafts[0][2].observation.observation_hash,drafts[1][2].observation.observation_hash);
+});
+
 test('the observed January Bank population of 1,888 rows remains bounded and imports as one monthly scope',async()=>{
   const fixture=harness({bankCount:1888}),result=await fixture.service.importRange(input),bankCall=fixture.calls.find(([kind])=>kind==='bank');
   assert.equal(result.bank.provider_page_count,189);assert.equal(result.bank.record_count,1888);assert.equal(result.bank.reconciliation.transaction_count,1888);assert.equal(bankCall[2].observation.rows.length,1888);
