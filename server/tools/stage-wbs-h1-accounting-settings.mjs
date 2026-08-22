@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import {readFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 import {createPool} from '../runtime/db.mjs';
 import {runtimeConfig} from '../runtime/config.mjs';
@@ -14,6 +13,7 @@ const strictDate=value=>{
   const date=raw.slice(0,10),[year,month,day]=date.split('-').map(Number),parsed=new Date(Date.UTC(year,month-1,day));return parsed.getUTCFullYear()===year&&parsed.getUTCMonth()===month-1&&parsed.getUTCDate()===day?date:null;
 };
 const field=(value,max,{empty=false}={})=>{const out=value==null?'':String(value).trim();if((!empty&&!out)||out.length>max||CONTROL.test(out))return null;return out;};
+const readStdin=async()=>{const chunks=[];for await(const chunk of process.stdin)chunks.push(Buffer.from(chunk));return Buffer.concat(chunks).toString('utf8');};
 
 export function normalizeWbsH1AccountingSetting(row,{tenantId}={}){
   const settingId=Number(row?.id),companyCode=field(row?.company_code,64),settingType=field(row?.type,64),category=field(row?.category,64),businessType=Number(row?.business_type),detail=field(row?.detail,128,{empty:true}),projectCodes=field(row?.pj_code,4000,{empty:true}),journalCode=field(row?.journal_code,64,{empty:true}),accountName=field(row?.account,255,{empty:true}),supplementary=field(row?.supplementary,64,{empty:true}),effectiveFrom=strictDate(row?.start_date),effectiveTo=strictDate(row?.end_date);
@@ -24,7 +24,7 @@ export function normalizeWbsH1AccountingSetting(row,{tenantId}={}){
 
 async function main(){
   const tenantId=process.env.REFS_WBS_TEST_IMPORT_TENANT_ID;if(!UUID.test(tenantId||''))throw new Error('REFS_WBS_TEST_IMPORT_TENANT_ID is required');
-  const input=(await readFile(0,'utf8')).trim();if(!input)throw new Error('WBS accounting settings JSON is required on stdin');
+  const input=(await readStdin()).trim();if(!input)throw new Error('WBS accounting settings JSON is required on stdin');
   let parsed;try{parsed=JSON.parse(input);}catch{parsed=input.split(/\r?\n/).filter(Boolean).map(line=>JSON.parse(line));}
   const rows=(Array.isArray(parsed)?parsed:[parsed]).flatMap(value=>Array.isArray(value?.rows)?value.rows:[value]).map(row=>normalizeWbsH1AccountingSetting(row,{tenantId}));
   if(!rows.length||rows.length>1000||new Set(rows.map(row=>`${row.company_code}:${row.setting_id}:${row.setting_hash}`)).size!==rows.length)throw new Error('WBS accounting settings page must contain 1..1000 unique rows');
