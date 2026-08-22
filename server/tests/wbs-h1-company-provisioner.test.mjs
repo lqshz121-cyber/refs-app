@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readWbsCompanyCatalog,provisionWbsCompanyScopes} from '../tools/provision-wbs-h1-companies.mjs';
+import {readWbsCompanyCatalog,normalizeDirectWbsCompanyCatalog,provisionDirectWbsCompanyScopes,provisionWbsCompanyScopes} from '../tools/provision-wbs-h1-companies.mjs';
 
 const tenantId='10000000-0000-4000-8000-000000000001',templateEntityId='20000000-0000-4000-8000-000000000001';
 
@@ -33,4 +33,30 @@ test('provisions one entity and six periods per WBS company in one transaction',
 test('fails closed on duplicate company identity before provisioning',async()=>{
   const client={initialize:async()=>{},listTools:async()=>{},readView:async()=>({record_count:2,rows:[{company_code:'WBPA',company_name:'One'},{company_code:'WBPA',company_name:'Two'}],cursor_next:null})};
   await assert.rejects(readWbsCompanyCatalog({client}),/repeats WBPA/);
+});
+
+test('normalizes a direct payable company catalog without accepting the template or duplicates',()=>{
+  assert.deepEqual(normalizeDirectWbsCompanyCatalog([{company_code:' fdf7 '},{company_code:'HOFS',company_name:'Harbor'}]),[
+    {company_code:'FDF7',company_name:'WBS FDF7'},{company_code:'HOFS',company_name:'Harbor'}
+  ]);
+  assert.throws(()=>normalizeDirectWbsCompanyCatalog([{company_code:'WBPA'}]),/template company code/);
+  assert.throws(()=>normalizeDirectWbsCompanyCatalog([{company_code:'FDF7'},{company_code:'fdf7'}]),/repeats/);
+});
+
+test('provisions only missing direct payable companies without renaming the template',async()=>{
+  const sql=[];const client={
+    async query(text,params=[]){sql.push([text,params]);
+      if(/SELECT entity_id::text,source_system/.test(text))return {rows:[{entity_id:templateEntityId,source_system:'WBS',source_entity_id:'WBPA',base_currency:'USD'}]};
+      if(/RETURNING entity_id::text/.test(text))return {rows:[{entity_id:params[0],inserted:true}]};
+      if(/SELECT count\(DISTINCT e\.entity_id\)/.test(text))return {rows:[{company_count:2,period_count:12}]};
+      return {rows:[]};
+    },release(){sql.push(['RELEASE',[]]);}
+  };
+  const result=await provisionDirectWbsCompanyScopes({pool:{connect:async()=>client},tenantId,templateEntityId,companies:[{company_code:'FDF7'},{company_code:'HOFS'}]});
+  assert.deepEqual(result,{status:'WBS_H1_DIRECT_COMPANY_SCOPES_READY',company_count:2,period_count:12,created_count:2,reused_count:0});
+  assert.equal(sql.filter(([text])=>/INSERT INTO entity\(/.test(text)).length,2);
+  assert.equal(sql.filter(([text])=>/INSERT INTO accounting_period/.test(text)).length,12);
+  assert.ok(!sql.some(([text])=>/UPDATE entity SET entity_code='WBPA'/.test(text)));
+  assert.ok(sql.some(([text])=>/wbs-direct-company-provisioner/.test(text)));
+  assert.equal(sql.at(-2)[0],'COMMIT');assert.equal(sql.at(-1)[0],'RELEASE');
 });

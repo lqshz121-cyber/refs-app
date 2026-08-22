@@ -8,10 +8,69 @@ const COMPANY=/^[A-Z0-9][A-Z0-9_:-]{0,63}$/;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CONTROL=/[\u0000-\u001f\u007f]/;
 
-const deterministicUuid=value=>{
+export const deterministicUuid=value=>{
   const hex=createHash('sha256').update(value,'utf8').digest('hex');
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-4${hex.slice(13,16)}-a${hex.slice(17,20)}-${hex.slice(20,32)}`;
 };
+
+export function normalizeDirectWbsCompanyCatalog(rows){
+  if(!Array.isArray(rows)||!rows.length||rows.length>1000)throw new Error('Direct WBS company catalog must contain 1..1000 rows');
+  const companies=rows.map(row=>{
+    const companyCode=typeof row?.company_code==='string'?row.company_code.trim().toUpperCase():'';
+    if(!COMPANY.test(companyCode)||companyCode==='WBPA')throw new Error('Direct WBS company catalog contains an invalid or template company code');
+    return Object.freeze({company_code:companyCode,company_name:displayName(row?.company_name,companyCode)});
+  }).sort((left,right)=>left.company_code.localeCompare(right.company_code));
+  if(new Set(companies.map(row=>row.company_code)).size!==companies.length)throw new Error('Direct WBS company catalog repeats a company code');
+  return Object.freeze(companies);
+}
+
+export async function provisionDirectWbsCompanyScopes({pool,tenantId,templateEntityId,companies}={}){
+  if(!pool||typeof pool.connect!=='function'||!UUID.test(tenantId||'')||!UUID.test(templateEntityId||'')||!Array.isArray(companies)||!companies.length)throw new Error('Direct WBS company provisioning configuration is invalid');
+  const normalized=normalizeDirectWbsCompanyCatalog(companies),client=await pool.connect();
+  try{
+    await client.query('BEGIN');
+    const template=(await client.query(`SELECT entity_id::text,source_system,source_entity_id,base_currency FROM entity
+      WHERE tenant_id=$1 AND entity_id=$2 AND active FOR UPDATE`,[tenantId,templateEntityId])).rows[0];
+    const expectedTemplate=template&&template.base_currency==='USD'&&(
+      (template.source_system==='REFS_STAGE1'&&template.source_entity_id==='REFS_US_001')||
+      (template.source_system==='WBS'&&template.source_entity_id==='WBPA')
+    );
+    if(!expectedTemplate)throw new Error('The configured REFS staging entity is not the expected legacy or WBS WBPA scope');
+    let created=0,reused=0;
+    for(const company of normalized){
+      const entityId=deterministicUuid(`refs:${tenantId}:wbs-company:${company.company_code}`);
+      const inserted=await client.query(`INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency,active)
+        VALUES($1,$2,$3,'WBS',$3,$4,'USD',true)
+        ON CONFLICT(tenant_id,source_system,source_entity_id) DO UPDATE SET name=EXCLUDED.name,active=true
+        RETURNING entity_id::text,(xmax=0) AS inserted`,[entityId,tenantId,company.company_code,company.company_name]);
+      if(inserted.rows[0]?.entity_id!==entityId)throw new Error(`Existing WBS entity identity conflicts for ${company.company_code}`);
+      if(inserted.rows[0].inserted)created++;else reused++;
+      for(let month=1;month<=6;month++)await client.query(`INSERT INTO accounting_period(period_id,tenant_id,entity_id,ledger_code,period_code,starts_on,ends_on,status)
+        VALUES($1,$2,$3,'PRIMARY',$4,make_date(2026,$5,1),(make_date(2026,$5,1)+interval '1 month - 1 day')::date,'OPEN')
+        ON CONFLICT(tenant_id,entity_id,ledger_code,period_code) DO NOTHING`,[deterministicUuid(`refs:${tenantId}:${entityId}:2026-${String(month).padStart(2,'0')}`),tenantId,entityId,`2026-${String(month).padStart(2,'0')}`,month]);
+      await client.query(`INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type,active)
+        SELECT tenant_id,$3,account_code,account_name,requires_member,required_member_type,active
+        FROM account_master WHERE tenant_id=$1 AND entity_id=$2
+        ON CONFLICT(tenant_id,entity_id,account_code) DO NOTHING`,[tenantId,templateEntityId,entityId]);
+      await client.query(`INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission,valid_until,revoked_at)
+        SELECT tenant_id,actor_id,$3,permission,valid_until,NULL FROM runtime_actor_grant
+        WHERE tenant_id=$1 AND entity_id=$2 AND revoked_at IS NULL AND (valid_until IS NULL OR valid_until>clock_timestamp())
+        ON CONFLICT(tenant_id,actor_id,entity_id,permission) DO UPDATE SET valid_until=EXCLUDED.valid_until,revoked_at=NULL`,[tenantId,templateEntityId,entityId]);
+      await client.query(`INSERT INTO runtime_actor_grant_set(tenant_id,actor_id,entity_id,version,updated_by,updated_at)
+        SELECT tenant_id,actor_id,$3,version,'wbs-direct-company-provisioner',clock_timestamp()
+        FROM runtime_actor_grant_set WHERE tenant_id=$1 AND entity_id=$2
+        ON CONFLICT(tenant_id,actor_id,entity_id) DO UPDATE SET version=GREATEST(runtime_actor_grant_set.version,EXCLUDED.version),updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at`,[tenantId,templateEntityId,entityId]);
+    }
+    const entityIds=normalized.map(company=>deterministicUuid(`refs:${tenantId}:wbs-company:${company.company_code}`));
+    const evidence=(await client.query(`SELECT count(DISTINCT e.entity_id)::integer AS company_count,count(DISTINCT p.period_id)::integer AS period_count
+      FROM entity e JOIN accounting_period p ON p.tenant_id=e.tenant_id AND p.entity_id=e.entity_id
+      WHERE e.tenant_id=$1 AND e.entity_id=ANY($2::uuid[]) AND e.active AND e.source_system='WBS' AND e.source_entity_id=e.entity_code
+        AND p.period_code BETWEEN '2026-01' AND '2026-06'`,[tenantId,entityIds])).rows[0];
+    if(evidence.company_count!==normalized.length||evidence.period_count!==normalized.length*6)throw new Error('Direct WBS company or H1 period provisioning is incomplete');
+    await client.query('COMMIT');
+    return Object.freeze({status:'WBS_H1_DIRECT_COMPANY_SCOPES_READY',company_count:evidence.company_count,period_count:evidence.period_count,created_count:created,reused_count:reused});
+  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+}
 
 const displayName=(value,companyCode)=>{
   const name=typeof value==='string'?value.trim():'';
