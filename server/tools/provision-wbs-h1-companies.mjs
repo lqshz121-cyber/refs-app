@@ -36,12 +36,15 @@ export async function provisionDirectWbsCompanyScopes({pool,tenantId,templateEnt
       (template.source_system==='WBS'&&template.source_entity_id==='WBPA')
     );
     if(!expectedTemplate)throw new Error('The configured REFS staging entity is not the expected legacy or WBS WBPA scope');
+    const templateIsWbs=template.source_system==='WBS'&&template.source_entity_id==='WBPA';
+    if(normalized.some(company=>company.company_code==='WBPA')&&!templateIsWbs){
+      const renamed=await client.query(`UPDATE entity SET entity_code='REFS_US_STAGING',name='REFS US Staging' WHERE tenant_id=$1 AND entity_id=$2 RETURNING entity_id::text`,[tenantId,templateEntityId]);
+      if(renamed.rows[0]?.entity_id!==templateEntityId)throw new Error('The legacy REFS staging entity could not be renamed safely');
+    }
     let created=0,reused=0;
     for(const company of normalized){
-      const entityId=company.company_code==='WBPA'?templateEntityId:deterministicUuid(`refs:${tenantId}:wbs-company:${company.company_code}`);
-      if(company.company_code==='WBPA'){
-        const updated=await client.query(`UPDATE entity SET entity_code='WBPA',source_system='WBS',source_entity_id='WBPA',name=$3,active=true WHERE tenant_id=$1 AND entity_id=$2 RETURNING entity_id::text`,[tenantId,templateEntityId,company.company_name]);
-        if(updated.rows[0]?.entity_id!==templateEntityId)throw new Error('The WBS WBPA template entity could not be bound exactly');
+      const useTemplate=company.company_code==='WBPA'&&templateIsWbs,entityId=useTemplate?templateEntityId:deterministicUuid(`refs:${tenantId}:wbs-company:${company.company_code}`);
+      if(useTemplate){
         reused++;
       }else{
         const inserted=await client.query(`INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency,active)
@@ -67,7 +70,7 @@ export async function provisionDirectWbsCompanyScopes({pool,tenantId,templateEnt
         FROM runtime_actor_grant_set WHERE tenant_id=$1 AND entity_id=$2
         ON CONFLICT(tenant_id,actor_id,entity_id) DO UPDATE SET version=GREATEST(runtime_actor_grant_set.version,EXCLUDED.version),updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at`,[tenantId,templateEntityId,entityId]);
     }
-    const entityIds=normalized.map(company=>company.company_code==='WBPA'?templateEntityId:deterministicUuid(`refs:${tenantId}:wbs-company:${company.company_code}`));
+    const entityIds=normalized.map(company=>company.company_code==='WBPA'&&templateIsWbs?templateEntityId:deterministicUuid(`refs:${tenantId}:wbs-company:${company.company_code}`));
     const evidence=(await client.query(`SELECT count(DISTINCT e.entity_id)::integer AS company_count,count(DISTINCT p.period_id)::integer AS period_count
       FROM entity e JOIN accounting_period p ON p.tenant_id=e.tenant_id AND p.entity_id=e.entity_id
       WHERE e.tenant_id=$1 AND e.entity_id=ANY($2::uuid[]) AND e.active AND e.source_system='WBS' AND e.source_entity_id=e.entity_code
@@ -127,7 +130,7 @@ export async function provisionWbsCompanyScopes({pool,tenantId,templateEntityId,
     if(!expectedTemplate)throw new Error('The configured REFS staging entity is not the expected legacy or WBS WBPA scope');
     const wbpa=catalog.companies.find(row=>row.company_code==='WBPA');
     if(!wbpa)throw new Error('The WBS company catalog does not contain WBPA');
-    await client.query(`UPDATE entity SET entity_code='WBPA',source_system='WBS',source_entity_id='WBPA',name=$3
+    await client.query(`UPDATE entity SET entity_code='WBPA',name=$3
       WHERE tenant_id=$1 AND entity_id=$2`,[tenantId,templateEntityId,wbpa.company_name]);
     let created=0,reused=0;
     for(const company of catalog.companies){
