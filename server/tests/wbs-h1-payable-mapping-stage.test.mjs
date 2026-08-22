@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {normalizeWbsH1PayableMappingRow} from '../tools/stage-wbs-h1-payable-mapping-source.mjs';
+import {normalizeWbsH1PayableMappingRow,stageWbsH1PayableMappingRawPage} from '../tools/stage-wbs-h1-payable-mapping-source.mjs';
 import {normalizeWbsH1AccountingSetting} from '../tools/stage-wbs-h1-accounting-settings.mjs';
 
 const tenantId='11111111-1111-4111-8111-111111111111',entityId='22222222-2222-4222-8222-222222222222',providerContentHash='sha256:'+'a'.repeat(64),capturedAt='2026-08-22T15:00:00.000Z';
@@ -12,6 +12,14 @@ test('WBS payable mapping source retains exact company, period, immutable key an
   assert.equal(normalizeWbsH1PayableMappingRow({...normalized,ap_guid:'44444444-4444-4444-8444-444444444444',company_code:'OTHER',posting_date:'2026-02-01'},{tenantId,entityId,companyCode:'OPPO',periodCode:'2026-02',providerContentHash,capturedAt}),null);
   assert.throws(()=>normalizeWbsH1PayableMappingRow({ap_guid:'not-a-uuid',company_code:'OPPO',posting_date:'2026-02-01',amount:'1.0000'},{tenantId,entityId,companyCode:'OPPO',periodCode:'2026-02',providerContentHash,capturedAt}));
   assert.throws(()=>normalizeWbsH1PayableMappingRow({ap_guid:'33333333-3333-4333-8333-333333333333',company_code:'OPPO',posting_date:'2026-02-30',amount:'1.0000'},{tenantId,entityId,companyCode:'OPPO',periodCode:'2026-02',providerContentHash,capturedAt}));
+});
+
+test('an importer raw Payable page is retained once without a second WBS read',async()=>{
+  let staged;const pool={query:async(_sql,args)=>{staged=JSON.parse(args[0]);return {rows:[{expected_count:1,exact_count:1,inserted_count:1}]};}};
+  const observed={tool_name:'list_payables',scope:{company_codes:['OPPO']},content_sha256:'b'.repeat(64),captured_at:capturedAt,rows:[{ap_guid:'33333333-3333-4333-8333-333333333333',company_code:'OPPO',posting_date:'2026-03-01',amount:'10.0000',pj_code:'P1',cost_code:'C1',vendor_no:'V1'}]};
+  const receipt=await stageWbsH1PayableMappingRawPage({pool,tenantId,entityId,tool:'list_payables',companyCode:'OPPO',observed});
+  assert.equal(receipt.staged_row_count,1);assert.equal(staged.length,1);assert.equal(staged[0].period_code,'2026-03');assert.equal(staged[0].project_code,'P1');
+  assert.deepEqual(await stageWbsH1PayableMappingRawPage({pool,tenantId,entityId,tool:'list_bank_transactions',companyCode:'OPPO',observed}),{staged_row_count:0});
 });
 
 test('only exact WBS Payable Debit settings enter the private stage contract',()=>{

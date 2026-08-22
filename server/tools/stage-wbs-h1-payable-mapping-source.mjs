@@ -43,7 +43,7 @@ export function normalizeWbsH1PayableMappingRow(row,{tenantId,entityId,companyCo
   return Object.freeze({...facts,provider_content_hash:providerContentHash,captured_at:new Date(capturedAt).toISOString(),source_fact_hash:canonicalRequestHash(facts)});
 }
 
-async function retainPage(pool,rows){
+export async function retainWbsH1PayableMappingSourceRows(pool,rows){
   if(!rows.length)return;
   const result=await pool.query(`WITH input AS (
       SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(
@@ -67,6 +67,15 @@ async function retainPage(pool,rows){
   if(receipt.expected_count!==rows.length||receipt.exact_count!==rows.length)throw new Error('WBS H1 payable mapping source replay drifted from retained evidence');
 }
 
+export async function stageWbsH1PayableMappingRawPage({pool,tenantId,entityId,tool,companyCode,observed}={}){
+  if(tool!=='list_payables')return Object.freeze({staged_row_count:0});
+  if(!observed||observed.tool_name!=='list_payables'||observed.scope?.company_codes?.length!==1||observed.scope.company_codes[0]!==companyCode||!Array.isArray(observed.rows)||!/^([0-9a-f]{64})$/.test(observed.content_sha256||''))throw new Error('WBS payable raw page is outside the mapping stage contract');
+  const providerContentHash=`sha256:${observed.content_sha256}`,normalized=[];
+  for(const row of observed.rows){const accountingDate=strictDate(row?.posting_date)||strictDate(row?.incurred_date),periodCode=accountingDate?.slice(0,7);if(!MONTH.test(periodCode||''))continue;const item=normalizeWbsH1PayableMappingRow(row,{tenantId,entityId,companyCode,periodCode,providerContentHash,capturedAt:observed.captured_at});if(item)normalized.push(item);}
+  if(new Set(normalized.map(row=>row.source_record_hash)).size!==normalized.length)throw new Error('WBS payable raw page contains duplicate source identities');
+  await retainWbsH1PayableMappingSourceRows(pool,normalized);return Object.freeze({staged_row_count:normalized.length});
+}
+
 export async function stageWbsH1PayableMappingCompanyMonth({client,pool,tenantId,entityId,companyCode,periodCode}){
   const baseArgs={limit:10,company_code:companyCode,incurred_date_from:`${periodCode}-01`,incurred_date_to:monthEnd(periodCode),posting_date_from:`${periodCode}-01`,posting_date_to:monthEnd(periodCode)};
   let cursor=null,snapshotToken=null,pageCount=0,rowCount=0,stagedCount=0;
@@ -80,7 +89,7 @@ export async function stageWbsH1PayableMappingCompanyMonth({client,pool,tenantId
     snapshotToken=pageToken;pageCount++;rowCount+=page.rows.length;
     const providerContentHash=`sha256:${page.content_sha256}`,normalized=page.rows.map(row=>normalizeWbsH1PayableMappingRow(row,{tenantId,entityId,companyCode,periodCode,providerContentHash,capturedAt:page.captured_at})).filter(Boolean);
     if(new Set(normalized.map(row=>row.source_record_hash)).size!==normalized.length)throw new Error('WBS payable page contains duplicate source identities');
-    await retainPage(pool,normalized);stagedCount+=normalized.length;cursor=page.cursor_next;
+    await retainWbsH1PayableMappingSourceRows(pool,normalized);stagedCount+=normalized.length;cursor=page.cursor_next;
     if(pageCount>10000)throw new Error('WBS payable pagination exceeded the safe page bound');
   }while(cursor!==null);
   return Object.freeze({status:'WBS_H1_PAYABLE_MAPPING_SOURCE_STAGED',company_code:companyCode,period_code:periodCode,page_count:pageCount,provider_row_count:rowCount,staged_row_count:stagedCount});

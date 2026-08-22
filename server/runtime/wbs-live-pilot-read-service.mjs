@@ -130,8 +130,8 @@ export function assertWbsLivePilotResult(value,{entityId,tool,limit}={}){
   return value;
 }
 
-export function createWbsLivePilotReadService({client,authorize}={}){
-  if(!client||typeof client.initialize!=='function'||typeof client.listTools!=='function'||typeof client.readView!=='function'||typeof authorize!=='function')fail('WBS_LIVE_PILOT_CONFIG_INVALID','WBS live pilot requires a read client and scoped authorizer.');
+export function createWbsLivePilotReadService({client,authorize,onRawPage=null}={}){
+  if(!client||typeof client.initialize!=='function'||typeof client.listTools!=='function'||typeof client.readView!=='function'||typeof authorize!=='function'||onRawPage!==null&&typeof onRawPage!=='function')fail('WBS_LIVE_PILOT_CONFIG_INVALID','WBS live pilot requires a read client, scoped authorizer, and optional raw-page observer.');
   let ready=null;const prepare=()=>ready??=(async()=>{await client.initialize();await client.listTools();return true;})().catch(error=>{ready=null;throw error;});
   return Object.freeze({
     read_only:true,
@@ -139,7 +139,9 @@ export function createWbsLivePilotReadService({client,authorize}={}){
       if(!tenantId||!entityId||!WBS_LIVE_PILOT_TOOLS.includes(tool)||!Number.isSafeInteger(limit)||limit<1||limit>10)fail('WBS_LIVE_PILOT_SELECTION_INVALID','A scoped approved WBS pilot selection is required.');
       await authorize({tenantId,entityId});
       let observed;try{await prepare();const args={limit,...providerScopeArgs(tool,{company_code,date_from,date_to})};observed=await client.readView({toolName:tool,args});}catch{fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider response was unavailable or unsafe.');}
-      return buildWbsLivePilotObservation({observed,entityId,tool,requestedScope:{company_code:company_code||null,date_from:date_from||null,date_to:date_to||null}});
+      const observation=buildWbsLivePilotObservation({observed,entityId,tool,requestedScope:{company_code:company_code||null,date_from:date_from||null,date_to:date_to||null}});
+      if(onRawPage!==null)await onRawPage(Object.freeze({tenantId,entityId,tool,companyCode:company_code||null,dateFrom:date_from||null,dateTo:date_to||null,observed}));
+      return observation;
     },
     async readObservationPage({tenantId,entityId,tool,limit,company_code,date_from,date_to,cursor=null,snapshot_token=null}={}){
       if(!tenantId||!entityId||!WBS_LIVE_PILOT_TOOLS.includes(tool)||limit!==10||(cursor!==null&&(typeof cursor!=='string'||cursor.length<1||cursor.length>2048||CONTROL.test(cursor)))||(snapshot_token!==null&&!SNAPSHOT_TOKEN.test(snapshot_token))||(cursor===null&&snapshot_token!==null))fail('WBS_LIVE_PILOT_SELECTION_INVALID','A ten-row scoped WBS pilot page and valid keyset continuation are required.');
@@ -149,8 +151,10 @@ export function createWbsLivePilotReadService({client,authorize}={}){
       if(cursorNext!==null&&(typeof cursorNext!=='string'||cursorNext.length<1||cursorNext.length>2048||CONTROL.test(cursorNext)))fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider returned an unsafe pagination cursor.');
       const providerSnapshotToken=observed.scope?.snapshot_token??null,stableKey=STABLE_KEY[tool],stableValues=observed.rows.map(row=>row[stableKey]);
       if((snapshot_token!==null&&providerSnapshotToken!==snapshot_token)||(cursor!==null&&snapshot_token===null&&providerSnapshotToken!==null)||stableValues.some(value=>stableKey==='id'?!Number.isSafeInteger(value):typeof value!=='string'||!value||CONTROL.test(value)))fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider returned an unsafe snapshot continuation.');
+      const observation=buildWbsLivePilotObservation({observed,entityId,tool,requestedScope:{company_code:company_code||null,date_from:date_from||null,date_to:date_to||null}});
+      if(onRawPage!==null)await onRawPage(Object.freeze({tenantId,entityId,tool,companyCode:company_code||null,dateFrom:date_from||null,dateTo:date_to||null,observed}));
       return Object.freeze({
-        observation:buildWbsLivePilotObservation({observed,entityId,tool,requestedScope:{company_code:company_code||null,date_from:date_from||null,date_to:date_to||null}}),
+        observation,
         cursor_next:cursorNext,
         pagination:Object.freeze({snapshot_token:providerSnapshotToken,captured_at:observed.captured_at,contract_version:observed.contract_version,environment:observed.environment,source_hash:hash(canonicalRequestBody(observed.source)),first_stable_key:stableValues[0]??null,last_stable_key:stableValues.at(-1)??null})
       });

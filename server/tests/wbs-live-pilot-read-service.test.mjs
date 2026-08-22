@@ -27,6 +27,13 @@ test('live pilot authorizes exact scope and returns sanitized non-admitted obser
   assert.equal(assertWbsLivePilotResult(result,{entityId,tool:'list_payables',limit:1}),result);
 });
 
+test('live pilot can hand one validated raw page to the all-company mapping stage without exposing it in the public observation',async()=>{
+  const raw=observed({rows:[{ap_guid:'private-ap-id',posting_date:'2026-02-11',amount:'12.3',pay_status:'Clear'}],scope:{company_codes:['OPPO'],date_range:['2026-01-01','2026-06-30']}}),seen=[];
+  const service=createWbsLivePilotReadService({client:{initialize:async()=>{},listTools:async()=>{},readView:async()=>raw},authorize:async()=>{},onRawPage:async page=>seen.push(page)});
+  const result=await service.readObservationPage({tenantId,entityId,tool:'list_payables',limit:10,company_code:'OPPO',date_from:'2026-01-01',date_to:'2026-06-30'});
+  assert.equal(seen.length,1);assert.equal(seen[0].observed,raw);assert.equal(seen[0].companyCode,'OPPO');assert.equal(seen[0].tenantId,tenantId);assert.equal(JSON.stringify(result.observation).includes('private-ap-id'),false);
+});
+
 test('live pilot passes server-requested company/date scope to the provider unchanged',async()=>{
   const calls=[];
   const client={initialize:async()=>{},listTools:async()=>{},readView:async request=>{calls.push(request);return observed({scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-12-31']}});}};
