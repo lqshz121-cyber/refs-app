@@ -13,6 +13,15 @@ test('only one effective, valid and supported WBS mapping is READY',()=>{
   assert.equal(resolveWbsH1PayableMapping(row({mapped_project_codes:'P1,P2',project_code:'P3'})).status,'MAPPING_SCOPE_MISMATCH');
 });
 
+test('Project supplementary uses the retained project dimension without inventing a member',()=>{
+  const decision=resolveWbsH1PayableMapping(row({mapped_supplementary:'Project',mapped_project_codes:'P1,P2',project_code:'P2'}));
+  assert.equal(decision.status,'READY');
+  assert.equal(decision.requiresProject,true);
+  assert.equal(decision.requiresVendor,false);
+  assert.equal(resolveWbsH1PayableMapping(row({mapped_supplementary:'Project',project_code:''})).status,'MAPPING_SCOPE_MISMATCH');
+  for(const unsupported of ['Company','Property','TBD'])assert.equal(resolveWbsH1PayableMapping(row({mapped_supplementary:unsupported})).status,'MAPPING_UNSUPPORTED_MEMBER');
+});
+
 test('runner posts READY rows and reports fail-closed mapping exceptions',async()=>{
   const progress=[],prepared=[];
   const summary=await applyWbsH1PayableMappings({rows:[row(),row({source_record_hash:'sha256:'+'b'.repeat(64),mapping_match_count:0})],prepare:async decision=>{prepared.push(decision);return decision;},complete:async decision=>({status:'WBS_H1_MAPPING_POSTED',company_code:decision.row.company_code,idempotent:false}),onProgress:value=>progress.push(value)});

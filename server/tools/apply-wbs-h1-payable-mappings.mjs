@@ -21,9 +21,10 @@ export function resolveWbsH1PayableMapping(row){
   if(!Number.isSafeInteger(matchCount)||matchCount<0)throw new Error('WBS H1 mapping match count is invalid');
   if(matchCount!==1)return Object.freeze({status:matchCount===0?'MAPPING_MISSING':'MAPPING_AMBIGUOUS',reason:`${matchCount} effective WBS Payable mappings`,row});
   if(!ACCOUNT.test(accountCode)||!accountName||accountName.length>255)return Object.freeze({status:'MAPPING_INVALID',reason:'The unique WBS mapping has no valid account identity.',row});
-  if(!['','Vendor'].includes(supplementary))return Object.freeze({status:'MAPPING_UNSUPPORTED_MEMBER',reason:`The mapped supplementary dimension ${supplementary} is not safely available in the sanitized test source.`,row});
+  if(!['','Vendor','Project'].includes(supplementary))return Object.freeze({status:'MAPPING_UNSUPPORTED_MEMBER',reason:`The mapped supplementary dimension ${supplementary} is not safely available in the sanitized test source.`,row});
+  if(supplementary==='Project'&&!projectCode)return Object.freeze({status:'MAPPING_SCOPE_MISMATCH',reason:'The WBS Project mapping requires an authoritative retained project code.',row});
   if(allowedProjects.length&&(!projectCode||!allowedProjects.includes(projectCode)))return Object.freeze({status:'MAPPING_SCOPE_MISMATCH',reason:'The unique WBS mapping does not cover the retained project.',row});
-  return Object.freeze({status:accountCode==='610000'?'ALREADY_MAPPED':'READY',accountCode,accountName,requiresVendor:supplementary==='Vendor',settingId:text(row.wbs_setting_id),row});
+  return Object.freeze({status:accountCode==='610000'?'ALREADY_MAPPED':'READY',accountCode,accountName,requiresVendor:supplementary==='Vendor',requiresProject:supplementary==='Project',settingId:text(row.wbs_setting_id),row});
 }
 
 export async function applyWbsH1PayableMappings({rows,prepare,complete,onProgress=()=>{}}={}){
