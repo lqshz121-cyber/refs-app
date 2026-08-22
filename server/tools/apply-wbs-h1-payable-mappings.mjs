@@ -47,7 +47,7 @@ export async function applyWbsH1PayableMappings({rows,prepare,complete,onProgres
 const CANDIDATE_SQL=`WITH source_rows AS (
   SELECT d.tenant_id::text,d.entity_id::text,e.entity_code AS company_code,d.period_id::text,
     d.source_record_hash,d.source_document_id::text,d.attachment_id::text,d.journal_entry_id::text,
-    sd.accounting_date::text,sd.gross_amount::text AS amount,b.project_code,b.cost_code,
+    sd.accounting_date::text,sd.gross_amount::text AS amount,b.project_code,coalesce(c.cost_code,b.cost_code) AS cost_code,
     jl.member_ref
   FROM wbs_test_import_draft d
   JOIN entity e ON e.tenant_id=d.tenant_id AND e.entity_id=d.entity_id
@@ -56,6 +56,7 @@ const CANDIDATE_SQL=`WITH source_rows AS (
   JOIN wbs_h1_payable_mapping_source_stage b ON b.tenant_id=d.tenant_id AND b.entity_id=d.entity_id
     AND b.company_code=e.entity_code AND b.source_record_hash=d.source_record_hash
     AND b.accounting_date=sd.accounting_date AND b.amount=sd.gross_amount
+  LEFT JOIN wbs_h1_payable_cost_code_stage c ON c.tenant_id=b.tenant_id AND c.entity_id=b.entity_id AND c.source_record_hash=b.source_record_hash
   WHERE d.tenant_id=$1 AND ($2::text IS NULL OR e.entity_code=$2)
 ), planned AS (
   SELECT s.*,m.mapping_match_count,m.wbs_setting_id,m.mapped_account_code,m.mapped_account_name,

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {normalizeWbsH1PayableMappingRow,stageWbsH1PayableMappingRawPage} from '../tools/stage-wbs-h1-payable-mapping-source.mjs';
 import {normalizeWbsH1AccountingSetting} from '../tools/stage-wbs-h1-accounting-settings.mjs';
+import {normalizeWbsH1PayableCostCode} from '../tools/stage-wbs-h1-payable-cost-codes.mjs';
 
 const tenantId='11111111-1111-4111-8111-111111111111',entityId='22222222-2222-4222-8222-222222222222',providerContentHash='sha256:'+'a'.repeat(64),capturedAt='2026-08-22T15:00:00.000Z';
 
@@ -51,4 +52,16 @@ test('payable mapping source stage counts both new inserts and exact prior match
 test('signed payable mapping migration accepts nonzero adjustments and refuses unsafe down',()=>{
   const up=readFileSync(new URL('../db/migrations/263_wbs_h1_signed_payable_mapping_amount.sql',import.meta.url),'utf8'),down=readFileSync(new URL('../db/migrations/down/263_wbs_h1_signed_payable_mapping_amount.sql',import.meta.url),'utf8');
   assert.match(up,/CHECK\(amount <> 0\)/);assert.match(down,/REFUSE DATA LOSS/);assert.match(down,/amount < 0/);
+});
+
+test('direct WBS cost-code evidence binds only the immutable Payable source identity',()=>{
+  const row=normalizeWbsH1PayableCostCode({uuid:'WORK-33333333-3333-4333-8333-333333333333',company_code:'OPR1',cost_code:'14T041'});
+  assert.match(row.source_record_hash,/^sha256:[0-9a-f]{64}$/);assert.match(row.evidence_hash,/^sha256:[0-9a-f]{64}$/);assert.equal(row.cost_code,'14T041');
+  assert.throws(()=>normalizeWbsH1PayableCostCode({uuid:'unsafe key',company_code:'OPR1',cost_code:'14T041'}));
+});
+
+test('cost-code evidence is private append-only and mapping candidates prefer it',()=>{
+  const up=readFileSync(new URL('../db/migrations/264_wbs_h1_payable_cost_code_evidence.sql',import.meta.url),'utf8'),down=readFileSync(new URL('../db/migrations/down/264_wbs_h1_payable_cost_code_evidence.sql',import.meta.url),'utf8'),runner=readFileSync(new URL('../tools/apply-wbs-h1-payable-mappings.mjs',import.meta.url),'utf8');
+  for(const token of ['wbs_h1_payable_cost_code_stage','reject_mutation','REVOKE ALL'])assert.match(up,new RegExp(token));
+  assert.match(down,/REFUSE DATA LOSS/);assert.match(runner,/coalesce\(c\.cost_code,b\.cost_code\)/);assert.match(runner,/LEFT JOIN wbs_h1_payable_cost_code_stage/);
 });
