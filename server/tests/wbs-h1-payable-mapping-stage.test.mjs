@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import {normalizeWbsH1PayableMappingRow,stageWbsH1PayableMappingRawPage} from '../tools/stage-wbs-h1-payable-mapping-source.mjs';
 import {normalizeWbsH1AccountingSetting} from '../tools/stage-wbs-h1-accounting-settings.mjs';
 import {normalizeWbsH1PayableCostCode} from '../tools/stage-wbs-h1-payable-cost-codes.mjs';
+import {normalizeDirectWbsH1PayableMappingRows} from '../tools/stage-wbs-h1-payable-mapping-direct-snapshot.mjs';
 
 const tenantId='11111111-1111-4111-8111-111111111111',entityId='22222222-2222-4222-8222-222222222222',providerContentHash='sha256:'+'a'.repeat(64),capturedAt='2026-08-22T15:00:00.000Z';
 
@@ -22,6 +23,14 @@ test('an importer raw Payable page is retained once without a second WBS read',a
   const receipt=await stageWbsH1PayableMappingRawPage({pool,tenantId,entityId,tool:'list_payables',companyCode:'OPPO',observed});
   assert.equal(receipt.staged_row_count,1);assert.equal(staged.length,1);assert.equal(staged[0].period_code,'2026-03');assert.equal(staged[0].project_code,'P1');
   assert.deepEqual(await stageWbsH1PayableMappingRawPage({pool,tenantId,entityId,tool:'list_bank_transactions',companyCode:'OPPO',observed}),{staged_row_count:0});
+});
+
+test('a direct connected WBS snapshot binds exact H1 source facts for one provisioned company',()=>{
+  const rows=normalizeDirectWbsH1PayableMappingRows([{uuid:'WORK-33333333-3333-4333-8333-333333333333',company_code:'OPAU',posting_date:'2026-04-30 00:00:00',incurred_date:'2026-04-20 00:00:00',amount:'25.5000',project_code:'PROJECT-1',cost_code:'14T041',vendor_no:'VENDOR-1'}],{tenantId,entityId,companyCode:'OPAU',providerContentHash,capturedAt});
+  assert.equal(rows.length,1);assert.equal(rows[0].period_code,'2026-04');assert.equal(rows[0].project_code,'PROJECT-1');assert.equal(rows[0].cost_code,'14T041');assert.match(rows[0].source_fact_hash,/^sha256:[0-9a-f]{64}$/);
+  assert.equal(normalizeDirectWbsH1PayableMappingRows([{uuid:'WORK-44444444-4444-4444-8444-444444444444',company_code:'OPAU',invoice_date:'2026-05-01',amount:'1.0000'}],{tenantId,entityId,companyCode:'OPAU',providerContentHash,capturedAt})[0].period_code,'2026-05');
+  assert.throws(()=>normalizeDirectWbsH1PayableMappingRows([{uuid:'WORK-33333333-3333-4333-8333-333333333333',company_code:'OTHER',posting_date:'2026-04-30',amount:'1.0000'}],{tenantId,entityId,companyCode:'OPAU',providerContentHash,capturedAt}));
+  assert.throws(()=>normalizeDirectWbsH1PayableMappingRows([{uuid:'WORK-33333333-3333-4333-8333-333333333333',company_code:'OPAU',posting_date:'2026-07-01',amount:'1.0000'}],{tenantId,entityId,companyCode:'OPAU',providerContentHash,capturedAt}));
 });
 
 test('only exact WBS Payable Debit settings enter the private stage contract',()=>{

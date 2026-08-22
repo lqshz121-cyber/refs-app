@@ -92,6 +92,7 @@
     "wbs:full-company-plan:build": "node tools/build-wbs-full-company-delivery-plan.mjs",
     "wbs:h1:import-companies": "node tools/import-wbs-h1-all-companies.mjs",
     "wbs:h1:stage-payable-mapping-source": "node tools/stage-wbs-h1-payable-mapping-source.mjs",
+    "wbs:h1:stage-payable-mapping-direct-snapshot": "node tools/stage-wbs-h1-payable-mapping-direct-snapshot.mjs",
     "wbs:h1:stage-accounting-settings": "node tools/stage-wbs-h1-accounting-settings.mjs",
     "wbs:h1:stage-payable-cost-codes": "node tools/stage-wbs-h1-payable-cost-codes.mjs",
     "wbs:h1:apply-payable-mappings": "node tools/apply-wbs-h1-payable-mappings.mjs",
