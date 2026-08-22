@@ -8,12 +8,14 @@ import {normalizeWbsH1PayableMappingRow,retainWbsH1PayableMappingSourceRows} fro
 const COMPANY=/^[A-Z0-9][A-Z0-9_:-]{0,63}$/;
 const MONTH=/^2026-0[1-6]$/;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CONTROL=/[\u0000-\u001f\u007f]/;
 const readStdin=async()=>{const chunks=[];for await(const chunk of process.stdin)chunks.push(Buffer.from(chunk));return Buffer.concat(chunks).toString('utf8');};
+const safeOptional=value=>{if(value===null||value===undefined||String(value).trim()==='')return null;const normalized=String(value).trim();return normalized.length<=128&&!CONTROL.test(normalized)?normalized:null;};
 
 export function normalizeDirectWbsH1PayableMappingRows(rows,{tenantId,entityId,companyCode,providerContentHash,capturedAt}={}){
   if(!Array.isArray(rows)||rows.length<1||rows.length>1000||!COMPANY.test(companyCode||''))throw new Error('Direct WBS Payable snapshot must contain 1..1000 rows for one company');
   const normalized=rows.map(row=>{
-    const adapted={...row,ap_guid:row?.ap_guid??row?.uuid,pj_code:row?.pj_code??row?.project_code,posting_date:row?.posting_date??row?.incurred_date??row?.invoice_date};
+    const adapted={...row,ap_guid:row?.ap_guid??row?.uuid,pj_code:safeOptional(row?.pj_code??row?.project_code),cost_code:safeOptional(row?.cost_code),vendor_no:safeOptional(row?.vendor_no),posting_date:row?.posting_date??row?.incurred_date??row?.invoice_date};
     const rawDate=[adapted.posting_date,adapted.incurred_date,adapted.invoice_date].find(value=>typeof value==='string'&&value.trim()!=='')||'';
     const accountingDate=rawDate.trim().slice(0,10);
     const periodCode=accountingDate.slice(0,7);
@@ -35,9 +37,10 @@ async function main(){
       WHERE tenant_id=$1 AND active AND source_system='WBS' AND source_entity_id=entity_code AND entity_code=$2 ORDER BY entity_id`,[tenantId,companyCode])).rows;
     if(scopes.length!==1)throw new Error('Direct WBS company scope is not provisioned exactly once in REFS');
     const parsed=JSON.parse(input),providerContentHash=`sha256:${createHash('sha256').update(input,'utf8').digest('hex')}`,capturedAt=new Date().toISOString();
+    const omittedInvalidDimensionCount=parsed.reduce((count,row)=>count+['pj_code','project_code','cost_code','vendor_no'].filter(key=>row?.[key]!=null&&String(row[key]).trim()!==''&&safeOptional(row[key])===null).length,0);
     const rows=normalizeDirectWbsH1PayableMappingRows(parsed,{tenantId:scopes[0].tenant_id,entityId:scopes[0].entity_id,companyCode,providerContentHash,capturedAt});
     await retainWbsH1PayableMappingSourceRows(pool,rows);
-    process.stdout.write(`${JSON.stringify({status:'WBS_H1_DIRECT_PAYABLE_MAPPING_SOURCE_STAGED',company_code:companyCode,row_count:rows.length})}\n`);
+    process.stdout.write(`${JSON.stringify({status:'WBS_H1_DIRECT_PAYABLE_MAPPING_SOURCE_STAGED',company_code:companyCode,row_count:rows.length,omitted_invalid_dimension_count:omittedInvalidDimensionCount})}\n`);
   }finally{await pool.end();}
 }
 
