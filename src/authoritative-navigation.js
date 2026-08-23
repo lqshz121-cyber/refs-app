@@ -37,6 +37,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Entity-scoped source-document list and immutable detail endpoints.',
       'Separate authorised attachment-read contract; upload and finalise endpoints are not a document reader.',
     ]),
+    item('receipts', 'Receipts', 'API_UNAVAILABLE', [
+      'Entity-scoped receipt queue with immutable receipt, attachment object/version, content hash, creator, review status, and extracted accounting facts.',
+      'Read-only For review and Reviewed list/detail endpoints; upload, OCR, review mutation, add-to-books, export, customize, and payment promotion remain unavailable.',
+    ]),
     item('integration-hub', 'WBS Data Import', 'API_READ', [
       'Read production WBS Payables, Bank, AutoRec and Journal evidence for one explicit company and date scope.',
       'The controlled H1 test import remains server-authorised, TEST ONLY, company-scoped and fully auditable.',
