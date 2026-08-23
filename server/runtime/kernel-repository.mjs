@@ -2437,6 +2437,16 @@ export class PostgresAccountingKernel{
     )).rows.map(row=>row.result);});
   }
 
+  async retainWbsH1AccountingControlReconciliation({tenantId,entityId,controlRunId,expectedControlReceiptHash,expectedSettingsBundleHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(`SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',$1::uuid,'entity_id',$2::uuid,'control_run_id',$3::uuid,'expected_control_receipt_hash',$4::text,'expected_settings_bundle_hash',$5::text,'module_code','PAYABLE','reason',btrim($6::text))) AS request_hash`,[tenantId,entityId,controlRunId,expectedControlReceiptHash,expectedSettingsBundleHash,reason]),'WBS_H1_ACCOUNTING_RECONCILIATION_HASH_FAILED','The reconciliation request hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_retain_wbs_h1_accounting_control_reconciliation($1,$2,$3,$4,$5,$6,$7,$8) AS result',[tenantId,entityId,controlRunId,expectedControlReceiptHash,expectedSettingsBundleHash,idempotencyKey,requestHash,reason]),'WBS_H1_ACCOUNTING_RECONCILIATION_FAILED','The reconciliation receipt was not produced').result;
+    });
+  }
+
+  async readWbsH1AccountingControlReconciliation({tenantId,entityId,reconciliationId}){return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_wbs_h1_accounting_control_reconciliation($1,$2,$3) AS result',[tenantId,entityId,reconciliationId]),'WBS_H1_ACCOUNTING_RECONCILIATION_NOT_FOUND','The reconciliation receipt was not found').result);}
+  async listWbsH1AccountingControlReconciliations({tenantId,entityId,controlRunId=null,limit=50,offset=0}){return this.inSession(async client=>requireRow(await client.query('SELECT refs_list_wbs_h1_accounting_control_reconciliations($1,$2,$3,$4,$5) AS result',[tenantId,entityId,controlRunId,limit,offset]),'WBS_H1_ACCOUNTING_RECONCILIATION_READ_FAILED','The reconciliation list was not produced').result);}
+
   async retireConfigSnapshot(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
