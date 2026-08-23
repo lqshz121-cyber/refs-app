@@ -1,6 +1,8 @@
 import {createHash} from 'node:crypto';
 import {verifyWbsSignedDelivery} from './wbs-signed-delivery-admission.mjs';
+import {verifyWbsProviderFinal1Delivery} from './wbs-provider-final1-delivery.mjs';
 import {validateWbsSnapshotPackage} from './wbs-snapshot-package.mjs';
+import {canonicalRequestHash} from './request-hash.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const IDEMPOTENCY=/^[A-Za-z0-9][A-Za-z0-9._:-]{15,199}$/;
@@ -53,6 +55,17 @@ function assertReviewCandidates(data){
   return data;
 }
 
+function assertFinal1Admission(data,verified){
+  if(!exactObject(data)||data.status!=='WBS_FINAL1_RETAINED_SOURCE_EVIDENCE'||data.signature_verified!==true
+    ||data.domain!=='PAYABLES'||!UUID.test(data.admission_id||'')||data.snapshot_id!==verified.snapshot_id
+    ||data.company_code!==verified.company_code||data.row_count!==verified.row_count
+    ||data.can_write_wbs!==false||data.can_propose_amortization!==false||data.can_create_draft!==false
+    ||data.can_review!==false||data.can_approve!==false||data.can_post!==false){
+    fail('WBS_FINAL1_ADMISSION_RESPONSE_UNSAFE','REFS returned an incomplete or unsafe Final-1 admission result.');
+  }
+  return data;
+}
+
 export async function admitWbsProviderSignedPayableDelivery({apiBaseUrl,admissionAccessToken,reviewAccessToken=null,providerTrust,receipt,requestRaw,responseRaw,packageRaw,tenantId,entityId,companyCode,idempotencyKey=null,fetchImpl=globalThis.fetch,now=Date.now(),timeoutMs=30000}={}){
   if(typeof fetchImpl!=='function')fail('WBS_PROVIDER_FETCH_REQUIRED','A fetch implementation is required.');
   if(!UUID.test(text(tenantId))||!UUID.test(text(entityId))||!companyCode||text(companyCode)!==companyCode)fail('WBS_PROVIDER_SCOPE_INVALID','Exact tenant, entity, and company scope are required.');
@@ -77,4 +90,25 @@ export async function admitWbsProviderSignedPayableDelivery({apiBaseUrl,admissio
     readback={status:matched.length?'READ_BACK_MATCHED':'READ_BACK_NOT_OBSERVED',http_status:read.status,queue_record_count:rows.length,record_count:matched.length,rows:matched.map(row=>Object.freeze({wbs_inbound_row_id:row.wbs_inbound_row_id,source_version:row.source_version,receipt_hash:row.receipt_hash,evidence_hash:row.evidence_hash,review_readiness:row.review_readiness??null,can_review:row.can_review===true}))};
   }
   return Object.freeze({status:'ADMITTED_SIGNED_PAYABLE_EVIDENCE',offline_verification:'PASS',api_origin:origin,tenant_id:tenantId,entity_id:entityId,company_code:companyCode,snapshot_id:verified.snapshot_id,admission_id:admission.wbs_provider_signed_payable_admission_id,idempotency_key:stableKey,admission_http_status:admitted.status,row_count:admission.row_count,idempotent:admission.idempotent===true,request_raw_hash:admission.request_raw_hash,response_raw_hash:admission.response_raw_hash,package_raw_hash:admission.package_raw_hash,signature_verified:true,readback,can_create_draft:false,can_approve:false,can_post:false});
+}
+
+// This client can only relay an already provider-signed Final-1 four-artifact
+// set.  It deliberately has no signing, package-building, or local-NDJSON
+// promotion capability: the exact bytes must first pass both pinned Ed25519
+// signatures and every Final-1 source/control validation locally.
+export async function admitWbsProviderFinal1PayableDelivery({apiBaseUrl,admissionAccessToken,providerTrust,receipt,requestRaw,responseRaw,packageRaw,tenantId,entityId,companyCode,expectedCurrency='USD',idempotencyKey=null,fetchImpl=globalThis.fetch,now=Date.now(),timeoutMs=30000}={}){
+  if(typeof fetchImpl!=='function')fail('WBS_PROVIDER_FETCH_REQUIRED','A fetch implementation is required.');
+  if(!UUID.test(text(tenantId))||!UUID.test(text(entityId))||!companyCode||text(companyCode)!==companyCode)fail('WBS_PROVIDER_SCOPE_INVALID','Exact tenant, entity, and company scope are required.');
+  if(!Buffer.isBuffer(requestRaw)||!Buffer.isBuffer(responseRaw)||!Buffer.isBuffer(packageRaw))fail('WBS_PROVIDER_ARTIFACTS_REQUIRED','Exact request, response, and package bytes are required.');
+  if(!Number.isInteger(timeoutMs)||timeoutMs<1000||timeoutMs>120000)fail('WBS_PROVIDER_TIMEOUT_INVALID','timeoutMs must be an integer from 1000 to 120000.');
+  const origin=apiOrigin(apiBaseUrl),accessToken=token(admissionAccessToken,'REFS provider M2M access token');
+  const verified=verifyWbsProviderFinal1Delivery({providerTrust,receipt,requestRaw,responseRaw,packageRaw,expectedScope:{tenant_id:tenantId,entity_id:entityId,company_code:companyCode},expectedCurrency,now});
+  if(verified.admission_blockers.length!==0)fail('WBS_FINAL1_ADMISSION_BLOCKED','Final-1 evidence has unresolved admission blockers.');
+  const stableKey=idempotencyKey??`wbs-final1-${verified.snapshot_id}`;
+  if(!IDEMPOTENCY.test(stableKey))fail('WBS_PROVIDER_IDEMPOTENCY_INVALID','Idempotency key must be a stable 16-200 character canonical token.');
+  const path=`/api/v1/entities/${entityId}/wbs/provider-signed/final1/payables/admissions`;
+  const body=JSON.stringify({receipt,requestRawBase64:requestRaw.toString('base64'),responseRawBase64:responseRaw.toString('base64'),packageRawBase64:packageRaw.toString('base64')});
+  const admitted=await requestJson(fetchImpl,`${origin}${path}`,{method:'POST',accessToken,headers:{'content-type':'application/json','idempotency-key':stableKey},body,timeoutMs});
+  const admission=assertFinal1Admission(admitted.data,verified);
+  return Object.freeze({status:'ADMITTED_PROVIDER_FINAL1_PAYABLE_EVIDENCE',offline_verification:'PASS',api_origin:origin,tenant_id:tenantId,entity_id:entityId,company_code:companyCode,snapshot_id:verified.snapshot_id,admission_id:admission.admission_id,idempotency_key:stableKey,admission_http_status:admitted.status,row_count:admission.row_count,idempotent:admission.idempotent===true,receipt_hash:canonicalRequestHash(receipt),request_raw_hash:sha256(requestRaw),response_raw_hash:sha256(responseRaw),package_raw_hash:sha256(packageRaw),signature_verified:true,can_write_wbs:false,can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false});
 }
