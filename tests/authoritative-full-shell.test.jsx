@@ -176,6 +176,12 @@ assert.match(appSource, /reportGeneralLedgerDetail\?closeReportGeneralLedger:nul
   'General Ledger must expose its catalog Back action only when Reports supplied an immutable parent context');
 assert.match(appSource, /onOpenGeneralLedger=\{openReportGeneralLedger\}/,
   'the Reports workspace must receive the explicit General Ledger route bridge');
+assert.match(appSource, /openReportReconciliation/,
+  'the Reports catalog must route its observed Reconciliation Reports entry to the existing authoritative history reader');
+assert.match(appSource, /reportReconciliationDetail\?closeReportReconciliation:null/,
+  'Reconcile must expose its catalog Back action only when Reports supplied an immutable parent context');
+assert.match(appSource, /onOpenReconciliation=\{openReportReconciliation\}/,
+  'the Reports workspace must receive the explicit Reconciliation Reports route bridge');
 assert.match(appSource, /AuthoritativeGeneralLedgerWorkspace/);
 assert.match(appSource, /AuthoritativeDocumentWorkspace[\s\S]*?kind="AP"[\s\S]*?config=\{displayConfig\}/,
   'the embedded WBS Payables observation must receive the same readable scope presentation as the authoritative shell');

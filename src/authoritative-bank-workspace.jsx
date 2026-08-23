@@ -310,7 +310,7 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
     <AuthoritativeSecondaryDisclosure label="External WBS evidence"><AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.bank} title="External WBS bank observations"/></AuthoritativeSecondaryDisclosure>
   </AuthoritativeWorkspaceView>;
 }
-export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.fetch,environment=globalThis}){
+export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.fetch,environment=globalThis,onBack=null}){
   const [scope,setScope]=useState({bankAccountRef:'',statementEndingDate:''});
   const [scopeDiscovery,setScopeDiscovery]=useState({phase:'LOADING',rows:[],error:null});
   const [state,setState]=useState({phase:'IDLE',row:null,error:null,readAt:null});
@@ -331,7 +331,7 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
     restoreAuthoritativeReturnContext(environment,config,context);
   };
   if(selected)return <AuthoritativeReconciliationDetail row={selected.row} scope={{...scope,entityId:config.entityId,entityLabel:entityLabel(config)}} onBack={closeEvidence} config={config} fetcher={fetcher} onChanged={()=>load(null,{preserveDetail:true})}/>;
-  return <AuthoritativeWorkspaceView area="Reconcile" className="stack authoritative-reconciliation-workspace"><AuthoritativeWorkspaceHeader eyebrow="BANKING" title="Reconcile" description="Match the books to the bank records."/>
+  return <AuthoritativeWorkspaceView area="Reconcile" className="stack authoritative-reconciliation-workspace">{onBack&&<div className="qbo-report-back authoritative-reconciliation-catalog-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to standard reports</button></div>}<AuthoritativeWorkspaceHeader eyebrow="BANKING" title="Reconcile" description="Match the books to the bank records."/>
     <section className="report-workbench authoritative-reconciliation-scope-picker" aria-label="Reconciliation history"><div className="report-workbench-head"><div><b>Reconciliation history</b><div className="page-subtitle">Choose an existing statement to review.</div></div><span className="badge badge-muted">READ ONLY</span></div>
       {scopeDiscovery.phase==='LOADING'&&<StateBlock tone="loading">Loading reconciliation history...</StateBlock>}
       {scopeDiscovery.phase==='ERROR'&&<BankReadFailure error={scopeDiscovery.error} onRetry={loadScopes} subject="reconciliation scopes"/>}
