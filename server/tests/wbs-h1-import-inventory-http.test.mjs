@@ -14,4 +14,6 @@ test('WBS H1 inventory is an exact no-store GET and rejects anti-mock action dri
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(response.body.data,data);assert.deepEqual(observed[0],{tenantId,entityId,limit:50,offset:0});
   for(const request of [{method:'GET',url:path,body:{},headers:{}},{method:'GET',url:`${path}&unknown=1`,body:null,headers:{}},{method:'GET',url:path,body:null,headers:{'Idempotency-Key':'forbidden'}}])assert.equal((await api(request)).status,400);
   responseData={...data,can_post:true};response=await api({method:'GET',url:path,body:null,headers:{}});assert.equal(response.status,502);assert.equal(response.body.code,'WBS_H1_IMPORT_INVENTORY_PROTOCOL');
+  const deniedApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'reader'}),kernelFactory:async()=>({readWbsH1ImportInventory:async()=>{const error=new Error('permission denied');error.code='42501';throw error;}})});
+  response=await deniedApi({method:'GET',url:path,body:null,headers:{}});assert.equal(response.status,403);assert.equal(response.body.code,'WBS_READ_ACCESS_REQUIRED');assert.equal(response.body.message,'Forbidden');
 });
