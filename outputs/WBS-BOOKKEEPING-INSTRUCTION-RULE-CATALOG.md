@@ -32,6 +32,8 @@ The supplied archive is now represented by the closed, machine-readable contract
 
 The current approved Settings model maps one current account per generic role such as `CWIP`. WBS instructions and live WBS Settings select several distinct CWIP accounts by project/cost code (land, building, furniture/fixtures, land improvements, capitalized interest). The formal AI policy must therefore bind the exact selected WBS account code and source setting identity, not collapse every valid rule into one generic CWIP account. Until that extension and human approval workflow exist, direct WBS mapping can preserve exact accounts, but the formal AI Decision chain must not claim equivalent account selection.
 
+The first exact-account proposal is `outputs/WBFL-2026-H1-WBS-PAYABLE-SETTINGS-PROPOSAL.json`. It was generated directly from 67 live WBFL WBS Settings rows. Its Payable-only scope has four effective rules, zero exceptions, and proposal hash `sha256:39527f1c5bbb27527a85f0d69ceb785f6b6602c7542c4b83205755e4ee1d0a3f`: credit to `291001` with Vendor, default debit BLOCKED, cost code `0LD067` to `164100` with Project, and `3GN831` to `164200` with Project. It is ready for human review but grants no workflow action.
+
 ## Control boundary
 
 These spreadsheets are user-provided instructions and evidence, not executable authority. A rule becomes executable only after exact company/entity, open period, approved COA/report mappings, dimensions, source evidence and human approval are bound into a versioned/hash-closed Settings snapshot. Missing, ambiguous, conflicting or stale evidence produces an exception with zero proposed lines or a blocked Draft; it is never converted to an automatic Post.
