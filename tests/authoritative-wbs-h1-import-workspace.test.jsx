@@ -11,6 +11,8 @@ const data={schema_version:'WBS_H1_IMPORT_INVENTORY_V1',company_code:'SUCF',curr
 
 const markup=renderToStaticMarkup(<AuthoritativeWbsH1ImportWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
 assert.match(markup,/2026 H1 business data/);assert.match(markup,/Loading WBS business data/);assert.doesNotMatch(markup,/Post journal|localStorage|seed\.js/);
+const scopedMarkup=renderToStaticMarkup(<AuthoritativeWbsH1ImportWorkspace config={config} scopes={[{entity_id:entityId,period_id:periodId,entity_name:'Example Company',entity_code:'EXAMPLE'}]} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
+assert.match(scopedMarkup,/All companies/);assert.match(scopedMarkup,/Loading company population/);assert.match(scopedMarkup,/Missing companies are not treated as zero|authorized WBS company/);
 
 async function verifyClient(){
   let call;const result=await refreshAuthoritativeWbsH1ImportInventory({config,limit:50,offset:0,fetcher:async(url,options)=>{call={url,options};return {ok:true,json:async()=>({ok:true,data})};}});
@@ -28,7 +30,8 @@ async function verifyClient(){
 
 const source=fs.readFileSync('src/authoritative-wbs-h1-import-workspace.jsx','utf8');
 const appSource=fs.readFileSync('src/authoritative-app.jsx','utf8');
-for(const copy of ['Imported business data is available','Imported source rows are not formal ledger entries','Controlled test posted','Ready for mapping review','NO ACCOUNTING ACTION','WBS account Settings','Approve Settings','SETTINGS ONLY','never creates or posts a Journal','Payable accounting proposals','Create Draft','View Draft','Continue in Journal entries','Back to WBS Integration Hub','Re-reading the exact company, period, Journal, lines, and source relationship','Human Draft only','Submit, Review, Approve and Post remain separate'])assert.match(source,new RegExp(copy));
+for(const copy of ['All companies','every company available to this signed-in user','Missing companies are not treated as zero','Imported business data is available','Imported source rows are not formal ledger entries','Controlled test posted','Ready for mapping review','NO ACCOUNTING ACTION','WBS account Settings','Approve Settings','SETTINGS ONLY','never creates or posts a Journal','Payable accounting proposals','Create Draft','View Draft','Continue in Journal entries','Back to WBS Integration Hub','Re-reading the exact company, period, Journal, lines, and source relationship','Human Draft only','Submit, Review, Approve and Post remain separate'])assert.match(source,new RegExp(copy));
+assert.match(appSource,/AuthoritativeWbsH1ImportWorkspace[\s\S]*?scopes=\{scopeCatalog\}/,'the Integration Hub must receive the complete authorized company-period catalog');
 assert.match(source,/readAuthoritativeJournalEntryDetail\(\{config,journalEntryId:receipt\.journal_entry_id,fetcher\}\)/,'a created Draft must be re-read from the exact authoritative Journal detail endpoint before it is shown');
 assert.match(source,/restoreAuthoritativeReturnContext\(environment,config,context/,'Back from the created Draft must restore the originating WBS row, page scroll, and table position');
 assert.match(source,/AuthoritativeLineageDrill/,'the created Draft must reuse the standard full-page Journal lineage reader');

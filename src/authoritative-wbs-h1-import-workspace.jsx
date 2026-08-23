@@ -11,7 +11,16 @@ const mappingLabel=value=>({MAPPING_MISSING:'Mapping missing',MAPPING_READY_FOR_
 const importLabel=value=>value==='CONTROLLED_TEST_POSTED'?'Controlled test posted':'Imported source only';
 const proposalException=value=>({SETTINGS_NOT_APPROVED:'Settings approval required',COST_CODE_MISSING:'Cost code missing',PROJECT_MISSING:'Project missing',VENDOR_MISSING:'Payee missing',DEBIT_MAPPING_MISSING:'Debit mapping missing',DEBIT_MAPPING_AMBIGUOUS:'Debit mapping ambiguous',CREDIT_MAPPING_MISSING:'Credit mapping missing',CREDIT_MAPPING_AMBIGUOUS:'Credit mapping ambiguous',DEBIT_ACCOUNT_NOT_READY:'Debit account not ready',CREDIT_ACCOUNT_NOT_READY:'Credit account not ready',DEBIT_MEMBER_POLICY_UNSUPPORTED:'Debit member policy unsupported',CREDIT_MEMBER_POLICY_UNSUPPORTED:'Credit member policy unsupported',VENDOR_MEMBER_NOT_READY:'Payee member not ready',DEBIT_DIMENSION_UNSUPPORTED:'Debit dimension unsupported',CREDIT_DIMENSION_UNSUPPORTED:'Credit dimension unsupported'}[value]||value);
 
-export function AuthoritativeWbsH1ImportWorkspace({config,fetcher=globalThis.fetch,environment=globalThis,onOpenJournalWorkflow}){
+const companyScopes=scopes=>{
+  const companies=new Map();
+  for(const scope of Array.isArray(scopes)?scopes:[]){
+    if(!scope?.entity_id||!scope?.period_id||companies.has(scope.entity_id))continue;
+    companies.set(scope.entity_id,{entityId:scope.entity_id,periodId:scope.period_id,entityName:scope.entity_name,entityCode:scope.entity_code});
+  }
+  return [...companies.values()].sort((left,right)=>String(left.entityName||left.entityCode).localeCompare(String(right.entityName||right.entityCode)));
+};
+
+export function AuthoritativeWbsH1ImportWorkspace({config,scopes=[],fetcher=globalThis.fetch,environment=globalThis,onOpenJournalWorkflow}){
   const [offset,setOffset]=useState(0);
   const [state,setState]=useState({phase:'LOADING',data:null,error:null});
   const [settings,setSettings]=useState({phase:'LOADING',data:null,error:null});
@@ -22,6 +31,7 @@ export function AuthoritativeWbsH1ImportWorkspace({config,fetcher=globalThis.fet
   const [draftReason,setDraftReason]=useState('');
   const [drafts,setDrafts]=useState({});
   const [draftDetail,setDraftDetail]=useState(null);
+  const [companyPopulation,setCompanyPopulation]=useState({phase:'LOADING',rows:[]});
   const load=async nextOffset=>{
     setState(current=>({...current,phase:'LOADING',error:null}));
     const result=await refreshAuthoritativeWbsH1ImportInventory({config,limit:PAGE_SIZE,offset:nextOffset,fetcher});
@@ -41,12 +51,21 @@ export function AuthoritativeWbsH1ImportWorkspace({config,fetcher=globalThis.fet
   };
   const createDraft=async(proposal,focusId,tableX)=>{setDrafts(current=>({...current,[proposal.source_record_hash]:{phase:'SAVING'}}));const key=`wbs-h1-payable-draft-${globalThis.crypto?.randomUUID?.()||Date.now()}`;const result=await createAuthoritativeWbsH1PayableReclassDraft({config,proposal,reason:draftReason,idempotencyKey:key,fetcher});setDrafts(current=>({...current,[proposal.source_record_hash]:result.ok?{phase:'READY',data:result.data}:{phase:'BLOCKED',error:result}}));if(result.ok)await openDraftDetail(result.data,proposal,focusId,tableX);};
   useEffect(()=>{setOffset(0);setProposalOffset(0);void load(0);void loadSettings();void loadProposals(0);},[config.entityId,config.periodId]);
+  useEffect(()=>{let active=true;const companies=companyScopes(scopes);if(companies.length===0){setCompanyPopulation({phase:'BLOCKED',rows:[]});return()=>{active=false;};}setCompanyPopulation({phase:'LOADING',rows:[]});void(async()=>{const rows=[];for(let index=0;index<companies.length;index+=6){const batch=companies.slice(index,index+6);const results=await Promise.all(batch.map(async company=>{const scopedConfig={...config,entityId:company.entityId,periodId:company.periodId};const result=await refreshAuthoritativeWbsH1ImportInventory({config:scopedConfig,limit:1,offset:0,fetcher});return result.ok?{...company,status:'READY',inventory:result.data}:{...company,status:'BLOCKED',error:result};}));rows.push(...results);if(active)setCompanyPopulation({phase:index+6>=companies.length?'READY':'LOADING',rows:[...rows]});}})();return()=>{active=false;};},[config.baseUrl,config.getAccessToken,fetcher,scopes]);
   const data=state.data,total=data?.totals.source_record_count||0,page=Math.floor(offset/PAGE_SIZE)+1,pageCount=Math.max(1,Math.ceil(total/PAGE_SIZE));
   const move=next=>{setOffset(next);void load(next);};
   if(draftDetail?.phase==='READY')return <AuthoritativeLineageDrill config={config} fetcher={fetcher} initial={{kind:'JOURNAL',journal:draftDetail.journal,context:{entityId:config.entityId,periodId:config.periodId,journalId:draftDetail.journal.journal_entry_id,journalRevision:draftDetail.journal.revision,journalCurrency:draftDetail.journal.currency}}} onExit={closeDraftDetail}/>;
   if(draftDetail)return <section className="full-bleed qbo-transaction-report authoritative-evidence-page" aria-label="Created WBS Draft Journal"><div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={closeDraftDetail}>Back to WBS Integration Hub</button><span>Draft Journal {draftDetail.receipt.journal_entry_id}</span></div><StateBlock tone={draftDetail.phase==='LOADING'?'loading':'blocked'} title={draftDetail.phase==='LOADING'?'Loading created Draft Journal':'Created Draft Journal unavailable'}>{draftDetail.phase==='LOADING'?'Re-reading the exact company, period, Journal, lines, and source relationship.':draftDetail.error?.message||'The Draft was created, but its exact Journal detail could not be read. Return and refresh before continuing.'}</StateBlock></section>;
   return <AuthoritativeWorkspaceView area="WBS Data Import" className="stack authoritative-wbs-h1-import-workspace">
     <AuthoritativeWorkspaceHeader eyebrow="WBS DATA IMPORT" title="2026 H1 business data" description="Real WBS business rows are shown under the selected company before formal accounting mapping." status="READ ONLY"/>
+    <section className="report-workbench" aria-label="All authorized WBS companies">
+      <div className="report-workbench-head"><div><b>All companies</b><div className="page-subtitle">January–June source, mapping and formal-posting progress for every company available to this signed-in user.</div></div><span className="badge badge-muted">AUTHORIZED SCOPE</span></div>
+      {companyPopulation.phase==='LOADING'&&companyPopulation.rows.length===0&&<StateBlock tone="loading" title="Loading company population">Reading each authorized WBS company from the accounting API.</StateBlock>}
+      {companyPopulation.phase==='BLOCKED'&&companyPopulation.rows.length===0&&<StateBlock tone="blocked" title="Company population unavailable">No authorized company scopes were returned. Missing companies are not treated as zero.</StateBlock>}
+      {companyPopulation.rows.length>0&&<div className="table-wrap" role="region" tabIndex={0} aria-label="All authorized WBS company H1 progress"><table className="tbl"><thead><tr><th>Company</th><th>H1 source rows</th><th>Mapping ready</th><th>Mapping exceptions</th><th>Formal postings</th><th>Status</th></tr></thead><tbody>{companyPopulation.rows.map(row=>{const totals=row.inventory?.totals,exceptions=totals?totals.mapping_missing_count+totals.mapping_ambiguous_count:null;return <tr key={row.entityId}><td><b>{row.entityName||row.entityCode}</b><div className="page-subtitle">{row.inventory?.company_code||row.entityCode}</div></td><td>{totals?.source_record_count??'Unavailable'}</td><td>{totals?.mapping_ready_count??'Unavailable'}</td><td>{exceptions??'Unavailable'}</td><td>{totals?.formal_mapping_posted_count??'Unavailable'}</td><td>{row.status==='BLOCKED'?<span className="badge badge-muted" title={row.error?.message}>READ FAILED</span>:totals.source_record_count>0&&totals.formal_mapping_posted_count===totals.source_record_count?<span className="badge badge-muted">FORMALLY POSTED</span>:exceptions>0?<span className="badge badge-muted">NEEDS MAPPING</span>:<span className="badge badge-muted">IN PROGRESS</span>}</td></tr>;})}</tbody></table></div>}
+      {companyPopulation.phase==='LOADING'&&companyPopulation.rows.length>0&&<div className="page-subtitle">Loading remaining authorized companies…</div>}
+      {companyPopulation.rows.some(row=>row.status==='BLOCKED')&&<StateBlock tone="blocked" title="Some companies could not be read">The failed company scopes remain visible as unavailable and are not counted as empty.</StateBlock>}
+    </section>
     {state.phase==='LOADING'&&!data&&<StateBlock tone="loading" title="Loading WBS business data">Reading the selected company's January–June import inventory.</StateBlock>}
     {state.phase==='BLOCKED'&&!data&&<StateBlock tone="blocked" title={state.error?.code||'WBS_H1_IMPORT_INVENTORY_BLOCKED'}>{state.error?.message}</StateBlock>}
     {data&&<>
