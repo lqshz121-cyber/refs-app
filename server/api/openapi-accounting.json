@@ -2621,6 +2621,27 @@
         }
       }
     },
+    "/entities/{entityId}/wbs/h1-accounting-control-population": {
+      "get": {
+        "operationId": "readWbsH1AccountingControlPopulation",
+        "summary": "Read one finalized WBS H1 accounting control population",
+        "description": "Returns one immutable, finalized control-only receipt, its balanced module receipts, and a cursor page of retained source lines. It is tenant and entity scoped, requires the existing WBS read permission, and never creates a Draft, review, approval, Journal, or posting.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"runId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"name":"afterOrdinal","in":"query","required":true,"schema":{"type":"integer","minimum":0}},{"name":"limit","in":"query","required":true,"schema":{"type":"integer","minimum":1,"maximum":200}}],
+        "responses": {
+          "200":{"description":"Closed finalized WBS H1 accounting control population page","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"object","additionalProperties":false,"required":["schema_version","run_id","receipt_id","receipt_hash","company_code","currency","date_from","date_to","row_count","included_h1_row_count","excluded_row_count","debit_amount","credit_amount","population_hash","module_receipt_count","module_receipts","rows","after_ordinal","cursor_next","limit","population_complete","run_finalized","page_complete","accounting_authority","can_create_draft","can_review","can_approve","can_post"],"properties":{"schema_version":{"const":"WBS_H1_ACCOUNTING_CONTROL_RECEIPT_V1"},"run_id":{"$ref":"#/components/schemas/Uuid"},"receipt_id":{"$ref":"#/components/schemas/Uuid"},"receipt_hash":{"$ref":"#/components/schemas/Sha256"},"company_code":{"type":"string"},"currency":{"pattern":"^[A-Z]{3}$"},"date_from":{"const":"2026-01-01"},"date_to":{"const":"2026-06-30"},"row_count":{"type":"integer","minimum":1},"included_h1_row_count":{"type":"integer","minimum":0},"excluded_row_count":{"type":"integer","minimum":0},"debit_amount":{"type":"string"},"credit_amount":{"type":"string"},"population_hash":{"$ref":"#/components/schemas/Sha256"},"module_receipt_count":{"type":"integer","minimum":1},"module_receipts":{"type":"array"},"rows":{"type":"array"},"after_ordinal":{"type":"integer","minimum":0},"cursor_next":{"oneOf":[{"type":"null"},{"type":"integer","minimum":1}]},"limit":{"type":"integer","minimum":1,"maximum":200},"population_complete":{"const":true},"run_finalized":{"const":true},"page_complete":{"type":"boolean"},"accounting_authority":{"const":"CONTROL_EVIDENCE_ONLY"},"can_create_draft":{"const":false},"can_review":{"const":false},"can_approve":{"const":false},"can_post":{"const":false}}}}}}}},
+          "400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"502":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
+    "/entities/{entityId}/wbs/h1-accounting-control-populations": {
+      "get": {
+        "operationId":"listWbsH1AccountingControlPopulations",
+        "summary":"List finalized WBS H1 accounting control receipts for one authorized company",
+        "description":"RLS-scoped discovery of finalized append-only control receipts. It returns no lines and grants no accounting action.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":200,"default":50}},{"name":"offset","in":"query","schema":{"type":"integer","minimum":0,"default":0}}],
+        "responses":{"200":{"description":"Closed no-action receipt list","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array"}}}}}},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"502":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/h1-accounting-settings-proposal": {
       "get": {
         "operationId": "readWbsH1AccountingSettingsProposal",

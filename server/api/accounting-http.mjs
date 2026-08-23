@@ -27,6 +27,7 @@ import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {assertWbsH1ImportInventory} from '../runtime/wbs-h1-import-inventory.mjs';
 import {assertWbsH1AccountingSettingsProposal,assertWbsH1AccountingSettingsHumanDecision} from '../runtime/wbs-h1-accounting-settings-proposal.mjs';
 import {assertWbsH1PayableAccountingProposal,assertWbsH1PayableReclassDraftReceipt} from '../runtime/wbs-h1-payable-accounting-proposal.mjs';
+import {assertWbsH1AccountingControlPopulation,assertWbsH1AccountingControlPopulationList} from '../runtime/wbs-h1-accounting-control-read.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AI_ACCRUAL_HASH=/^sha256:[0-9a-f]{64}$/;
@@ -323,6 +324,25 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readWbsH1ImportInventory!=='function')throw new AccountingApiError(503,'WBS_H1_IMPORT_INVENTORY_UNAVAILABLE','WBS H1 import inventory is unavailable');
         try{result=assertWbsH1ImportInventory(await kernel.readWbsH1ImportInventory({tenantId:principal.tenantId,entityId,limit,offset}),{limit,offset});}
         catch(error){if(error?.code==='42501')throw new AccountingApiError(403,'WBS_READ_ACCESS_REQUIRED','WBS read access is required for this company');throw new AccountingApiError(502,'WBS_H1_IMPORT_INVENTORY_PROTOCOL','WBS H1 import inventory did not match the closed read contract');}
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='h1-accounting-control-population'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','WBS H1 accounting-control reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['runId','afterOrdinal','limit']);
+        const runId=requireUuid(parsedUrl.searchParams.get('runId'),'runId'),afterOrdinal=optionalReadOffset(parsedUrl.searchParams.get('afterOrdinal')),limit=optionalReadLimit(parsedUrl.searchParams.get('limit'));
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readWbsH1AccountingControlPopulation!=='function')throw new AccountingApiError(503,'WBS_H1_ACCOUNTING_CONTROL_POPULATION_UNAVAILABLE','WBS H1 accounting control population is unavailable');
+        try{result=assertWbsH1AccountingControlPopulation(await kernel.readWbsH1AccountingControlPopulation({tenantId:principal.tenantId,entityId,runId,afterOrdinal,limit}),{runId,afterOrdinal,limit});}
+        catch(error){if(error?.code==='42501')throw new AccountingApiError(403,'WBS_READ_ACCESS_REQUIRED','WBS read access is required for this company');if(error?.code==='P0002')throw new AccountingApiError(404,'WBS_H1_ACCOUNTING_CONTROL_POPULATION_NOT_FOUND','The finalized WBS H1 accounting control population was not found');throw new AccountingApiError(502,'WBS_H1_ACCOUNTING_CONTROL_POPULATION_PROTOCOL','WBS H1 accounting control population did not match the closed read contract');}
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='h1-accounting-control-populations'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','WBS H1 accounting-control reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit','offset']);const limit=optionalReadLimit(parsedUrl.searchParams.get('limit')),offset=optionalReadOffset(parsedUrl.searchParams.get('offset'));
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.listWbsH1AccountingControlPopulations!=='function')throw new AccountingApiError(503,'WBS_H1_ACCOUNTING_CONTROL_POPULATION_UNAVAILABLE','WBS H1 accounting control population is unavailable');
+        try{result=assertWbsH1AccountingControlPopulationList(await kernel.listWbsH1AccountingControlPopulations({tenantId:principal.tenantId,entityId,limit,offset}),{limit,offset});}
+        catch(error){if(error?.code==='42501')throw new AccountingApiError(403,'WBS_READ_ACCESS_REQUIRED','WBS read access is required for this company');throw new AccountingApiError(502,'WBS_H1_ACCOUNTING_CONTROL_POPULATION_PROTOCOL','WBS H1 accounting control population did not match the closed read contract');}
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='h1-accounting-settings-proposal'){
