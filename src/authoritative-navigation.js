@@ -24,7 +24,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
   group('Accounting Settings', [
     item('settings', 'Accounting settings', 'API_UNAVAILABLE', [
       'Entity-scoped, effective-dated, immutable approved policy snapshots with revision, approver, audit, and usage evidence.',
-      'Read-only transaction-posting and asset-and-expense policy detail and history; edits, threshold changes, readiness automation, and posting remain unavailable.',
+      'Read-only transaction-posting, asset-and-expense, bill-and-expense, and purchasing policy detail and history; edits, threshold or form changes, purchase-order or message actions, readiness automation, payments, and posting remain unavailable.',
     ]),
     item('rules', 'Rules', 'API_UNAVAILABLE', [
       'Entity-scoped immutable rule identity, revision, priority, conditions, mapping actions, status, usage, and audit evidence.',
