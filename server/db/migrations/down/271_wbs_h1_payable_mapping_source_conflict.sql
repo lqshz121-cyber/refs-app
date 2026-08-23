@@ -12,15 +12,14 @@ BEGIN
     RAISE EXCEPTION 'Migration 271 down requires the exact migration 271 Draft function' USING ERRCODE='55000';
   END IF;
   definition:=replace(definition,
-    'SELECT * INTO source_row FROM wbs_h1_payable_mapping_source_stage
-    WHERE tenant_id=p_tenant AND entity_id=p_entity AND source_record_hash=p_source_record_hash FOR SHARE;
-  PERFORM 1 FROM wbs_h1_payable_mapping_source_conflict
+    'PERFORM 1 FROM wbs_h1_payable_mapping_source_conflict
     WHERE tenant_id=p_tenant AND entity_id=p_entity AND source_record_hash=p_source_record_hash FOR SHARE;
   IF FOUND THEN
     RAISE EXCEPTION ''WBS H1 Payable source has unresolved retained-versus-observed fact drift'' USING ERRCODE=''40001'';
-  END IF;',
-    'SELECT * INTO source_row FROM wbs_h1_payable_mapping_source_stage
-    WHERE tenant_id=p_tenant AND entity_id=p_entity AND source_record_hash=p_source_record_hash FOR SHARE;');
+  END IF;
+
+  SELECT * INTO trace FROM wbs_test_import_draft',
+    'SELECT * INTO trace FROM wbs_test_import_draft');
   EXECUTE definition;
 
   SELECT pg_get_functiondef('public.refs_read_wbs_h1_payable_accounting_proposal(uuid,uuid,uuid,integer,integer)'::regprocedure) INTO definition;
