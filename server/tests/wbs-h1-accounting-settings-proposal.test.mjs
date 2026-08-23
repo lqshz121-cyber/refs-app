@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {assertWbsH1AccountingSettingsProposal} from '../runtime/wbs-h1-accounting-settings-proposal.mjs';
+
+const period='33333333-3333-4333-8333-333333333333',hash=`sha256:${'a'.repeat(64)}`;
+const rule={rule_id:'WBS-1',wbs_setting_id:'1',source_setting_hash:hash,selection_mode:'COST_CODE',decision:'READY_FOR_HUMAN_REVIEW',detail:'0LD067',project_codes:[],account_code:'164100',account_name:'CWIP - Land',supplementary:'Project',effective_from:'2026-01-01',effective_to:'2026-12-31'};
+const proposal={schema_version:'WBS_H1_ACCOUNTING_SETTINGS_PROPOSAL_V1',status:'READY_FOR_HUMAN_REVIEW',company_code:'WBFL',currency:'USD',period_id:period,period_code:'2026-01',period_start:'2026-01-01',period_end:'2026-01-31',source_setting_count:1,ready_rule_count:1,blocked_rule_count:0,exception_count:0,rules:[rule],source_mode:'REAL_WBS_STAGED',accounting_authority:'NONE',can_create_draft:false,can_review:false,can_approve:false,can_post:false,proposal_hash:hash};
+
+test('validates exact staged WBS account rules with zero accounting authority',()=>{assert.equal(assertWbsH1AccountingSettingsProposal(proposal,{periodId:period}),proposal);for(const drift of [{...proposal,can_post:true},{...proposal,source_setting_count:2},{...proposal,rules:[{...rule,account_code:'bad account'}]}])assert.throws(()=>assertWbsH1AccountingSettingsProposal(drift,{periodId:period}));});
+test('266 is a scoped no-action exact-account Settings reader',async()=>{const up=await readFile(new URL('../db/migrations/266_wbs_h1_accounting_settings_proposal_read.sql',import.meta.url),'utf8'),down=await readFile(new URL('../db/migrations/down/266_wbs_h1_accounting_settings_proposal_read.sql',import.meta.url),'utf8');for(const token of ["refs_assert_scope(p_tenant,p_entity,'WBS.AUTOREC.VIEW')",'wbs_h1_accounting_setting_stage','account_master','source_setting_hash','READY_FOR_HUMAN_REVIEW',"'accounting_authority','NONE'","'can_post',false",'refs_jsonb_hash(core)','REVOKE ALL','GRANT EXECUTE'])assert.match(up,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));assert.match(down,/DROP FUNCTION refs_read_wbs_h1_accounting_settings_proposal/);});

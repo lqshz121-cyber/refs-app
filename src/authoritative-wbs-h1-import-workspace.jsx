@@ -1,5 +1,5 @@
 import React,{useEffect,useState} from 'react';
-import {refreshAuthoritativeWbsH1ImportInventory} from './accounting-api.js';
+import {refreshAuthoritativeWbsH1ImportInventory,refreshAuthoritativeWbsH1AccountingSettingsProposal} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 import {AuthoritativeWorkspaceView,AuthoritativeWorkspaceHeader} from './authoritative-workbench-view.jsx';
 
@@ -11,12 +11,14 @@ const importLabel=value=>value==='CONTROLLED_TEST_POSTED'?'Controlled test poste
 export function AuthoritativeWbsH1ImportWorkspace({config,fetcher=globalThis.fetch}){
   const [offset,setOffset]=useState(0);
   const [state,setState]=useState({phase:'LOADING',data:null,error:null});
+  const [settings,setSettings]=useState({phase:'LOADING',data:null,error:null});
   const load=async nextOffset=>{
     setState(current=>({...current,phase:'LOADING',error:null}));
     const result=await refreshAuthoritativeWbsH1ImportInventory({config,limit:PAGE_SIZE,offset:nextOffset,fetcher});
     setState(current=>result.ok?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result});
   };
-  useEffect(()=>{setOffset(0);void load(0);},[config.entityId]);
+  const loadSettings=async()=>{setSettings(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeWbsH1AccountingSettingsProposal({config,fetcher});setSettings(result.ok?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:null,error:result});};
+  useEffect(()=>{setOffset(0);void load(0);void loadSettings();},[config.entityId,config.periodId]);
   const data=state.data,total=data?.totals.source_record_count||0,page=Math.floor(offset/PAGE_SIZE)+1,pageCount=Math.max(1,Math.ceil(total/PAGE_SIZE));
   const move=next=>{setOffset(next);void load(next);};
   return <AuthoritativeWorkspaceView area="WBS Data Import" className="stack authoritative-wbs-h1-import-workspace">
@@ -31,6 +33,12 @@ export function AuthoritativeWbsH1ImportWorkspace({config,fetcher=globalThis.fet
       <StateBlock tone={data.totals.mapping_missing_count||data.totals.mapping_ambiguous_count?'blocked':'empty'} title={data.totals.source_record_count?'Imported business data is available':'No H1 business data found'}>
         {data.totals.source_record_count?`${data.totals.controlled_test_posted_count} rows have controlled test postings; ${data.totals.mapping_ready_count} are ready for mapping review; ${data.totals.mapping_missing_count} have no matching WBS mapping. Imported source rows are not formal ledger entries.`:'No January–June WBS Payables have been staged for this company.'}
       </StateBlock>
+      <section className="report-workbench" aria-label="WBS exact account Settings">
+        <div className="report-workbench-head"><div><b>WBS account Settings</b><div className="page-subtitle">Exact Payable debit rules for {data.company_code} and {config.scopePresentation?.periodLabel||'the selected period'}.</div></div><button type="button" className="btn" onClick={loadSettings} disabled={settings.phase==='LOADING'}>{settings.phase==='LOADING'?'Refreshing…':'Refresh'}</button></div>
+        {settings.phase==='LOADING'&&!settings.data&&<StateBlock tone="loading" title="Loading WBS account Settings">Reading the selected company's exact account rules.</StateBlock>}
+        {settings.phase==='BLOCKED'&&<StateBlock tone="blocked" title={settings.error?.code||'WBS_SETTINGS_BLOCKED'}>{settings.error?.message}</StateBlock>}
+        {settings.data&&<><div className="qbo-toolgrid" aria-label="WBS account Settings totals"><span><i>Source rules</i><b>{settings.data.source_setting_count}</b></span><span><i>Ready to review</i><b>{settings.data.ready_rule_count}</b></span><span><i>Blocked defaults</i><b>{settings.data.blocked_rule_count}</b></span><span><i>Exceptions</i><b>{settings.data.exception_count}</b></span></div>{settings.data.rules.length===0?<StateBlock tone="empty" title="No WBS account Settings found">This company has no staged Payable debit rules covering the selected period.</StateBlock>:<div className="table-wrap" role="region" tabIndex={0} aria-label="WBS exact account Settings"><table className="tbl"><thead><tr><th>WBS rule</th><th>Cost code</th><th>Account</th><th>Required dimension</th><th>Decision</th></tr></thead><tbody>{settings.data.rules.map(rule=><tr key={rule.rule_id}><td title={rule.source_setting_hash}>{rule.wbs_setting_id}</td><td>{rule.detail||'Default'}</td><td>{rule.account_code===null?'Not assigned':`${rule.account_code} · ${rule.account_name}`}</td><td>{rule.supplementary||'None'}</td><td>{rule.decision==='READY_FOR_HUMAN_REVIEW'?'Ready for review':rule.decision==='BLOCKED_DEFAULT'?'Blocked default':rule.decision==='MAPPING_AMBIGUOUS'?'Mapping ambiguous':rule.decision==='ACCOUNT_NOT_READY'?'Account not ready':'Mapping missing'}</td></tr>)}</tbody></table></div>}<div className="page-subtitle">Proposal {settings.data.proposal_hash.slice(0,18)}… · Read only. Controller approval is required before any Draft.</div></>}
+      </section>
       <section className="report-workbench" aria-label="Monthly WBS import summary">
         <div className="report-workbench-head"><div><b>January–June population</b><div className="page-subtitle">The counts and amounts come from retained company-scoped WBS source facts.</div></div><button type="button" className="btn" onClick={()=>load(offset)} disabled={state.phase==='LOADING'}>{state.phase==='LOADING'?'Refreshing…':'Refresh'}</button></div>
         <div className="table-wrap" role="region" tabIndex={0} aria-label="Monthly WBS import summary"><table className="tbl"><thead><tr><th>Period</th><th>Rows</th><th>Source amount</th><th>Test posted</th><th>Mapping ready</th><th>Mapping missing</th><th>Formal posted</th></tr></thead><tbody>{data.months.map(month=><tr key={month.period_code}><td>{month.period_code}</td><td>{month.source_record_count}</td><td>{data.currency} {month.source_amount}</td><td>{month.controlled_test_posted_count}</td><td>{month.mapping_ready_count}</td><td>{month.mapping_missing_count+month.mapping_ambiguous_count}</td><td>{month.formal_mapping_posted_count}</td></tr>)}</tbody></table></div>

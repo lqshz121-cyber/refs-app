@@ -108,6 +108,16 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async readWbsH1AccountingSettingsProposal({tenantId,entityId,periodId}){
+    return this.inSession(async client=>{
+      const row=requireRow(await client.query(
+        'SELECT refs_read_wbs_h1_accounting_settings_proposal($1,$2,$3) AS result',
+        [tenantId,entityId,periodId]
+      ),'WBS_H1_ACCOUNTING_SETTINGS_PROPOSAL_UNAVAILABLE','WBS H1 accounting Settings proposal was not returned');
+      return row.result;
+    });
+  }
+
   async updateDraftDescription({tenantId,entityId,journalEntryId,expectedRevision,description,idempotencyKey,requestHash}){
     requestHash=canonicalRequestHash({tenantId,entityId,journalEntryId,expectedRevision,description});
     return this.inSession(async client=>{

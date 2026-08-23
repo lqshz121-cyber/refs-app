@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {AuthoritativeWbsH1ImportWorkspace} from '../src/authoritative-wbs-h1-import-workspace.jsx';
-import {refreshAuthoritativeWbsH1ImportInventory} from '../src/accounting-api.js';
+import {refreshAuthoritativeWbsH1ImportInventory,refreshAuthoritativeWbsH1AccountingSettingsProposal} from '../src/accounting-api.js';
 
 const entityId='11111111-1111-4111-8111-111111111111',periodId='22222222-2222-4222-8222-222222222222',config={baseUrl:'https://api.example.test',entityId,periodId,getAccessToken:async()=> 'abcdefghijklmnop'};
 const counts={source_record_count:1,source_amount:'125.0000',controlled_test_posted_count:0,formal_mapping_posted_count:0,mapping_missing_count:1,mapping_ready_count:0,mapping_ambiguous_count:0};
@@ -16,9 +16,11 @@ async function verifyClient(){
   let call;const result=await refreshAuthoritativeWbsH1ImportInventory({config,limit:50,offset:0,fetcher:async(url,options)=>{call={url,options};return {ok:true,json:async()=>({ok:true,data})};}});
   assert.equal(result.ok,true);assert.match(call.url,/\/wbs\/h1-import-inventory\?limit=50&offset=0$/);assert.equal(call.options.method,'GET');assert.equal(call.options.cache,'no-store');assert.equal('body' in call.options,false);
   assert.equal((await refreshAuthoritativeWbsH1ImportInventory({config,limit:50,offset:0,fetcher:async()=>({ok:true,json:async()=>({ok:true,data:{...data,can_post:true}})})})).code,'WBS_H1_IMPORT_INVENTORY_PROTOCOL');
+  const proposal={schema_version:'WBS_H1_ACCOUNTING_SETTINGS_PROPOSAL_V1',status:'READY_FOR_HUMAN_REVIEW',company_code:'SUCF',currency:'USD',period_id:periodId,period_code:'2026-01',period_start:'2026-01-01',period_end:'2026-01-31',source_setting_count:0,ready_rule_count:0,blocked_rule_count:0,exception_count:0,rules:[],source_mode:'REAL_WBS_STAGED',accounting_authority:'NONE',can_create_draft:false,can_review:false,can_approve:false,can_post:false,proposal_hash:`sha256:${'b'.repeat(64)}`};
+  const settings=await refreshAuthoritativeWbsH1AccountingSettingsProposal({config,fetcher:async(url,options)=>{call={url,options};return {ok:true,json:async()=>({ok:true,data:proposal})};}});assert.equal(settings.ok,true);assert.match(call.url,new RegExp(`/wbs/h1-accounting-settings-proposal\\?periodId=${periodId}$`));assert.equal(call.options.method,'GET');assert.equal(call.options.cache,'no-store');assert.equal((await refreshAuthoritativeWbsH1AccountingSettingsProposal({config,fetcher:async()=>({ok:true,json:async()=>({ok:true,data:{...proposal,can_post:true}})})})).code,'WBS_H1_ACCOUNTING_SETTINGS_PROPOSAL_PROTOCOL');
 }
 
 const source=fs.readFileSync('src/authoritative-wbs-h1-import-workspace.jsx','utf8');
-for(const copy of ['Imported business data is available','Imported source rows are not formal ledger entries','Controlled test posted','Ready for mapping review','NO ACCOUNTING ACTION'])assert.match(source,new RegExp(copy));
+for(const copy of ['Imported business data is available','Imported source rows are not formal ledger entries','Controlled test posted','Ready for mapping review','NO ACCOUNTING ACTION','WBS account Settings','Controller approval is required before any Draft'])assert.match(source,new RegExp(copy));
 assert.doesNotMatch(source,/wbs_uuid|Create Draft|Approve|Post journal|localStorage|seed\.js/);
 verifyClient().then(()=>console.log('authoritative WBS H1 import workspace: real company source inventory remains read only')).catch(error=>{console.error(error);process.exitCode=1;});

@@ -271,4 +271,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"263_wbs_h1_signed_payable_mapping_amount.sql",up:"207706744035a32704d5d1712c09ed565b3c6ccffebd9a529299ddd50250c9e0",down:"5a8002cf8bdbc5ff25a0d925b85443e1eea0fbcd285d8ffe8400a216b9dc04fd"}),
   Object.freeze({name:"264_wbs_h1_payable_cost_code_evidence.sql",up:"71a242a568882a9b5c40961a3b46d4288ffec1ef99af3dced404e11e4b76a490",down:"098b746624b4eefc751b34040bafcad662fa2e079706e26ffe654d781e97a1d7"}),
   Object.freeze({name:"265_wbs_h1_import_inventory_read.sql",up:"bebe1fb38e09b4a628523350a1cb3cfc6a6b24115614b317765d71ce4ee4f053",down:"31d4b8d492f7c86059790a9adfe13b008a0b0961195aa3140be283e601a3bf40"}),
+  Object.freeze({name:"266_wbs_h1_accounting_settings_proposal_read.sql",up:"04f45e817909d249560904102f575240e9ba26a153832a713778bfea7108f05b",down:"5e02e7e8a4fe3a6f244e6dda59931d1cd5ed990c4791a1d18c39fdefeaedbb42"}),
 ]);

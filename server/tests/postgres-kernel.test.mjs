@@ -4811,6 +4811,30 @@ pgTest('WBS H1 import inventory reads exact company source rows and exposes zero
   const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-h1-inventory-denied',['AP.VIEW'])});await assert.rejects(denied.readWbsH1ImportInventory({tenantId:ids.tenantId,entityId:ids.entityId,limit:50,offset:0}),error=>error.code==='42501');
 });
 
+pgTest('WBS H1 accounting Settings proposal reads exact staged account rules and exposes zero accounting authority',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null,extraAccounts:[{accountCode:'164100',accountName:'CWIP - Land'}]}),periodId=randomUUID();
+  await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,ledger_code,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'PRIMARY','2026-01','2026-01-01','2026-01-31','OPEN')",[periodId,ids.tenantId,ids.entityId]);
+  const settings=[
+    [1,'0LD067','P-100','164100','CWIP - Land','Project',hash('wbs-h1-setting-ready')],
+    [2,'','','','','',hash('wbs-h1-setting-blocked-default')],
+    [3,'3GN831','P-200','164999','CWIP - Missing','Project',hash('wbs-h1-setting-account-not-ready')]
+  ];
+  for(const [settingId,detail,projectCodes,journalCode,accountName,supplementary,settingHash] of settings)await adminPool.query(`INSERT INTO wbs_h1_accounting_setting_stage(
+    tenant_id,company_code,setting_id,setting_type,category,business_type,detail,project_codes,journal_code,account_name,supplementary,effective_from,effective_to,setting_hash
+  ) VALUES($1,$2,$3,'Debit','Payable',4,$4,$5,$6,$7,$8,'2026-01-01','2026-12-31',$9)`,[ids.tenantId,ids.sourceEntityId,settingId,detail,projectCodes,journalCode,accountName,supplementary,settingHash]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-h1-settings-reader',['WBS.AUTOREC.VIEW'])});
+  const result=await reader.readWbsH1AccountingSettingsProposal({tenantId:ids.tenantId,entityId:ids.entityId,periodId});
+  assert.equal(result.schema_version,'WBS_H1_ACCOUNTING_SETTINGS_PROPOSAL_V1');assert.equal(result.status,'EXCEPTION');assert.equal(result.company_code,ids.sourceEntityId);assert.equal(result.currency,'USD');assert.equal(result.period_id,periodId);assert.equal(result.period_code,'2026-01');assert.equal(result.source_setting_count,3);assert.equal(result.ready_rule_count,1);assert.equal(result.blocked_rule_count,1);assert.equal(result.exception_count,1);assert.match(result.proposal_hash,/^sha256:[0-9a-f]{64}$/);
+  assert.deepEqual(result.rules.map(rule=>({id:rule.wbs_setting_id,mode:rule.selection_mode,decision:rule.decision,account:rule.account_code,projects:rule.project_codes})),[
+    {id:'1',mode:'COST_CODE',decision:'READY_FOR_HUMAN_REVIEW',account:'164100',projects:['P-100']},
+    {id:'2',mode:'BLOCKED_DEFAULT',decision:'BLOCKED_DEFAULT',account:null,projects:[]},
+    {id:'3',mode:'COST_CODE',decision:'ACCOUNT_NOT_READY',account:'164999',projects:['P-200']}
+  ]);
+  assert.deepEqual({create:result.can_create_draft,review:result.can_review,approve:result.can_approve,post:result.can_post,authority:result.accounting_authority},{create:false,review:false,approve:false,post:false,authority:'NONE'});
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-h1-settings-denied',['AP.VIEW'])});
+  await assert.rejects(denied.readWbsH1AccountingSettingsProposal({tenantId:ids.tenantId,entityId:ids.entityId,periodId}),error=>error.code==='42501');
+});
+
 pgTest('WBS H1 paged import preserves prior July rows with the same source hashes and posts nine new monthly AP journals',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null});
   await adminPool.query('DELETE FROM journal_line WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,ids.journalId]);
