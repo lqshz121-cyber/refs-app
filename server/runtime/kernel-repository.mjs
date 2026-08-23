@@ -118,6 +118,28 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async readWbsH1AccountingSettingsDecision({tenantId,entityId,periodId,proposalHash}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT refs_read_wbs_h1_accounting_settings_decision($1,$2,$3,$4) AS result',
+      [tenantId,entityId,periodId,proposalHash]
+    )).rows[0]?.result??null);
+  }
+
+  async decideWbsH1AccountingSettings({tenantId,entityId,periodId,expectedProposalHash,outcome,reason,idempotencyKey}){
+    reason=reason.trim();
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_wbs_h1_accounting_settings_decision_request_hash($1,$2,$3,$4,$5,$6) AS request_hash',
+        [tenantId,entityId,periodId,expectedProposalHash,outcome,reason]
+      ),'WBS_H1_ACCOUNTING_SETTINGS_DECISION_HASH_UNAVAILABLE','WBS H1 accounting Settings decision hash was not returned').request_hash;
+      const row=requireRow(await client.query(
+        'SELECT refs_decide_wbs_h1_accounting_settings($1,$2,$3,$4,$5,$6,$7,$8) AS result',
+        [tenantId,entityId,periodId,expectedProposalHash,outcome,reason,idempotencyKey,requestHash]
+      ),'WBS_H1_ACCOUNTING_SETTINGS_DECISION_UNAVAILABLE','WBS H1 accounting Settings decision was not returned');
+      return row.result;
+    });
+  }
+
   async updateDraftDescription({tenantId,entityId,journalEntryId,expectedRevision,description,idempotencyKey,requestHash}){
     requestHash=canonicalRequestHash({tenantId,entityId,journalEntryId,expectedRevision,description});
     return this.inSession(async client=>{

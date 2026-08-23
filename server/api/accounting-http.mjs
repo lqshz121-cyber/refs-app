@@ -25,7 +25,7 @@ import {assertAiAccountingDecisionPacketFullBatch} from '../runtime/ai-accountin
 import {safeAiEvidenceTree} from '../runtime/ai-secret-safety.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {assertWbsH1ImportInventory} from '../runtime/wbs-h1-import-inventory.mjs';
-import {assertWbsH1AccountingSettingsProposal} from '../runtime/wbs-h1-accounting-settings-proposal.mjs';
+import {assertWbsH1AccountingSettingsProposal,assertWbsH1AccountingSettingsHumanDecision} from '../runtime/wbs-h1-accounting-settings-proposal.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AI_ACCRUAL_HASH=/^sha256:[0-9a-f]{64}$/;
@@ -306,6 +306,28 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         try{result=assertWbsH1AccountingSettingsProposal(await kernel.readWbsH1AccountingSettingsProposal({tenantId:principal.tenantId,entityId,periodId}),{periodId});}
         catch{throw new AccountingApiError(502,'WBS_H1_ACCOUNTING_SETTINGS_PROPOSAL_PROTOCOL','WBS H1 accounting Settings proposal did not match the closed read contract');}
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(parts.length===6&&parts[4]==='wbs'&&parts[5]==='h1-accounting-settings-decision'){
+        requireExactQuery(parsedUrl.searchParams,['periodId','proposalHash']);
+        const periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId'),proposalHash=parsedUrl.searchParams.get('proposalHash');
+        if(!/^sha256:[0-9a-f]{64}$/.test(proposalHash||''))throw new AccountingApiError(400,'INVALID_PROPOSAL_HASH','proposalHash must be one canonical SHA-256 identity');
+        const kernel=await kernelFactory(principal);
+        if(method==='GET'){
+          if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','WBS H1 Settings decision reads do not accept command headers');
+          if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+          if(!kernel||typeof kernel.readWbsH1AccountingSettingsDecision!=='function')throw new AccountingApiError(503,'WBS_H1_ACCOUNTING_SETTINGS_DECISION_UNAVAILABLE','WBS H1 accounting Settings decision is unavailable');
+          result=await kernel.readWbsH1AccountingSettingsDecision({tenantId:principal.tenantId,entityId,periodId,proposalHash});
+          if(result!==null){try{result=assertWbsH1AccountingSettingsHumanDecision(result,{periodId,proposalHash});}catch{throw new AccountingApiError(502,'WBS_H1_ACCOUNTING_SETTINGS_DECISION_PROTOCOL','WBS H1 accounting Settings decision did not match the closed contract');}}
+          return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+        }
+        if(method==='POST'){
+          allowOnly(payload,['outcome','reason']);if(!['APPROVED','REJECTED'].includes(payload.outcome)||typeof payload.reason!=='string'||payload.reason.trim().length<8||payload.reason.trim().length>2000)throw new AccountingApiError(400,'INVALID_SETTINGS_DECISION','A human outcome and reason are required');
+          if(!kernel||typeof kernel.decideWbsH1AccountingSettings!=='function')throw new AccountingApiError(503,'WBS_H1_ACCOUNTING_SETTINGS_DECISION_UNAVAILABLE','WBS H1 accounting Settings decision is unavailable');
+          result=await kernel.decideWbsH1AccountingSettings({tenantId:principal.tenantId,entityId,periodId,expectedProposalHash:proposalHash,outcome:payload.outcome,reason:payload.reason,idempotencyKey:requireIdempotency(headers)});
+          try{result=assertWbsH1AccountingSettingsHumanDecision(result,{periodId,proposalHash});}catch{throw new AccountingApiError(502,'WBS_H1_ACCOUNTING_SETTINGS_DECISION_PROTOCOL','WBS H1 accounting Settings decision did not match the closed contract');}
+          return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+        }
+        throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
       }
       if(method==='POST'&&parts.length===7&&parts[4]==='wbs'&&parts[5]==='test-import'&&parts[6]==='payables'){
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['periodId','companyCode','dateFrom','dateTo','limit']);
