@@ -8,6 +8,8 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const COMPANY=/^[A-Z0-9][A-Z0-9_:-]{0,63}$/;
 const ACCOUNT=/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const CONTROL=/[\u0000-\u001f\u007f]/;
+const PAYABLE_SETTING_TYPES=new Set(['Debit','Credit']);
+const PAYABLE_SUPPLEMENTARY_TYPES=new Set(['','Vendor','Project']);
 const strictDate=value=>{
   const raw=typeof value==='string'?value.trim():'';if(!/^\d{4}-\d{2}-\d{2}(?:[ T].*)?$/.test(raw))return null;
   const date=raw.slice(0,10),[year,month,day]=date.split('-').map(Number);if(year<1)return null;
@@ -18,17 +20,23 @@ const readStdin=async()=>{const chunks=[];for await(const chunk of process.stdin
 
 export function normalizeWbsH1AccountingSetting(row,{tenantId}={}){
   const settingId=Number(row?.id),companyCode=field(row?.company_code,64),settingType=field(row?.type,64),category=field(row?.category,64),businessType=Number(row?.business_type),detail=field(row?.detail,128,{empty:true}),projectCodes=field(row?.pj_code,4000,{empty:true}),journalCode=field(row?.journal_code,64,{empty:true}),accountName=field(row?.account,255,{empty:true}),supplementary=field(row?.supplementary,64,{empty:true}),effectiveFrom=strictDate(row?.start_date),effectiveTo=strictDate(row?.end_date);
-  if(!UUID.test(tenantId||'')||!Number.isSafeInteger(settingId)||settingId<1||!COMPANY.test(companyCode||'')||settingType!=='Debit'||category!=='Payable'||businessType!==4||detail===null||projectCodes===null||journalCode===null||journalCode!==''&&!ACCOUNT.test(journalCode)||accountName===null||supplementary===null||!effectiveFrom||!effectiveTo||effectiveFrom>effectiveTo)throw new Error('WBS H1 accounting setting is outside the approved Payable mapping shape');
+  if(!UUID.test(tenantId||'')||!Number.isSafeInteger(settingId)||settingId<1||!COMPANY.test(companyCode||'')||!PAYABLE_SETTING_TYPES.has(settingType)||category!=='Payable'||businessType!==4||detail===null||projectCodes===null||journalCode===null||journalCode!==''&&!ACCOUNT.test(journalCode)||accountName===null||supplementary===null||!PAYABLE_SUPPLEMENTARY_TYPES.has(supplementary)||!effectiveFrom||!effectiveTo||effectiveFrom>effectiveTo)throw new Error('WBS H1 accounting setting is outside the approved Payable Debit/Credit mapping shape');
   const core={tenant_id:tenantId,company_code:companyCode,setting_id:settingId,setting_type:settingType,category,business_type:businessType,detail,project_codes:projectCodes,journal_code:journalCode,account_name:accountName,supplementary,effective_from:effectiveFrom,effective_to:effectiveTo};
   return Object.freeze({...core,setting_hash:canonicalRequestHash(core)});
+}
+
+export function normalizeWbsH1AccountingSettingsPage(parsed,{tenantId}={}){
+  const source=Array.isArray(parsed)?parsed:[parsed],rows=source.flatMap(value=>Array.isArray(value?.rows)?value.rows:[value]).map(row=>normalizeWbsH1AccountingSetting(row,{tenantId}));
+  const identities=rows.map(row=>`${row.company_code}:${row.setting_id}`);
+  if(!rows.length||rows.length>1000||new Set(identities).size!==rows.length)throw new Error('WBS accounting settings page must contain 1..1000 unique setting identities');
+  return Object.freeze(rows);
 }
 
 async function main(){
   const tenantId=process.env.REFS_WBS_TEST_IMPORT_TENANT_ID;if(!UUID.test(tenantId||''))throw new Error('REFS_WBS_TEST_IMPORT_TENANT_ID is required');
   const input=(await readStdin()).trim();if(!input)throw new Error('WBS accounting settings JSON is required on stdin');
   let parsed;try{parsed=JSON.parse(input);}catch{parsed=input.split(/\r?\n/).filter(Boolean).map(line=>JSON.parse(line));}
-  const rows=(Array.isArray(parsed)?parsed:[parsed]).flatMap(value=>Array.isArray(value?.rows)?value.rows:[value]).map(row=>normalizeWbsH1AccountingSetting(row,{tenantId}));
-  if(!rows.length||rows.length>1000||new Set(rows.map(row=>`${row.company_code}:${row.setting_id}:${row.setting_hash}`)).size!==rows.length)throw new Error('WBS accounting settings page must contain 1..1000 unique rows');
+  const rows=normalizeWbsH1AccountingSettingsPage(parsed,{tenantId});
   const config=runtimeConfig(process.env),pool=await createPool({databaseUrl:config.migrationDatabaseUrl,applicationName:'refs-wbs-h1-accounting-setting-stage',max:1});
   try{
     const receipt=(await pool.query(`WITH input AS (
