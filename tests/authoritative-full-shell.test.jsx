@@ -19,6 +19,8 @@ assert.ok(AUTHORITATIVE_ROUTES.includes('vendors'),'the observed Expenses naviga
 assert.equal(navigationItemForRoute('vendors')?.availability,'API_UNAVAILABLE','Vendors must fail closed until a permission-scoped vendor-master reader exists');
 assert.ok(AUTHORITATIVE_ROUTES.includes('contractors'),'the observed Expenses navigation must keep Contractors discoverable without granting a tax or payment route');
 assert.equal(navigationItemForRoute('contractors')?.availability,'API_UNAVAILABLE','Contractors must fail closed until a permission-scoped contractor reader exists');
+assert.ok(AUTHORITATIVE_ROUTES.includes('1099s'),'the observed Expenses navigation must keep 1099s discoverable without granting a filing route');
+assert.equal(navigationItemForRoute('1099s')?.availability,'API_UNAVAILABLE','1099s must fail closed until a tax-permission-scoped filing reader exists');
 assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'accounting-analysis-report', 'ai-audit', 'ai-je-workbench', 'amortization', 'bank', 'bank-batch-pipeline', 'chart-of-accounts', 'consolidation', 'construction-loan', 'general-ledger', 'intercompany', 'journals', 'overview', 'payables', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'reconciliation', 'reports', 'source-documents', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
 const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation','Source & Staging']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}} onTogglePanel={() => {}}/>);
@@ -41,7 +43,7 @@ assert.doesNotMatch(reportNavMarkup, /authoritative-sidebar-direct/, 'the multi-
 assert.match(reportNavMarkup, /Standard reports/, 'the Reports workspace must expose its standard-reports page using the observed QBO catalog name');
 assert.doesNotMatch(reportNavMarkup, /Financial statements/, 'the report navigation must not use the narrower legacy label');
 assert.match(reportNavMarkup, /Accounting Analysis Report/, 'the Reports workspace must expose its AI analysis page');
-assert.match(payablesNavMarkup, /Bills &amp; expenses/);assert.match(payablesNavMarkup, /Vendors/);assert.match(payablesNavMarkup, /Bill payments/);assert.match(payablesNavMarkup, /Contractors/);assert.match(payablesNavMarkup, /Invoices &amp; receipts/);
+assert.match(payablesNavMarkup, /Bills &amp; expenses/);assert.match(payablesNavMarkup, /Vendors/);assert.match(payablesNavMarkup, /Bill payments/);assert.match(payablesNavMarkup, /Contractors/);assert.match(payablesNavMarkup, />1099s</);assert.match(payablesNavMarkup, /Invoices &amp; receipts/);
 assert.doesNotMatch(payablesNavMarkup, /Start using Bill Pay|ACH|Pay now/,'the read-only navigation must not import QBO payment-enrollment or money-movement actions');
 assert.doesNotMatch(journalNavMarkup, /Journal entries/, 'a one-page Journal workspace must not repeat its only child in a secondary menu');
 assert.match(reportNavMarkup, /aria-label="Accounting workspace navigation"/, 'the Reports secondary menu must retain its navigation landmark');
@@ -135,6 +137,9 @@ assert.doesNotMatch(vendorsUnavailableMarkup,/Pay vendors|New vendor|Create bill
 const contractorsUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('contractors')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.match(contractorsUnavailableMarkup,/Contractors is not available yet/);assert.match(contractorsUnavailableMarkup,/role="status"/);
 assert.doesNotMatch(contractorsUnavailableMarkup,/Contractor Payments|Prepare 1099s|Add a contractor|Bulk pay|direct deposit|Finish setup|W-9/,'the unavailable Contractors route must not reproduce tax, setup, or payment commands');
+const filingsUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('1099s')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
+assert.match(filingsUnavailableMarkup,/1099s is not available yet/);assert.match(filingsUnavailableMarkup,/role="status"/);
+assert.doesNotMatch(filingsUnavailableMarkup,/E-file|Recipients &amp; W-9s|Completed forms|Try autofilled|Prep my own|Import W-9s|Download|Export as CSV|TIN\/SSN/,'the unavailable 1099s route must not reproduce filing, sensitive identity, import, download, or export actions');
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
 const amortizationSource = fs.readFileSync('src/authoritative-amortization-workspace.jsx', 'utf8');
 for(const file of ['src/authoritative-aging-workspace.jsx','src/authoritative-amortization-workspace.jsx','src/authoritative-lineage-drill.jsx','src/authoritative-property-rent-workspace.jsx']){
