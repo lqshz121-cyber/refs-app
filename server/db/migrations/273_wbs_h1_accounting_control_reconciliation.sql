@@ -1,5 +1,9 @@
 BEGIN;
 
+INSERT INTO permission_catalog(permission_code,domain,risk_class,sod_class)
+VALUES('WBS.H1.ACCOUNTING.RECONCILE','WBS','HIGH','RECONCILER')
+ON CONFLICT(permission_code) DO UPDATE SET active=true,version=permission_catalog.version+1,effective_to=NULL;
+
 CREATE TABLE wbs_h1_accounting_control_reconciliation(
   reconciliation_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL,entity_id uuid NOT NULL,control_run_id uuid NOT NULL,
@@ -53,18 +57,54 @@ DECLARE actor text:=refs_current_actor(); control_run wbs_h1_accounting_populati
  expected_count integer;source_count integer;expected_debit numeric;expected_credit numeric;actual_debit numeric;actual_credit numeric;
  expected_hash text;actual_hash text;source_population_hash text;admission_proofs jsonb;result_status text;doc jsonb;payload jsonb;
 BEGIN
- PERFORM refs_assert_scope(p_tenant,p_entity,'AI.ANALYSIS.EXPLAIN');
+ PERFORM refs_assert_scope(p_tenant,p_entity,'WBS.H1.ACCOUNTING.RECONCILE');
  IF actor IS NULL OR p_control_run IS NULL OR p_expected_control_receipt_hash!~'^sha256:[0-9a-f]{64}$' OR p_expected_settings_bundle_hash!~'^sha256:[0-9a-f]{64}$' OR p_request_hash!~'^sha256:[0-9a-f]{64}$' OR length(p_idempotency_key) NOT BETWEEN 8 AND 200 OR p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 8 AND 2000 THEN RAISE EXCEPTION 'WBS accounting reconciliation input is invalid' USING ERRCODE='22023';END IF;
  expected_request:=refs_jsonb_hash(jsonb_build_object('tenant_id',p_tenant,'entity_id',p_entity,'control_run_id',p_control_run,'expected_control_receipt_hash',p_expected_control_receipt_hash,'expected_settings_bundle_hash',p_expected_settings_bundle_hash,'module_code','PAYABLE','reason',btrim(p_reason)));
  IF p_request_hash<>expected_request THEN RAISE EXCEPTION 'WBS accounting reconciliation request hash drifted' USING ERRCODE='23514';END IF;
  SELECT * INTO stored FROM wbs_h1_accounting_control_reconciliation WHERE tenant_id=p_tenant AND entity_id=p_entity AND idempotency_key=p_idempotency_key FOR SHARE;
  IF FOUND THEN IF stored.request_hash<>p_request_hash OR stored.retained_by<>actor THEN RAISE EXCEPTION 'WBS accounting reconciliation idempotency conflict' USING ERRCODE='23505';END IF;RETURN stored.receipt_document||jsonb_build_object('reconciliation_id',stored.reconciliation_id,'receipt_hash',stored.receipt_hash,'idempotent',true);END IF;
+ -- Freeze every mutable relation contributing to the claimed complete
+ -- provider-to-ledger population. Row locks alone cannot prevent a concurrent
+ -- Final1 admission from inserting a new retained source or superseding a raw
+ -- event between READ COMMITTED statements.
+ LOCK TABLE wbs_final1_retained_evidence_admission,wbs_final1_signed_control_total,wbs_final1_retained_source_row,raw_event,source_document,source_document_line,source_link,attachment,journal_entry,journal_line,ledger_line IN SHARE MODE;
  SELECT * INTO control_run FROM wbs_h1_accounting_population_run WHERE run_id=p_control_run AND tenant_id=p_tenant AND entity_id=p_entity FOR SHARE;
  SELECT * INTO control_receipt FROM wbs_h1_accounting_population_receipt WHERE run_id=p_control_run AND tenant_id=p_tenant AND entity_id=p_entity FOR SHARE;
  IF control_run.run_id IS NULL OR control_receipt.receipt_id IS NULL OR control_receipt.receipt_hash<>p_expected_control_receipt_hash OR control_receipt.receipt_document->>'accounting_authority'<>'CONTROL_EVIDENCE_ONLY' OR control_receipt.receipt_document#>>'{can_create_draft}'<>'false' OR control_receipt.receipt_document#>>'{can_review}'<>'false' OR control_receipt.receipt_document#>>'{can_approve}'<>'false' OR control_receipt.receipt_document#>>'{can_post}'<>'false' THEN RAISE EXCEPTION 'Finalized WBS accounting control receipt is missing or drifted' USING ERRCODE='40001';END IF;
  SELECT jsonb_agg(refs_read_wbs_ai_approved_entity_period_settings(p_tenant,p_entity,ap.period_id) ORDER BY ap.period_code) INTO settings_bundle FROM accounting_period ap WHERE ap.tenant_id=p_tenant AND ap.entity_id=p_entity AND ap.ledger_code='PRIMARY' AND ap.period_code~'^2026-0[1-6]$' AND ap.starts_on=(ap.period_code||'-01')::date AND ap.ends_on=(ap.starts_on+interval '1 month'-interval '1 day')::date;
  IF jsonb_array_length(COALESCE(settings_bundle,'[]'::jsonb))<>6 THEN RAISE EXCEPTION 'Complete approved H1 Settings are required' USING ERRCODE='23503';END IF;
  settings_hash:=refs_jsonb_hash(settings_bundle);IF settings_hash<>p_expected_settings_bundle_hash THEN RAISE EXCEPTION 'Approved Settings CAS drifted' USING ERRCODE='40001';END IF;
+
+ -- Lock the authoritative source parents before inspecting child evidence.
+ -- The parent UPDATE lock conflicts with FK key-share acquisition for a new
+ -- source link; the child locks prevent status/hash/link mutation while this
+ -- receipt and its audit/outbox evidence are committed.
+ PERFORM d.source_document_id FROM source_document d
+ JOIN wbs_final1_retained_source_row r ON r.tenant_id=d.tenant_id AND r.entity_id=d.entity_id AND r.source_document_id=d.source_document_id
+ JOIN wbs_final1_retained_evidence_admission a ON a.wbs_final1_retained_evidence_admission_id=r.wbs_final1_retained_evidence_admission_id
+ WHERE r.tenant_id=p_tenant AND r.entity_id=p_entity AND r.domain='PAYABLES' AND a.company_code=control_run.company_code
+   AND r.accounting_period_id IN(SELECT period_id FROM accounting_period WHERE tenant_id=p_tenant AND entity_id=p_entity AND ledger_code='PRIMARY' AND period_code~'^2026-0[1-6]$')
+ ORDER BY d.source_document_id FOR UPDATE OF d;
+ PERFORM l.source_document_line_id FROM source_document_line l
+ JOIN wbs_final1_retained_source_row r ON r.tenant_id=l.tenant_id AND r.entity_id=l.entity_id AND r.source_document_id=l.source_document_id AND r.source_document_line_id=l.source_document_line_id
+ JOIN wbs_final1_retained_evidence_admission a ON a.wbs_final1_retained_evidence_admission_id=r.wbs_final1_retained_evidence_admission_id
+ WHERE r.tenant_id=p_tenant AND r.entity_id=p_entity AND r.domain='PAYABLES' AND a.company_code=control_run.company_code
+ ORDER BY l.source_document_line_id FOR SHARE OF l;
+ PERFORM sl.source_link_id FROM source_link sl
+ JOIN wbs_final1_retained_source_row r ON r.tenant_id=sl.tenant_id AND r.entity_id=sl.entity_id AND r.source_document_id=sl.source_document_id
+ JOIN wbs_final1_retained_evidence_admission a ON a.wbs_final1_retained_evidence_admission_id=r.wbs_final1_retained_evidence_admission_id
+ WHERE r.tenant_id=p_tenant AND r.entity_id=p_entity AND r.domain='PAYABLES' AND a.company_code=control_run.company_code
+ ORDER BY sl.source_link_id FOR SHARE OF sl;
+ PERFORM att.attachment_id FROM attachment att JOIN source_link sl ON sl.tenant_id=att.tenant_id AND sl.entity_id=att.entity_id AND sl.attachment_id=att.attachment_id AND sl.link_type='SOURCE_ATTACHMENT'
+ JOIN wbs_final1_retained_source_row r ON r.tenant_id=sl.tenant_id AND r.entity_id=sl.entity_id AND r.source_document_id=sl.source_document_id
+ JOIN wbs_final1_retained_evidence_admission a ON a.wbs_final1_retained_evidence_admission_id=r.wbs_final1_retained_evidence_admission_id
+ WHERE r.tenant_id=p_tenant AND r.entity_id=p_entity AND r.domain='PAYABLES' AND a.company_code=control_run.company_code
+ ORDER BY att.attachment_id FOR SHARE OF att;
+ PERFORM je.journal_entry_id FROM journal_entry je JOIN source_link sl ON sl.tenant_id=je.tenant_id AND sl.entity_id=je.entity_id AND sl.journal_entry_id=je.journal_entry_id AND sl.link_type='SOURCE_TO_JE'
+ JOIN wbs_final1_retained_source_row r ON r.tenant_id=sl.tenant_id AND r.entity_id=sl.entity_id AND r.source_document_id=sl.source_document_id
+ JOIN wbs_final1_retained_evidence_admission a ON a.wbs_final1_retained_evidence_admission_id=r.wbs_final1_retained_evidence_admission_id
+ WHERE r.tenant_id=p_tenant AND r.entity_id=p_entity AND r.domain='PAYABLES' AND a.company_code=control_run.company_code
+ ORDER BY je.journal_entry_id FOR SHARE OF je;
 
  CREATE TEMP TABLE _wbs273_expected ON COMMIT DROP AS
  SELECT l.period_id,l.period_code,l.currency,l.account_code,count(*)::integer line_count,sum(l.debit_amount)::numeric(24,4) debit,sum(l.credit_amount)::numeric(24,4) credit,
@@ -120,7 +160,7 @@ BEGIN
  INSERT INTO wbs_h1_accounting_control_reconciliation_account(reconciliation_id,tenant_id,entity_id,period_id,period_code,currency,module_code,account_code,expected_line_count,actual_line_count,expected_debit,expected_credit,actual_debit,actual_credit,expected_hash,actual_hash,status,row_document,row_hash)
  SELECT new_id,p_tenant,p_entity,COALESCE(e.period_id,a.period_id),COALESCE(e.period_code,a.period_code),COALESCE(e.currency,a.currency),'PAYABLE',COALESCE(e.account_code,a.account_code),COALESCE(e.line_count,0),COALESCE(a.line_count,0),COALESCE(e.debit,0),COALESCE(e.credit,0),COALESCE(a.debit,0),COALESCE(a.credit,0),e.row_hash,a.row_hash,CASE WHEN e.line_count IS NOT DISTINCT FROM a.line_count AND e.debit IS NOT DISTINCT FROM a.debit AND e.credit IS NOT DISTINCT FROM a.credit THEN 'MATCHED' ELSE 'MISMATCH' END,z.doc,refs_jsonb_hash(z.doc) FROM _wbs273_expected e FULL JOIN _wbs273_actual a USING(period_id,period_code,currency,account_code) CROSS JOIN LATERAL (SELECT jsonb_build_object('schema_version','WBS_H1_ACCOUNTING_CONTROL_RECONCILIATION_ACCOUNT_V1','period_id',COALESCE(e.period_id,a.period_id),'period_code',COALESCE(e.period_code,a.period_code),'currency',COALESCE(e.currency,a.currency),'module_code','PAYABLE','account_code',COALESCE(e.account_code,a.account_code),'expected_line_count',COALESCE(e.line_count,0),'actual_line_count',COALESCE(a.line_count,0),'expected_debit_amount',to_char(COALESCE(e.debit,0),'FM999999999999999999990.0000'),'expected_credit_amount',to_char(COALESCE(e.credit,0),'FM999999999999999999990.0000'),'actual_debit_amount',to_char(COALESCE(a.debit,0),'FM999999999999999999990.0000'),'actual_credit_amount',to_char(COALESCE(a.credit,0),'FM999999999999999999990.0000'),'expected_hash',e.row_hash,'actual_hash',a.row_hash,'status',CASE WHEN e.line_count IS NOT DISTINCT FROM a.line_count AND e.debit IS NOT DISTINCT FROM a.debit AND e.credit IS NOT DISTINCT FROM a.credit THEN 'MATCHED' ELSE 'MISMATCH' END) AS doc) z;
  payload:=jsonb_build_object('reconciliation_id',new_id,'control_run_id',p_control_run,'receipt_hash',stored.receipt_hash,'status',result_status);
- INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash,reason,metadata) VALUES(p_tenant,p_entity,'WBS_H1_ACCOUNTING_CONTROL_RECONCILIATION_RETAINED','WBS_H1_ACCOUNTING_CONTROL_RECONCILIATION',new_id,'RETAIN',actor,'SERVICE_ACCOUNT','AI.ANALYSIS.EXPLAIN',p_idempotency_key,p_idempotency_key,p_idempotency_key,stored.receipt_hash,btrim(p_reason),payload);
+ INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash,reason,metadata) VALUES(p_tenant,p_entity,'WBS_H1_ACCOUNTING_CONTROL_RECONCILIATION_RETAINED','WBS_H1_ACCOUNTING_CONTROL_RECONCILIATION',new_id,'RETAIN',actor,'USER','WBS.H1.ACCOUNTING.RECONCILE',p_idempotency_key,p_idempotency_key,p_idempotency_key,stored.receipt_hash,btrim(p_reason),payload);
  INSERT INTO outbox_event(tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash) VALUES(p_tenant,p_entity,'WBS_H1_ACCOUNTING_CONTROL_RECONCILIATION',new_id,'WBS_H1_ACCOUNTING_CONTROL_RECONCILIATION_RETAINED',payload,refs_jsonb_hash(payload));
  RETURN doc||jsonb_build_object('reconciliation_id',new_id,'receipt_hash',stored.receipt_hash,'idempotent',false);
 END $$;

@@ -139,7 +139,8 @@ test('all responses are no-store and use a structured success or problem envelop
   assert.deepEqual(contract.components.responses.Problem.headers['Retry-After'].schema,{type:'integer',minimum:0});
   assert.match(contract.components.responses.Problem.description,/412/);
   assert.match(contract.components.responses.Problem.description,/503/);
-  for(const operation of accountingCommands){assert.ok(operation.responses['200']);assert.ok(operation.responses['503']);assert.ok(operation.responses.default);if(operation.operationId!=='verifyWbsAutoRecTransitionContract')assert.ok(operation.responses['201']);}
+  for(const operation of accountingCommands.filter(item=>item.deprecated!==true)){assert.ok(operation.responses['200']);assert.ok(operation.responses['503']);assert.ok(operation.responses.default);if(operation.operationId!=='verifyWbsAutoRecTransitionContract')assert.ok(operation.responses['201']);}
+  for(const operation of accountingCommands.filter(item=>item.deprecated===true)){assert.deepEqual(Object.keys(operation.responses),['410','default']);}
   const explanation=contract.paths['/entities/{entityId}/ai/analysis-explanation'].post;assert.ok(explanation.responses['200']);assert.ok(explanation.responses['503']);assert.equal(explanation.responses['201'],undefined);assert.match(explanation.description,/cannot create a Draft.*approve.*post/i);const explanationAction=contract.components.schemas.AiAccountingAnalysisExplanationResult.properties.controller_actions.items;assert.deepEqual(explanationAction.required,['category','finding_ids','action']);assert.equal(explanationAction.properties.finding_ids.minItems,1);
   for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid','createBankPaymentMatch','unmatchBankPayment','reviewWbsAutoRecBankMatch','setReconciliationClearance','setReconciliationAdjustmentClearance','transitionReconciliation','createReconciliationAdjustmentDraft','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','reviewAdmittedWbsPayable','reviewAiWbsPayableDraftProposal','createReviewedWbsPayableApDraft'].includes(item.operationId)))assert.equal(operation.responses['412'].$ref,'#/components/responses/PreconditionFailed');
   assert.equal(contract.components.responses.SerializationRetryExhausted.headers['Retry-After'].schema.minimum,0);
@@ -490,16 +491,14 @@ test('AI accrual analysis returns a closed bounded no-action evidence contract',
   for(const field of ['recurring_obligation_id','service_frequency','obligation_status'])assert.deepEqual(trace.properties[field].type,['string','null']);
 });
 
-test('Stage 1 WBS operator self-upgrade is a closed exact-scope command',()=>{
+test('Stage 1 WBS operator self-upgrade is documented as retired',()=>{
   const operation=contract.paths['/entities/{entityId}/access/self-service-wbs-operator-grant/upgrade'].post;
   assert.equal(operation.operationId,'upgradeStage1WbsOperatorAccess');assert.deepEqual(operation.parameters.map(item=>item.$ref),['#/components/parameters/EntityId','#/components/parameters/IdempotencyKey']);
-  assert.equal(operation.requestBody.content['application/json'].schema.additionalProperties,false);assert.equal(operation.requestBody.content['application/json'].schema.maxProperties,0);
-  assert.match(operation.description,/only WBS\.PAYABLE\.OPERATOR_ATTEST/);assert.match(operation.description,/no import, review, Draft, approval, posting, ledger, or WBS write authority/i);
+  assert.equal(operation.deprecated,true);assert.deepEqual(Object.keys(operation.responses),['410','default']);assert.match(operation.description,/retired/i);assert.match(operation.description,/workflow:grant/);
 });
 
-test('controlled test workflow self-upgrade is a closed identity-free staging command',()=>{
+test('controlled test workflow single-actor self-upgrade is documented as retired',()=>{
   const operation=contract.paths['/entities/{entityId}/access/self-service-controlled-test-workflow-grant/upgrade'].post;
   assert.equal(operation.operationId,'upgradeStage1ControlledTestWorkflowAccess');assert.deepEqual(operation.parameters.map(item=>item.$ref),['#/components/parameters/EntityId','#/components/parameters/IdempotencyKey']);
-  const schema=operation.requestBody.content['application/json'].schema;assert.equal(schema.additionalProperties,false);assert.equal(schema.maxProperties,0);
-  assert.match(operation.description,/version 3/);assert.match(operation.description,/version 4/);assert.match(operation.description,/No identity, permission or scope selector/i);
+  assert.equal(operation.deprecated,true);assert.deepEqual(Object.keys(operation.responses),['410','default']);assert.match(operation.description,/single-actor bundle is retired/i);assert.match(operation.description,/distinct finite maker, reviewer, approver, and poster/i);
 });

@@ -41,21 +41,23 @@
     "/entities/{entityId}/access/self-service-wbs-operator-grant/upgrade": {
       "post": {
         "operationId": "upgradeStage1WbsOperatorAccess",
-        "summary": "Add unsigned WBS Payable exception-evidence retain to the fixed Stage 1 reader",
-        "description": "OIDC actor and configured tenant/entity are server-derived. PostgreSQL accepts only version 2 with exactly the six Stage 1 evidence-read permissions and adds only WBS.PAYABLE.OPERATOR_ATTEST. This grants no import, review, Draft, approval, posting, ledger, or WBS write authority.",
+        "deprecated": true,
+        "summary": "Retired: use finite workflow role grants",
+        "description": "The legacy self-upgrade boundary is retired because a version number alone cannot prove the actor's prior exact role lineage. Operators must receive the frozen finite ATTEST role through workflow:grant.",
         "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
         "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"maxProperties":0}}}},
-        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+        "responses": {"410":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
     "/entities/{entityId}/access/self-service-controlled-test-workflow-grant/upgrade": {
       "post": {
         "operationId": "upgradeStage1ControlledTestWorkflowAccess",
-        "summary": "Enable the fixed TEST_ONLY WBS, Bank, Journal and report workflow on the staging test entity",
-        "description": "Available only when the fixed staging WBS test-import mode is enabled. The authenticated OIDC actor and configured tenant/entity are server-derived. PostgreSQL accepts only version 3 with exactly the Stage 1 WBS operator permissions and replaces it with the closed controlled-test permission bundle at version 4. No identity, permission or scope selector is accepted in the body.",
+        "deprecated": true,
+        "summary": "Retired: mixed-authority controlled-test grant",
+        "description": "The single-actor bundle is retired. Controlled tests require distinct finite maker, reviewer, approver, and poster workflow roles plus a separate SERVICE actor for service-only imports.",
         "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
         "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"maxProperties":0}}}},
-        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+        "responses": {"410":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
     "/entities/{entityId}/wbs/live-pilot": {

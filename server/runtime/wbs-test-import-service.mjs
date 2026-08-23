@@ -103,30 +103,7 @@ export function assertWbsTestRangeImportResult(value){
 export async function reconcileWbsTestImportActorGrants({grantSync,scope}={}){
   if(typeof grantSync?.reconcile!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Test-import grant sync is unavailable.');
   assertConfiguration(scope);
-  const results={};
-  for(const role of ACTOR_ROLES){
-    const permissions=[...WBS_TEST_IMPORT_GRANT_BUNDLES[role]];
-    const actorId=scope.actors[role].trim();
-    if(role==='importer'){
-      const bootstrap=await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId,permissions:[...WBS_TEST_IMPORTER_V1_PERMISSIONS],expectedVersion:0,idempotencyKey:'wbs-test-import-importer-grant-v1'});
-      const returned=[...(bootstrap?.permissions||[])].sort(),expected=[...WBS_TEST_IMPORTER_V1_PERMISSIONS].sort();
-      if(returned.length!==expected.length||returned.some((value,index)=>value!==expected[index]))fail('WBS_TEST_IMPORT_GRANT_INVALID','Test-import importer v1 bootstrap grant is not exact.');
-    }
-    const legacyVersion=role==='importer'?2:1,legacyPermissions=[...WBS_TEST_IMPORT_LEGACY_GRANT_BUNDLES[role]];
-    const legacy=await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId,permissions:legacyPermissions,expectedVersion:legacyVersion-1,idempotencyKey:`wbs-test-import-${role}-grant-v${legacyVersion}`});
-    const legacyReturned=[...(legacy?.permissions||[])].sort(),legacyExpected=[...legacyPermissions].sort();
-    if(legacyReturned.length!==legacyExpected.length||legacyReturned.some((value,index)=>value!==legacyExpected[index]))fail('WBS_TEST_IMPORT_GRANT_INVALID',`Test-import ${role} legacy grant does not match its frozen permission bundle.`);
-    const priorVersion=legacyVersion+1,priorPermissions=[...WBS_TEST_IMPORT_V3_GRANT_BUNDLES[role]];
-    const prior=await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId,permissions:priorPermissions,expectedVersion:legacyVersion,idempotencyKey:`wbs-test-import-${role}-grant-v${priorVersion}`});
-    const priorReturned=[...(prior?.permissions||[])].sort(),priorExpected=[...priorPermissions].sort();
-    if(priorReturned.length!==priorExpected.length||priorReturned.some((value,index)=>value!==priorExpected[index]))fail('WBS_TEST_IMPORT_GRANT_INVALID',`Test-import ${role} v${priorVersion} grant does not match its frozen permission bundle.`);
-    const version=priorVersion+1;
-    const result=await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId,permissions,expectedVersion:priorVersion,idempotencyKey:`wbs-test-import-${role}-grant-v${version}`});
-    const returned=[...(result?.permissions||[])].sort(),expected=[...permissions].sort();
-    if(returned.length!==expected.length||returned.some((value,index)=>value!==expected[index]))fail('WBS_TEST_IMPORT_GRANT_INVALID',`Test-import ${role} grant does not match its frozen permission bundle.`);
-    results[role]=Object.freeze({version:result.version,idempotent:result.idempotent===true,permission_count:returned.length});
-  }
-  return Object.freeze(results);
+  fail('WBS_TEST_IMPORT_GRANT_MODEL_UNSAFE','The six-actor controlled-test grant model mixes Bank clearance/reopen with posting authority and must be redesigned before grants can be issued.');
 }
 
 export function createWbsTestImportService({pilotService,kernelForActor,authorizeBank,scope,resolveScope=null}={}){

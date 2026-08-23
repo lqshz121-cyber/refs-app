@@ -259,31 +259,13 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         return {status:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:{activated:true,idempotent:result.idempotent===true,permission_count:result.permissionCount}}};
       }
       if(method==='POST'&&parts.length===7&&parts[4]==='access'&&parts[5]==='self-service-wbs-read-grant'&&parts[6]==='upgrade'){
-        requireExactQuery(parsedUrl.searchParams,[]);
-        if(Object.keys(payload).length)throw new AccountingApiError(400,'UNEXPECTED_FIELD','Self-service WBS reader upgrade accepts no request fields');
-        if(typeof stage1SelfWbsReadUpgradeServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
-        const service=await stage1SelfWbsReadUpgradeServiceFactory(principal);
-        if(!service||typeof service.upgrade!=='function')throw new Error('Self-service WBS reader upgrade is unavailable');
-        result=await service.upgrade({entityId,idempotencyKey:requireIdempotency(headers)});
-        return {status:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:{upgraded:true,idempotent:result.idempotent===true,permission_count:result.permissionCount}}};
+        throw new AccountingApiError(410,'ROUTE_RETIRED','Self-service WBS grant upgrades are retired; use a finite workflow role grant');
       }
       if(method==='POST'&&parts.length===7&&parts[4]==='access'&&parts[5]==='self-service-wbs-operator-grant'&&parts[6]==='upgrade'){
-        requireExactQuery(parsedUrl.searchParams,[]);
-        if(Object.keys(payload).length)throw new AccountingApiError(400,'UNEXPECTED_FIELD','Self-service WBS operator upgrade accepts no request fields');
-        if(typeof stage1SelfWbsOperatorUpgradeServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
-        const service=await stage1SelfWbsOperatorUpgradeServiceFactory(principal);
-        if(!service||typeof service.upgrade!=='function')throw new Error('Self-service WBS operator upgrade is unavailable');
-        result=await service.upgrade({entityId,idempotencyKey:requireIdempotency(headers)});
-        return {status:result.idempotent===true?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:{upgraded:true,idempotent:result.idempotent===true,permission_count:result.permissionCount}}};
+        throw new AccountingApiError(410,'ROUTE_RETIRED','Self-service WBS grant upgrades are retired; use a finite workflow role grant');
       }
       if(method==='POST'&&parts.length===7&&parts[4]==='access'&&parts[5]==='self-service-controlled-test-workflow-grant'&&parts[6]==='upgrade'){
-        requireExactQuery(parsedUrl.searchParams,[]);
-        if(Object.keys(payload).length)throw new AccountingApiError(400,'UNEXPECTED_FIELD','Controlled test workflow upgrade accepts no request fields');
-        if(typeof stage1SelfControlledTestWorkflowUpgradeServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
-        const service=await stage1SelfControlledTestWorkflowUpgradeServiceFactory(principal);
-        if(!service||typeof service.upgrade!=='function')throw new Error('Controlled test workflow upgrade is unavailable');
-        result=await service.upgrade({entityId,idempotencyKey:requireIdempotency(headers)});
-        return {status:result.idempotent===true?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:{upgraded:true,idempotent:result.idempotent===true,permission_count:result.permissionCount,test_only:true}}};
+        throw new AccountingApiError(410,'ROUTE_RETIRED','The mixed-authority controlled test grant is retired; use separate finite workflow and service roles');
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='live-pilot'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
