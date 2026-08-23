@@ -37,6 +37,8 @@ assert.ok(AUTHORITATIVE_ROUTES.includes('rules'),'the observed Accounting naviga
 assert.equal(navigationItemForRoute('rules')?.availability,'API_UNAVAILABLE','Rules must fail closed until an immutable rule reader exists');
 assert.ok(AUTHORITATIVE_ROUTES.includes('settings'),'the observed Settings navigation must keep Accounting settings discoverable without granting policy mutation authority');
 assert.equal(navigationItemForRoute('settings')?.availability,'API_UNAVAILABLE','Accounting settings must fail closed until immutable approved policy readers exist');
+assert.equal(navigationItemForRoute('month-end-close')?.availability,'API_UNAVAILABLE','Month-End Close must fail closed until a period-scoped checklist reader exists');
+assert.equal(navigationItemForRoute('period-management')?.availability,'API_UNAVAILABLE','Period Management must fail closed until an immutable period reader exists');
 assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'accounting-analysis-report', 'ai-audit', 'ai-je-workbench', 'amortization', 'bank', 'bank-batch-pipeline', 'chart-of-accounts', 'consolidation', 'construction-loan', 'general-ledger', 'intercompany', 'journals', 'overview', 'payables', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'reconciliation', 'reports', 'source-documents', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
 const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation','Source & Staging']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}} onTogglePanel={() => {}}/>);
@@ -50,6 +52,7 @@ const revenueRecognitionNavMarkup = renderToStaticMarkup(<AuthoritativeNavigatio
 const auditLogNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="audit-log" expandedGroups={['Administration']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const fixedAssetsNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="fixed-assets" expandedGroups={['Accounting Operations']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const rulesNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="rules" expandedGroups={['Accounting Settings']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const closeNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="period-management" expandedGroups={['Close']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const journalNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="journals" expandedGroups={['Journal Entry']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const mobileReportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroups={['Reports']} navOpen={true} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const routeWinsMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="wbs-autorec-evidence" expandedGroups={['General Ledger']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
@@ -78,6 +81,8 @@ assert.match(fixedAssetsNavMarkup,/>Fixed assets</);assert.match(fixedAssetsNavM
 assert.doesNotMatch(fixedAssetsNavMarkup,/How it works|See reports|Add multiple assets|Add an asset/,'the Accounting navigation must not import asset onboarding or creation actions');
 assert.match(rulesNavMarkup,/>Rules</);assert.match(rulesNavMarkup,/>Accounting settings</);assert.match(rulesNavMarkup,/>Mapping Center</);
 assert.doesNotMatch(rulesNavMarkup,/New rule|Bank rules|Integration rules|Search by name or conditions|Auto-post|Edit|Reorder/,'the Accounting navigation must not import rule mutation or automation controls');
+assert.match(closeNavMarkup,/>Month-End Close</);assert.match(closeNavMarkup,/>Period Management</);
+assert.doesNotMatch(closeNavMarkup,/Close the books|Edit|Accounting method|Automatically apply|Save|Reopen|Post/,'the Close navigation must not import QBO settings values, automation, or mutation controls');
 assert.doesNotMatch(payablesNavMarkup, /Start using Bill Pay|ACH|Pay now/,'the read-only navigation must not import QBO payment-enrollment or money-movement actions');
 assert.doesNotMatch(journalNavMarkup, /Journal entries/, 'a one-page Journal workspace must not repeat its only child in a secondary menu');
 assert.match(reportNavMarkup, /aria-label="Accounting workspace navigation"/, 'the Reports secondary menu must retain its navigation landmark');
@@ -198,6 +203,9 @@ assert.doesNotMatch(rulesUnavailableMarkup,/New rule|Bank rules|Integration rule
 const accountingSettingsUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('settings')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.match(accountingSettingsUnavailableMarkup,/Accounting settings is not available yet/);assert.match(accountingSettingsUnavailableMarkup,/role="status"/);
 assert.doesNotMatch(accountingSettingsUnavailableMarkup,/Transaction posting policy|Asset &amp; expense policy|Search settings|More options|Edit|Required fields|Effective date|threshold|ready to post|Save|Post/,'the unavailable Accounting settings route must not reproduce policy values, edit controls, or posting automation');
+const periodManagementUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('period-management')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
+assert.match(periodManagementUnavailableMarkup,/Period Management is not available yet/);assert.match(periodManagementUnavailableMarkup,/role="status"/);
+assert.doesNotMatch(periodManagementUnavailableMarkup,/Close the books|Accounting method|Edit|Save|Open period|Close period|Reopen|Post|Automatically apply/,'the unavailable Period Management route must not reproduce cutoff, automation, period, or posting commands');
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
 const amortizationSource = fs.readFileSync('src/authoritative-amortization-workspace.jsx', 'utf8');
 for(const file of ['src/authoritative-aging-workspace.jsx','src/authoritative-amortization-workspace.jsx','src/authoritative-lineage-drill.jsx','src/authoritative-property-rent-workspace.jsx']){

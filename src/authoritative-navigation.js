@@ -105,7 +105,16 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('amortization', 'Prepaid expenses', 'API_READ'),
     item('accruals', 'Accrual Center'),
   ]),
-  group('Close', [item('month-end-close', 'Month-End Close'), item('period-management', 'Period Management')]),
+  group('Close', [
+    item('month-end-close', 'Month-End Close', 'API_UNAVAILABLE', [
+      'Entity- and period-scoped close checklist, owner, status, retained evidence, blocker, approval, and immutable audit history.',
+      'Read-only checklist, blocker, evidence, and history endpoints; completion, sign-off, reopen, Journal, and posting commands remain unavailable.',
+    ]),
+    item('period-management', 'Period Management', 'API_UNAVAILABLE', [
+      'Entity-scoped immutable period identity, dates, OPEN or CLOSED state, revision, actor, reason, close cutoff, and audit evidence.',
+      'Read-only period list, detail, and history endpoints; open, close, reopen, cutoff edits, accounting-method changes, and posting remain separately authorised and unavailable.',
+    ]),
+  ]),
   group('Payables & Receivables', [
     item('payables', 'Bills & expenses', 'API_READ'),
     item('vendors', 'Vendors', 'API_UNAVAILABLE', [
