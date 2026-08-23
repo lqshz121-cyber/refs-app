@@ -11,6 +11,7 @@ const data={schema_version:'WBS_H1_IMPORT_INVENTORY_V1',company_code:'SUCF',curr
 
 const markup=renderToStaticMarkup(<AuthoritativeWbsH1ImportWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
 assert.match(markup,/2026 H1 business data/);assert.match(markup,/Loading WBS business data/);assert.doesNotMatch(markup,/Post journal|localStorage|seed\.js/);
+assert.match(markup,/Upload control evidence/,'control upload must remain independently visible while legacy inventory is unavailable');assert.match(markup,/manifest\.json/);assert.match(markup,/Accounting NDJSON/);assert.match(markup,/CONTROL_EVIDENCE_ONLY/);
 const scopedMarkup=renderToStaticMarkup(<AuthoritativeWbsH1ImportWorkspace config={config} scopes={[{entity_id:entityId,period_id:periodId,entity_name:'Example Company',entity_code:'EXAMPLE'}]} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
 assert.match(scopedMarkup,/All companies/);assert.match(scopedMarkup,/Loading company population/);assert.match(scopedMarkup,/Missing companies are not treated as zero|authorized WBS company/);
 
@@ -33,6 +34,7 @@ const source=fs.readFileSync('src/authoritative-wbs-h1-import-workspace.jsx','ut
 const appSource=fs.readFileSync('src/authoritative-app.jsx','utf8');
 for(const copy of ['All companies','every company available to this signed-in user','Missing companies are not treated as zero','WBS read access required','Enable WBS read access','does not allow importing, approving or posting','Imported business data is available','Imported source rows are not formal ledger entries','Controlled test posted','Ready for mapping review','NO ACCOUNTING ACTION','WBS account Settings','Approve Settings','SETTINGS ONLY','never creates or posts a Journal','Payable accounting proposals','Create Draft','View Draft','Continue in Journal entries','Back to WBS Integration Hub','Re-reading the exact company, period, Journal, lines, and source relationship','Human Draft only','Submit, Review, Approve and Post remain separate'])assert.match(source,new RegExp(copy));
 assert.match(source,/controlPageHistory/,'control evidence paging must retain exact observed cursor history');
+assert.ok(source.indexOf('aria-label="WBS H1 accounting control population"')<source.indexOf('{data&&<>'),'control read and upload must be outside the legacy inventory success branch');
 assert.doesNotMatch(source,/after_ordinal-CONTROL_PAGE_SIZE/,'Previous must not infer a cursor from the page size');
 assert.match(source,/activateAuthoritativeWbsReadAccess\(\{config,idempotencyKey:key,fetcher\}\)/,'the Integration Hub must use the controlled self-service WBS read grant rather than inventing access');
 assert.match(source,/access\.version/,'successful WBS read activation must re-read the selected and authorized company inventories');
