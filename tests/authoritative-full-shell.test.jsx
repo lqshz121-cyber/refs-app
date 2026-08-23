@@ -37,6 +37,7 @@ assert.ok(AUTHORITATIVE_ROUTES.includes('settings'),'the observed Settings navig
 assert.equal(navigationItemForRoute('settings')?.availability,'API_UNAVAILABLE','Accounting settings must fail closed until immutable approved policy readers exist');
 assert.equal(navigationItemForRoute('month-end-close')?.availability,'API_UNAVAILABLE','Month-End Close must fail closed until a period-scoped checklist reader exists');
 assert.equal(navigationItemForRoute('period-management')?.availability,'API_UNAVAILABLE','Period Management must fail closed until an immutable period reader exists');
+assert.equal(navigationItemForRoute('mapping')?.availability,'API_UNAVAILABLE','Mapping Center must fail closed until an immutable approved mapping reader exists');
 assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'accounting-analysis-report', 'ai-audit', 'ai-je-workbench', 'amortization', 'bank', 'bank-batch-pipeline', 'chart-of-accounts', 'consolidation', 'construction-loan', 'general-ledger', 'integration-hub', 'intercompany', 'journals', 'overview', 'payables', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'reconciliation', 'reports', 'source-documents', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
 const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation','Source & Staging']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}} onTogglePanel={() => {}}/>);
@@ -80,6 +81,7 @@ assert.match(fixedAssetsNavMarkup,/>Fixed assets</);assert.match(fixedAssetsNavM
 assert.doesNotMatch(fixedAssetsNavMarkup,/How it works|See reports|Add multiple assets|Add an asset/,'the Accounting navigation must not import asset onboarding or creation actions');
 assert.match(rulesNavMarkup,/>Rules</);assert.match(rulesNavMarkup,/>Accounting settings</);assert.match(rulesNavMarkup,/>Mapping Center</);
 assert.doesNotMatch(rulesNavMarkup,/New rule|Bank rules|Integration rules|Search by name or conditions|Auto-post|Edit|Reorder/,'the Accounting navigation must not import rule mutation or automation controls');
+assert.doesNotMatch(rulesNavMarkup,/Track classes|Track locations|Categories|Import mapping|Approve mapping|Delete mapping/,'the Mapping Center navigation must remain distinct from QBO category toggles and mapping commands');
 assert.match(closeNavMarkup,/>Month-End Close</);assert.match(closeNavMarkup,/>Period Management</);
 assert.doesNotMatch(closeNavMarkup,/Close the books|Edit|Accounting method|Automatically apply|Save|Reopen|Post/,'the Close navigation must not import QBO settings values, automation, or mutation controls');
 assert.doesNotMatch(payablesNavMarkup, /Start using Bill Pay|ACH|Pay now/,'the read-only navigation must not import QBO payment-enrollment or money-movement actions');
@@ -213,6 +215,9 @@ assert.doesNotMatch(accountingSettingsUnavailableMarkup,/Transaction posting pol
 const periodManagementUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('period-management')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.match(periodManagementUnavailableMarkup,/Period Management is not available yet/);assert.match(periodManagementUnavailableMarkup,/role="status"/);
 assert.doesNotMatch(periodManagementUnavailableMarkup,/Close the books|Accounting method|Edit|Save|Open period|Close period|Reopen|Post|Automatically apply/,'the unavailable Period Management route must not reproduce cutoff, automation, period, or posting commands');
+const mappingUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('mapping')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
+assert.match(mappingUnavailableMarkup,/Mapping Center is not available yet/);assert.match(mappingUnavailableMarkup,/role="status"/);
+assert.doesNotMatch(mappingUnavailableMarkup,/Track classes|Track locations|Categories|New mapping|Edit mapping|Approve|Deactivate|Delete|Import|Auto-apply|Post/,'the unavailable Mapping Center route must not reproduce category toggles or mapping/accounting commands');
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
 const amortizationSource = fs.readFileSync('src/authoritative-amortization-workspace.jsx', 'utf8');
 for(const file of ['src/authoritative-aging-workspace.jsx','src/authoritative-amortization-workspace.jsx','src/authoritative-lineage-drill.jsx','src/authoritative-property-rent-workspace.jsx']){
