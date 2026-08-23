@@ -93,6 +93,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Entity- and period-scoped retained Bill Payment evidence with immutable Bill, payment, Journal, ledger, and audit identifiers.',
       'Read-only list and detail endpoints; payment initiation, approval, void, release, and external money movement remain unavailable.',
     ]),
+    item('contractors', 'Contractors', 'API_UNAVAILABLE', [
+      'Permission-scoped contractor identity, W-9 status, and retained payment evidence with immutable source and audit identifiers.',
+      'Read-only search, status, paging, and detail endpoints; invitations, setup, direct deposit, bulk pay, 1099 filing, and tax actions remain unavailable.',
+    ]),
     item('receivables', 'Invoices & receipts', 'API_READ'),
   ]),
   group('Reports', [item('reports', 'Standard reports', 'API_READ'),item('accounting-analysis-report', 'Accounting Analysis Report', 'API_READ')]),
