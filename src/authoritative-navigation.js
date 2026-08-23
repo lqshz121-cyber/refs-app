@@ -22,7 +22,12 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     ]),
   ]),
   group('Accounting Settings', [
-    item('settings', 'Core settings'), item('rules', 'Rule Center'), item('mapping', 'Mapping Center'),
+    item('settings', 'Core settings'),
+    item('rules', 'Rules', 'API_UNAVAILABLE', [
+      'Entity-scoped immutable rule identity, revision, priority, conditions, mapping actions, status, usage, and audit evidence.',
+      'Read-only Bank and Integration rule lists, filters, paging, detail, and history; creation, editing, reordering, copying, enablement, automatic categorisation, matching, and posting remain unavailable.',
+    ]),
+    item('mapping', 'Mapping Center'),
   ]),
   group('Source & Staging', [
     item('wbs-payable-review', 'WBS Payable Review', 'API_READ', [
