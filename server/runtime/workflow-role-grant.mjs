@@ -18,6 +18,7 @@ export const AUTHORITATIVE_WORKFLOW_ROLES=Object.freeze({
   JE_SUBMITTER:Object.freeze([...READ,'GL.JE.SUBMIT']),
   WBS_PAYABLE_REVIEWER:Object.freeze([...READ,'WBS.PAYABLE.REVIEW']),
   WBS_PAYABLE_MAKER:Object.freeze([...READ,'AP.BILL.CREATE','GL.JE.SUBMIT']),
+  WBS_H1_PAYABLE_DRAFT_MAKER:Object.freeze([...READ,'WBS.H1.PAYABLE.DRAFT','GL.JE.CREATE']),
   JE_REVIEWER:Object.freeze([...READ,'GL.JE.REVIEW']),
   JE_APPROVER:Object.freeze([...READ,'GL.JE.APPROVE']),
   JE_POSTER:Object.freeze([...READ,'GL.JE.POST']),

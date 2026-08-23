@@ -2612,6 +2612,16 @@
         "responses":{"200":{"description":"Closed WBS H1 Payable proposal page","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/WbsH1PayableAccountingProposal"}}}}}},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"502":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/wbs/h1-payable-reclass-drafts": {
+      "post": {
+        "operationId":"createWbsH1PayableReclassDraft",
+        "summary":"Create one human-requested WBS H1 Payable mapping Draft",
+        "description":"Requires approved company/period Settings, one immutable ready proposal, the exact controlled Posted source Journal and verified-clean attachment. The server derives all balanced lines and creates only a standard MANUAL Draft; Submit, Review, Approve and Post remain separate human workflow steps.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"},{"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["sourceRecordHash","proposalHash","reason"],"properties":{"sourceRecordHash":{"$ref":"#/components/schemas/Sha256"},"proposalHash":{"$ref":"#/components/schemas/Sha256"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses":{"200":{"description":"Idempotent Draft receipt"},"201":{"description":"Draft created"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"502":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/h1-accounting-settings-decision": {
       "get": {
         "operationId":"readWbsH1AccountingSettingsDecision",

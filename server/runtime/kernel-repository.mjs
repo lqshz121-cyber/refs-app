@@ -128,6 +128,20 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async createWbsH1PayableReclassDraft({tenantId,entityId,periodId,sourceRecordHash,proposalHash,reason,idempotencyKey}){
+    reason=reason.trim();
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_create_wbs_h1_payable_reclass_draft_hash($1,$2,$3,$4,$5,$6) AS request_hash',
+        [tenantId,entityId,periodId,sourceRecordHash,proposalHash,reason]
+      ),'WBS_H1_PAYABLE_RECLASS_DRAFT_HASH_UNAVAILABLE','WBS H1 Payable Draft hash was not returned').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_create_wbs_h1_payable_reclass_draft($1,$2,$3,$4,$5,$6,$7,$8) AS result',
+        [tenantId,entityId,periodId,sourceRecordHash,proposalHash,reason,idempotencyKey,requestHash]
+      ),'WBS_H1_PAYABLE_RECLASS_DRAFT_UNAVAILABLE','WBS H1 Payable Draft was not created').result;
+    });
+  }
+
   async readWbsH1AccountingSettingsDecision({tenantId,entityId,periodId,proposalHash}){
     return this.inSession(async client=>(await client.query(
       'SELECT refs_read_wbs_h1_accounting_settings_decision($1,$2,$3,$4) AS result',

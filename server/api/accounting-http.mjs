@@ -26,7 +26,7 @@ import {safeAiEvidenceTree} from '../runtime/ai-secret-safety.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {assertWbsH1ImportInventory} from '../runtime/wbs-h1-import-inventory.mjs';
 import {assertWbsH1AccountingSettingsProposal,assertWbsH1AccountingSettingsHumanDecision} from '../runtime/wbs-h1-accounting-settings-proposal.mjs';
-import {assertWbsH1PayableAccountingProposal} from '../runtime/wbs-h1-payable-accounting-proposal.mjs';
+import {assertWbsH1PayableAccountingProposal,assertWbsH1PayableReclassDraftReceipt} from '../runtime/wbs-h1-payable-accounting-proposal.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AI_ACCRUAL_HASH=/^sha256:[0-9a-f]{64}$/;
@@ -317,6 +317,16 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         try{result=assertWbsH1PayableAccountingProposal(await kernel.readWbsH1PayableAccountingProposal({tenantId:principal.tenantId,entityId,periodId,limit,offset}),{periodId,limit,offset});}
         catch{throw new AccountingApiError(502,'WBS_H1_PAYABLE_ACCOUNTING_PROPOSAL_PROTOCOL','WBS H1 Payable accounting proposal did not match the closed read contract');}
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='POST'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='h1-payable-reclass-drafts'){
+        requireExactQuery(parsedUrl.searchParams,['periodId']);const periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId');
+        allowOnly(payload,['sourceRecordHash','proposalHash','reason']);
+        const sourceRecordHash=payload.sourceRecordHash,proposalHash=payload.proposalHash,reason=typeof payload.reason==='string'?payload.reason.trim():'';
+        if(!/^sha256:[0-9a-f]{64}$/.test(sourceRecordHash||'')||!/^sha256:[0-9a-f]{64}$/.test(proposalHash||'')||reason.length<8||reason.length>2000)throw new AccountingApiError(400,'INVALID_WBS_H1_PAYABLE_DRAFT','An exact source, proposal and human reason are required');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.createWbsH1PayableReclassDraft!=='function')throw new AccountingApiError(503,'WBS_H1_PAYABLE_RECLASS_DRAFT_UNAVAILABLE','WBS H1 Payable Draft creation is unavailable');
+        result=await kernel.createWbsH1PayableReclassDraft({tenantId:principal.tenantId,entityId,periodId,sourceRecordHash,proposalHash,reason,idempotencyKey:requireIdempotency(headers)});
+        try{result=assertWbsH1PayableReclassDraftReceipt(result,{sourceRecordHash,proposalHash});}catch{throw new AccountingApiError(502,'WBS_H1_PAYABLE_RECLASS_DRAFT_PROTOCOL','WBS H1 Payable Draft receipt did not match the closed contract');}
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(parts.length===6&&parts[4]==='wbs'&&parts[5]==='h1-accounting-settings-decision'){
         requireExactQuery(parsedUrl.searchParams,['periodId','proposalHash']);

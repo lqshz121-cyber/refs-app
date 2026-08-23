@@ -27,3 +27,9 @@ export function assertWbsH1PayableAccountingProposal(value,{periodId,limit,offse
   }
   return value;
 }
+
+export function assertWbsH1PayableReclassDraftReceipt(value,{sourceRecordHash,proposalHash}={}){
+  const keys=['schema_version','draft_evidence_id','source_record_hash','proposal_hash','settings_decision_hash','source_document_id','original_journal_entry_id','journal_entry_id','status','can_submit','can_review','can_approve','can_post','idempotent'];
+  if(!exact(value,keys)||value.schema_version!=='WBS_H1_PAYABLE_RECLASS_DRAFT_V1'||!UUID.test(value.draft_evidence_id||'')||value.source_record_hash!==sourceRecordHash||!SHA.test(value.source_record_hash||'')||value.proposal_hash!==proposalHash||!SHA.test(value.proposal_hash||'')||!SHA.test(value.settings_decision_hash||'')||!UUID.test(value.source_document_id||'')||!UUID.test(value.original_journal_entry_id||'')||!UUID.test(value.journal_entry_id||'')||value.original_journal_entry_id===value.journal_entry_id||value.status!=='DRAFT'||[value.can_submit,value.can_review,value.can_approve,value.can_post].some(flag=>flag!==false)||typeof value.idempotent!=='boolean')throw new Error('WBS_H1_PAYABLE_RECLASS_DRAFT_RECEIPT_INVALID');
+  return Object.freeze({...value});
+}
