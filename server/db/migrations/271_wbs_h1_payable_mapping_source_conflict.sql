@@ -128,15 +128,15 @@ BEGIN
 
   SELECT pg_get_functiondef('public.refs_create_wbs_h1_payable_reclass_draft(uuid,uuid,uuid,text,text,text,text,text)'::regprocedure) INTO definition;
   IF position('SELECT * INTO source_row FROM wbs_h1_payable_mapping_source_stage
-    WHERE tenant_id=p_tenant AND entity_id=p_entity AND source_record_hash=p_source_record_hash FOR UPDATE;' IN definition)=0
+    WHERE tenant_id=p_tenant AND entity_id=p_entity AND source_record_hash=p_source_record_hash FOR SHARE;' IN definition)=0
      OR position('Approved WBS Payable source evidence changed before Draft creation' IN definition)=0 THEN
     RAISE EXCEPTION 'Migration 271 requires the exact WBS H1 Payable Draft function' USING ERRCODE='55000';
   END IF;
   definition:=replace(definition,
     'SELECT * INTO source_row FROM wbs_h1_payable_mapping_source_stage
-    WHERE tenant_id=p_tenant AND entity_id=p_entity AND source_record_hash=p_source_record_hash FOR UPDATE;',
+    WHERE tenant_id=p_tenant AND entity_id=p_entity AND source_record_hash=p_source_record_hash FOR SHARE;',
     'SELECT * INTO source_row FROM wbs_h1_payable_mapping_source_stage
-    WHERE tenant_id=p_tenant AND entity_id=p_entity AND source_record_hash=p_source_record_hash FOR UPDATE;
+    WHERE tenant_id=p_tenant AND entity_id=p_entity AND source_record_hash=p_source_record_hash FOR SHARE;
   PERFORM 1 FROM wbs_h1_payable_mapping_source_conflict
     WHERE tenant_id=p_tenant AND entity_id=p_entity AND source_record_hash=p_source_record_hash FOR SHARE;
   IF FOUND THEN
