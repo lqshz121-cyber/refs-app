@@ -304,13 +304,13 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='POST'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='h1-accounting-control-runs'&&parts[7]==='lines'){
-        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['lines']);const runId=requireUuid(parts[6],'runId');if(!Array.isArray(payload.lines)||payload.lines.length<1||payload.lines.length>1000)throw new AccountingApiError(400,'INVALID_WBS_H1_ACCOUNTING_CONTROL_PAGE','lines must contain 1..1000 normalized rows');
+        requireExactQuery(parsedUrl.searchParams,[]);requireIdempotency(headers);allowOnly(payload,['lines']);const runId=requireUuid(parts[6],'runId');if(!Array.isArray(payload.lines)||payload.lines.length<1||payload.lines.length>1000)throw new AccountingApiError(400,'INVALID_WBS_H1_ACCOUNTING_CONTROL_PAGE','lines must contain 1..1000 normalized rows');
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.appendWbsH1AccountingControlPopulationLines!=='function')throw new AccountingApiError(503,'WBS_H1_ACCOUNTING_CONTROL_INGEST_UNAVAILABLE','WBS H1 accounting control ingestion is unavailable');
         result=await kernel.appendWbsH1AccountingControlPopulationLines({tenantId:principal.tenantId,entityId,runId,lines:payload.lines});
         return {status:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='POST'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='h1-accounting-control-runs'&&parts[7]==='finalize'){
-        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,[]);const runId=requireUuid(parts[6],'runId'),kernel=await kernelFactory(principal);
+        requireExactQuery(parsedUrl.searchParams,[]);requireIdempotency(headers);allowOnly(payload,[]);const runId=requireUuid(parts[6],'runId'),kernel=await kernelFactory(principal);
         if(!kernel||typeof kernel.finalizeWbsH1AccountingControlPopulationRun!=='function')throw new AccountingApiError(503,'WBS_H1_ACCOUNTING_CONTROL_INGEST_UNAVAILABLE','WBS H1 accounting control ingestion is unavailable');
         result=await kernel.finalizeWbsH1AccountingControlPopulationRun({tenantId:principal.tenantId,entityId,runId});
         return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};

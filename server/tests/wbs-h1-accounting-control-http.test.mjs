@@ -18,11 +18,11 @@ test('WBS H1 accounting control HTTP ingestion is authenticated, resumable, boun
   const root=`/api/v1/entities/${entityId}/wbs/h1-accounting-control-runs`;
   let response=await api({method:'POST',url:root,body,headers:{'Idempotency-Key':'wbs-h1-control-create-001'}});
   assert.equal(response.status,201);assert.equal(response.headers['cache-control'],'no-store');assert.equal(calls[0][0],'create');assert.equal(calls[0][1].tenantId,tenantId);assert.equal(calls[0][1].entityId,entityId);assert.match(calls[0][1].population.source_manifest_hash,/^sha256:[0-9a-f]{64}$/);
-  response=await api({method:'POST',url:`${root}/${runId}/lines`,body:{lines:[{line_hash:hash}]},headers:{}});
+  response=await api({method:'POST',url:`${root}/${runId}/lines`,body:{lines:[{line_hash:hash}]},headers:{'Idempotency-Key':'wbs-h1-control-page-001'}});
   assert.equal(response.status,201);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(calls[1],['append',{tenantId,entityId,runId,lines:[{line_hash:hash}]}]);
-  response=await api({method:'POST',url:`${root}/${runId}/finalize`,body:{},headers:{}});
+  response=await api({method:'POST',url:`${root}/${runId}/finalize`,body:{},headers:{'Idempotency-Key':'wbs-h1-control-finalize-001'}});
   assert.equal(response.status,201);assert.equal(response.body.data.receipt_hash,hash);assert.deepEqual(calls[2],['finalize',{tenantId,entityId,runId}]);
   assert.equal((await api({method:'POST',url:root,body:{...body,expectedRowCount:3},headers:{'Idempotency-Key':'wbs-h1-control-create-002'}})).status,400);
-  assert.equal((await api({method:'POST',url:`${root}/${runId}/lines`,body:{lines:Array.from({length:1001},()=>({}))},headers:{}})).status,400);
-  assert.equal((await api({method:'POST',url:`${root}/${runId}/finalize?x=1`,body:{},headers:{}})).status,400);
+  assert.equal((await api({method:'POST',url:`${root}/${runId}/lines`,body:{lines:Array.from({length:1001},()=>({}))},headers:{'Idempotency-Key':'wbs-h1-control-page-002'}})).status,400);
+  assert.equal((await api({method:'POST',url:`${root}/${runId}/finalize?x=1`,body:{},headers:{'Idempotency-Key':'wbs-h1-control-finalize-002'}})).status,400);
 });
