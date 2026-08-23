@@ -30,7 +30,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Entity-scoped immutable rule identity, revision, priority, conditions, mapping actions, status, usage, and audit evidence.',
       'Read-only Bank and Integration rule lists, filters, paging, detail, and history; creation, editing, reordering, copying, enablement, automatic categorisation, matching, and posting remain unavailable.',
     ]),
-    item('mapping', 'Mapping Center'),
+    item('mapping', 'Mapping Center', 'API_UNAVAILABLE', [
+      'Entity- and period-scoped immutable mapping identity, revision, source field, destination account or dimension, effectivity, status, reviewer, approver, usage, and audit evidence.',
+      'Read-only catalog, filters, paging, detail, history, and impact endpoints; create, edit, approve, deactivate, delete, import, automatic application, and accounting commands remain unavailable.',
+    ]),
   ]),
   group('Source & Staging', [
     item('wbs-payable-review', 'WBS Payable Review', 'API_READ', [
