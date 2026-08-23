@@ -14,6 +14,8 @@ assert.match(workspace,/className="authoritative-list-more-filters"/,
   'secondary AP/AR filters must use one keyboard-native collapsed disclosure');
 assert.match(workspace,/<summary>\{bill\?'Filter':'More filters'\}\{moreFilterCount\?/,
   'the collapsed disclosure must use the observed concise Expenses label and surface the active secondary-filter count');
+assert.match(workspace,/ref=\{filterDetailsRef\}[\s\S]*?>Close<\/button>/,
+  'the contained Expenses filter must expose the observed explicit Close action without changing list state');
 assert.match(workspace,/<label>\{bill\?'Payee':'Customer'\} <select/,
   'the responsive contract must retain the observed AP Payee and authoritative AR Customer selectors');
 assert.match(workspace,/type="text" inputMode="numeric" autoComplete="off" maxLength=\{10\} pattern="\[0-9\]\{4\}-\[0-9\]\{2\}-\[0-9\]\{2\}" placeholder="YYYY-MM-DD"/,

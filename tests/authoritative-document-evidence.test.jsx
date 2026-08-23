@@ -59,6 +59,7 @@ assert.match(workspaceMarkup,/AP Aging/);
 assert.doesNotMatch(workspaceMarkup,/AP Aging unavailable/,'AP aging has an authenticated API contract and must be reachable');
 assert.match(workspaceMarkup,/id="authoritative-ap-aging-launch"/,'Back from AP aging must restore focus to the tab that opened it');
 assert.match(workspaceMarkup,/Vendors unavailable/);
+assert.match(workspaceMarkup,/>Reset<\/button><button[^>]*>Apply<\/button><button[^>]*>Close<\/button>/,'Expenses Filter must expose the observed Reset, Apply, and Close actions in one contained action row');
 assert.match(workspaceMarkup,/class="tab-unavailable" role="tab" aria-selected="false" aria-disabled="true" aria-label="Vendors unavailable"/,'unavailable AP/AR views must retain tab semantics and shared visual geometry without becoming interactive');
 assert.doesNotMatch(workspaceMarkup,/class="tab-unavailable" role="note"/,'a child of tablist must not use a non-tab role');
 assert.doesNotMatch(workspaceMarkup,/<button[^>]*disabled[^>]*>AP Aging<\/button>/);
@@ -298,6 +299,7 @@ assert.match(styles,/\.authoritative-list-filters input,\.authoritative-list-fil
 assert.match(workspaceSource,/className="authoritative-list-more-filters" onToggle=/,'AP/AR must keep secondary filters in a compact native disclosure');
 assert.match(workspaceSource,/<label>\{bill\?'Payee':'Customer'\} <select value=\{filterDraft\.counterparty\}[\s\S]*?\{bill&&\(accountCodes\.length>0\?<label>Category <select value=\{filterDraft\.accountCode\}/,'the compact disclosure must stage the observed AP Payee, shared counterparty behavior, and AP-only Category');
 assert.match(workspaceSource,/onClick=\{\(\)=>change\(filterDraft\)\}>Apply<\/button>/,'secondary filter edits must not change the visible result until Apply');
+assert.match(workspaceSource,/onClick=\{\(\)=>\{if\(filterDetailsRef\.current\)filterDetailsRef\.current\.open=false;\}\}>Close<\/button>/,'Close must dismiss only the native filter disclosure without applying or resetting its staged values');
 assert.match(styles,/\.authoritative-list-more-filters\[open\]\{grid-column:1\/-1;\}/,'expanded AP/AR filters must stay contained within the filter region');
 assert.match(styles,/@media\s*\(max-width:720px\)\s*\{\.authoritative-document-intro(?:,\.authoritative-source-intro)?\{grid-template-columns:minmax\(0,1fr\)/,'narrow AP\/AR filters and evidence guidance must collapse before the page overflows');
 assert.doesNotMatch(styles,/repeat\(2,minmax\(0,1fr\);/,'a malformed narrow-layout grid declaration must never prevent later responsive rules from parsing');
