@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
+import {readFileSync} from 'node:fs';
 import {createAccountingApi} from '../api/accounting-http.mjs';
 
 const hash=character=>`sha256:${character.repeat(64)}`;
@@ -15,4 +16,11 @@ test('WBS H1 accounting control population is closed, no-store, scoped, and acti
   assert.equal((await api({method:'GET',url:path,headers:{'Idempotency-Key':'forbidden'},body:null})).status,400);
   const badApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'reader'}),kernelFactory:async()=>({readWbsH1AccountingControlPopulation:async()=>({...data,can_post:true})})});
   const bad=await badApi({method:'GET',url:path,headers:{},body:null});assert.equal(bad.status,502);assert.equal(bad.body.code,'WBS_H1_ACCOUNTING_CONTROL_POPULATION_PROTOCOL');
+  for(const malformed of [{...data,source_manifest:{...data.source_manifest,generated_at:'2026-02-30T12:00:00.000Z'}},{...data,rows:[{...data.rows[0],posting_date:'2026-02-30'}]}]){const malformedApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'reader'}),kernelFactory:async()=>({readWbsH1AccountingControlPopulation:async()=>malformed})}),failed=await malformedApi({method:'GET',url:path,headers:{},body:null});assert.equal(failed.status,502);}
+});
+
+test('repository asserts WBS view scope before both finalized control reads',()=>{
+  const source=readFileSync(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
+  const section=source.slice(source.indexOf('async readWbsH1AccountingControlPopulation'),source.indexOf('async retireConfigSnapshot'));
+  assert.equal((section.match(/refs_assert_scope\(\$1,\$2,'WBS\.AUTOREC\.VIEW'\)/g)||[]).length,2);
 });

@@ -3,12 +3,14 @@ const SHA256=/^sha256:[0-9a-f]{64}$/;
 const MONEY4=/^-?(?:0|[1-9][0-9]{0,19})\.[0-9]{4}$/;
 const ISO_DATE=/^\d{4}-\d{2}-\d{2}$/;
 const H1_PERIOD=/^2026-0[1-6]$/;
+const calendarDate=value=>{if(typeof value!=='string'||!ISO_DATE.test(value))return false;const parsed=new Date(`${value}T00:00:00.000Z`);return !Number.isNaN(parsed.valueOf())&&parsed.toISOString().slice(0,10)===value;};
+const utcTimestamp=value=>{if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value))return false;const parsed=new Date(value);return !Number.isNaN(parsed.valueOf())&&parsed.toISOString()===value;};
 const printable=(value,max=256)=>typeof value==='string'&&value.length>0&&value.length<=max&&!/[\u0000-\u001f\u007f]/.test(value);
 const nullablePrintable=(value,max=256)=>value===null||printable(value,max);
 const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).sort().join('\u0000')===[...keys].sort().join('\u0000');
 const noActions=value=>value.can_create_draft===false&&value.can_review===false&&value.can_approve===false&&value.can_post===false;
 
-const manifest=value=>exact(value,['bytes','company_code','date_from','date_to','domain','file_name','generated_at','period','rows','schema_version','sha256'])&&printable(value.company_code,64)&&value.date_from==='2026-01-01'&&value.date_to==='2026-06-30'&&value.domain==='accounting_info'&&printable(value.file_name,255)&&value.period==='2026-H1'&&value.schema_version==='WBS_H1_2026_LOCAL_SNAPSHOT_V1'&&/^[1-9][0-9]*$/.test(value.bytes||'')&&/^[1-9][0-9]*$/.test(value.rows||'')&&/^[0-9a-f]{64}$/.test(value.sha256||'')&&typeof value.generated_at==='string'&&!Number.isNaN(Date.parse(value.generated_at));
+const manifest=value=>exact(value,['bytes','company_code','date_from','date_to','domain','file_name','generated_at','period','rows','schema_version','sha256'])&&printable(value.company_code,64)&&value.date_from==='2026-01-01'&&value.date_to==='2026-06-30'&&value.domain==='accounting_info'&&printable(value.file_name,255)&&value.period==='2026-H1'&&value.schema_version==='WBS_H1_2026_LOCAL_SNAPSHOT_V1'&&/^[1-9][0-9]*$/.test(value.bytes||'')&&/^[1-9][0-9]*$/.test(value.rows||'')&&/^[0-9a-f]{64}$/.test(value.sha256||'')&&utcTimestamp(value.generated_at);
 
 const moduleReceipt=value=>exact(value,['balance_status','credit_amount','currency','debit_amount','module_code','module_hash','period_code','period_id','receipt_id','row_count'])&&UUID.test(value.receipt_id||'')&&UUID.test(value.period_id||'')&&H1_PERIOD.test(value.period_code||'')&&/^[A-Z]{3}$/.test(value.currency||'')&&printable(value.module_code,256)&&Number.isSafeInteger(value.row_count)&&value.row_count>0&&MONEY4.test(value.debit_amount||'')&&value.credit_amount===value.debit_amount&&SHA256.test(value.module_hash||'')&&value.balance_status==='BALANCED';
 
@@ -17,7 +19,7 @@ const line=value=>{
   if(!exact(value,keys)||!UUID.test(value.tenant_id||'')||!UUID.test(value.entity_id||'')||!printable(value.company_code,64)||!/^[A-Z]{3}$/.test(value.currency||'')||!SHA256.test(value.source_version||'')||!SHA256.test(value.line_hash||'')||!Number.isSafeInteger(value.wbs_accounting_info_id)||value.wbs_accounting_info_id<1||!Number.isSafeInteger(value.row_ordinal)||value.row_ordinal<1||!MONEY4.test(value.debit_amount||'')||!MONEY4.test(value.credit_amount||'')||(value.debit_amount!=='0.0000'&&value.credit_amount!=='0.0000')||!Array.isArray(value.gap_codes)||value.gap_codes.some(code=>!printable(code,128))||typeof value.excluded_from_h1!=='boolean'||!['COMPLETE','MISSING_POSTING_DATE','MISSING_ACCOUNT','MISSING_PROJECT','MISSING_COST_CODE','MISSING_PAYEE','ZERO_AMOUNT','MULTIPLE_GAPS','OUTSIDE_H1'].includes(value.completeness_status))return false;
   for(const key of ['account_code','bill_no','business_guid','cb_id','cost_code','journal_group_id','member_ref','project_ref','property_ref','sys_id','unit_ref'])if(!nullablePrintable(value[key]))return false;
   for(const key of ['come_from','source','review_status','closed_status'])if(!printable(value[key]))return false;
-  for(const key of ['posting_date','set_date'])if(value[key]!==null&&(!ISO_DATE.test(value[key])||Number.isNaN(Date.parse(`${value[key]}T00:00:00Z`))))return false;
+  for(const key of ['posting_date','set_date'])if(value[key]!==null&&!calendarDate(value[key]))return false;
   if(value.line_no!==null&&(!Number.isSafeInteger(value.line_no)||value.line_no<1))return false;
   if(value.excluded_from_h1)return value.period_id===null&&value.period_code===null&&value.completeness_status==='OUTSIDE_H1';
   return UUID.test(value.period_id||'')&&H1_PERIOD.test(value.period_code||'')&&value.completeness_status!=='OUTSIDE_H1';

@@ -2424,17 +2424,17 @@ export class PostgresAccountingKernel{
   }
 
   async readWbsH1AccountingControlPopulation({tenantId,entityId,runId,afterOrdinal=0,limit=100}){
-    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_wbs_h1_accounting_population($1,$2,$3,$4,$5) AS result',[tenantId,entityId,runId,afterOrdinal,limit]),'WBS_H1_ACCOUNTING_CONTROL_READ_FAILED','The finalized WBS accounting control population was not found').result);
+    return this.inSession(async client=>{await client.query("SELECT refs_assert_scope($1,$2,'WBS.AUTOREC.VIEW')",[tenantId,entityId]);return requireRow(await client.query('SELECT refs_read_wbs_h1_accounting_population($1,$2,$3,$4,$5) AS result',[tenantId,entityId,runId,afterOrdinal,limit]),'WBS_H1_ACCOUNTING_CONTROL_READ_FAILED','The finalized WBS accounting control population was not found').result;});
   }
 
   async listWbsH1AccountingControlPopulations({tenantId,entityId,limit=50,offset=0}){
-    return this.inSession(async client=>(await client.query(
+    return this.inSession(async client=>{await client.query("SELECT refs_assert_scope($1,$2,'WBS.AUTOREC.VIEW')",[tenantId,entityId]);return (await client.query(
       `SELECT r.receipt_document||jsonb_build_object('receipt_id',r.receipt_id,'receipt_hash',r.receipt_hash) AS result
        FROM wbs_h1_accounting_population_receipt r
        JOIN wbs_h1_accounting_population_run p ON p.run_id=r.run_id AND p.tenant_id=r.tenant_id AND p.entity_id=r.entity_id
        WHERE r.tenant_id=$1 AND r.entity_id=$2
        ORDER BY r.finalized_at DESC,r.receipt_id DESC LIMIT $3 OFFSET $4`,[tenantId,entityId,limit,offset]
-    )).rows.map(row=>row.result));
+    )).rows.map(row=>row.result);});
   }
 
   async retireConfigSnapshot(args){
