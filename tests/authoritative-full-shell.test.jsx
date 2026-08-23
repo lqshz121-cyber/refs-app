@@ -23,6 +23,8 @@ assert.ok(AUTHORITATIVE_ROUTES.includes('1099s'),'the observed Expenses navigati
 assert.equal(navigationItemForRoute('1099s')?.availability,'API_UNAVAILABLE','1099s must fail closed until a tax-permission-scoped filing reader exists');
 assert.ok(AUTHORITATIVE_ROUTES.includes('receipts'),'the observed Accounting navigation must keep Receipts discoverable without granting an upload or review route');
 assert.equal(navigationItemForRoute('receipts')?.availability,'API_UNAVAILABLE','Receipts must fail closed until an immutable receipt queue reader exists');
+assert.ok(AUTHORITATIVE_ROUTES.includes('recurring-transactions'),'the observed Accounting navigation must keep Recurring transactions discoverable without granting template or execution authority');
+assert.equal(navigationItemForRoute('recurring-transactions')?.availability,'API_UNAVAILABLE','Recurring transactions must fail closed until an immutable template reader exists');
 assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'accounting-analysis-report', 'ai-audit', 'ai-je-workbench', 'amortization', 'bank', 'bank-batch-pipeline', 'chart-of-accounts', 'consolidation', 'construction-loan', 'general-ledger', 'intercompany', 'journals', 'overview', 'payables', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'reconciliation', 'reports', 'source-documents', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
 const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation','Source & Staging']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}} onTogglePanel={() => {}}/>);
@@ -31,6 +33,7 @@ const collapsedNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell na
 const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroups={['Reports']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const payablesNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="payables" expandedGroups={['Payables & Receivables']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const receiptsNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="receipts" expandedGroups={['Source & Staging']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const recurringNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="recurring-transactions" expandedGroups={['Accounting Operations']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const journalNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="journals" expandedGroups={['Journal Entry']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const mobileReportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroups={['Reports']} navOpen={true} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const routeWinsMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="wbs-autorec-evidence" expandedGroups={['General Ledger']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
@@ -49,6 +52,8 @@ assert.match(reportNavMarkup, /Accounting Analysis Report/, 'the Reports workspa
 assert.match(payablesNavMarkup, /Bills &amp; expenses/);assert.match(payablesNavMarkup, /Vendors/);assert.match(payablesNavMarkup, /Bill payments/);assert.match(payablesNavMarkup, /Contractors/);assert.match(payablesNavMarkup, />1099s</);assert.match(payablesNavMarkup, /Invoices &amp; receipts/);
 assert.match(receiptsNavMarkup,/Source Documents/);assert.match(receiptsNavMarkup,/>Receipts</);assert.match(receiptsNavMarkup,/Integration Hub/);
 assert.doesNotMatch(receiptsNavMarkup,/Upload receipts|Export|Customize|Set it up|Compare rates/,'the Accounting receipt navigation must not import upload, export, customize, or payment-promotion actions');
+assert.match(recurringNavMarkup,/>Recurring transactions</);assert.match(recurringNavMarkup,/>Prepaid expenses</);assert.match(recurringNavMarkup,/>Fixed Assets</);
+assert.doesNotMatch(recurringNavMarkup,/Reminder List|>New<|Manage recurring payments/,'the Accounting navigation must not import recurring template or payment commands');
 assert.doesNotMatch(payablesNavMarkup, /Start using Bill Pay|ACH|Pay now/,'the read-only navigation must not import QBO payment-enrollment or money-movement actions');
 assert.doesNotMatch(journalNavMarkup, /Journal entries/, 'a one-page Journal workspace must not repeat its only child in a secondary menu');
 assert.match(reportNavMarkup, /aria-label="Accounting workspace navigation"/, 'the Reports secondary menu must retain its navigation landmark');
@@ -148,6 +153,9 @@ assert.doesNotMatch(filingsUnavailableMarkup,/E-file|Recipients &amp; W-9s|Compl
 const receiptsUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('receipts')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.match(receiptsUnavailableMarkup,/Receipts is not available yet/);assert.match(receiptsUnavailableMarkup,/role="status"/);
 assert.doesNotMatch(receiptsUnavailableMarkup,/Upload receipts|Add new receipts|For review|Reviewed|OCR|Add to books|Export|Customize|Payments/,'the unavailable Receipts route must not reproduce upload, review, accounting, export, customize, or payment actions');
+const recurringUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('recurring-transactions')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
+assert.match(recurringUnavailableMarkup,/Recurring transactions is not available yet/);assert.match(recurringUnavailableMarkup,/role="status"/);
+assert.doesNotMatch(recurringUnavailableMarkup,/Reminder List|Filter by Name|Manage recurring payments|TEMPLATE NAME|Customer\/Vendor|AMOUNT|ACTION/,'the unavailable Recurring transactions route must not reproduce template, payment, or execution controls');
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
 const amortizationSource = fs.readFileSync('src/authoritative-amortization-workspace.jsx', 'utf8');
 for(const file of ['src/authoritative-aging-workspace.jsx','src/authoritative-amortization-workspace.jsx','src/authoritative-lineage-drill.jsx','src/authoritative-property-rent-workspace.jsx']){

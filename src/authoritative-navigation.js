@@ -80,6 +80,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     // The available scope is the existing two-entity reconciliation reader;
     // it does not expose an uncontracted intercompany posting workflow.
     item('intercompany', 'Intercompany', 'API_READ'),
+    item('recurring-transactions', 'Recurring transactions', 'API_UNAVAILABLE', [
+      'Entity-scoped recurring-template rows with immutable template identity, revision, type, interval, dates, counterparty, currency, amount, and status.',
+      'Read-only filter, paging, and detail endpoints; template lifecycle, reminder execution, recurring payment management, and accounting commands remain unavailable.',
+    ]),
     item('fixed-assets', 'Fixed Assets'),
     // QBO calls this surface Prepaid expenses. REFS keeps its stronger
     // Amortization Center controls behind that familiar accounting label.
