@@ -17,6 +17,7 @@ test('provisions one entity and six periods per WBS company in one transaction',
   const sql=[];const client={
     async query(text,params=[]){sql.push([text,params]);
       if(/SELECT entity_id::text,source_system/.test(text))return {rows:[{entity_id:templateEntityId,source_system:'REFS_STAGE1',source_entity_id:'REFS_US_001',base_currency:'USD'}]};
+      if(/UPDATE entity SET entity_code='REFS_US_STAGING'/.test(text))return {rows:[{entity_id:templateEntityId}]};
       if(/RETURNING entity_id::text/.test(text)){const entityId=params[0];return {rows:[{entity_id:entityId,inserted:params[2]!=='WBPA'}]};}
       if(/SELECT count\(DISTINCT e\.entity_id\)/.test(text))return {rows:[{company_count:2,period_count:12}]};
       return {rows:[]};
@@ -26,8 +27,9 @@ test('provisions one entity and six periods per WBS company in one transaction',
   assert.equal(result.status,'WBS_H1_COMPANY_SCOPES_READY');assert.equal(result.company_count,2);assert.equal(result.period_count,12);
   assert.equal(sql[0][0],'BEGIN');assert.equal(sql.at(-2)[0],'COMMIT');assert.equal(sql.at(-1)[0],'RELEASE');
   assert.ok(sql.some(([text])=>/INSERT INTO runtime_actor_grant/.test(text)));assert.ok(sql.some(([text])=>/INSERT INTO account_master/.test(text)));
-  assert.ok(sql.some(([text])=>/UPDATE entity SET entity_code='WBPA',name=/.test(text)));
-  assert.equal(sql.filter(([text])=>/INSERT INTO entity\(/.test(text)).length,1);
+  assert.ok(sql.some(([text])=>/UPDATE entity SET entity_code='REFS_US_STAGING'/.test(text)));
+  assert.equal(sql.filter(([text])=>/INSERT INTO entity\(/.test(text)).length,2);
+  assert.ok(sql.some(([text])=>/source_system='WBS'/.test(text)));
 });
 
 test('fails closed on duplicate company identity before provisioning',async()=>{

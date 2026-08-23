@@ -117,64 +117,9 @@ export async function readWbsCompanyCatalog({client,maxPages=5000}={}){
 }
 
 export async function provisionWbsCompanyScopes({pool,tenantId,templateEntityId,catalog}={}){
-  if(!pool||typeof pool.connect!=='function'||!UUID.test(tenantId||'')||!UUID.test(templateEntityId||'')||!catalog||!Array.isArray(catalog.companies)||!catalog.companies.length)throw new Error('WBS company provisioning configuration is invalid');
-  const client=await pool.connect();
-  try{
-    await client.query('BEGIN');
-    const template=(await client.query(`SELECT entity_id::text,source_system,source_entity_id,base_currency FROM entity
-      WHERE tenant_id=$1 AND entity_id=$2 AND active FOR UPDATE`,[tenantId,templateEntityId])).rows[0];
-    const expectedTemplate=template&&template.base_currency==='USD'&&(
-      (template.source_system==='REFS_STAGE1'&&template.source_entity_id==='REFS_US_001')||
-      (template.source_system==='WBS'&&template.source_entity_id==='WBPA')
-    );
-    if(!expectedTemplate)throw new Error('The configured REFS staging entity is not the expected legacy or WBS WBPA scope');
-    const wbpa=catalog.companies.find(row=>row.company_code==='WBPA');
-    if(!wbpa)throw new Error('The WBS company catalog does not contain WBPA');
-    await client.query(`UPDATE entity SET entity_code='WBPA',name=$3
-      WHERE tenant_id=$1 AND entity_id=$2`,[tenantId,templateEntityId,wbpa.company_name]);
-    let created=0,reused=0;
-    for(const company of catalog.companies){
-      if(!COMPANY.test(company.company_code)||typeof company.company_name!=='string'||!company.company_name.trim())throw new Error('WBS company catalog row is invalid');
-      const entityId=company.company_code==='WBPA'?templateEntityId:deterministicUuid(`refs:${tenantId}:wbs-company:${company.company_code}`);
-      if(company.company_code==='WBPA')reused++;
-      else{
-        const inserted=await client.query(`INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency,active)
-          VALUES($1,$2,$3,'WBS',$3,$4,'USD',true)
-          ON CONFLICT(tenant_id,source_system,source_entity_id) DO UPDATE SET name=EXCLUDED.name,active=true
-          RETURNING entity_id::text,(xmax=0) AS inserted`,[entityId,tenantId,company.company_code,company.company_name]);
-        const exactEntityId=inserted.rows[0]?.entity_id;
-        if(exactEntityId!==entityId)throw new Error(`Existing WBS entity identity conflicts for ${company.company_code}`);
-        if(inserted.rows[0].inserted)created++;else reused++;
-      }
-      await client.query(`INSERT INTO accounting_period(period_id,tenant_id,entity_id,ledger_code,period_code,starts_on,ends_on,status)
-        SELECT $4,$1,$2,'PRIMARY',to_char(month_start,'YYYY-MM'),month_start,(month_start+interval '1 month - 1 day')::date,'OPEN'
-        FROM (SELECT make_date(2026,$3,1) AS month_start) month_scope
-        ON CONFLICT(tenant_id,entity_id,ledger_code,period_code) DO NOTHING`,
-        [tenantId,entityId,1,deterministicUuid(`refs:${tenantId}:${entityId}:2026-01`)]);
-      for(let month=2;month<=6;month++)await client.query(`INSERT INTO accounting_period(period_id,tenant_id,entity_id,ledger_code,period_code,starts_on,ends_on,status)
-        VALUES($1,$2,$3,'PRIMARY',$4,make_date(2026,$5,1),(make_date(2026,$5,1)+interval '1 month - 1 day')::date,'OPEN')
-        ON CONFLICT(tenant_id,entity_id,ledger_code,period_code) DO NOTHING`,[deterministicUuid(`refs:${tenantId}:${entityId}:2026-${String(month).padStart(2,'0')}`),tenantId,entityId,`2026-${String(month).padStart(2,'0')}`,month]);
-      await client.query(`INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type,active)
-        SELECT tenant_id,$3,account_code,account_name,requires_member,required_member_type,active
-        FROM account_master WHERE tenant_id=$1 AND entity_id=$2
-        ON CONFLICT(tenant_id,entity_id,account_code) DO NOTHING`,[tenantId,templateEntityId,entityId]);
-      await client.query(`INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission,valid_until,revoked_at)
-        SELECT tenant_id,actor_id,$3,permission,valid_until,NULL FROM runtime_actor_grant
-        WHERE tenant_id=$1 AND entity_id=$2 AND revoked_at IS NULL AND (valid_until IS NULL OR valid_until>clock_timestamp())
-        ON CONFLICT(tenant_id,actor_id,entity_id,permission) DO UPDATE SET valid_until=EXCLUDED.valid_until,revoked_at=NULL`,[tenantId,templateEntityId,entityId]);
-      await client.query(`INSERT INTO runtime_actor_grant_set(tenant_id,actor_id,entity_id,version,updated_by,updated_at)
-        SELECT tenant_id,actor_id,$3,version,'wbs-all-company-provisioner',clock_timestamp()
-        FROM runtime_actor_grant_set WHERE tenant_id=$1 AND entity_id=$2
-        ON CONFLICT(tenant_id,actor_id,entity_id) DO UPDATE SET version=GREATEST(runtime_actor_grant_set.version,EXCLUDED.version),updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at`,[tenantId,templateEntityId,entityId]);
-    }
-    const entityIds=catalog.companies.map(company=>company.company_code==='WBPA'?templateEntityId:deterministicUuid(`refs:${tenantId}:wbs-company:${company.company_code}`));
-    const evidence=(await client.query(`SELECT count(DISTINCT e.entity_id)::integer AS company_count,count(DISTINCT p.period_id)::integer AS period_count
-      FROM entity e JOIN accounting_period p ON p.tenant_id=e.tenant_id AND p.entity_id=e.entity_id
-      WHERE e.tenant_id=$1 AND e.entity_id=ANY($2::uuid[]) AND e.active AND p.period_code BETWEEN '2026-01' AND '2026-06'`,[tenantId,entityIds])).rows[0];
-    if(evidence.company_count!==catalog.companies.length||evidence.period_count!==catalog.companies.length*6)throw new Error('Provisioned WBS company or H1 period count is incomplete');
-    await client.query('COMMIT');
-    return Object.freeze({status:'WBS_H1_COMPANY_SCOPES_READY',company_count:evidence.company_count,period_count:evidence.period_count,created_count:created,reused_count:reused});
-  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+  if(!catalog||!Array.isArray(catalog.companies)||!catalog.companies.length)throw new Error('WBS company provisioning configuration is invalid');
+  const result=await provisionDirectWbsCompanyScopes({pool,tenantId,templateEntityId,companies:catalog.companies});
+  return Object.freeze({...result,status:'WBS_H1_COMPANY_SCOPES_READY'});
 }
 
 async function main(){

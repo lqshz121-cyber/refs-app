@@ -93,6 +93,7 @@
     "wbs:full-company-plan:verify": "node tools/verify-wbs-full-company-delivery-plan.mjs",
     "wbs:full-company-plan:build": "node tools/build-wbs-full-company-delivery-plan.mjs",
     "wbs:h1:import-companies": "node tools/import-wbs-h1-all-companies.mjs",
+    "wbs:h1:provision-companies": "node tools/provision-wbs-h1-companies.mjs",
     "wbs:h1:import-direct-payables": "node tools/import-wbs-h1-direct-payables.mjs",
     "wbs:h1:verify-company": "node tools/verify-wbs-h1-company-accounting.mjs",
     "wbs:h1:verify-authoritative-api": "node tools/verify-wbs-h1-authoritative-api.mjs",
