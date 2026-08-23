@@ -18,7 +18,7 @@ test('WBS payable mapping source retains exact company, period, immutable key an
 });
 
 test('an importer raw Payable page is retained once without a second WBS read',async()=>{
-  let staged;const pool={query:async(_sql,args)=>{staged=JSON.parse(args[0]);return {rows:[{expected_count:1,exact_count:1,inserted_count:1}]};}};
+  let staged;const pool={query:async(_sql,args)=>{staged=JSON.parse(args[0]);return {rows:[{receipt:{expected_count:1,exact_count:1,inserted_count:1,conflict_count:0,conflict_inserted_count:0,conflict_receipt_hash:'sha256:'+'0'.repeat(64)}}]};}};
   const observed={tool_name:'list_payables',scope:{company_codes:['OPPO']},content_sha256:'b'.repeat(64),captured_at:capturedAt,rows:[{ap_guid:'33333333-3333-4333-8333-333333333333',company_code:'OPPO',posting_date:'2026-03-01',amount:'10.0000',pj_code:'P1',cost_code:'C1',vendor_no:'V1'}]};
   const receipt=await stageWbsH1PayableMappingRawPage({pool,tenantId,entityId,tool:'list_payables',companyCode:'OPPO',observed});
   assert.equal(receipt.staged_row_count,1);assert.equal(staged.length,1);assert.equal(staged[0].period_code,'2026-03');assert.equal(staged[0].project_code,'P1');
@@ -26,11 +26,11 @@ test('an importer raw Payable page is retained once without a second WBS read',a
 });
 
 test('test import reports an immutable mapping-stage drift without discarding the authoritative raw import page',async()=>{
-  const pool={query:async()=>({rows:[{expected_count:1,exact_count:0,inserted_count:0}]})},drifts=[];
+  const conflictReceiptHash='sha256:'+'d'.repeat(64),pool={query:async()=>({rows:[{receipt:{expected_count:1,exact_count:0,inserted_count:0,conflict_count:1,conflict_inserted_count:1,conflict_receipt_hash:conflictReceiptHash}}]})},drifts=[];
   const observed={tool_name:'list_payables',scope:{company_codes:['WBPA']},content_sha256:'c'.repeat(64),captured_at:capturedAt,rows:[{ap_guid:'WORK-33333333-3333-4333-8333-333333333333',company_code:'WBPA',posting_date:'2026-01-15',amount:'10.0000'}]};
   const receipt=await stageWbsH1PayableMappingRawPageForTestImport({pool,tenantId,entityId,tool:'list_payables',companyCode:'WBPA',observed,onDrift:row=>drifts.push(row)});
-  assert.deepEqual(receipt,{staged_row_count:0,drifted_source_evidence:true});
-  assert.deepEqual(drifts,[{status:'WBS_H1_PAYABLE_MAPPING_SOURCE_DRIFT',company_code:'WBPA',tool:'list_payables'}]);
+  assert.deepEqual(receipt,{staged_row_count:0,drifted_source_evidence:true,conflict_count:1,conflict_receipt_hash:conflictReceiptHash});
+  assert.deepEqual(drifts,[{status:'WBS_H1_PAYABLE_MAPPING_SOURCE_DRIFT',company_code:'WBPA',tool:'list_payables',conflict_count:1,conflict_receipt_hash:conflictReceiptHash}]);
 });
 
 test('a direct connected WBS snapshot binds exact H1 source facts for one provisioned company',()=>{
@@ -78,7 +78,7 @@ test('accounting setting stage counts both new inserts and command-snapshot matc
 
 test('payable mapping source stage counts both new inserts and exact prior matches',()=>{
   const source=readFileSync(new URL('../tools/stage-wbs-h1-payable-mapping-source.mjs',import.meta.url),'utf8');
-  assert.match(source,/source_fact_hash=i\.source_fact_hash\)\+\(SELECT count\(\*\) FROM inserted\)/);
+  assert.match(source,/refs_retain_wbs_h1_payable_mapping_source_rows/);assert.match(source,/conflict_receipt_hash/);
 });
 
 test('signed payable mapping migration accepts nonzero adjustments and refuses unsafe down',()=>{

@@ -46,26 +46,11 @@ export function normalizeWbsH1PayableMappingRow(row,{tenantId,entityId,companyCo
 
 export async function retainWbsH1PayableMappingSourceRows(pool,rows){
   if(!rows.length)return;
-  const result=await pool.query(`WITH input AS (
-      SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(
-        tenant_id uuid,entity_id uuid,company_code text,period_code text,wbs_uuid text,
-        source_record_hash text,accounting_date date,amount numeric(24,4),project_code text,
-        cost_code text,vendor_no text,source_fact_hash text,provider_content_hash text,captured_at timestamptz)
-    ), inserted AS (
-      INSERT INTO wbs_h1_payable_mapping_source_stage(
-        tenant_id,entity_id,company_code,period_code,wbs_uuid,source_record_hash,accounting_date,
-        amount,project_code,cost_code,vendor_no,source_fact_hash,provider_content_hash,captured_at)
-      SELECT tenant_id,entity_id,company_code,period_code,wbs_uuid,source_record_hash,accounting_date,
-        amount,project_code,cost_code,vendor_no,source_fact_hash,provider_content_hash,captured_at FROM input
-      ON CONFLICT DO NOTHING RETURNING 1
-    )
-    SELECT count(*)::integer AS expected_count,
-      (count(*) FILTER(WHERE s.source_fact_hash=i.source_fact_hash)+(SELECT count(*) FROM inserted))::integer AS exact_count,
-      (SELECT count(*)::integer FROM inserted) AS inserted_count
-    FROM input i LEFT JOIN wbs_h1_payable_mapping_source_stage s
-      ON s.tenant_id=i.tenant_id AND s.entity_id=i.entity_id AND s.source_record_hash=i.source_record_hash`,[JSON.stringify(rows)]);
-  const receipt=result.rows[0];
-  if(receipt.expected_count!==rows.length||receipt.exact_count!==rows.length)throw Object.assign(new Error('WBS H1 payable mapping source replay drifted from retained evidence'),{code:'WBS_H1_PAYABLE_MAPPING_SOURCE_DRIFT'});
+  const result=await pool.query('SELECT refs_retain_wbs_h1_payable_mapping_source_rows($1::jsonb) receipt',[JSON.stringify(rows)]);
+  const receipt=result.rows[0]?.receipt;
+  if(!receipt||receipt.expected_count!==rows.length||receipt.exact_count+receipt.conflict_count!==rows.length)throw new Error('WBS H1 payable mapping source retention receipt is invalid');
+  if(receipt.conflict_count>0)throw Object.assign(new Error('WBS H1 payable mapping source replay drifted from retained evidence'),{code:'WBS_H1_PAYABLE_MAPPING_SOURCE_DRIFT',receipt});
+  return Object.freeze(receipt);
 }
 
 export async function stageWbsH1PayableMappingRawPage({pool,tenantId,entityId,tool,companyCode,observed}={}){
@@ -81,8 +66,9 @@ export async function stageWbsH1PayableMappingRawPageForTestImport(args={}){
   try{return await stageWbsH1PayableMappingRawPage(args);}
   catch(error){
     if(error?.code!=='WBS_H1_PAYABLE_MAPPING_SOURCE_DRIFT')throw error;
-    if(typeof args.onDrift==='function')args.onDrift(Object.freeze({status:'WBS_H1_PAYABLE_MAPPING_SOURCE_DRIFT',company_code:args.companyCode,tool:args.tool}));
-    return Object.freeze({staged_row_count:0,drifted_source_evidence:true});
+    const conflictCount=error.receipt?.conflict_count||0;
+    if(typeof args.onDrift==='function')args.onDrift(Object.freeze({status:'WBS_H1_PAYABLE_MAPPING_SOURCE_DRIFT',company_code:args.companyCode,tool:args.tool,conflict_count:conflictCount,conflict_receipt_hash:error.receipt?.conflict_receipt_hash||null}));
+    return Object.freeze({staged_row_count:error.receipt?.inserted_count||0,drifted_source_evidence:true,conflict_count:conflictCount,conflict_receipt_hash:error.receipt?.conflict_receipt_hash||null});
   }
 }
 
