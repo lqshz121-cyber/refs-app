@@ -85,6 +85,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Entity-scoped recurring-template rows with immutable template identity, revision, type, interval, dates, counterparty, currency, amount, and status.',
       'Read-only filter, paging, and detail endpoints; template lifecycle, reminder execution, recurring payment management, and accounting commands remain unavailable.',
     ]),
+    item('revenue-recognition', 'Revenue recognition', 'API_UNAVAILABLE', [
+      'Entity- and period-scoped recognition schedules with immutable source, schedule revision, dates, accounts, currency, amount, status, Journal, ledger, and audit identifiers.',
+      'Read-only list, detail, and report endpoints; settings, rule changes, schedule creation, automatic Journal generation, and posting remain unavailable.',
+    ]),
     item('fixed-assets', 'Fixed Assets'),
     // QBO calls this surface Prepaid expenses. REFS keeps its stronger
     // Amortization Center controls behind that familiar accounting label.
