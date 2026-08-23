@@ -2382,6 +2382,28 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async retainWbsH1AccountingControlPopulation({tenantId,entityId,runId,idempotencyKey,population,linePageFactory=null}){
+    return this.inSession(async client=>{
+      const arrayMode=Array.isArray(population?.lines),streamMode=typeof linePageFactory==='function';
+      if(!population||population.tenant_id!==tenantId||population.entity_id!==entityId||arrayMode===streamMode||(arrayMode&&population.lines.length!==population.expected_row_count)||!population.source_manifest||population.source_manifest_hash!==canonicalRequestHash(population.source_manifest))throw new KernelError('WBS_H1_ACCOUNTING_CONTROL_POPULATION_INVALID','The complete normalized manifest-bound WBS accounting control population is required');
+      let lines=null,populationHash=population.population_hash;
+      if(arrayMode){const documents=population.lines.map(({line_hash,...line})=>line),hashed=(await client.query(`SELECT ordinality::integer AS ordinal,doc,refs_wbs_h1_accounting_jsonb_hash(doc) AS line_hash FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY AS x(doc,ordinality) ORDER BY ordinality`,[JSON.stringify(documents)])).rows;lines=hashed.map(({doc,line_hash})=>({...doc,line_hash}));populationHash=requireRow(await client.query(`SELECT 'sha256:'||encode(digest(convert_to(string_agg(line_hash||E'\\n','' ORDER BY ordinal),'UTF8'),'sha256'),'hex') AS population_hash FROM jsonb_to_recordset($1::jsonb) AS x(ordinal integer,line_hash text)`,[JSON.stringify(hashed.map(({ordinal,line_hash})=>({ordinal,line_hash})))]),'WBS_H1_ACCOUNTING_CONTROL_HASH_FAILED','The retained population hash was not produced').population_hash;}
+      const args=[runId,tenantId,entityId,population.company_code,population.currency,population.source_version,population.snapshot_token_hash,population.provider_content_hash,population.source_manifest,population.source_manifest_hash,population.captured_at,population.expected_row_count,population.included_h1_row_count,population.excluded_row_count,population.expected_debit_amount,population.expected_credit_amount,populationHash,idempotencyKey];
+      const hashArgs=[...args.slice(0,8),args[9],...args.slice(10,17)];
+      const requestHash=requireRow(await client.query(`SELECT refs_jsonb_hash(jsonb_build_object('run_id',$1::uuid,'tenant_id',$2::uuid,'entity_id',$3::uuid,'company_code',$4::text,'currency',$5::text,'source_version',$6::text,'snapshot_token_hash',$7::text,'provider_content_hash',$8::text,'source_manifest_hash',$9::text,'captured_at',$10::timestamptz,'expected_row_count',$11::integer,'included_h1_row_count',$12::integer,'excluded_row_count',$13::integer,'debit_amount',to_char($14::numeric,'FM999999999999999999990.0000'),'credit_amount',to_char($15::numeric,'FM999999999999999999990.0000'),'population_hash',$16::text)) AS request_hash`,hashArgs),'WBS_H1_ACCOUNTING_CONTROL_REQUEST_HASH_FAILED','The WBS accounting control request hash was not produced').request_hash;
+      await client.query('SELECT refs_create_wbs_h1_accounting_population_run($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11::timestamptz,$12,$13,$14,$15::numeric,$16::numeric,$17,$18,$19)',[...args,requestHash]);
+      const finalized=(await client.query('SELECT 1 FROM wbs_h1_accounting_population_receipt WHERE run_id=$1 AND tenant_id=$2 AND entity_id=$3',[runId,tenantId,entityId])).rowCount===1;
+      if(finalized)return requireRow(await client.query('SELECT refs_finalize_wbs_h1_accounting_population($1,$2,$3) AS result',[tenantId,entityId,runId]),'WBS_H1_ACCOUNTING_CONTROL_FINALIZE_FAILED','The WBS accounting control receipt was not produced').result;
+      if(arrayMode){for(let offset=0;offset<lines.length;offset+=1000)await client.query('SELECT refs_append_wbs_h1_accounting_population_lines($1,$2,$3,$4::jsonb)',[tenantId,entityId,runId,JSON.stringify(lines.slice(offset,offset+1000))]);}
+      else for await(const page of linePageFactory()){if(!Array.isArray(page)||page.length<1||page.length>1000)throw new KernelError('WBS_H1_ACCOUNTING_CONTROL_PAGE_INVALID','Streamed WBS accounting pages must contain 1..1000 exact rows');await client.query('SELECT refs_append_wbs_h1_accounting_population_lines($1,$2,$3,$4::jsonb)',[tenantId,entityId,runId,JSON.stringify(page)]);}
+      return requireRow(await client.query('SELECT refs_finalize_wbs_h1_accounting_population($1,$2,$3) AS result',[tenantId,entityId,runId]),'WBS_H1_ACCOUNTING_CONTROL_FINALIZE_FAILED','The WBS accounting control receipt was not produced').result;
+    });
+  }
+
+  async readWbsH1AccountingControlPopulation({tenantId,entityId,runId,afterOrdinal=0,limit=100}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_wbs_h1_accounting_population($1,$2,$3,$4,$5) AS result',[tenantId,entityId,runId,afterOrdinal,limit]),'WBS_H1_ACCOUNTING_CONTROL_READ_FAILED','The finalized WBS accounting control population was not found').result);
+  }
+
   async retireConfigSnapshot(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

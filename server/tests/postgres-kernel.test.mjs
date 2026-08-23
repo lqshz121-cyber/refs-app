@@ -34,6 +34,7 @@ import {createAiAccountingApprovedDecisionService} from '../runtime/ai-accountin
 import {createAiAccountingApprovedSettingsAdapter} from '../runtime/ai-accounting-approved-settings-adapter.mjs';
 import {installApprovedAiSettingsFixture,retainFinal1PayableFixture} from './helpers/approved-ai-settings-fixture.mjs';
 import {readAuthoritativeSourceDocumentDetail,refreshAuthoritativeDocuments,refreshAuthoritativeFinancialStatementPeriodComparison,refreshAuthoritativeFinancialStatements,refreshAuthoritativeGeneralLedger,refreshAuthoritativeJournalEntries,refreshAuthoritativeSourceDocuments,refreshControlledTestAiSources} from '../../src/accounting-api.js';
+import {buildWbsH1AccountingControlPopulation} from '../runtime/wbs-h1-accounting-control-population.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -97,6 +98,20 @@ function pgTest(name,fn){
     await fn(t);
   });
 }
+
+pgTest('WBS H1 accounting_info is retained as one complete balanced control population with zero journal authority',async()=>{
+  const ids=await seed({status:'DRAFT'}),periodId=randomUUID();
+  await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) SELECT CASE WHEN month_no=1 THEN $1::uuid ELSE gen_random_uuid() END,$2,$3,'2026-'||lpad(month_no::text,2,'0'),make_date(2026,month_no,1),(make_date(2026,month_no,1)+interval '1 month'-interval '1 day')::date,'OPEN' FROM generate_series(1,6) month_no",[periodId,ids.tenantId,ids.entityId]);
+  const sourceVersion=hash('wbs-accounting-source-version'),snapshotTokenHash=hash('wbs-accounting-snapshot-token'),providerContentHash=hash('wbs-accounting-provider-content');
+  const rows=[{id:1,com_code:ids.sourceEntityId,posting_date:'2026-01-15',cb_id:'PAIR-1',journal_no:'',sort:1,account:'610000',account_code:'Ending 8023',debtor:'100.0000',lender:'0',payee:'VENDOR-1',pj_code:'P-1',cost_code:'C-1',unit:'U-1',come_from:'PAYABLE',source:'WBS',review:'Y',closed:'N'},{id:2,com_code:ids.sourceEntityId,posting_date:'2026-01-15',cb_id:'PAIR-1',journal_no:'',sort:2,account:'291001',account_code:'Ending 8023',debtor:'0',lender:'100.0000',payee:'VENDOR-1',pj_code:'P-1',cost_code:'C-1',unit:'U-1',come_from:'PAYABLE',source:'WBS',review:'Y',closed:'N'}];
+  const sourceManifest={schema_version:'WBS_H1_2026_LOCAL_SNAPSHOT_V1',domain:'accounting_info',company_code:ids.sourceEntityId,period:'2026-H1',date_from:'2026-01-01',date_to:'2026-06-30',generated_at:'2026-08-23T12:00:00.000Z',file_name:`accounting_info__${ids.sourceEntityId}__2026-H1.ndjson`,rows:2,bytes:200,sha256:providerContentHash.slice(7)};
+  const population=buildWbsH1AccountingControlPopulation({tenantId:ids.tenantId,entityId:ids.entityId,companyCode:ids.sourceEntityId,currency:'USD',sourceVersion,snapshotTokenHash,providerContentHash,sourceManifest,capturedAt:'2026-08-23T12:00:00.000Z',rows});
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-accounting-control-importer',['WBS.SNAPSHOT.IMPORT','WBS.AUTOREC.VIEW'])}),runId=randomUUID(),before=(await adminPool.query('SELECT count(*)::integer count FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].count;
+  const receipt=await kernel.retainWbsH1AccountingControlPopulation({tenantId:ids.tenantId,entityId:ids.entityId,runId,idempotencyKey:'wbs-accounting-control-pg-001',population});
+  assert.equal(receipt.accounting_authority,'CONTROL_EVIDENCE_ONLY');assert.equal(receipt.row_count,2);assert.equal(receipt.debit_amount,'100.0000');assert.deepEqual([receipt.can_create_draft,receipt.can_review,receipt.can_approve,receipt.can_post],[false,false,false,false]);
+  const read=await kernel.readWbsH1AccountingControlPopulation({tenantId:ids.tenantId,entityId:ids.entityId,runId,limit:1});assert.equal(read.population_complete,true);assert.equal(read.run_finalized,true);assert.equal(read.page_complete,false);assert.equal(read.rows.length,1);assert.equal(read.cursor_next,1);assert.equal(read.module_receipts.length,1);assert.equal(read.module_receipts[0].balance_status,'BALANCED');const finalPage=await kernel.readWbsH1AccountingControlPopulation({tenantId:ids.tenantId,entityId:ids.entityId,runId,afterOrdinal:read.cursor_next,limit:1});assert.equal(finalPage.population_complete,true);assert.equal(finalPage.run_finalized,true);assert.equal(finalPage.page_complete,true);assert.equal(finalPage.rows.length,1);assert.equal(finalPage.cursor_next,null);assert.equal((await adminPool.query('SELECT count(*)::integer count FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].count,before);
+  const replay=await kernel.retainWbsH1AccountingControlPopulation({tenantId:ids.tenantId,entityId:ids.entityId,runId,idempotencyKey:'wbs-accounting-control-pg-001',population});assert.equal(replay.idempotent,true);assert.equal((await adminPool.query("SELECT count(*)::integer count FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_H1_ACCOUNTING_CONTROL_RETAINED'",[ids.tenantId])).rows[0].count,1);assert.equal((await adminPool.query("SELECT count(*)::integer count FROM outbox_event WHERE tenant_id=$1 AND event_type='WBS_H1_ACCOUNTING_CONTROL_RETAINED'",[ids.tenantId])).rows[0].count,1);
+});
 
 async function migrateDownThrough(pool,targetMigration){
   for(;;){

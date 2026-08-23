@@ -277,4 +277,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"269_wbs_h1_payable_reclass_draft.sql",up:"d90986f98a7bad15fab415d43b64ac2c1be76642c0067b4f916a6815044c6ae0",down:"06403b5f9b71098ad5c5309fab85d2385ba85af63f5f45b1018fa2de84056ae3"}),
   Object.freeze({name:"270_wbs_h1_payable_reclass_vendor_identity.sql",up:"65fccf16fefa95ceb1113a5b425a7e389936c45f9613a3af69ccf9d7e01ca200",down:"7b7f72b1e3733594ccdbf17705c7389bf88a9f9850c4e203e1d06ce1df9e4bf1"}),
   Object.freeze({name:"271_wbs_h1_payable_mapping_source_conflict.sql",up:"194f93dcb16dc2779e0e4c33873ecc14669db952b21c2435a3d231793022deb9",down:"d3b2d0dd11efaef03fed6935daf8d50b769b74d425e985a8d92450d4b823b6a5"}),
+  Object.freeze({name:"272_wbs_h1_accounting_control_population.sql",up:"5a2e82baf7ac68c9dff830b97d2a72df7a6a181cb3d9b5bd36fa162298d31315",down:"e79b487f82f6f50b37bdf5fcadbff0b7178adce69275ec64c6b85146e84816ad"}),
 ]);
