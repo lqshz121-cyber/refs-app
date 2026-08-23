@@ -20,6 +20,7 @@ test('accounting OpenAPI is 3.1, authenticated and operation ids match the runti
   assert.equal(operationIds.length,91);
   assert.equal(new Set(operationIds).size,operationIds.length);
   assert.ok(operationIds.includes('decideWbsH1AccountingSettings'));
+  assert.equal(contract.paths['/entities/{entityId}/wbs/h1-payable-accounting-proposal'].get.operationId,'readWbsH1PayableAccountingProposal');
   assert.ok(operationIds.includes('importWbsControlledTestBankTransactions'));
   assert.ok(operationIds.includes('runControlledTestAiWorkflow'));
   assert.ok(operationIds.includes('runWbsControlledTestBankMatch'));

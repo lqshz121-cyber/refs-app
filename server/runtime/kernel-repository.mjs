@@ -118,6 +118,16 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async readWbsH1PayableAccountingProposal({tenantId,entityId,periodId,limit=50,offset=0}){
+    return this.inSession(async client=>{
+      const row=requireRow(await client.query(
+        'SELECT refs_read_wbs_h1_payable_accounting_proposal($1,$2,$3,$4,$5) AS result',
+        [tenantId,entityId,periodId,limit,offset]
+      ),'WBS_H1_PAYABLE_ACCOUNTING_PROPOSAL_UNAVAILABLE','WBS H1 Payable accounting proposal was not returned');
+      return row.result;
+    });
+  }
+
   async readWbsH1AccountingSettingsDecision({tenantId,entityId,periodId,proposalHash}){
     return this.inSession(async client=>(await client.query(
       'SELECT refs_read_wbs_h1_accounting_settings_decision($1,$2,$3,$4) AS result',
