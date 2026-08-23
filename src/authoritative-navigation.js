@@ -98,6 +98,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Permission-scoped contractor identity, W-9 status, and retained payment evidence with immutable source and audit identifiers.',
       'Read-only search, status, paging, and detail endpoints; invitations, setup, direct deposit, bulk pay, 1099 filing, and tax actions remain unavailable.',
     ]),
+    item('1099s', '1099s', 'API_UNAVAILABLE', [
+      'Tax-permission-scoped filing-year snapshots with immutable recipient, W-9, form, filing, correction, and audit identifiers.',
+      'Read-only recipient and completed-form endpoints; preparation, autofill, import, e-file, correction, download, print, mail, and export remain unavailable.',
+    ]),
     item('receivables', 'Invoices & receipts', 'API_READ'),
   ]),
   group('Reports & Analytics', [item('reports', 'Standard reports', 'API_READ'),item('accounting-analysis-report', 'Accounting Analysis Report', 'API_READ')]),
