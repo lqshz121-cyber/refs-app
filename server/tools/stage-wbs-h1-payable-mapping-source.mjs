@@ -65,7 +65,7 @@ export async function retainWbsH1PayableMappingSourceRows(pool,rows){
     FROM input i LEFT JOIN wbs_h1_payable_mapping_source_stage s
       ON s.tenant_id=i.tenant_id AND s.entity_id=i.entity_id AND s.source_record_hash=i.source_record_hash`,[JSON.stringify(rows)]);
   const receipt=result.rows[0];
-  if(receipt.expected_count!==rows.length||receipt.exact_count!==rows.length)throw new Error('WBS H1 payable mapping source replay drifted from retained evidence');
+  if(receipt.expected_count!==rows.length||receipt.exact_count!==rows.length)throw Object.assign(new Error('WBS H1 payable mapping source replay drifted from retained evidence'),{code:'WBS_H1_PAYABLE_MAPPING_SOURCE_DRIFT'});
 }
 
 export async function stageWbsH1PayableMappingRawPage({pool,tenantId,entityId,tool,companyCode,observed}={}){
@@ -75,6 +75,15 @@ export async function stageWbsH1PayableMappingRawPage({pool,tenantId,entityId,to
   for(const row of observed.rows){const accountingDate=strictDate(row?.posting_date)||strictDate(row?.incurred_date),periodCode=accountingDate?.slice(0,7);if(!MONTH.test(periodCode||''))continue;const item=normalizeWbsH1PayableMappingRow(row,{tenantId,entityId,companyCode,periodCode,providerContentHash,capturedAt:observed.captured_at});if(item)normalized.push(item);}
   if(new Set(normalized.map(row=>row.source_record_hash)).size!==normalized.length)throw new Error('WBS payable raw page contains duplicate source identities');
   await retainWbsH1PayableMappingSourceRows(pool,normalized);return Object.freeze({staged_row_count:normalized.length});
+}
+
+export async function stageWbsH1PayableMappingRawPageForTestImport(args={}){
+  try{return await stageWbsH1PayableMappingRawPage(args);}
+  catch(error){
+    if(error?.code!=='WBS_H1_PAYABLE_MAPPING_SOURCE_DRIFT')throw error;
+    if(typeof args.onDrift==='function')args.onDrift(Object.freeze({status:'WBS_H1_PAYABLE_MAPPING_SOURCE_DRIFT',company_code:args.companyCode,tool:args.tool}));
+    return Object.freeze({staged_row_count:0,drifted_source_evidence:true});
+  }
 }
 
 export async function stageWbsH1PayableMappingCompanyMonth({client,pool,tenantId,entityId,companyCode,periodCode}){

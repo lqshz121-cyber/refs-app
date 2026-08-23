@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {normalizeWbsH1PayableMappingRow,stageWbsH1PayableMappingRawPage} from '../tools/stage-wbs-h1-payable-mapping-source.mjs';
+import {normalizeWbsH1PayableMappingRow,stageWbsH1PayableMappingRawPage,stageWbsH1PayableMappingRawPageForTestImport} from '../tools/stage-wbs-h1-payable-mapping-source.mjs';
 import {normalizeWbsH1AccountingSetting} from '../tools/stage-wbs-h1-accounting-settings.mjs';
 import {normalizeWbsH1PayableCostCode} from '../tools/stage-wbs-h1-payable-cost-codes.mjs';
 import {normalizeDirectWbsH1PayableMappingRows} from '../tools/stage-wbs-h1-payable-mapping-direct-snapshot.mjs';
@@ -23,6 +23,14 @@ test('an importer raw Payable page is retained once without a second WBS read',a
   const receipt=await stageWbsH1PayableMappingRawPage({pool,tenantId,entityId,tool:'list_payables',companyCode:'OPPO',observed});
   assert.equal(receipt.staged_row_count,1);assert.equal(staged.length,1);assert.equal(staged[0].period_code,'2026-03');assert.equal(staged[0].project_code,'P1');
   assert.deepEqual(await stageWbsH1PayableMappingRawPage({pool,tenantId,entityId,tool:'list_bank_transactions',companyCode:'OPPO',observed}),{staged_row_count:0});
+});
+
+test('test import reports an immutable mapping-stage drift without discarding the authoritative raw import page',async()=>{
+  const pool={query:async()=>({rows:[{expected_count:1,exact_count:0,inserted_count:0}]})},drifts=[];
+  const observed={tool_name:'list_payables',scope:{company_codes:['WBPA']},content_sha256:'c'.repeat(64),captured_at:capturedAt,rows:[{ap_guid:'WORK-33333333-3333-4333-8333-333333333333',company_code:'WBPA',posting_date:'2026-01-15',amount:'10.0000'}]};
+  const receipt=await stageWbsH1PayableMappingRawPageForTestImport({pool,tenantId,entityId,tool:'list_payables',companyCode:'WBPA',observed,onDrift:row=>drifts.push(row)});
+  assert.deepEqual(receipt,{staged_row_count:0,drifted_source_evidence:true});
+  assert.deepEqual(drifts,[{status:'WBS_H1_PAYABLE_MAPPING_SOURCE_DRIFT',company_code:'WBPA',tool:'list_payables'}]);
 });
 
 test('a direct connected WBS snapshot binds exact H1 source facts for one provisioned company',()=>{

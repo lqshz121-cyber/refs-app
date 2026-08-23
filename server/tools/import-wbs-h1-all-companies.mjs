@@ -7,7 +7,7 @@ import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
 import {createWbsLivePilotClient,createWbsLivePilotReadService} from '../runtime/wbs-live-pilot-read-service.mjs';
 import {createWbsTestImportService} from '../runtime/wbs-test-import-service.mjs';
-import {stageWbsH1PayableMappingRawPage} from './stage-wbs-h1-payable-mapping-source.mjs';
+import {stageWbsH1PayableMappingRawPageForTestImport} from './stage-wbs-h1-payable-mapping-source.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const COMPANY=/^[A-Z0-9][A-Z0-9_:-]{0,63}$/;
@@ -98,7 +98,7 @@ async function main(){
     const kernelFor=actorId=>{const principal={trusted:true,tenantId,actorId},issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>principal});return new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId})});};
     const importerKernel=kernelFor(actors.importer);
     const client=createWbsLivePilotClient({credentials:{'CF-Access-Client-Id':process.env.WBS_CF_ACCESS_CLIENT_ID,'CF-Access-Client-Secret':process.env.WBS_CF_ACCESS_CLIENT_SECRET,'X-REFS-Auth':process.env.WBS_REFS_AUTH}});
-    const pilotService=createWbsLivePilotReadService({client,authorize:scope=>importerKernel.assertWbsTestImport(scope),onRawPage:page=>stageWbsH1PayableMappingRawPage({pool:migrationPool,...page})});
+    const pilotService=createWbsLivePilotReadService({client,authorize:scope=>importerKernel.assertWbsTestImport(scope),onRawPage:page=>stageWbsH1PayableMappingRawPageForTestImport({pool:migrationPool,...page,onDrift:row=>process.stdout.write(`${JSON.stringify(row)}\n`)})});
     const service=createWbsTestImportService({
       scope:{tenantId,entityId:templateEntityId,companyCode:'WBPA',actors},
       resolveScope:selectionInput=>importerKernel.resolveWbsTestImportScope(selectionInput),
