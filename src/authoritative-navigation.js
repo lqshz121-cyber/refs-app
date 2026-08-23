@@ -41,9 +41,9 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Entity-scoped receipt queue with immutable receipt, attachment object/version, content hash, creator, review status, and extracted accounting facts.',
       'Read-only For review and Reviewed list/detail endpoints; upload, OCR, review mutation, add-to-books, export, customize, and payment promotion remain unavailable.',
     ]),
-    item('integration-hub', 'Integration Hub', 'API_UNAVAILABLE', [
-      'Read-only connector health, immutable receipt, and source-version evidence scoped to this entity.',
-      'No provider synchronisation control is shown until a server-authorised contract exists.',
+    item('integration-hub', 'Integration transactions', 'API_UNAVAILABLE', [
+      'The REFS Integration Hub requires read-only connector health, immutable receipt, source-version, and retained transaction evidence scoped to this entity.',
+      'No provider connection, synchronisation, import, refresh, or transaction command is shown until a server-authorised contract exists.',
     ]),
     item('mapping-exceptions', 'Mapping Exceptions', 'API_UNAVAILABLE', [
       'Entity- and period-scoped exception read model with mapping version, reason, and retained audit evidence.',

@@ -31,6 +31,8 @@ assert.ok(AUTHORITATIVE_ROUTES.includes('audit-log'),'the observed QBO Audit Log
 assert.equal(navigationItemForRoute('audit-log')?.availability,'API_UNAVAILABLE','Audit Log must fail closed until a permission-scoped cross-workflow audit reader exists');
 assert.ok(AUTHORITATIVE_ROUTES.includes('fixed-assets'),'the observed Accounting navigation must keep Fixed assets discoverable without granting asset or depreciation authority');
 assert.equal(navigationItemForRoute('fixed-assets')?.availability,'API_UNAVAILABLE','Fixed assets must fail closed until an immutable asset-register reader exists');
+assert.ok(AUTHORITATIVE_ROUTES.includes('integration-hub'),'the observed Accounting navigation must keep Integration transactions discoverable without granting connector or import authority');
+assert.equal(navigationItemForRoute('integration-hub')?.availability,'API_UNAVAILABLE','Integration transactions must fail closed until retained connector and transaction evidence exists');
 assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'accounting-analysis-report', 'ai-audit', 'ai-je-workbench', 'amortization', 'bank', 'bank-batch-pipeline', 'chart-of-accounts', 'consolidation', 'construction-loan', 'general-ledger', 'intercompany', 'journals', 'overview', 'payables', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'reconciliation', 'reports', 'source-documents', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
 const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation','Source & Staging']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}} onTogglePanel={() => {}}/>);
@@ -59,7 +61,7 @@ assert.match(reportNavMarkup, /Standard reports/, 'the Reports workspace must ex
 assert.doesNotMatch(reportNavMarkup, /Financial statements/, 'the report navigation must not use the narrower legacy label');
 assert.match(reportNavMarkup, /Accounting Analysis Report/, 'the Reports workspace must expose its AI analysis page');
 assert.match(payablesNavMarkup, /Bills &amp; expenses/);assert.match(payablesNavMarkup, /Vendors/);assert.match(payablesNavMarkup, /Bill payments/);assert.match(payablesNavMarkup, /Contractors/);assert.match(payablesNavMarkup, />1099s</);assert.match(payablesNavMarkup, /Invoices &amp; receipts/);
-assert.match(receiptsNavMarkup,/Source Documents/);assert.match(receiptsNavMarkup,/>Receipts</);assert.match(receiptsNavMarkup,/Integration Hub/);
+assert.match(receiptsNavMarkup,/Source Documents/);assert.match(receiptsNavMarkup,/>Receipts</);assert.match(receiptsNavMarkup,/Integration transactions/);
 assert.doesNotMatch(receiptsNavMarkup,/Upload receipts|Export|Customize|Set it up|Compare rates/,'the Accounting receipt navigation must not import upload, export, customize, or payment-promotion actions');
 assert.match(recurringNavMarkup,/>Recurring transactions</);assert.match(recurringNavMarkup,/>Prepaid expenses</);assert.match(recurringNavMarkup,/>Fixed assets</);
 assert.doesNotMatch(recurringNavMarkup,/Reminder List|>New<|Manage recurring payments/,'the Accounting navigation must not import recurring template or payment commands');
@@ -180,6 +182,9 @@ assert.doesNotMatch(auditLogUnavailableMarkup,/All Users|This Month|All events|D
 const fixedAssetsUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('fixed-assets')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.match(fixedAssetsUnavailableMarkup,/Fixed assets is not available yet/);assert.match(fixedAssetsUnavailableMarkup,/role="status"/);
 assert.doesNotMatch(fixedAssetsUnavailableMarkup,/How it works|See reports|Add multiple assets|Add an asset|automate your fixed asset depreciation/,'the unavailable Fixed assets route must not reproduce onboarding, creation, or automatic-depreciation actions');
+const integrationTransactionsUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('integration-hub')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
+assert.match(integrationTransactionsUnavailableMarkup,/Integration transactions is not available yet/);assert.match(integrationTransactionsUnavailableMarkup,/role="status"/);
+assert.doesNotMatch(integrationTransactionsUnavailableMarkup,/Connect free integration|Learn more|sales channel|automatically import|sync to QuickBooks/,'the unavailable Integration transactions route must not reproduce connector, import, or synchronisation promotions');
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
 const amortizationSource = fs.readFileSync('src/authoritative-amortization-workspace.jsx', 'utf8');
 for(const file of ['src/authoritative-aging-workspace.jsx','src/authoritative-amortization-workspace.jsx','src/authoritative-lineage-drill.jsx','src/authoritative-property-rent-workspace.jsx']){
