@@ -81,9 +81,9 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     // it does not expose an uncontracted intercompany posting workflow.
     item('intercompany', 'Intercompany', 'API_READ'),
     item('fixed-assets', 'Fixed Assets'),
-    // The authoritative reader is prepaid rollforward evidence only; it does
-    // not manufacture a legacy amortization schedule or posting workflow.
-    item('amortization', 'Amortization Center', 'API_READ'),
+    // QBO calls this surface Prepaid expenses. REFS keeps its stronger
+    // Amortization Center controls behind that familiar accounting label.
+    item('amortization', 'Prepaid expenses', 'API_READ'),
     item('accruals', 'Accrual Center'),
   ]),
   group('Close', [item('month-end-close', 'Month-End Close'), item('period-management', 'Period Management')]),

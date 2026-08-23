@@ -219,6 +219,7 @@ assert.match(appSource, /initialDimensionType="PROJECT"/, 'the direct Project Co
 assert.match(appSource, /Cost-code, vendor, and project transaction registers remain unavailable/, 'the direct workspace may not pretend that the legacy transaction register has an API contract');
 assert.match(appSource, /route === 'construction-loan'/, 'Construction Loan must mount its existing API rollforward rather than a demo route');
 assert.match(appSource, /route === 'amortization'[\s\S]*?AuthoritativeAmortizationWorkspace[\s\S]*?config=\{displayConfig\}/, 'Amortization Center must mount its server-backed coverage and schedule evidence workspace with the shared readable scope');
+assert.equal(navigationItemForRoute('amortization')?.label, 'Prepaid expenses', 'the controlled Amortization Center must remain discoverable under the QBO-aligned Prepaid expenses label');
 for(const route of ['project-cost-cwip','unit-cost-ledger','construction-loan','intercompany','consolidation']){
   assert.match(appSource,new RegExp(`route === '${route}'[\\s\\S]*?AuthoritativeReportsWorkspace[\\s\\S]*?config=\\{displayConfig\\}`),`${route} must receive the same readable company and period scope as the authoritative shell`);
 }
