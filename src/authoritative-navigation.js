@@ -88,7 +88,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Entity- and period-scoped recognition schedules with immutable source, schedule revision, dates, accounts, currency, amount, status, Journal, ledger, and audit identifiers.',
       'Read-only list, detail, and report endpoints; settings, rule changes, schedule creation, automatic Journal generation, and posting remain unavailable.',
     ]),
-    item('fixed-assets', 'Fixed Assets'),
+    item('fixed-assets', 'Fixed assets', 'API_UNAVAILABLE', [
+      'Entity-scoped fixed-asset register rows with immutable asset identity/revision, dates, cost, residual value, method/life, accumulated depreciation, net book value, status, accounts, source, Journal, ledger, and audit identifiers.',
+      'Read-only list, detail, and report endpoints; asset creation, bulk import, edits, depreciation generation, disposal, and posting remain unavailable.',
+    ]),
     // QBO calls this surface Prepaid expenses. REFS keeps its stronger
     // Amortization Center controls behind that familiar accounting label.
     item('amortization', 'Prepaid expenses', 'API_READ'),
