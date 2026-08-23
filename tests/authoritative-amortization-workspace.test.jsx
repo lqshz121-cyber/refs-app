@@ -6,7 +6,7 @@ import {AuthoritativeAmortizationWorkspace} from '../src/authoritative-amortizat
 
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222',baseUrl:'https://accounting.example',getAccessToken:async()=> 'a'.repeat(48)};
 const markup=renderToStaticMarkup(<AuthoritativeAmortizationWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
-for(const token of ['Amortization Center','SIGNED SOURCE','INDEPENDENT REVIEW','DRAFT ONLY','STANDARD POST','NO AUTO POST','Back','Loading amortization readiness','Loading prepaid rollforward'])assert.match(markup,new RegExp(token,'i'));
+for(const token of ['Prepaid expenses','Amortization Center','SIGNED SOURCE','INDEPENDENT REVIEW','DRAFT ONLY','STANDARD POST','NO AUTO POST','Back','Loading prepaid schedules','Loading prepaid rollforward'])assert.match(markup,new RegExp(token,'i'));
 assert.match(markup,/authoritative-control-requirements/);assert.match(markup,/Control requirements/);assert.doesNotMatch(markup,/Every ID, source version, hash/);
 const source=fs.readFileSync('src/authoritative-amortization-workspace.jsx','utf8');
 for(const token of ['refreshAuthoritativeInsurancePrepaidAmortization','reviewAuthoritativeInsurancePrepaidAmortization','createAuthoritativeInsuranceAmortizationDraft','refreshAuthoritativePrepaidRollforward','PROPOSED rows are not reviewed schedules','Retain independent review','Create monthly AUTO Draft','never submits, reviews, approves, or posts'])assert.match(source,new RegExp(token,'i'));
