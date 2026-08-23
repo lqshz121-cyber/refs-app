@@ -135,6 +135,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const [reportAgingDetail, setReportAgingDetail] = useState(null);
   const [reportGeneralLedgerDetail, setReportGeneralLedgerDetail] = useState(null);
   const [reportCatalogReturn, setReportCatalogReturn] = useState(null);
+  const [wbsH1WorkflowJournalId,setWbsH1WorkflowJournalId]=useState(null);
   const [listViews, setListViews] = useState(() => ({
     AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},
     AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},
@@ -309,6 +310,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
 
   const setRoute = useCallback(next => {
     setDocumentDetail(null); setAdjustmentDetail(null); setAgingDetail(null); setReportAgingDetail(null); setReportGeneralLedgerDetail(null); setReportCatalogReturn(null);
+    setWbsH1WorkflowJournalId(null);
     if (next === 'reports') setReportsNavigationVersion(current => current + 1);
     setRouteState(next); retainRoute(environment, next);
   }, [environment]);
@@ -378,6 +380,18 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     // next visit; the revision also refreshes either AI launch surface now.
     setWorkspaceRefreshVersion(current=>current+1);
   },[config,boundFetcher]);
+
+  const openWbsH1DraftWorkflow = useCallback(async receipt => {
+    if (!config || !receipt?.journal_entry_id) return;
+    const journals=await refreshAuthoritativeJournalEntries({config,fetcher:boundFetcher});
+    if (!journals.ok) { setError(journals); return; }
+    if (!journals.journals.some(row=>row.journal_entry_id===receipt.journal_entry_id&&row.status==='DRAFT')) {
+      setError({code:'WBS_H1_DRAFT_JOURNAL_NOT_FOUND',message:'The created Draft was not returned by the exact company and period Journal register. Refresh before continuing.'});
+      return;
+    }
+    setData(current=>({...current,journals:journals.journals}));
+    setSharedAccountingLoaded(true);setError(null);setRoute('journals');setWbsH1WorkflowJournalId(receipt.journal_entry_id);
+  },[config,boundFetcher,setRoute]);
 
   useEffect(() => {
     if (!configured || !oidcClient || phase !== 'CHECKING_IDENTITY' || typeof environment?.document === 'undefined') return;
@@ -565,7 +579,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'ai-je-workbench' && <AuthoritativeAiJeWorkspace key={`ai-je-workbench-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onAccountingRefresh={refreshAfterControlledTestWorkflow}/>}
         {phase === 'READY' && route === 'accounting-analysis-report' && <AuthoritativeAccountingAnalysisReport key={`accounting-analysis-report-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onNavigate={setRoute}/>}
         {phase === 'READY' && route === 'accruals' && <AuthoritativeAccrualWorkspace key={`accruals-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
-        {phase === 'READY' && route === 'integration-hub' && <AuthoritativeWbsH1ImportWorkspace key={`integration-hub-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
+        {phase === 'READY' && route === 'integration-hub' && <AuthoritativeWbsH1ImportWorkspace key={`integration-hub-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} onOpenJournalWorkflow={openWbsH1DraftWorkflow}/>}
         {phase === 'READY' && route === 'wbs-autorec-evidence' && <AuthoritativeWbsTransitionWorkspace key={`wbs-autorec-evidence-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onAccountingRefresh={async()=>{const [documents,journals]=await Promise.all([refreshAuthoritativeDocuments({config,fetcher:boundFetcher}),refreshAuthoritativeJournalEntries({config,fetcher:boundFetcher})]);if(documents.ok&&journals.ok){setData({ap:documents.ap,ar:documents.ar,journals:journals.journals});setSharedAccountingLoaded(true);}}}/>}
         {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace key={`reports-${workspaceRefreshVersion}-${reportsNavigationVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={reportCatalogReturn||DEFAULT_AUTHORITATIVE_REPORTS_CATALOG} onOpenArAging={openReportAgingEvidence} onOpenGeneralLedger={openReportGeneralLedger}/>}
         {phase === 'READY' && route === 'project-cost-cwip' && <AuthoritativeReportsWorkspace key={`project-cost-cwip-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="PROJECT" workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Project Cost & CWIP" workspaceDescription="Project profitability, CWIP rollforward, construction-loan, prepaid, and budget evidence are read from existing OIDC-authenticated accounting APIs. Cost-code, vendor, and project transaction registers remain unavailable until their own server read contracts exist."/>}
@@ -575,7 +589,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'amortization' && <AuthoritativeAmortizationWorkspace key={`amortization-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onBack={()=>setRoute('overview')}/>}
         {phase === 'READY' && route === 'intercompany' && <AuthoritativeReportsWorkspace key={`intercompany-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'GROUP_AND_COMPARISON',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Intercompany" workspaceDescription="Intercompany reconciliation reads existing OIDC-authenticated, aligned-period evidence for two explicitly scoped entities. Elimination, adjustment, and intercompany posting workflows remain unavailable until server contracts exist."/>}
         {phase === 'READY' && route === 'consolidation' && <AuthoritativeReportsWorkspace key={`consolidation-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'GROUP_AND_COMPARISON',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE - GENERAL LEDGER" workspaceTitle="Consolidation" workspaceDescription="Consolidation evidence is read from existing OIDC-authenticated approved group snapshots and POSTED ledger evidence. Elimination creation, group maintenance, and browser-side consolidation workbooks remain unavailable until server contracts exist."/>}
-        {phase === 'READY' && route === 'journals' && <AuthoritativeJournalWorkspace journals={data.journals} config={displayConfig} fetcher={boundFetcher} environment={environment}/>}
+        {phase === 'READY' && route === 'journals' && <AuthoritativeJournalWorkspace journals={data.journals} config={displayConfig} fetcher={boundFetcher} environment={environment} initialJournalEntryId={wbsH1WorkflowJournalId}/>}
         {phase === 'READY' && route === 'source-documents' && <AuthoritativeSourceDocumentsWorkspace key={`source-documents-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && ['chart-of-accounts','account-inquiry'].includes(route) && <AuthoritativeChartOfAccountsWorkspace key={`coa-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'general-ledger' && <AuthoritativeGeneralLedgerWorkspace key={`general-ledger-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} onBack={reportGeneralLedgerDetail?closeReportGeneralLedger:null}/>}

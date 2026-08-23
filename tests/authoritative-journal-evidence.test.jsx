@@ -101,6 +101,7 @@ const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
 assert.doesNotMatch(journalView,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,'the journal presentation extraction must receive authoritative facts as slots');
 assert.match(list,/authoritative-journal-presentation/);
 assert.match(workspace,/restoreAuthoritativeReturnContext/,'Back must restore scroll and focus to the originating evidence control');
+assert.match(workspace,/initialJournalEntryId\?\{\.\.\.DEFAULT_AUTHORITATIVE_LIST_VIEW,query:initialJournalEntryId,status:'DRAFT'\}/,'a WBS Draft handoff must isolate the exact Draft in the standard Journal workflow register');
 assert.match(workspace,/closest\('\.table-wrap'\)\?\.scrollLeft/,'Journal evidence actions must freeze their contained table position');
 assert.match(workspace,/createAuthoritativeReturnContext\(\{config,view,focusId,scrollY:Number\(environment\?\.scrollY\)\|\|0,tableX\}\)/,'Journal detail must retain table position in the same immutable entity and period context');
 assert.match(workspace,/getTable:\(\)=>environment\?\.document\?\.querySelector\?\.\('\.authoritative-journal-table'\)/,'Journal Back must restore the remounted register scroller before returning focus');

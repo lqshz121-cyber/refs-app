@@ -27,6 +27,14 @@ async function verifyClient(){
 }
 
 const source=fs.readFileSync('src/authoritative-wbs-h1-import-workspace.jsx','utf8');
-for(const copy of ['Imported business data is available','Imported source rows are not formal ledger entries','Controlled test posted','Ready for mapping review','NO ACCOUNTING ACTION','WBS account Settings','Approve Settings','SETTINGS ONLY','never creates or posts a Journal','Payable accounting proposals','Create Draft','Human Draft only','Submit, Review, Approve and Post remain separate'])assert.match(source,new RegExp(copy));
+const appSource=fs.readFileSync('src/authoritative-app.jsx','utf8');
+for(const copy of ['Imported business data is available','Imported source rows are not formal ledger entries','Controlled test posted','Ready for mapping review','NO ACCOUNTING ACTION','WBS account Settings','Approve Settings','SETTINGS ONLY','never creates or posts a Journal','Payable accounting proposals','Create Draft','View Draft','Continue in Journal entries','Back to WBS Integration Hub','Re-reading the exact company, period, Journal, lines, and source relationship','Human Draft only','Submit, Review, Approve and Post remain separate'])assert.match(source,new RegExp(copy));
+assert.match(source,/readAuthoritativeJournalEntryDetail\(\{config,journalEntryId:receipt\.journal_entry_id,fetcher\}\)/,'a created Draft must be re-read from the exact authoritative Journal detail endpoint before it is shown');
+assert.match(source,/restoreAuthoritativeReturnContext\(environment,config,context/,'Back from the created Draft must restore the originating WBS row, page scroll, and table position');
+assert.match(source,/AuthoritativeLineageDrill/,'the created Draft must reuse the standard full-page Journal lineage reader');
+assert.match(appSource,/refreshAuthoritativeJournalEntries\(\{config,fetcher:boundFetcher\}\)/,'continuing from WBS must re-read the authoritative Journal register');
+assert.match(appSource,/row\.journal_entry_id===receipt\.journal_entry_id&&row\.status==='DRAFT'/,'the WBS handoff must find the exact created Draft in the same company-period Journal register');
+assert.match(appSource,/onOpenJournalWorkflow=\{openWbsH1DraftWorkflow\}/,'the Integration Hub must hand the exact Draft to the standard Journal workflow route');
+assert.match(appSource,/initialJournalEntryId=\{wbsH1WorkflowJournalId\}/,'the Journal register must open filtered to the exact Draft created from WBS');
 assert.doesNotMatch(source,/wbs_uuid|Post journal|localStorage|seed\.js/);
 verifyClient().then(()=>console.log('authoritative WBS H1 import workspace: real company source inventory remains read only')).catch(error=>{console.error(error);process.exitCode=1;});

@@ -127,13 +127,14 @@ const JournalDetailReadState=({detail,entityId,config,fetcher,onBack})=>{
   return <section className="full-bleed qbo-transaction-report authoritative-evidence-page authoritative-journal-detail" aria-label="Journal entry evidence"><div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Journal entries</button><details className="authoritative-return-context"><summary>List filters retained</summary><span>{journalReturnScope(entityId,detail.journal,detail.returnContext)}</span></details></div><StateBlock tone={detail.phase==='LOADING'?'loading':'blocked'} title={detail.phase==='LOADING'?'Loading exact Journal evidence':'Authoritative Journal detail unavailable'}>{detail.phase==='LOADING'?'Reading the exact entity, period, and Journal Entry scope.':detail.error?.message||'The exact read failed closed; no list facts are promoted to line evidence.'}</StateBlock></section>;
 };
 
-export function AuthoritativeJournalWorkspace({ journals, config, fetcher=globalThis.fetch, environment=globalThis }) {
+export function AuthoritativeJournalWorkspace({ journals, config, fetcher=globalThis.fetch, environment=globalThis, initialJournalEntryId=null }) {
   const [detail, setDetail] = useState(null);
-  const [view,setView] = useState({...DEFAULT_AUTHORITATIVE_LIST_VIEW});
+  const [view,setView] = useState(()=>initialJournalEntryId?{...DEFAULT_AUTHORITATIVE_LIST_VIEW,query:initialJournalEntryId,status:'DRAFT'}:{...DEFAULT_AUTHORITATIVE_LIST_VIEW});
   const [rows,setRows]=useState(journals||[]);
   const [capabilityState,setCapabilityState]=useState({phase:'LOADING',data:null,error:null});
   const [workflowState,setWorkflowState]=useState(null);
   useEffect(()=>setRows(journals||[]),[journals]);
+  useEffect(()=>{if(initialJournalEntryId)setView({...DEFAULT_AUTHORITATIVE_LIST_VIEW,query:initialJournalEntryId,status:'DRAFT'});},[initialJournalEntryId]);
   useEffect(()=>{let current=true;setCapabilityState({phase:'LOADING',data:null,error:null});readAuthoritativeJournalWorkflowCapabilities({config,fetcher}).then(result=>{if(current)setCapabilityState(result.ok?{phase:'READY',data:result.capabilities,error:null}:{phase:'BLOCKED',data:null,error:result});});return()=>{current=false;};},[config,fetcher]);
   const runWorkflow=async(journal,next)=>{
     setWorkflowState({phase:'RUNNING',journalEntryId:journal.journal_entry_id,action:next.action});
