@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTES } from '../src/authoritative-navigation.js';
+import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTES, navigationItemForRoute } from '../src/authoritative-navigation.js';
 import { AuthoritativeNavigationShell } from '../src/authoritative-navigation-shell.jsx';
 import { AuthoritativeTopbar } from '../src/authoritative-topbar.jsx';
 import { AuthoritativeAccessStatus } from '../src/authoritative-access-status.jsx';
