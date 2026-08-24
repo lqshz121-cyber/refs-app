@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {buildAiFullControllerScanEvidence} from '../runtime/ai-full-controller-scan-evidence-contract.mjs';
 import {buildAiFullControllerModelInputChunks} from '../runtime/ai-full-controller-model-input-contract.mjs';
-import {createAiFullControllerModelService} from '../runtime/ai-full-controller-model-service.mjs';
+import {buildAiFullControllerModelRunHash,createAiFullControllerModelService} from '../runtime/ai-full-controller-model-service.mjs';
 
 const tenant='11111111-1111-4111-8111-111111111111',entity='22222222-2222-4222-8222-222222222222',period='33333333-3333-4333-8333-333333333333',snapshotId='44444444-4444-4444-8444-444444444444',flags={can_create_draft:false,can_review:false,can_approve:false,can_post:false};
 const manifest=()=>{const finding=index=>({entity_id:entity,accounting_period_id:period,rule_id:`AI_VENDOR_REVIEW_${index}`,risk_level:index?'MEDIUM':'HIGH',reason:`Retained evidence ${index}.`,suggested_action:'Human review.'}),snapshot=buildAiFullControllerScanEvidence({tenantId:tenant,entityId:entity,accountingPeriodId:period,releaseSha:'a'.repeat(40),capturedAt:'2026-08-23T21:00:00.000Z',requestedLimit:500,scan:{schema_version:'AI_FULL_CONTROLLER_SCAN_V1',entity_id:entity,current_accounting_period_id:period,status:'COMPLETE',required_section_count:1,complete_section_count:1,finding_count:2,risk_summary:{high:1,medium:1,low:0},coverage_summary:{complete_section_count:1,unavailable_section_count:0,unavailable_sections:[]},sections:[{category:'VENDOR_REVIEW',status:'COMPLETE',schema_version:'AI_VENDOR_REVIEW_BATCH_V1',finding_count:2,findings:[finding(0),finding(1)],action_flags:flags}],action_flags:flags}});return buildAiFullControllerModelInputChunks({snapshotId,evidenceSnapshot:snapshot,retainedFindingIds:snapshot.sections[0].findings.map((item,index)=>({section_category:'VENDOR_REVIEW',finding_index:index,finding_id:`55555555-5555-4555-8555-55555555555${index}`,finding_hash:item.finding_hash})),chunkSize:1});};
 const resultFor=(facts,isMemo=false,traceId='trace')=>{const findings=isMemo?facts.root_nodes.flatMap(item=>item.priority_findings.map(finding=>finding.finding_id)):facts.findings.map(item=>item.finding_id);return {traceId,providerRequestId:'provider-1',model:'controlled-model',elapsedMs:5,result:{headline:isMemo?'Controller Memo':'Chunk review',narrative:'Only retained evidence is summarized.',risk_summary:isMemo?facts.risk_summary:facts.findings[0].evidence.risk_level==='HIGH'?{high:1,medium:0,low:0}:{high:0,medium:1,low:0},controller_actions:[{category:'VENDOR_REVIEW',finding_ids:findings,action:'Human review only.'}],action_flags:flags}};};
 const repository=events=>({
-  beginAiFullControllerModelRun:async value=>(events.push(['begin-run',value]),{state:'STARTED',runHash:'sha256:'+'a'.repeat(64)}),
+  beginAiFullControllerModelRun:async value=>(events.push(['begin-run',value]),{state:'STARTED',runHash:buildAiFullControllerModelRunHash({actorId:value.actorId,idempotencyKey:value.idempotencyKey,inputManifest:value.inputManifest})}),
   beginAiFullControllerModelChunk:async value=>(events.push(['begin-chunk',value.chunkIndex]),{state:'STARTED'}),
   completeAiFullControllerModelChunk:async value=>(events.push(['complete-chunk',value.chunkIndex]),value.response),
   beginAiFullControllerModelMemo:async value=>(events.push(['begin-memo',value.chunkResponseHashes.length]),{state:'STARTED'}),
@@ -68,6 +68,13 @@ test('rejects caller policy expansion in an otherwise safe manifest before persi
 test('rejects open or malformed durable repository receipts',async()=>{
   const input=manifest(),base=repository([]),cases=[{...base,beginAiFullControllerModelRun:async()=>({state:'STARTED',runHash:'not-a-hash'})},{...base,beginAiFullControllerModelRun:async()=>({state:'STARTED',runHash:'sha256:'+'a'.repeat(64),extra:true})},{...base,beginAiFullControllerModelChunk:async()=>({state:'STARTED',extra:true})},{...base,beginAiFullControllerModelMemo:async()=>({state:'STARTED',extra:true})}];
   for(const value of cases)await assert.rejects(()=>createAiFullControllerModelService({repository:value,gateway:{analyzeJson:async facts=>resultFor(facts.facts,facts.traceName.endsWith('memo'),facts.traceId)}}).analyze({actorId:'actor',idempotencyKey:'full-scan-run-008',inputManifest:input}),error=>/^AI_FULL_SCAN_MODEL_/.test(error.code));
+});
+
+test('derives a stable canonical run hash and rejects a different well-formed repository hash',async()=>{
+  const input=manifest(),request={actorId:'actor',idempotencyKey:'full-scan-run-hash',inputManifest:input},hash=buildAiFullControllerModelRunHash(request);
+  assert.equal(hash,buildAiFullControllerModelRunHash({...request,inputManifest:structuredClone(input)}));
+  const base=repository([]),service=createAiFullControllerModelService({repository:{...base,beginAiFullControllerModelRun:async()=>({state:'STARTED',runHash:'sha256:'+'f'.repeat(64)})},gateway:{analyzeJson:async()=>{throw new Error('must not call');}}});
+  await assert.rejects(()=>service.analyze(request),error=>error.code==='AI_FULL_SCAN_MODEL_RUN_INVALID');
 });
 
 test('rejects a gateway trace that is not exactly bound to the run idempotency key',async()=>{

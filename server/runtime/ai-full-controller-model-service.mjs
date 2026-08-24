@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {assertAiFullControllerModelInputManifest,buildAiFullControllerModelOutput,sealAiFullControllerModelChunkResponse} from './ai-full-controller-model-output-contract.mjs';
 import {buildAiFullControllerMemoReduction} from './ai-full-controller-memo-reduction-contract.mjs';
 import {safeAiEvidenceTree} from './ai-secret-safety.mjs';
@@ -12,6 +13,8 @@ const modelMetadata=output=>({provider_request_id:output.providerRequestId??null
 const chunkResponse=(manifest,index,output)=>({schema_version:'AI_FULL_CONTROLLER_MODEL_CHUNK_RESPONSE_V1',snapshot_id:manifest.snapshot_id,snapshot_hash:manifest.snapshot_hash,chunk_index:index,chunk_hash:manifest.chunk_hashes[index],...output.result,model_metadata:modelMetadata(output)});
 const memoResponse=(manifest,hashes,reduction,output)=>({schema_version:'AI_FULL_CONTROLLER_MEMO_V1',snapshot_id:manifest.snapshot_id,snapshot_hash:manifest.snapshot_hash,chunk_response_hashes:hashes,memo_reduction_hash:reduction.reduction_hash,memo_citation_finding_ids:[...new Set(reduction.root_nodes.flatMap(node=>node.priority_findings.map(item=>item.finding_id)))],...output.result,model_metadata:modelMetadata(output)});
 const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&JSON.stringify(Object.keys(value).sort())===JSON.stringify([...keys].sort());
+const canonical=value=>value===null||typeof value!=='object'?JSON.stringify(value):Array.isArray(value)?`[${value.map(canonical).join(',')}]`:`{${Object.keys(value).sort().map(key=>`${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
+const digest=value=>`sha256:${createHash('sha256').update(canonical(value),'utf8').digest('hex')}`;
 const assertGatewayOutput=(output,expectedTraceId)=>{
   if(!exact(output,['elapsedMs','model','providerRequestId','result','traceId'])||output.traceId!==expectedTraceId||typeof output.model!=='string'||output.model.trim()!==output.model||output.model.length<1||output.model.length>255||(output.providerRequestId!==null&&(typeof output.providerRequestId!=='string'||output.providerRequestId.trim()!==output.providerRequestId||output.providerRequestId.length<1||output.providerRequestId.length>255))||!Number.isSafeInteger(output.elapsedMs)||output.elapsedMs<0||output.elapsedMs>86_400_000||!output.result||typeof output.result!=='object'||Array.isArray(output.result)||!safeAiEvidenceTree(output))fail('AI_FULL_SCAN_MODEL_TRACE_INVALID','Controlled model output must carry the exact idempotency-bound trace and closed gateway receipt.');
   return output;
@@ -25,6 +28,10 @@ const buildBoundOutput=({inputManifest,chunkResponses,finalMemo,idempotencyKey})
   return output;
 };
 
+export function buildAiFullControllerModelRunHash({actorId,idempotencyKey,inputManifest}={}){
+  return digest({schema_version:'AI_FULL_CONTROLLER_MODEL_RUN_REQUEST_V1',actor_id:actorId,idempotency_key:idempotencyKey,input_manifest:inputManifest});
+}
+
 export function createAiFullControllerModelService({gateway,repository}={}){
   if(!gateway||typeof gateway.analyzeJson!=='function')fail('AI_FULL_SCAN_MODEL_GATEWAY_REQUIRED','Full Controller model execution requires the controlled AI gateway.');
   if(!repository||METHODS.some(method=>typeof repository[method]!=='function'))fail('AI_FULL_SCAN_MODEL_REPOSITORY_REQUIRED','Full Controller model execution requires durable run, chunk, memo, and recovery receipts.');
@@ -32,9 +39,10 @@ export function createAiFullControllerModelService({gateway,repository}={}){
     async analyze({actorId,idempotencyKey,inputManifest}={}){
       if(typeof actorId!=='string'||actorId.length<1||actorId.length>255||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>200||!safeAiEvidenceTree({actor_id:actorId,idempotency_key:idempotencyKey}))fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Model execution requires one safe authenticated actor and stable idempotency key.');
       assertAiFullControllerModelInputManifest(inputManifest);
+      const expectedRunHash=buildAiFullControllerModelRunHash({actorId,idempotencyKey,inputManifest});
       const run=await repository.beginAiFullControllerModelRun({actorId,idempotencyKey,inputManifest});
       if(run?.state==='REPLAY'){if(!exact(run,['output','state']))fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Durable replay receipt is not closed.');return buildBoundOutput({inputManifest,chunkResponses:run.output?.chunk_responses,finalMemo:run.output?.final_memo,idempotencyKey});}
-      if(!exact(run,['runHash','state'])||run.state!=='STARTED'||!/^sha256:[0-9a-f]{64}$/.test(run.runHash||''))fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Durable model run reservation was not established.');
+      if(!exact(run,['runHash','state'])||run.state!=='STARTED'||run.runHash!==expectedRunHash)fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Durable model run reservation is not bound to the exact actor, idempotency key, and input manifest.');
       const responses=[];
       try{
         for(const [index,chunk] of inputManifest.chunks.entries()){
