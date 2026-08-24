@@ -14,8 +14,8 @@ assert.match(workspace,/className="authoritative-list-more-filters"/,
   'secondary AP/AR filters must use one keyboard-native collapsed disclosure');
 assert.match(workspace,/<summary>\{bill\?'Filter':'More filters'\}\{moreFilterCount\?/,
   'the collapsed disclosure must use the observed concise Expenses label and surface the active secondary-filter count');
-assert.match(workspace,/<label>\{bill\?'Payee':'Customer'\} <select/,
-  'the responsive contract must retain the observed AP Payee and authoritative AR Customer selectors');
+assert.match(workspace,/<label>\{bill\?'Vendor':'Customer'\} <select/,
+  'the responsive contract must retain the observed AP Vendor and authoritative AR Customer selectors');
 assert.match(workspace,/type="text" inputMode="numeric" autoComplete="off" maxLength=\{10\} pattern="\[0-9\]\{4\}-\[0-9\]\{2\}-\[0-9\]\{2\}" placeholder="YYYY-MM-DD"/,
   'date filters must expose one stable English YYYY-MM-DD contract instead of a browser-localized native control');
 assert.doesNotMatch(workspace,/<input type="date"[^>]*filterDraft/,
