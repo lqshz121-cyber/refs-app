@@ -60,6 +60,7 @@ INSERT INTO wbs_test_bank_legacy_function_backup(function_name,function_definiti
  ('refs_append_wbs_test_bank_staged_chunk',pg_get_functiondef('refs_append_wbs_test_bank_staged_chunk(uuid,uuid,uuid,integer,jsonb,text)'::regprocedure)),
  ('refs_finalize_wbs_test_bank_staged_import',pg_get_functiondef('refs_finalize_wbs_test_bank_staged_import(uuid,uuid,uuid)'::regprocedure)),
  ('refs_wbs_test_bank_adjustment_post_clear_batch',pg_get_functiondef('refs_wbs_test_bank_adjustment_post_clear_batch(uuid,uuid,uuid,uuid,uuid[],text,text)'::regprocedure)),
+ ('refs_private_wbs_test_bank_adjustment_batch_ids',pg_get_functiondef('refs_private_wbs_test_bank_adjustment_batch_ids(uuid,uuid,uuid,uuid[])'::regprocedure)),
  ('refs_resolve_wbs_test_bank_match_fixture',pg_get_functiondef('refs_resolve_wbs_test_bank_match_fixture(uuid,uuid)'::regprocedure)),
  ('refs_bind_wbs_test_bank_match_payment_source',pg_get_functiondef('refs_bind_wbs_test_bank_match_payment_source(uuid,uuid,uuid,uuid,uuid)'::regprocedure)),
  ('refs_propose_wbs_test_bank_match_config',pg_get_functiondef('refs_propose_wbs_test_bank_match_config(uuid,uuid)'::regprocedure));
@@ -126,6 +127,40 @@ BEGIN
   IF fn LIKE '%WBS.TEST.IMPORT%' OR fn LIKE '%AP.PAYMENT.CREATE%' OR fn NOT LIKE '%BANK.MATCH.CREATE%' THEN RAISE EXCEPTION 'Could not split Bank Match configuration proposal authority'; END IF;
   EXECUTE fn;
 END $match_boundary$;
+
+-- Batch lifecycle commands must accept the new immutable import receipt as
+-- their exact source boundary.  Retain support for already-existing legacy
+-- controlled-test reconciliations, but never admit an ordinary Bank source.
+CREATE OR REPLACE FUNCTION refs_private_wbs_test_bank_adjustment_batch_ids(
+  p_tenant uuid,p_entity uuid,p_reconciliation uuid,p_bank_source_ids uuid[]
+) RETURNS uuid[]
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE canonical_ids uuid[]; item_count integer; rec reconciliation;
+BEGIN
+  item_count:=COALESCE(cardinality(p_bank_source_ids),0);
+  IF item_count NOT BETWEEN 1 AND 100 OR array_position(p_bank_source_ids,NULL) IS NOT NULL THEN
+    RAISE EXCEPTION 'WBS TEST_ONLY Bank stage batch requires one to one hundred source IDs' USING ERRCODE='22023';
+  END IF;
+  SELECT array_agg(source_id ORDER BY source_id),count(DISTINCT source_id) INTO canonical_ids,item_count FROM unnest(p_bank_source_ids) source_id;
+  IF item_count<>cardinality(p_bank_source_ids) THEN RAISE EXCEPTION 'WBS TEST_ONLY Bank stage batch source IDs must be unique' USING ERRCODE='22023'; END IF;
+  SELECT * INTO rec FROM reconciliation WHERE tenant_id=p_tenant AND entity_id=p_entity AND reconciliation_id=p_reconciliation FOR SHARE;
+  IF NOT FOUND OR rec.status NOT IN ('DRAFT','REOPENED') OR rec.bank_account_ref!~'^WBS_TEST_BANK(?:_2026_0[1-6])?$'
+    OR NOT (EXISTS(SELECT 1 FROM wbs_controlled_test_bank_import i WHERE i.tenant_id=p_tenant AND i.entity_id=p_entity AND i.reconciliation_id=p_reconciliation AND i.bank_account_ref=rec.bank_account_ref)
+      OR EXISTS(SELECT 1 FROM wbs_test_bank_import_receipt i WHERE i.tenant_id=p_tenant AND i.entity_id=p_entity AND i.reconciliation_id=p_reconciliation AND i.bank_account_ref=rec.bank_account_ref))
+  THEN RAISE EXCEPTION 'WBS TEST_ONLY Bank stage batch is restricted to an open retained monthly import' USING ERRCODE='42501'; END IF;
+  IF (SELECT count(*) FROM bank_source source WHERE source.tenant_id=p_tenant AND source.entity_id=p_entity
+      AND source.bank_source_id=ANY(canonical_ids) AND source.bank_account_ref=rec.bank_account_ref AND source.currency=rec.currency
+      AND source.transaction_date<=rec.statement_ending_date AND (
+        EXISTS(SELECT 1 FROM wbs_controlled_test_bank_import i JOIN wbs_controlled_test_bank_import_row r
+          ON r.tenant_id=i.tenant_id AND r.entity_id=i.entity_id AND r.wbs_controlled_test_bank_import_id=i.wbs_controlled_test_bank_import_id
+          WHERE i.tenant_id=p_tenant AND i.entity_id=p_entity AND i.reconciliation_id=p_reconciliation AND r.bank_source_id=source.bank_source_id)
+        OR EXISTS(SELECT 1 FROM wbs_test_bank_import_receipt i JOIN wbs_test_bank_import_stage_row r
+          ON r.tenant_id=i.tenant_id AND r.entity_id=i.entity_id AND r.wbs_test_bank_import_stage_id=i.wbs_test_bank_import_stage_id
+          WHERE i.tenant_id=p_tenant AND i.entity_id=p_entity AND i.reconciliation_id=p_reconciliation AND r.bank_source_id=source.bank_source_id)
+      ))<>cardinality(canonical_ids)
+  THEN RAISE EXCEPTION 'WBS TEST_ONLY Bank stage batch source is outside the retained reconciliation import' USING ERRCODE='42501'; END IF;
+  RETURN canonical_ids;
+END $$;
 
 CREATE FUNCTION refs_finalize_wbs_test_bank_import_receipt(p_tenant uuid,p_entity uuid,p_stage uuid) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
