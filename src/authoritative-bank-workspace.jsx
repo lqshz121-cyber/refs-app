@@ -53,15 +53,15 @@ const ReadError=({error,onRetry})=><StateBlock tone="error" title={error?.code||
 
 const bankReadFailure=(error,subject)=>{
   if(['AUTHENTICATION_REQUIRED','AUTHORIZATION_DENIED'].includes(error?.code))return {
-    tone:'blocked',title:'NO_PERMISSION — authoritative read denied',
+    tone:'blocked',title:'Read access unavailable',
     detail:`The current session cannot read ${subject} for this entity. Ask an administrator for read access, then retry the same scope.`,
   };
   if(['ACCOUNTING_API_SCOPE_INVALID','ACCOUNTING_API_SCOPE_NOT_FOUND'].includes(error?.code))return {
-    tone:'blocked',title:'SCOPE_EMPTY — configured scope unavailable',
+    tone:'blocked',title:'Scope unavailable',
     detail:`The accounting API cannot resolve ${subject} for the selected entity, account, and date scope. Check the scope values; this is not evidence of a zero balance.`,
   };
   return {
-    tone:'error',title:'API_ERROR — authoritative read failed',
+    tone:'error',title:`Unable to load ${subject}`,
     detail:'The accounting API did not return a usable response. Retry the same scope; do not treat this result as empty or zero.',
   };
 };
