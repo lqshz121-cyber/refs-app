@@ -16,6 +16,14 @@ const assertGatewayOutput=(output,expectedTraceId)=>{
   if(!exact(output,['elapsedMs','model','providerRequestId','result','traceId'])||output.traceId!==expectedTraceId||typeof output.model!=='string'||output.model.trim()!==output.model||output.model.length<1||output.model.length>255||(output.providerRequestId!==null&&(typeof output.providerRequestId!=='string'||output.providerRequestId.trim()!==output.providerRequestId||output.providerRequestId.length<1||output.providerRequestId.length>255))||!Number.isSafeInteger(output.elapsedMs)||output.elapsedMs<0||output.elapsedMs>86_400_000||!output.result||typeof output.result!=='object'||Array.isArray(output.result)||!safeAiEvidenceTree(output))fail('AI_FULL_SCAN_MODEL_TRACE_INVALID','Controlled model output must carry the exact idempotency-bound trace and closed gateway receipt.');
   return output;
 };
+const assertChunkTrace=(response,idempotencyKey,index)=>{if(response?.model_metadata?.trace_id!==`${idempotencyKey}:chunk:${index}`)fail('AI_FULL_SCAN_MODEL_TRACE_INVALID','A retained chunk receipt is not bound to the current run idempotency trace.');return response;};
+const assertMemoTrace=(response,idempotencyKey)=>{if(response?.model_metadata?.trace_id!==`${idempotencyKey}:memo`)fail('AI_FULL_SCAN_MODEL_TRACE_INVALID','A retained memo receipt is not bound to the current run idempotency trace.');return response;};
+const buildBoundOutput=({inputManifest,chunkResponses,finalMemo,idempotencyKey})=>{
+  const output=buildAiFullControllerModelOutput({inputManifest,chunkResponses,finalMemo});
+  output.chunk_responses.forEach((response,index)=>assertChunkTrace(response,idempotencyKey,index));
+  assertMemoTrace(output.final_memo,idempotencyKey);
+  return output;
+};
 
 export function createAiFullControllerModelService({gateway,repository}={}){
   if(!gateway||typeof gateway.analyzeJson!=='function')fail('AI_FULL_SCAN_MODEL_GATEWAY_REQUIRED','Full Controller model execution requires the controlled AI gateway.');
@@ -25,7 +33,7 @@ export function createAiFullControllerModelService({gateway,repository}={}){
       if(typeof actorId!=='string'||actorId.length<1||actorId.length>255||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>200||!safeAiEvidenceTree({actor_id:actorId,idempotency_key:idempotencyKey}))fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Model execution requires one safe authenticated actor and stable idempotency key.');
       assertAiFullControllerModelInputManifest(inputManifest);
       const run=await repository.beginAiFullControllerModelRun({actorId,idempotencyKey,inputManifest});
-      if(run?.state==='REPLAY'){if(!exact(run,['output','state']))fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Durable replay receipt is not closed.');return buildAiFullControllerModelOutput({inputManifest,chunkResponses:run.output?.chunk_responses,finalMemo:run.output?.final_memo});}
+      if(run?.state==='REPLAY'){if(!exact(run,['output','state']))fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Durable replay receipt is not closed.');return buildBoundOutput({inputManifest,chunkResponses:run.output?.chunk_responses,finalMemo:run.output?.final_memo,idempotencyKey});}
       if(!exact(run,['runHash','state'])||run.state!=='STARTED'||!/^sha256:[0-9a-f]{64}$/.test(run.runHash||''))fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Durable model run reservation was not established.');
       const responses=[];
       try{
@@ -33,7 +41,7 @@ export function createAiFullControllerModelService({gateway,repository}={}){
           const reservation=await repository.beginAiFullControllerModelChunk({actorId,idempotencyKey,runHash:run.runHash,chunkIndex:index,chunkHash:chunk.chunk_hash});
           if(reservation?.state==='STARTED'?!exact(reservation,['state']):reservation?.state==='REPLAY'?!exact(reservation,['response','state']):true)fail('AI_FULL_SCAN_MODEL_CHUNK_RECEIPT_INVALID','Durable chunk reservation was not established.');
           let sealed;
-          if(reservation.state==='REPLAY')sealed=sealAiFullControllerModelChunkResponse({inputManifest,response:reservation.response,index});
+          if(reservation.state==='REPLAY')sealed=sealAiFullControllerModelChunkResponse({inputManifest,response:assertChunkTrace(reservation.response,idempotencyKey,index),index});
           else{
             const traceId=`${idempotencyKey}:chunk:${index}`,output=assertGatewayOutput(await gateway.analyzeJson({traceId,traceName:'refs-ai-full-controller-chunk',actorId,facts:chunk,systemInstruction:'Analyze only the retained findings in this exact chunk. Cite every provided finding UUID exactly once under its provided category. Do not invent facts, sources, balances, journal entries, approvals, or authority. All action flags must remain false.',jsonSchema:chunkSchema}),traceId);
             sealed=sealAiFullControllerModelChunkResponse({inputManifest,response:chunkResponse(inputManifest,index,output),index});
@@ -45,15 +53,15 @@ export function createAiFullControllerModelService({gateway,repository}={}){
         const hashes=responses.map(item=>item.response_hash),reduction=buildAiFullControllerMemoReduction({inputManifest,sealedChunkResponses:responses}),memoReservation=await repository.beginAiFullControllerModelMemo({actorId,idempotencyKey,runHash:run.runHash,chunkResponseHashes:hashes,reductionManifest:reduction});
         if(memoReservation?.state==='STARTED'?!exact(memoReservation,['state']):memoReservation?.state==='REPLAY'?!exact(memoReservation,['response','state']):true)fail('AI_FULL_SCAN_MODEL_MEMO_RECEIPT_INVALID','Durable memo reservation was not established.');
         let finalMemo;
-        if(memoReservation.state==='REPLAY')finalMemo=memoReservation.response;
+        if(memoReservation.state==='REPLAY')finalMemo=assertMemoTrace(memoReservation.response,idempotencyKey);
         else{
           const traceId=`${idempotencyKey}:memo`,output=assertGatewayOutput(await gateway.analyzeJson({traceId,traceName:'refs-ai-full-controller-memo',actorId,facts:{schema_version:'AI_FULL_CONTROLLER_MEMO_INPUT_V1',snapshot_id:inputManifest.snapshot_id,snapshot_hash:inputManifest.snapshot_hash,memo_reduction_hash:reduction.reduction_hash,total_finding_count:reduction.total_finding_count,risk_summary:reduction.risk_summary,root_nodes:reduction.root_nodes,action_flags:ACTIONS},systemInstruction:'Synthesize only this complete hash-bound reduction of validated chunk responses. Cite only retained priority finding UUIDs present in the reduction roots. Do not invent evidence, accounting effects, approvals, or authority. All action flags must remain false.',jsonSchema:memoSchema}),traceId);
           finalMemo=memoResponse(inputManifest,hashes,reduction,output);
         }
-        const result=buildAiFullControllerModelOutput({inputManifest,chunkResponses:responses,finalMemo});
+        const result=buildBoundOutput({inputManifest,chunkResponses:responses,finalMemo,idempotencyKey});
         const persisted=await repository.completeAiFullControllerModelRun({actorId,idempotencyKey,runHash:run.runHash,output:result});
         if(!persisted||typeof persisted!=='object')fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Durable model run completion did not return retained output.');
-        return buildAiFullControllerModelOutput({inputManifest,chunkResponses:persisted.chunk_responses,finalMemo:persisted.final_memo});
+        return buildBoundOutput({inputManifest,chunkResponses:persisted.chunk_responses,finalMemo:persisted.final_memo,idempotencyKey});
       }catch(error){
         await repository.abandonAiFullControllerModelStage({actorId,idempotencyKey,runHash:run.runHash,errorCode:error?.code||'AI_FULL_SCAN_MODEL_EXECUTION_FAILED'}).catch(()=>{});
         if(/^AI_FULL_SCAN_MODEL_/.test(error?.code||''))throw error;

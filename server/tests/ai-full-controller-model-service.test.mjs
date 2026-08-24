@@ -30,6 +30,13 @@ test('replays durable output without a model call',async()=>{
   assert.equal(calls,0);assert.equal(replay.output_hash,output.output_hash);
 });
 
+test('rejects an internally valid durable replay retained under a different idempotency trace',async()=>{
+  const input=manifest(),sourceKey='full-scan-run-source',source=createAiFullControllerModelService({repository:repository([]),gateway:{analyzeJson:async value=>resultFor(value.facts,value.traceName.endsWith('memo'),value.traceId)}}),output=await source.analyze({actorId:'actor',idempotencyKey:sourceKey,inputManifest:input});
+  let calls=0;const replayRepository={...repository([]),beginAiFullControllerModelRun:async()=>({state:'REPLAY',output})};
+  await assert.rejects(()=>createAiFullControllerModelService({repository:replayRepository,gateway:{analyzeJson:async()=>{calls++;throw new Error('must not call');}}}).analyze({actorId:'actor',idempotencyKey:'full-scan-run-target',inputManifest:input}),error=>error.code==='AI_FULL_SCAN_MODEL_TRACE_INVALID');
+  assert.equal(calls,0);
+});
+
 test('fails closed and records recovery state for unsafe model output or transport failure',async()=>{
   const input=manifest();
   for(const gateway of [{analyzeJson:async value=>({...resultFor(value.facts,false,value.traceId),result:{...resultFor(value.facts,false,value.traceId).result,action_flags:{...flags,can_post:true}}})},{analyzeJson:async()=>{throw new Error('transport failed');}}]){
