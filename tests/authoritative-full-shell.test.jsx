@@ -19,6 +19,7 @@ const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation=
 const inertToggleMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const collapsedNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}} panelCollapsed={true} onTogglePanel={() => {}}/>);
 const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroups={['Reports & Analytics']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const rulesNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="rules" expandedGroups={['Auto Reconciliation']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const journalNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="journals" expandedGroups={['Journal Entry']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const mobileReportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroups={['Reports & Analytics']} navOpen={true} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const routeWinsMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="wbs-autorec-evidence" expandedGroups={['General Ledger']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
@@ -39,6 +40,9 @@ assert.match(reportNavMarkup, /aria-label="Accounting workspace navigation"/, 't
 assert.match(mobileReportNavMarkup, /aria-label="Close navigation"/, 'the Reports workspace must retain a reachable Close control in the mobile drawer');
 assert.match(navMarkup, />Bank transactions</); assert.doesNotMatch(navMarkup, /Bank transaction matching/);
 assert.match(navMarkup, />Reconcile</); assert.doesNotMatch(navMarkup, />Reconciliation worksheet</);
+assert.match(rulesNavMarkup,/>Rules</);assert.match(rulesNavMarkup,/>Bank transactions</);assert.match(rulesNavMarkup,/>Reconcile</);
+assert.doesNotMatch(rulesNavMarkup,/>Core settings</);assert.doesNotMatch(rulesNavMarkup,/>Mapping Center</);
+assert.doesNotMatch(rulesNavMarkup,/New rule|Bank rules|Integration rules|Search by name or conditions|Auto-post|Edit|Reorder/,'the Auto Reconciliation navigation must not import rule mutation or automation controls');
 assert.match(navMarkup, /aria-label="Auto Reconciliation"/);
 assert.match(navMarkup, /aria-expanded="true" aria-controls="authoritative-navigation-active-group" aria-label="Auto Reconciliation"/,
   'a multi-page rail group must announce the one secondary panel it currently exposes');

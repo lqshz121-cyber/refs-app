@@ -22,7 +22,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     ]),
   ]),
   group('Accounting Settings', [
-    item('settings', 'Core settings'), item('rules', 'Rule Center'), item('mapping', 'Mapping Center'),
+    item('settings', 'Core settings'), item('mapping', 'Mapping Center'),
   ]),
   group('Source & Staging', [
     item('wbs-payable-review', 'WBS Payable Review', 'API_READ', [
@@ -51,6 +51,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('wbs-autorec-evidence', 'WBS AutoRec evidence', 'API_READ'),
     item('bank', 'Bank transactions', 'API_READ'),
     item('reconciliation', 'Reconcile', 'API_READ'),
+    item('rules', 'Rules'),
     item('checks-payments', 'Checks & payments'),
   ]),
   group('Journal Entry', [item('journals', 'Journal entries', 'API_READ')]),
