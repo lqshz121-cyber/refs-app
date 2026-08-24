@@ -10,6 +10,9 @@ for(const token of ['Prepaid expenses','Amortization Center','SIGNED SOURCE','IN
 assert.match(markup,/authoritative-control-requirements/);assert.match(markup,/Control requirements/);assert.doesNotMatch(markup,/Every ID, source version, hash/);
 const source=fs.readFileSync('src/authoritative-amortization-workspace.jsx','utf8');
 for(const token of ['refreshAuthoritativeInsurancePrepaidAmortization','reviewAuthoritativeInsurancePrepaidAmortization','createAuthoritativeInsuranceAmortizationDraft','refreshAuthoritativePrepaidRollforward','PROPOSED rows are not reviewed schedules','Retain independent review','Create monthly AUTO Draft','never submits, reviews, approves, or posts'])assert.match(source,new RegExp(token,'i'));
+assert.equal((source.match(/table-wrap authoritative-amortization-table/g)||[]).length,2,'both populated prepaid tables must retain a contained scroll region on narrow screens');
+const css=fs.readFileSync('index.html','utf8');
+assert.match(css,/@media\(max-width:768px\)\{[\s\S]*\.authoritative-amortization-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'prepaid queue and rollforward must not expand into an unbounded phone page');
 assert.doesNotMatch(source,/localStorage|seed\.js|createAmortizationScheduleFromInsurance|newJEFromRule|Number\(|parseFloat|parseInt/i);
 assert.doesNotMatch(source,/[^\x00-\x7F]/,'authoritative amortization workspace copy must remain English-only');
 console.log('authoritative amortization workspace: signed evidence, independent review, Draft-only, no auto-post');
