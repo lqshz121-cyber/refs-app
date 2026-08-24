@@ -188,12 +188,14 @@ assert.match(authoritativeShell,/payables:'wallet', receivables:'inbox'/,
   'Payables and Receivables must use distinct glyphs from the same shared line-icon vocabulary');
 assert.doesNotMatch(authoritativeShell,/compactLabel|authoritative-nav-status|API_READ|Unavailable/,
   'navigation rows must not expose implementation statuses or letter abbreviations to finance readers');
-assert.match(unavailableWorkspace,/WORKSPACE SETUP|SETUP REQUIRED|SETUP NEEDED/,
-  'an unconfigured workspace must explain setup in finance-reader language');
-assert.match(unavailableWorkspace,/finance administrator must confirm the company connection and access/,
-  'a concise setup page must explain the responsible person and the safe next step');
-assert.match(unavailableWorkspace,/No sample data or accounting actions are available/,
-  'a concise setup page must retain the fail-closed data and action boundary');
+assert.match(unavailableWorkspace,/READ ONLY/,
+  'an unavailable authoritative workspace must state the read-only boundary');
+assert.match(unavailableWorkspace,/authoritative API does not provide this workspace yet/,
+  'an unavailable workspace must identify the actual API gap without blaming access or setup');
+assert.match(unavailableWorkspace,/No sample data or actions are shown/,
+  'a concise unavailable page must retain the fail-closed data and action boundary');
+assert.doesNotMatch(unavailableWorkspace,/finance administrator|company connection|confirm.*access/,
+  'the shared unavailable page must not infer a configuration or permission problem');
 assert.doesNotMatch(unavailableWorkspace,/qbo-toolgrid|Configured company|Configured period|What happens next/,
   'the topbar scope and one concise setup state must not be repeated as cards and long instructions');
 assert.doesNotMatch(unavailableWorkspace,/config\?\.entityId \|\| 'Not configured'|config\?\.periodId \|\| 'Not configured'/,
