@@ -9,6 +9,9 @@ const markup=renderToStaticMarkup(<AuthoritativeAmortizationWorkspace config={co
 for(const token of ['Prepaid expenses','Amortization Center','SIGNED SOURCE','INDEPENDENT REVIEW','DRAFT ONLY','STANDARD POST','NO AUTO POST','Back','Loading prepaid schedules','Loading prepaid rollforward'])assert.match(markup,new RegExp(token,'i'));
 assert.match(markup,/authoritative-control-requirements/);assert.match(markup,/Control requirements/);assert.doesNotMatch(markup,/Every ID, source version, hash/);
 const source=fs.readFileSync('src/authoritative-amortization-workspace.jsx','utf8');
+assert.match(source,/description="Review prepaid expenses and monthly amortization\."/,'the first-screen purpose must use concise prepaid-expense language');
+assert.match(source,/title="No prepaid schedules yet">Schedules created from reviewed transactions appear here\. Empty results do not confirm that prepaid accounting is complete\./,'the empty state must explain where schedules come from without weakening the zero-balance boundary');
+assert.doesNotMatch(source,/No prepaid schedules in this scope|No schedule was returned for this entity and period/,'the prepaid empty state must not retain transport-oriented copy');
 for(const token of ['refreshAuthoritativeInsurancePrepaidAmortization','reviewAuthoritativeInsurancePrepaidAmortization','createAuthoritativeInsuranceAmortizationDraft','refreshAuthoritativePrepaidRollforward','PROPOSED rows are not reviewed schedules','Retain independent review','Create monthly AUTO Draft','never submits, reviews, approves, or posts'])assert.match(source,new RegExp(token,'i'));
 assert.equal((source.match(/table-wrap authoritative-amortization-table/g)||[]).length,2,'both populated prepaid tables must retain a contained scroll region on narrow screens');
 const css=fs.readFileSync('index.html','utf8');
