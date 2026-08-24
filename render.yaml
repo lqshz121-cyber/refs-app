@@ -47,7 +47,7 @@ services:
       - key: REFS_WBS_LIVE_PILOT_MODE
         value: ENABLED
       # Explicitly authorized staging-only bridge: sanitized live-pilot
-      # Payables become test-only Drafts and pass through six isolated actors.
+      # Payables and Bank evidence pass through distinct test-only workflow actors.
       # This mode never claims Provider signature, Object Lock, or admission.
       - key: REFS_WBS_TEST_IMPORT_MODE
         value: ENABLED
@@ -59,8 +59,14 @@ services:
         value: WBPA
       - key: REFS_WBS_TEST_IMPORT_IMPORTER_ACTOR_ID
         value: wbs-test-importer
+      - key: REFS_WBS_TEST_IMPORT_RECONCILIATION_STARTER_ACTOR_ID
+        value: wbs-test-reconciliation-starter
       - key: REFS_WBS_TEST_IMPORT_MAKER_ACTOR_ID
         value: wbs-test-maker
+      - key: REFS_WBS_TEST_IMPORT_PAYMENT_MAKER_ACTOR_ID
+        value: wbs-test-payment-maker
+      - key: REFS_WBS_TEST_IMPORT_MATCH_MAKER_ACTOR_ID
+        value: wbs-test-match-maker
       - key: REFS_WBS_TEST_IMPORT_SUBMITTER_ACTOR_ID
         value: wbs-test-submitter
       - key: REFS_WBS_TEST_IMPORT_REVIEWER_ACTOR_ID
@@ -69,6 +75,10 @@ services:
         value: wbs-test-approver
       - key: REFS_WBS_TEST_IMPORT_POSTER_ACTOR_ID
         value: wbs-test-poster
+      - key: REFS_WBS_TEST_IMPORT_CLEARER_ACTOR_ID
+        value: wbs-test-clearer
+      - key: REFS_WBS_TEST_IMPORT_REOPENER_ACTOR_ID
+        value: wbs-test-reopener
       # Isolated AI accounting runner. Keep disabled until the exact OIDC caller
       # is entered in Render; it remains restricted to the fixed test scope.
       - key: REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE
