@@ -61,8 +61,18 @@ test('rejects bad source inputs and unsafe persistence receipts',async()=>{
 });
 
 test('keeps WBS.TEST.IMPORT on the SERVICE importer and AP.BILL.CREATE on the human maker',async()=>{
-  const calls=[];await reconcileWbsTestImportActorGrants({scope,grantSync:{async reconcile(command){calls.push(command);return {};}}});
+  const calls=[];await reconcileWbsTestImportActorGrants({scope,grantSync:{async currentVersion(){return 3;},async reconcile(command){calls.push(command);return {};}}});
   assert.equal(calls.length,11);assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.importer,['WBS.TEST.IMPORT']);
+  assert.ok(calls.every(command=>command.expectedVersion===3&&command.idempotencyKey.endsWith('-v278-3')));
   assert.ok(WBS_TEST_IMPORT_GRANT_BUNDLES.maker.includes('AP.BILL.CREATE'));assert.equal(WBS_TEST_IMPORT_GRANT_BUNDLES.maker.includes('WBS.TEST.IMPORT'),false);
   assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.paymentMaker,['AP.PAYMENT.CREATE']);assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.poster,['GL.JE.POST']);assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.clearer,['BANK.RECONCILIATION.CLEAR']);assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.reopener,['BANK.RECONCILIATION.REOPEN']);
+});
+
+test('refreshes a raced grant revision once and preserves CAS',async()=>{
+  let versionReads=0,reconcileCalls=0;
+  await reconcileWbsTestImportActorGrants({scope,grantSync:{
+    async currentVersion(){versionReads++;return versionReads===1?4:5;},
+    async reconcile(command){reconcileCalls++;if(reconcileCalls===1){const error=new Error('race');error.code='40001';throw error;}assert.equal(command.expectedVersion,5);return {};}
+  }});
+  assert.equal(reconcileCalls,12);assert.equal(versionReads,12);
 });

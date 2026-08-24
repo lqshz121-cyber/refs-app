@@ -88,11 +88,16 @@ const partialResult=({completedStage,key,parentSourceDocumentId,source=null,prop
 }));
 
 export async function reconcileControlledTestAiWorkflowActorGrants({grantSync,scope}={}){
-  if(typeof grantSync?.reconcile!=='function')fail('CONTROLLED_TEST_AI_CONFIG_INVALID','Controlled-test grant sync is unavailable.');
+  if(typeof grantSync?.reconcile!=='function'||typeof grantSync?.currentVersion!=='function')fail('CONTROLLED_TEST_AI_CONFIG_INVALID','Controlled-test grant sync is unavailable.');
   assertConfiguration(scope);const results={};
   for(const role of ACTOR_ROLES){
     const permissions=[...CONTROLLED_TEST_AI_GRANT_BUNDLES[role]];
-    const result=await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId:scope.actors[role].trim(),permissions,authorityClass:GRANT_AUTHORITY[role],validUntil:scope.grantValidUntil,expectedVersion:0,idempotencyKey:`controlled-test-ai-${role}-grant-v1`});
+    const actorId=scope.actors[role].trim();let result;
+    for(let attempt=0;attempt<2&&!result;attempt++){
+      const expectedVersion=await grantSync.currentVersion({tenantId:scope.tenantId,entityId:scope.entityId,actorId});
+      try{result=await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId,permissions,authorityClass:GRANT_AUTHORITY[role],validUntil:scope.grantValidUntil,expectedVersion,idempotencyKey:`controlled-test-ai-${role}-grant-v278-${expectedVersion}`});}
+      catch(error){if(error?.code!=='40001'||attempt===1)throw error;}
+    }
     const returned=[...(result?.permissions||[])].sort(),expected=[...permissions].sort();
     if(returned.length!==expected.length||returned.some((permission,index)=>permission!==expected[index]))fail('CONTROLLED_TEST_AI_GRANT_INVALID',`Controlled-test AI ${role} grant is not exact.`);
     results[role]=Object.freeze({version:result.version,idempotent:result.idempotent===true,permission_count:returned.length});
