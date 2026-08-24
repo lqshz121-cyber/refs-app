@@ -7,6 +7,7 @@ import {routeRequiresSharedAccountingBootstrap} from '../src/authoritative-app.j
 
 const config={entityId:'11111111-1111-4111-8111-111111111111'};
 const displayConfig={...config,scopePresentation:{entityLabel:'Wan Pacific Real Estate Development LLC'}};
+const source=readFileSync('src/authoritative-bank-workspace.jsx','utf8');
 assert.equal(routeRequiresSharedAccountingBootstrap('reconciliation'),false,'a direct Reconciliation reload must mount its scoped reader without waiting for unrelated AP/AR or Journal requests');
 assert.equal(routeRequiresSharedAccountingBootstrap('bank'),false);
 assert.equal(routeRequiresSharedAccountingBootstrap('overview'),true);
@@ -25,6 +26,8 @@ const reconciliationInitial=renderToStaticMarkup(<AuthoritativeReconciliationWor
 assert.match(reconciliationInitial,/Reconcile/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/Match the books to the bank records\./);assert.doesNotMatch(reconciliationInitial,/Match retained statements to the books\./,'Reconcile must use the observed concise customer-facing language rather than storage terminology');
 assert.match(reconciliationInitial,/Choose an existing statement to review\./);assert.doesNotMatch(reconciliationInitial,/The API rejects missing or cross-scope statement evidence/);
 assert.match(reconciliationInitial,/Reconciliation history/);assert.match(reconciliationInitial,/Loading reconciliation history/);assert.match(reconciliationInitial,/READ ONLY/);
+assert.match(source,/No reconciliation history\.<\/b> Enter a bank account and statement ending date below\./,'an empty history must use one concise instruction instead of a second oversized empty-state card');
+assert.match(source,/state\.phase==='IDLE'&&!\(scopeDiscovery\.phase==='READY'&&!scopeDiscovery\.rows\.length\)/,'the empty history must suppress the duplicate idle prompt while retaining the statement controls');
 assert.doesNotMatch(reconciliationInitial,/Back to standard reports/,'direct Reconcile navigation must not claim a Reports parent');
 const reconciliationFromReports=renderToStaticMarkup(<AuthoritativeReconciliationWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}} onBack={()=>{}}/>);
 assert.match(reconciliationFromReports,/Back to standard reports/,'the Reports shortcut must expose an exact parent Back action without changing the reconciliation read model');
@@ -73,7 +76,6 @@ const mismatchedReconciliationDetail=renderToStaticMarkup(<AuthoritativeReconcil
 assert.match(mismatchedReconciliationDetail,/BLOCKED — immutable reconciliation scope mismatch/);assert.match(mismatchedReconciliationDetail,/Back to reconciliation evidence/);
 assert.doesNotMatch(mismatchedReconciliationDetail,/Load reconciliation worksheet|Prepare adjustment Draft|Create adjustment Draft|Clear matched item|Send to independent review|Sign off reviewed statement|Reopen signed statement/);
 
-const source=readFileSync('src/authoritative-bank-workspace.jsx','utf8');
 // Phase 2a: the four states are rendered only by the shared StateBlock, which
 // is what carries role="status" / aria-busy. Assert both halves of that contract.
 assert.match(source,/phase==='LOADING'.*<StateBlock tone="loading"/s,'authoritative reads must expose a loading state through StateBlock');
