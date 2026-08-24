@@ -93,6 +93,16 @@ assert.match(authoritative,/<Icon name="menu" size=\{24\}\/>/,'the retained dupl
 assert.doesNotMatch(`${authoritativeTopbar}\n${authoritative}`,/>Menu<\/button>/,'authoritative navigation openers must not overflow their fixed square control');
 assert.match(ui,/menu:\s+\['M4\.5 6\.5h15', 'M4\.5 12h15', 'M4\.5 17\.5h15'\]/,'the menu glyph must stay in the self-authored currentColor icon family');
 assert.match(styles,/\.mobile-nav-btn svg\{display:block;width:24px;height:24px;\}/,'the 24px menu glyph must remain contained inside the fixed navigation control');
+assert.match(styles,/\.authoritative-secondary-disclosure>summary:after\{content:'';[^}]*border-right:2px solid currentColor;[^}]*border-bottom:2px solid currentColor;[^}]*transform:rotate\(-45deg\)/,
+  'shared secondary disclosures must use the same CSS chevron vocabulary as QBO-style expandable groups');
+assert.match(styles,/\.authoritative-secondary-disclosure\[open\]>summary:after\{transform:rotate\(45deg\);\}/,
+  'expanded secondary disclosures must rotate the shared chevron instead of swapping text glyphs');
+assert.match(styles,/\.authoritative-return-context>summary:after\{content:'';display:inline-block;[^}]*border-right:2px solid currentColor;[^}]*border-bottom:2px solid currentColor/,
+  'return-context disclosures must reuse the same line-chevron construction');
+assert.match(styles,/\.authoritative-list-more-filters>summary:after\{content:'';[^}]*border-right:2px solid currentColor;[^}]*border-bottom:2px solid currentColor/,
+  'compact filter disclosures must reuse the same line-chevron construction');
+assert.doesNotMatch(styles,/\.authoritative-(?:secondary-disclosure|return-context|list-more-filters)[^\n]*summary:after\{content:'[ +−-]/,
+  'authoritative disclosures must not mix plus/minus text glyphs with the shared icon vocabulary');
 
 // The authoritative surface must expose the same presentation-only theme
 // control as the legacy shell.  It is deliberately an explicit button rather
