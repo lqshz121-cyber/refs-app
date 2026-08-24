@@ -13,7 +13,7 @@ const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&
 const text=(value,max)=>typeof value==='string'&&value.trim()===value&&value.length>0&&value.length<=max;
 const actions=value=>exact(value,ACTION_KEYS)&&ACTION_KEYS.every(key=>value[key]===false);
 const risks=value=>exact(value,['high','medium','low'])&&Object.values(value).every(count=>Number.isSafeInteger(count)&&count>=0);
-const model=value=>exact(value,['elapsed_ms','model','provider_request_id'])&&text(value.model,255)&&(value.provider_request_id===null||text(value.provider_request_id,255))&&Number.isSafeInteger(value.elapsed_ms)&&value.elapsed_ms>=0&&value.elapsed_ms<=86_400_000;
+const model=value=>exact(value,['elapsed_ms','model','provider_request_id','trace_id'])&&text(value.model,255)&&text(value.trace_id,255)&&(value.provider_request_id===null||text(value.provider_request_id,255))&&Number.isSafeInteger(value.elapsed_ms)&&value.elapsed_ms>=0&&value.elapsed_ms<=86_400_000;
 const MANIFEST_KEYS=['action_flags','chunk_count','chunk_hashes','chunks','schema_version','snapshot_hash','snapshot_id','total_finding_count'];
 const CHUNK_KEYS=['accounting_period_id','action_flags','chunk_count','chunk_hash','chunk_index','entity_id','findings','release_sha','risk_summary','schema_version','section_categories','snapshot_hash','snapshot_id','tenant_id','total_finding_count'];
 const FINDING_KEYS=['evidence','finding_hash','finding_id','finding_index','section_category'];
