@@ -15,14 +15,14 @@ const risks=value=>exact(value,['high','medium','low'])&&Object.values(value).ev
 const model=value=>exact(value,['elapsed_ms','model','provider_request_id'])&&text(value.model,255)&&(value.provider_request_id===null||text(value.provider_request_id,255))&&Number.isSafeInteger(value.elapsed_ms)&&value.elapsed_ms>=0&&value.elapsed_ms<=86_400_000;
 const fail=(code,message)=>{throw Object.assign(new Error(message),{code});};
 const riskSummary=findings=>({high:findings.filter(item=>item.evidence.risk_level==='HIGH').length,medium:findings.filter(item=>item.evidence.risk_level==='MEDIUM').length,low:findings.filter(item=>item.evidence.risk_level==='LOW').length});
-const validateActions=(value,byId,expectedIds)=>{
+const validateActions=(value,byId,expectedIds,{exhaustive=true}={})=>{
   if(!Array.isArray(value)||value.length>100)return false;
   const cited=[];
   for(const item of value){
     if(!exact(item,['action','category','finding_ids'])||!CODE.test(item.category||'')||!text(item.action,2000)||!Array.isArray(item.finding_ids)||item.finding_ids.length<1||item.finding_ids.length>100||new Set(item.finding_ids).size!==item.finding_ids.length)return false;
     for(const id of item.finding_ids){if(!UUID.test(id)||byId.get(id)?.section_category!==item.category)return false;cited.push(id);}
   }
-  return cited.length===expectedIds.length&&new Set(cited).size===cited.length&&expectedIds.every(id=>cited.includes(id));
+  return new Set(cited).size===cited.length&&(exhaustive?cited.length===expectedIds.length&&expectedIds.every(id=>cited.includes(id)):cited.every(id=>expectedIds.includes(id)));
 };
 
 export function sealAiFullControllerModelChunkResponse({inputManifest,response,index}={}){
@@ -51,7 +51,7 @@ export function buildAiFullControllerModelOutput({inputManifest,chunkResponses,f
   const allFindings=inputManifest.chunks.flatMap(chunk=>chunk.findings||[]),allById=new Map(allFindings.map(item=>[item.finding_id,item]));
   if(!Array.isArray(chunkResponses)||chunkResponses.length!==inputManifest.chunk_count)fail('AI_FULL_SCAN_MODEL_OUTPUT_CHUNK_SET_INVALID','Every input chunk requires exactly one model response.');
   const responses=chunkResponses.map((response,index)=>sealAiFullControllerModelChunkResponse({inputManifest,response,index}));
-  if(!exact(finalMemo,['action_flags','chunk_response_hashes','controller_actions','headline','model_metadata','narrative','risk_summary','schema_version','snapshot_hash','snapshot_id'])||finalMemo.schema_version!=='AI_FULL_CONTROLLER_MEMO_V1'||finalMemo.snapshot_id!==inputManifest.snapshot_id||finalMemo.snapshot_hash!==inputManifest.snapshot_hash||!Array.isArray(finalMemo.chunk_response_hashes)||JSON.stringify(finalMemo.chunk_response_hashes)!==JSON.stringify(responses.map(item=>item.response_hash))||!text(finalMemo.headline,500)||!text(finalMemo.narrative,12000)||!risks(finalMemo.risk_summary)||JSON.stringify(finalMemo.risk_summary)!==JSON.stringify(riskSummary(allFindings))||!actions(finalMemo.action_flags)||!model(finalMemo.model_metadata)||!validateActions(finalMemo.controller_actions,allById,[...allById.keys()])||!safeAiEvidenceTree(finalMemo))fail('AI_FULL_SCAN_MODEL_OUTPUT_MEMO_INVALID','Controller Memo must synthesize every retained chunk without inventing evidence or authority.');
+  if(!exact(finalMemo,['action_flags','chunk_response_hashes','controller_actions','headline','memo_citation_finding_ids','memo_reduction_hash','model_metadata','narrative','risk_summary','schema_version','snapshot_hash','snapshot_id'])||finalMemo.schema_version!=='AI_FULL_CONTROLLER_MEMO_V1'||finalMemo.snapshot_id!==inputManifest.snapshot_id||finalMemo.snapshot_hash!==inputManifest.snapshot_hash||!HASH.test(finalMemo.memo_reduction_hash||'')||!Array.isArray(finalMemo.chunk_response_hashes)||JSON.stringify(finalMemo.chunk_response_hashes)!==JSON.stringify(responses.map(item=>item.response_hash))||!Array.isArray(finalMemo.memo_citation_finding_ids)||finalMemo.memo_citation_finding_ids.length>2000||new Set(finalMemo.memo_citation_finding_ids).size!==finalMemo.memo_citation_finding_ids.length||!finalMemo.memo_citation_finding_ids.every(id=>allById.has(id))||!text(finalMemo.headline,500)||!text(finalMemo.narrative,12000)||!risks(finalMemo.risk_summary)||JSON.stringify(finalMemo.risk_summary)!==JSON.stringify(riskSummary(allFindings))||!actions(finalMemo.action_flags)||!model(finalMemo.model_metadata)||(allFindings.length>0&&finalMemo.controller_actions.length===0)||!validateActions(finalMemo.controller_actions,allById,finalMemo.memo_citation_finding_ids,{exhaustive:false})||!safeAiEvidenceTree(finalMemo))fail('AI_FULL_SCAN_MODEL_OUTPUT_MEMO_INVALID','Controller Memo must synthesize every retained chunk without inventing evidence or authority.');
   const payload={schema_version:'AI_FULL_CONTROLLER_MODEL_OUTPUT_V1',snapshot_id:inputManifest.snapshot_id,snapshot_hash:inputManifest.snapshot_hash,chunk_count:responses.length,total_finding_count:allFindings.length,chunk_responses:Object.freeze(responses),final_memo:Object.freeze(structuredClone(finalMemo)),action_flags:ACTIONS};
   return Object.freeze({...payload,output_hash:digest(payload)});
 }

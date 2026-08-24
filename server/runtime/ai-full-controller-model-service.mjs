@@ -1,4 +1,5 @@
 import {assertAiFullControllerModelInputManifest,buildAiFullControllerModelOutput,sealAiFullControllerModelChunkResponse} from './ai-full-controller-model-output-contract.mjs';
+import {buildAiFullControllerMemoReduction} from './ai-full-controller-memo-reduction-contract.mjs';
 
 const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve:false,can_post:false});
 const METHODS=['beginAiFullControllerModelRun','beginAiFullControllerModelChunk','completeAiFullControllerModelChunk','beginAiFullControllerModelMemo','completeAiFullControllerModelRun','abandonAiFullControllerModelStage'];
@@ -8,7 +9,7 @@ const chunkSchema=resultSchema('refs_ai_full_controller_chunk');
 const memoSchema=resultSchema('refs_ai_full_controller_memo');
 const modelMetadata=output=>({provider_request_id:output.providerRequestId??null,model:output.model,elapsed_ms:output.elapsedMs});
 const chunkResponse=(manifest,index,output)=>({schema_version:'AI_FULL_CONTROLLER_MODEL_CHUNK_RESPONSE_V1',snapshot_id:manifest.snapshot_id,snapshot_hash:manifest.snapshot_hash,chunk_index:index,chunk_hash:manifest.chunk_hashes[index],...output.result,model_metadata:modelMetadata(output)});
-const memoResponse=(manifest,hashes,output)=>({schema_version:'AI_FULL_CONTROLLER_MEMO_V1',snapshot_id:manifest.snapshot_id,snapshot_hash:manifest.snapshot_hash,chunk_response_hashes:hashes,...output.result,model_metadata:modelMetadata(output)});
+const memoResponse=(manifest,hashes,reduction,output)=>({schema_version:'AI_FULL_CONTROLLER_MEMO_V1',snapshot_id:manifest.snapshot_id,snapshot_hash:manifest.snapshot_hash,chunk_response_hashes:hashes,memo_reduction_hash:reduction.reduction_hash,memo_citation_finding_ids:[...new Set(reduction.root_nodes.flatMap(node=>node.priority_findings.map(item=>item.finding_id)))],...output.result,model_metadata:modelMetadata(output)});
 
 export function createAiFullControllerModelService({gateway,repository}={}){
   if(!gateway||typeof gateway.analyzeJson!=='function')fail('AI_FULL_SCAN_MODEL_GATEWAY_REQUIRED','Full Controller model execution requires the controlled AI gateway.');
@@ -34,13 +35,13 @@ export function createAiFullControllerModelService({gateway,repository}={}){
           }
           responses.push(sealed);
         }
-        const hashes=responses.map(item=>item.response_hash),memoReservation=await repository.beginAiFullControllerModelMemo({actorId,idempotencyKey,runHash:run.runHash,chunkResponseHashes:hashes});
+        const hashes=responses.map(item=>item.response_hash),reduction=buildAiFullControllerMemoReduction({inputManifest,sealedChunkResponses:responses}),memoReservation=await repository.beginAiFullControllerModelMemo({actorId,idempotencyKey,runHash:run.runHash,chunkResponseHashes:hashes,reductionManifest:reduction});
         if(!['STARTED','REPLAY'].includes(memoReservation?.state))fail('AI_FULL_SCAN_MODEL_MEMO_RECEIPT_INVALID','Durable memo reservation was not established.');
         let finalMemo;
         if(memoReservation.state==='REPLAY')finalMemo=memoReservation.response;
         else{
-          const output=await gateway.analyzeJson({traceId:`${idempotencyKey}:memo`,traceName:'refs-ai-full-controller-memo',actorId,facts:{schema_version:'AI_FULL_CONTROLLER_MEMO_INPUT_V1',snapshot_id:inputManifest.snapshot_id,snapshot_hash:inputManifest.snapshot_hash,chunk_response_hashes:hashes,chunk_responses:responses,action_flags:ACTIONS},systemInstruction:'Synthesize only these validated chunk responses. Cite every retained finding UUID exactly once. Do not invent evidence, accounting effects, approvals, or authority. All action flags must remain false.',jsonSchema:memoSchema});
-          finalMemo=memoResponse(inputManifest,hashes,output);
+          const output=await gateway.analyzeJson({traceId:`${idempotencyKey}:memo`,traceName:'refs-ai-full-controller-memo',actorId,facts:{schema_version:'AI_FULL_CONTROLLER_MEMO_INPUT_V1',snapshot_id:inputManifest.snapshot_id,snapshot_hash:inputManifest.snapshot_hash,memo_reduction_hash:reduction.reduction_hash,total_finding_count:reduction.total_finding_count,risk_summary:reduction.risk_summary,root_nodes:reduction.root_nodes,action_flags:ACTIONS},systemInstruction:'Synthesize only this complete hash-bound reduction of validated chunk responses. Cite only retained priority finding UUIDs present in the reduction roots. Do not invent evidence, accounting effects, approvals, or authority. All action flags must remain false.',jsonSchema:memoSchema});
+          finalMemo=memoResponse(inputManifest,hashes,reduction,output);
         }
         const result=buildAiFullControllerModelOutput({inputManifest,chunkResponses:responses,finalMemo});
         const persisted=await repository.completeAiFullControllerModelRun({actorId,idempotencyKey,runHash:run.runHash,output:result});
