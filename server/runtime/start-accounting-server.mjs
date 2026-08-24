@@ -74,9 +74,9 @@ export function accountingServerConfig(env=process.env){
   if(wbsTestImportMode==='ENABLED'){
     if(String(env.REFS_DEPLOYMENT_ENV||'').trim().toLowerCase()!=='staging')throw new Error('REFS_WBS_TEST_IMPORT_MODE may be enabled only in staging');
     if(wbsLivePilotMode!=='ENABLED')throw new Error('REFS_WBS_TEST_IMPORT_MODE requires REFS_WBS_LIVE_PILOT_MODE=ENABLED');
-    const actorKeys=['IMPORTER','MAKER','SUBMITTER','REVIEWER','APPROVER','POSTER'].map(role=>`REFS_WBS_TEST_IMPORT_${role}_ACTOR_ID`);
+    const actorKeys=['IMPORTER','RECONCILIATION_STARTER','MAKER','PAYMENT_MAKER','MATCH_MAKER','SUBMITTER','REVIEWER','APPROVER','POSTER','CLEARER','REOPENER'].map(role=>`REFS_WBS_TEST_IMPORT_${role}_ACTOR_ID`);
     requireAll(env,['REFS_WBS_TEST_IMPORT_TENANT_ID','REFS_WBS_TEST_IMPORT_ENTITY_ID','REFS_WBS_TEST_IMPORT_COMPANY_CODE',...actorKeys]);
-    const actors=Object.fromEntries(actorKeys.map(key=>[key.slice('REFS_WBS_TEST_IMPORT_'.length,-'_ACTOR_ID'.length).toLowerCase(),env[key]]));
+    const actors=Object.fromEntries(actorKeys.map(key=>[key.slice('REFS_WBS_TEST_IMPORT_'.length,-'_ACTOR_ID'.length).toLowerCase().replace('reconciliation_starter','reconciliationStarter').replace('payment_maker','paymentMaker').replace('match_maker','matchMaker'),env[key]]));
     if(!UUID.test(env.REFS_WBS_TEST_IMPORT_TENANT_ID||'')||!UUID.test(env.REFS_WBS_TEST_IMPORT_ENTITY_ID||'')||!/^[A-Z0-9][A-Z0-9_:-]{0,63}$/.test(env.REFS_WBS_TEST_IMPORT_COMPANY_CODE||'')||new Set(Object.values(actors)).size!==actorKeys.length)throw new Error('REFS_WBS_TEST_IMPORT scope and actors must be canonical and distinct');
     wbsTestImport={tenantId:env.REFS_WBS_TEST_IMPORT_TENANT_ID,entityId:env.REFS_WBS_TEST_IMPORT_ENTITY_ID,companyCode:env.REFS_WBS_TEST_IMPORT_COMPANY_CODE,actors};
   }
@@ -85,7 +85,7 @@ export function accountingServerConfig(env=process.env){
     if(String(env.REFS_DEPLOYMENT_ENV||'').trim().toLowerCase()!=='staging')throw new Error('REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE may be enabled only in staging');
     if(!wbsTestImport)throw new Error('REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE requires the fixed WBS test-import scope');
     const actorKeys=['SOURCE_MAKER','PROPOSER','DRAFT_MAKER','SUBMITTER','REVIEWER','APPROVER','POSTER'].map(role=>`REFS_CONTROLLED_TEST_AI_${role}_ACTOR_ID`);
-    requireAll(env,['REFS_CONTROLLED_TEST_AI_CALLER_ACTOR_ID',...actorKeys]);
+    requireAll(env,['REFS_CONTROLLED_TEST_AI_CALLER_ACTOR_ID','REFS_CONTROLLED_TEST_AI_GRANT_VALID_UNTIL',...actorKeys]);
     const actors=Object.fromEntries(actorKeys.map(key=>{
       const role=key.slice('REFS_CONTROLLED_TEST_AI_'.length,-'_ACTOR_ID'.length).toLowerCase().replace('_maker','Maker');
       return [role,env[key]];
@@ -93,7 +93,7 @@ export function accountingServerConfig(env=process.env){
     const identities=[env.REFS_CONTROLLED_TEST_AI_CALLER_ACTOR_ID,...Object.values(actors),...Object.values(wbsTestImport.actors)];
     if(new Set(identities).size!==identities.length)throw new Error('Controlled-test AI caller, AI actors, and WBS test actors must all be distinct');
     controlledTestAiWorkflow={tenantId:wbsTestImport.tenantId,entityId:wbsTestImport.entityId,callerActorId:env.REFS_CONTROLLED_TEST_AI_CALLER_ACTOR_ID,
-      prepaidAccountCode:'141500',expenseAccountCode:'610000',actors};
+      prepaidAccountCode:'141500',expenseAccountCode:'610000',grantValidUntil:env.REFS_CONTROLLED_TEST_AI_GRANT_VALID_UNTIL,actors};
   }
   const origins=allowedOrigins(env.REFS_HTTP_ALLOWED_ORIGINS||'',production);if(production&&!origins.length)throw new Error('REFS_HTTP_ALLOWED_ORIGINS is required in production');
   const deploymentRelease=releaseSha(env.RENDER_GIT_COMMIT||env.GITHUB_SHA,production);

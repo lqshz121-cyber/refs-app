@@ -78,6 +78,7 @@ export async function uploadBrowserWbsH1AccountingControl({config,companyCode,ma
   try{
     if(!config||!UUID.test(config.entityId||'')||!CURRENCY.test(currency))throw new Error('One authoritative entity and ISO currency are required');
     const access=await refreshCurrentActorAccess({config,fetcher});if(!access.ok)throw Object.assign(new Error(access.message),{code:access.code});
+    if(!access.row.permissions.includes('*')&&!access.row.permissions.includes('WBS.SNAPSHOT.IMPORT'))throw Object.assign(new Error('Service import authorization required; no files were selected or transmitted.'),{code:'WBS_H1_CONTROL_SERVICE_IMPORT_AUTHORIZATION_REQUIRED'});
     const sourceManifest=await validateBrowserWbsH1Manifest({manifestFile,rawFile,companyCode});sourceVersion=browserCanonicalRequestHash({schema_version:'WBS_H1_ACCOUNTING_CONTROL_SOURCE_V1',manifest:sourceManifest});
     onProgress({phase:'VERIFYING',runId,page:0,rows:0});
     const summary=await summarizeBrowserWbsH1AccountingStream({rawFile,sourceManifest,tenantId:access.row.tenant_id,entityId:config.entityId,currency,sourceVersion});

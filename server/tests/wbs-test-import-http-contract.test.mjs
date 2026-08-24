@@ -6,7 +6,7 @@ import {WbsTestImportError} from '../runtime/wbs-test-import-service.mjs';
 const tenantId='6fb25daf-0799-4805-bede-be54230da33c',entityId='ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3',periodId='fe5a2a7c-3a26-4dd9-bdd8-6e46ba784231';
 const url=`/api/v1/entities/${entityId}/wbs/test-import/payables`,body={periodId,companyCode:'WBPA',dateFrom:'2026-01-01',dateTo:'2026-12-31',limit:10};
 const request=(overrides={})=>({method:'POST',url,headers:{'idempotency-key':'wbs-test-import-http-0001'},body,...overrides});
-const result=(replay=false)=>({status:'WBS_TEST_PAYABLE_IMPORT_COMPLETE',imported_count:replay?0:1,replayed_count:replay?1:0,posted_count:1,failed_count:0,test_only:true});
+const result=(replay=false)=>({status:'WBS_TEST_PAYABLE_IMPORT_COMPLETE',imported_count:replay?0:1,replayed_count:replay?1:0,posted_count:0,failed_count:0,test_only:true});
 
 test('authenticated test-import route returns only the exact no-store success DTO',async()=>{
   const calls=[],principals=[];const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'authenticated-test-operator'}),kernelFactory:async()=>({}),wbsTestImportServiceFactory:async principal=>(principals.push(principal),{importPayables:async args=>(calls.push(args),result())})});

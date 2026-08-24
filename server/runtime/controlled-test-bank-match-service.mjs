@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MONEY4=/^(?:0|[1-9][0-9]{0,15})\.[0-9]{4}$/;
-const ACTOR_ROLES=Object.freeze(['importer','maker','submitter','reviewer','approver','poster']);
+const ACTOR_ROLES=Object.freeze(['importer','reconciliationStarter','maker','paymentMaker','matchMaker','submitter','reviewer','approver','poster','clearer','reopener']);
 
 export class ControlledTestBankMatchError extends Error{
   constructor(code,message){super(message);this.name='ControlledTestBankMatchError';this.code=code;}
@@ -48,20 +48,20 @@ export function createControlledTestBankMatchService({kernelForActor,authorize,s
       ||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>160)fail('CONTROLLED_TEST_BANK_MATCH_SELECTION_INVALID','Controlled test Bank Match requires its fixed entity, a review reason, and a stable request identity.');
     await authorize({tenantId,entityId});
     const kernels=Object.fromEntries(ACTOR_ROLES.map(role=>[role,kernelForActor(actors[role])]));
-    const required={importer:['resolveWbsTestBankMatchFixture','listBankMatchCandidates','createBankPaymentMatch'],maker:['proposeWbsTestBankMatchConfig','createApPayment','bindWbsTestBankMatchPaymentSource'],submitter:['transitionJournal'],reviewer:['approveWbsTestBankMatchConfig','transitionJournal'],approver:['transitionJournal'],poster:['postJournal']};
-    for(const role of ACTOR_ROLES)if(!kernels[role]||required[role].some(method=>typeof kernels[role][method]!=='function'))fail('CONTROLLED_TEST_BANK_MATCH_CONFIG_INVALID',`Controlled test Bank Match ${role} kernel is unavailable.`);
-    const fixture=assertFixture(await kernels.importer.resolveWbsTestBankMatchFixture({tenantId,entityId}));
+    const required={paymentMaker:['createApPayment','bindWbsTestBankMatchPaymentSource'],matchMaker:['resolveWbsTestBankMatchFixture','listBankMatchCandidates','createBankPaymentMatch','proposeWbsTestBankMatchConfig'],submitter:['transitionJournal'],reviewer:['approveWbsTestBankMatchConfig','transitionJournal'],approver:['transitionJournal'],poster:['postJournal']};
+    for(const [role,methods] of Object.entries(required))if(!kernels[role]||methods.some(method=>typeof kernels[role][method]!=='function'))fail('CONTROLLED_TEST_BANK_MATCH_CONFIG_INVALID',`Controlled test Bank Match ${role} kernel is unavailable.`);
+    const fixture=assertFixture(await kernels.matchMaker.resolveWbsTestBankMatchFixture({tenantId,entityId}));
     const commandKey=`wbs-test-bank-match:${fixture.bank_source_id}`;
     const markedReason=`TEST_ONLY ${reason}`;
-    const proposed=await kernels.maker.proposeWbsTestBankMatchConfig({tenantId,entityId});
+    const proposed=await kernels.matchMaker.proposeWbsTestBankMatchConfig({tenantId,entityId});
     if(!proposed||!exactId(proposed.setting_snapshot_id)||!exactId(proposed.mapping_snapshot_id)||!['DRAFT','APPROVED'].includes(proposed.status)||typeof proposed.idempotent!=='boolean')fail('CONTROLLED_TEST_BANK_MATCH_CONFIG_INVALID','Controlled test Bank Match configuration proposal is incomplete or unsafe.');
     const config=await kernels.reviewer.approveWbsTestBankMatchConfig({tenantId,entityId,settingSnapshotId:proposed.setting_snapshot_id,mappingSnapshotId:proposed.mapping_snapshot_id});
     if(!config||config.setting_snapshot_id!==proposed.setting_snapshot_id||config.mapping_snapshot_id!==proposed.mapping_snapshot_id||config.status!=='APPROVED'||typeof config.idempotent!=='boolean')fail('CONTROLLED_TEST_BANK_MATCH_CONFIG_INVALID','Controlled test Bank Match configuration approval is incomplete or unsafe.');
-    const payment=await kernels.maker.createApPayment({tenantId,entityId,businessDocumentId:fixture.business_document_id,periodId:fixture.period_id,
+    const payment=await kernels.paymentMaker.createApPayment({tenantId,entityId,businessDocumentId:fixture.business_document_id,periodId:fixture.period_id,
       paymentNumber:paymentNumber(commandKey),paymentDate:fixture.transaction_date,cashAccountCode:scope.cashAccountCode,bankMemberRef:fixture.bank_account_ref,
       amount:fixture.payment_amount,reason:markedReason,idempotencyKey:`${commandKey}:payment`});
     if(!payment||!exactId(payment.payment_occurrence_id)||!exactId(payment.journal_entry_id)||payment.business_document_id!==fixture.business_document_id)fail('CONTROLLED_TEST_BANK_MATCH_PAYMENT_INVALID','Controlled test AP payment did not retain exact fixture lineage.');
-    const sourceBinding=await kernels.maker.bindWbsTestBankMatchPaymentSource({tenantId,entityId,businessDocumentId:fixture.business_document_id,
+    const sourceBinding=await kernels.paymentMaker.bindWbsTestBankMatchPaymentSource({tenantId,entityId,businessDocumentId:fixture.business_document_id,
       paymentOccurrenceId:payment.payment_occurrence_id,journalEntryId:payment.journal_entry_id});
     if(!sourceBinding||!exactId(sourceBinding.staging_item_id)||!exactId(sourceBinding.source_link_id)||typeof sourceBinding.idempotent!=='boolean')fail('CONTROLLED_TEST_BANK_MATCH_PAYMENT_INVALID','Controlled test AP payment source linkage is incomplete or unsafe.');
     if(fixture.active_bank_match_id!==null){
@@ -79,10 +79,10 @@ export function createControlledTestBankMatchService({kernelForActor,authorize,s
     if(approved?.status!=='APPROVED')fail('CONTROLLED_TEST_BANK_MATCH_WORKFLOW_INVALID','Controlled test AP payment Approve returned an unsafe state.');
     const posted=await kernels.poster.postJournal({tenantId,entityId,periodId:fixture.period_id,journalEntryId:payment.journal_entry_id,expectedRevision:3,idempotencyKey:`${commandKey}:post`});
     if(!posted||posted.journal_entry_id!==payment.journal_entry_id)fail('CONTROLLED_TEST_BANK_MATCH_WORKFLOW_INVALID','Controlled test AP payment Post returned an unsafe receipt.');
-    const candidates=await kernels.importer.listBankMatchCandidates({tenantId,entityId,bankSourceId:fixture.bank_source_id});
+    const candidates=await kernels.matchMaker.listBankMatchCandidates({tenantId,entityId,bankSourceId:fixture.bank_source_id});
     const candidate=Array.isArray(candidates)&&candidates.length===1?candidates[0]:null;
     if(!candidate||candidate.payment_occurrence_id!==payment.payment_occurrence_id||candidate.journal_entry_id!==payment.journal_entry_id||safeRevision(candidate.occurrence_version)===null)fail('CONTROLLED_TEST_BANK_MATCH_CANDIDATE_INVALID','Exactly one posted payment candidate must match the isolated WBS Bank source.');
-    const matched=await kernels.importer.createBankPaymentMatch({tenantId,entityId,bankSourceId:fixture.bank_source_id,paymentOccurrenceId:payment.payment_occurrence_id,
+    const matched=await kernels.matchMaker.createBankPaymentMatch({tenantId,entityId,bankSourceId:fixture.bank_source_id,paymentOccurrenceId:payment.payment_occurrence_id,
       expectedBankVersion:fixture.bank_version,expectedOccurrenceVersion:safeRevision(candidate.occurrence_version),reason:markedReason,idempotencyKey:`${commandKey}:match`});
     return Object.freeze(assertControlledTestBankMatchResult({status:'CONTROLLED_TEST_BANK_MATCH_ACTIVE',test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',idempotent:matched?.idempotent===true,
       period_id:fixture.period_id,bank_account_ref:fixture.bank_account_ref,bank_source_id:fixture.bank_source_id,business_document_id:fixture.business_document_id,

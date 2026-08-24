@@ -61,14 +61,6 @@ export async function provisionDirectWbsCompanyScopes({pool,tenantId,templateEnt
         SELECT tenant_id,$3,account_code,account_name,requires_member,required_member_type,active
         FROM account_master WHERE tenant_id=$1 AND entity_id=$2
         ON CONFLICT(tenant_id,entity_id,account_code) DO NOTHING`,[tenantId,templateEntityId,entityId]);
-      await client.query(`INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission,valid_until,revoked_at)
-        SELECT tenant_id,actor_id,$3,permission,valid_until,NULL FROM runtime_actor_grant
-        WHERE tenant_id=$1 AND entity_id=$2 AND revoked_at IS NULL AND (valid_until IS NULL OR valid_until>clock_timestamp())
-        ON CONFLICT(tenant_id,actor_id,entity_id,permission) DO UPDATE SET valid_until=EXCLUDED.valid_until,revoked_at=NULL`,[tenantId,templateEntityId,entityId]);
-      await client.query(`INSERT INTO runtime_actor_grant_set(tenant_id,actor_id,entity_id,version,updated_by,updated_at)
-        SELECT tenant_id,actor_id,$3,version,'wbs-direct-company-provisioner',clock_timestamp()
-        FROM runtime_actor_grant_set WHERE tenant_id=$1 AND entity_id=$2
-        ON CONFLICT(tenant_id,actor_id,entity_id) DO UPDATE SET version=GREATEST(runtime_actor_grant_set.version,EXCLUDED.version),updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at`,[tenantId,templateEntityId,entityId]);
     }
     const entityIds=normalized.map(company=>company.company_code==='WBPA'&&templateIsWbs?templateEntityId:deterministicUuid(`refs:${tenantId}:wbs-company:${company.company_code}`));
     const evidence=(await client.query(`SELECT count(DISTINCT e.entity_id)::integer AS company_count,count(DISTINCT p.period_id)::integer AS period_count

@@ -44,41 +44,29 @@ test('self-service Stage 1 activation derives only the signed-in principal and f
   assert.equal(disabled.status,404);
 });
 
-test('self-service WBS reader upgrade derives only the signed-in principal and carries no write input',async()=>{
+test('self-service WBS reader upgrade is retired before any grant service call',async()=>{
   const upgradeCalls=[];
   const selfService=createAccountingApi({
     authenticate:async()=>({trusted:true,tenantId,actorId:'oidc|reader'}),kernelFactory:async()=>kernel,
     stage1SelfWbsReadUpgradeServiceFactory:async principal=>({upgrade:async input=>{upgradeCalls.push([principal,input]);return {idempotent:false,permissionCount:6};}})
   });
   const response=await selfService({method:'POST',url:`/api/v1/entities/${entityId}/access/self-service-wbs-read-grant/upgrade`,body:{},headers:{'Idempotency-Key':'wbs-upgrade-0001'}});
-  assert.equal(response.status,201);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(response.body.data,{upgraded:true,idempotent:false,permission_count:6});
-  assert.deepEqual(upgradeCalls,[[{trusted:true,tenantId,actorId:'oidc|reader'},{entityId,idempotencyKey:'wbs-upgrade-0001'}]]);
-  const forbidden=await selfService({method:'POST',url:`/api/v1/entities/${entityId}/access/self-service-wbs-read-grant/upgrade`,body:{permission:'WBS.SNAPSHOT.IMPORT'},headers:{'Idempotency-Key':'wbs-upgrade-0002'}});
-  assert.equal(forbidden.status,400);
+  assert.equal(response.status,410);assert.equal(response.body.code,'ROUTE_RETIRED');assert.deepEqual(upgradeCalls,[]);
 });
 
-test('self-service WBS operator upgrade adds the fixed exception-retain permission without request fields',async()=>{
+test('self-service WBS operator upgrade is retired before any grant service call',async()=>{
   const upgradeCalls=[];
   const selfService=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'oidc|reader'}),kernelFactory:async()=>kernel,stage1SelfWbsOperatorUpgradeServiceFactory:async principal=>({upgrade:async input=>{upgradeCalls.push([principal,input]);return {idempotent:false,permissionCount:7};}})});
   const response=await selfService({method:'POST',url:`/api/v1/entities/${entityId}/access/self-service-wbs-operator-grant/upgrade`,body:{},headers:{'Idempotency-Key':'wbs-operator-upgrade-0001'}});
-  assert.equal(response.status,201);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(response.body.data,{upgraded:true,idempotent:false,permission_count:7});
-  assert.deepEqual(upgradeCalls,[[{trusted:true,tenantId,actorId:'oidc|reader'},{entityId,idempotencyKey:'wbs-operator-upgrade-0001'}]]);
-  const replayApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'oidc|reader'}),kernelFactory:async()=>kernel,stage1SelfWbsOperatorUpgradeServiceFactory:async()=>({upgrade:async()=>({idempotent:true,permissionCount:7})})});
-  const replay=await replayApi({method:'POST',url:`/api/v1/entities/${entityId}/access/self-service-wbs-operator-grant/upgrade`,body:{},headers:{'Idempotency-Key':'wbs-operator-upgrade-0001'}});
-  assert.equal(replay.status,200);assert.deepEqual(replay.body.data,{upgraded:true,idempotent:true,permission_count:7});
-  assert.equal((await selfService({method:'POST',url:`/api/v1/entities/${entityId}/access/self-service-wbs-operator-grant/upgrade`,body:{permission:'GL.JE.POST'},headers:{'Idempotency-Key':'wbs-operator-upgrade-0002'}})).status,400);
+  assert.equal(response.status,410);assert.equal(response.body.code,'ROUTE_RETIRED');assert.deepEqual(upgradeCalls,[]);
 });
 
-test('controlled test workflow upgrade derives the signed-in actor and exposes only a test-only receipt',async()=>{
+test('controlled test single-actor workflow upgrade is retired before any grant service call',async()=>{
   const upgradeCalls=[];
   const selfService=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'oidc|reader'}),kernelFactory:async()=>kernel,stage1SelfControlledTestWorkflowUpgradeServiceFactory:async principal=>({upgrade:async input=>{upgradeCalls.push([principal,input]);return {idempotent:false,permissionCount:22};}})});
   const path=`/api/v1/entities/${entityId}/access/self-service-controlled-test-workflow-grant/upgrade`;
   const response=await selfService({method:'POST',url:path,body:{},headers:{'Idempotency-Key':'controlled-test-upgrade-0001'}});
-  assert.equal(response.status,201);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(response.body.data,{upgraded:true,idempotent:false,permission_count:22,test_only:true});
-  assert.deepEqual(upgradeCalls,[[{trusted:true,tenantId,actorId:'oidc|reader'},{entityId,idempotencyKey:'controlled-test-upgrade-0001'}]]);
-  const replayApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'oidc|reader'}),kernelFactory:async()=>kernel,stage1SelfControlledTestWorkflowUpgradeServiceFactory:async()=>({upgrade:async()=>({idempotent:true,permissionCount:22})})});
-  assert.equal((await replayApi({method:'POST',url:path,body:{},headers:{'Idempotency-Key':'controlled-test-upgrade-0001'}})).status,200);
-  assert.equal((await selfService({method:'POST',url:path,body:{actorId:'other'},headers:{'Idempotency-Key':'controlled-test-upgrade-0002'}})).status,400);
+  assert.equal(response.status,410);assert.equal(response.body.code,'ROUTE_RETIRED');assert.deepEqual(upgradeCalls,[]);
 });
 
 test('manual command derives tenant/entity/actor boundary from authenticated context',async()=>{

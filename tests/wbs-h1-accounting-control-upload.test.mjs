@@ -43,6 +43,12 @@ test('the production-size WBPA manifest entry is accepted structurally without r
   const source=await validateBrowserWbsH1Manifest({manifestFile:largeManifest,rawFile:largeRaw,companyCode:'WBPA'});assert.equal(source.rows,202304);assert.equal(source.bytes,314000000);
 });
 
+test('human access fails before any large control file is selected or read',async()=>{
+  let rawRead=false;const unreadRaw={name:'accounting_info__WBPA__2026-H1.ndjson',size:314000000,stream(){rawRead=true;throw new Error('raw file must remain unread');}};
+  const denied=await uploadBrowserWbsH1AccountingControl({config,companyCode:'WBPA',manifestFile,rawFile:unreadRaw,fetcher:async()=>response(200,{tenant_id:tenantId,entity_id:entityId,actor_id:'human-reviewer',grant_set_version:1,permissions:['WBS.AUTOREC.VIEW'],configured_permissions:['WBS.AUTOREC.VIEW','WBS.SNAPSHOT.IMPORT'],session_refresh_required:false})});
+  assert.equal(denied.ok,false);assert.equal(denied.code,'WBS_H1_CONTROL_SERVICE_IMPORT_AUTHORIZATION_REQUIRED');assert.equal(rawRead,false);assert.match(denied.message,/no files were selected or transmitted/i);
+});
+
 test('browser upload verifies before POST, pages through authenticated no-store API, and remains control-only',async()=>{
   const calls=[],progress=[];
   const fetcher=async(url,options)=>{calls.push({url,options});if(url.endsWith('/access/self'))return response(200,{tenant_id:tenantId,entity_id:entityId,actor_id:'operator',grant_set_version:1,permissions:['WBS.SNAPSHOT.IMPORT'],configured_permissions:['WBS.SNAPSHOT.IMPORT'],session_refresh_required:false});

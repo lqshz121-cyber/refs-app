@@ -4,20 +4,20 @@ import {createControlledTestBankMatchService} from '../runtime/controlled-test-b
 
 const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const tenantId=id(1),entityId=id(2),periodId=id(3),bankSourceId=id(4),businessDocumentId=id(5),paymentOccurrenceId=id(6),journalEntryId=id(7),journalLineId=id(8),ledgerLineId=id(9),bankMatchId=id(10);
-const actors={importer:'fixture-importer',maker:'fixture-maker',submitter:'fixture-submitter',reviewer:'fixture-reviewer',approver:'fixture-approver',poster:'fixture-poster'};
+const actors={importer:'fixture-importer',reconciliationStarter:'fixture-starter',maker:'fixture-maker',paymentMaker:'fixture-payment-maker',matchMaker:'fixture-match-maker',submitter:'fixture-submitter',reviewer:'fixture-reviewer',approver:'fixture-approver',poster:'fixture-poster',clearer:'fixture-clearer',reopener:'fixture-reopener'};
 const scope={tenantId,entityId,bankAccountRef:'WBS_TEST_BANK',cashAccountCode:'111000',actors};
 const fixture=overrides=>({period_id:periodId,bank_source_id:bankSourceId,bank_version:0,bank_account_ref:'WBS_TEST_BANK',transaction_date:'2026-07-01',currency:'USD',payment_amount:'100.0000',business_document_id:businessDocumentId,document_number:'WBS-TEST-EXACT',active_bank_match_id:null,active_payment_occurrence_id:null,active_journal_entry_id:null,active_journal_line_id:null,active_ledger_line_id:null,active_match_revision:null,...overrides});
 
 function harness({resolved=fixture(),candidateCount=1}={}){
   const calls=[];
   const kernels={
-    importer:{
+    matchMaker:{
       async resolveWbsTestBankMatchFixture(args){calls.push(['resolve',args]);return resolved;},
       async listBankMatchCandidates(args){calls.push(['candidates',args]);return candidateCount===1?[{payment_occurrence_id:paymentOccurrenceId,journal_entry_id:journalEntryId,journal_line_id:journalLineId,ledger_line_id:ledgerLineId,occurrence_version:1}]:[];},
-      async createBankPaymentMatch(args){calls.push(['match',args]);return {bank_match_id:bankMatchId,journal_line_id:journalLineId,ledger_line_id:ledgerLineId,revision:0,idempotent:false};}
+      async createBankPaymentMatch(args){calls.push(['match',args]);return {bank_match_id:bankMatchId,journal_line_id:journalLineId,ledger_line_id:ledgerLineId,revision:0,idempotent:false};},
+      async proposeWbsTestBankMatchConfig(args){calls.push(['config-propose',args]);return {setting_snapshot_id:id(13),mapping_snapshot_id:id(14),status:'DRAFT',idempotent:false};}
     },
-    maker:{
-      async proposeWbsTestBankMatchConfig(args){calls.push(['config-propose',args]);return {setting_snapshot_id:id(13),mapping_snapshot_id:id(14),status:'DRAFT',idempotent:false};},
+    paymentMaker:{
       async createApPayment(args){calls.push(['payment',args]);return {payment_occurrence_id:paymentOccurrenceId,journal_entry_id:journalEntryId,business_document_id:businessDocumentId};},
       async bindWbsTestBankMatchPaymentSource(args){calls.push(['source-bind',args]);return {staging_item_id:id(11),source_link_id:id(12),idempotent:false};}
     },
@@ -32,7 +32,7 @@ function harness({resolved=fixture(),candidateCount=1}={}){
 
 const input={tenantId,entityId,reason:'Create exact isolated test match',idempotencyKey:'isolated-bank-match-001'};
 
-test('posts one exact AP payment through six actors before creating one Bank Match',async()=>{
+test('posts one exact AP payment through distinct payment and match makers before creating one Bank Match',async()=>{
   const {service,calls}=harness();
   const result=await service.run(input);
   assert.deepEqual(result,{status:'CONTROLLED_TEST_BANK_MATCH_ACTIVE',test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',idempotent:false,period_id:periodId,bank_account_ref:'WBS_TEST_BANK',bank_source_id:bankSourceId,business_document_id:businessDocumentId,payment_amount:'100.0000',currency:'USD',payment_occurrence_id:paymentOccurrenceId,journal_entry_id:journalEntryId,journal_line_id:journalLineId,ledger_line_id:ledgerLineId,bank_match_id:bankMatchId,revision:0});

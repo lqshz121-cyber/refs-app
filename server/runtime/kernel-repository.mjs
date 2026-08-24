@@ -244,16 +244,29 @@ export class PostgresAccountingKernel{
     });
   }
 
-  async createWbsTestPayableDraft({tenantId,entityId,periodId,observation,row,rowIndex,idempotencyKey}){
+  async retainWbsTestPayableSource({tenantId,entityId,periodId,observation,row,rowIndex,idempotencyKey}){
     return this.inSession(async client=>{
       const payload=[tenantId,entityId,periodId,JSON.stringify(observation),JSON.stringify(row),rowIndex];
       const requestHash=requireRow(await client.query(
-        'SELECT refs_create_wbs_test_payable_draft_hash($1,$2,$3,$4::jsonb,$5::jsonb,$6) AS request_hash',payload
-      ),'WBS_TEST_IMPORT_HASH_FAILED','WBS test Payable import hash was not produced').request_hash;
+        'SELECT refs_retain_wbs_test_payable_source_hash($1,$2,$3,$4::jsonb,$5::jsonb,$6) AS request_hash',payload
+      ),'WBS_TEST_IMPORT_HASH_FAILED','WBS test Payable source retention hash was not produced').request_hash;
       return requireRow(await client.query(
-        'SELECT refs_create_wbs_test_payable_draft($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8) AS result',
+        'SELECT refs_retain_wbs_test_payable_source($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8) AS result',
         [...payload,idempotencyKey,requestHash]
-      ),'WBS_TEST_IMPORT_FAILED','WBS test Payable Draft was not created').result;
+      ),'WBS_TEST_IMPORT_FAILED','WBS test Payable source was not retained').result;
+    });
+  }
+
+  async createWbsTestPayableDraft({tenantId,entityId,sourceReceiptId,expectedReceiptHash,idempotencyKey}){
+    return this.inSession(async client=>{
+      const payload=[tenantId,entityId,sourceReceiptId,expectedReceiptHash];
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_create_wbs_test_payable_draft_hash($1,$2,$3,$4) AS request_hash',payload
+      ),'WBS_TEST_DRAFT_HASH_FAILED','WBS test Payable human Draft hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_create_wbs_test_payable_draft($1,$2,$3,$4,$5,$6) AS result',
+        [...payload,idempotencyKey,requestHash]
+      ),'WBS_TEST_DRAFT_FAILED','WBS test Payable human Draft was not created').result;
     });
   }
 
@@ -283,9 +296,16 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>{
       await client.query("SELECT set_config('statement_timeout',$1,true)",[WBS_TEST_BANK_FINALIZE_STATEMENT_TIMEOUT]);
       return requireRow(await client.query(
-        'SELECT refs_finalize_wbs_test_bank_staged_import($1,$2,$3) AS result',[tenantId,entityId,begin.stage_id]
+        'SELECT refs_finalize_wbs_test_bank_import_receipt($1,$2,$3) AS result',[tenantId,entityId,begin.stage_id]
       ),'WBS_TEST_BANK_FINALIZE_FAILED','Controlled test Bank staged import was not finalized').result;
     });
+  }
+
+  async startWbsTestBankReconciliation({tenantId,entityId,receiptId,expectedReceiptHash,idempotencyKey}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_start_wbs_test_bank_reconciliation($1,$2,$3,$4,$5) AS result',
+      [tenantId,entityId,receiptId,expectedReceiptHash,idempotencyKey]
+    ),'WBS_TEST_BANK_RECONCILIATION_START_FAILED','Exact WBS test Bank receipt was not consumed into a Draft reconciliation').result);
   }
 
   async ensureWbsTestH12026Periods({tenantId,entityId}){
@@ -2057,13 +2077,23 @@ export class PostgresAccountingKernel{
     });
   }
 
-  async postClearWbsTestBankAdjustmentBatch(args){
+  async postWbsTestBankAdjustmentBatch(args){
     return this.inSession(async client=>{
       await client.query("SELECT set_config('statement_timeout',$1,true)",[WBS_TEST_BANK_BATCH_STATEMENT_TIMEOUT]);
       return requireRow(await client.query(
-        'SELECT refs_wbs_test_bank_adjustment_post_clear_batch($1,$2,$3,$4,$5::uuid[],$6,$7) AS result',
+        'SELECT refs_wbs_test_bank_adjustment_post_batch($1,$2,$3,$4,$5::uuid[],$6,$7) AS result',
         [args.tenantId,args.entityId,args.reconciliationId,args.periodId,args.bankSourceIds,args.reason,args.idempotencyRoot]
-      ),'WBS_TEST_BANK_POST_CLEAR_BATCH_FAILED','Controlled-test Bank Post/Clear batch did not return a result').result;
+      ),'WBS_TEST_BANK_POST_BATCH_FAILED','Controlled-test Bank Post batch did not return a result').result;
+    });
+  }
+
+  async clearWbsTestBankAdjustmentBatch(args){
+    return this.inSession(async client=>{
+      await client.query("SELECT set_config('statement_timeout',$1,true)",[WBS_TEST_BANK_BATCH_STATEMENT_TIMEOUT]);
+      return requireRow(await client.query(
+        'SELECT refs_wbs_test_bank_adjustment_clear_batch($1,$2,$3,$4::uuid[],$5,$6) AS result',
+        [args.tenantId,args.entityId,args.reconciliationId,args.bankSourceIds,args.reason,args.idempotencyRoot]
+      ),'WBS_TEST_BANK_CLEAR_BATCH_FAILED','Controlled-test Bank Clear batch did not return a result').result;
     });
   }
 
@@ -2436,6 +2466,16 @@ export class PostgresAccountingKernel{
        ORDER BY r.finalized_at DESC,r.receipt_id DESC LIMIT $3 OFFSET $4`,[tenantId,entityId,limit,offset]
     )).rows.map(row=>row.result);});
   }
+
+  async retainWbsH1AccountingControlReconciliation({tenantId,entityId,controlRunId,expectedControlReceiptHash,expectedSettingsBundleHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(`SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',$1::uuid,'entity_id',$2::uuid,'control_run_id',$3::uuid,'expected_control_receipt_hash',$4::text,'expected_settings_bundle_hash',$5::text,'module_code','PAYABLE','reason',btrim($6::text))) AS request_hash`,[tenantId,entityId,controlRunId,expectedControlReceiptHash,expectedSettingsBundleHash,reason]),'WBS_H1_ACCOUNTING_RECONCILIATION_HASH_FAILED','The reconciliation request hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_retain_wbs_h1_accounting_control_reconciliation($1,$2,$3,$4,$5,$6,$7,$8) AS result',[tenantId,entityId,controlRunId,expectedControlReceiptHash,expectedSettingsBundleHash,idempotencyKey,requestHash,reason]),'WBS_H1_ACCOUNTING_RECONCILIATION_FAILED','The reconciliation receipt was not produced').result;
+    });
+  }
+
+  async readWbsH1AccountingControlReconciliation({tenantId,entityId,reconciliationId}){return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_wbs_h1_accounting_control_reconciliation($1,$2,$3) AS result',[tenantId,entityId,reconciliationId]),'WBS_H1_ACCOUNTING_RECONCILIATION_NOT_FOUND','The reconciliation receipt was not found').result);}
+  async listWbsH1AccountingControlReconciliations({tenantId,entityId,controlRunId=null,limit=50,offset=0}){return this.inSession(async client=>requireRow(await client.query('SELECT refs_list_wbs_h1_accounting_control_reconciliations($1,$2,$3,$4,$5) AS result',[tenantId,entityId,controlRunId,limit,offset]),'WBS_H1_ACCOUNTING_RECONCILIATION_READ_FAILED','The reconciliation list was not produced').result);}
 
   async retireConfigSnapshot(args){
     return this.inSession(async client=>{

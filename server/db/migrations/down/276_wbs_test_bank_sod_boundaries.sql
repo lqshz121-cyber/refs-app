@@ -1,0 +1,13 @@
+BEGIN;
+DO $$ BEGIN IF EXISTS(SELECT 1 FROM wbs_test_bank_import_receipt) OR EXISTS(SELECT 1 FROM wbs_test_bank_adjustment_post_receipt) THEN RAISE EXCEPTION 'Cannot roll back WBS TEST Bank SoD boundaries while receipts exist' USING ERRCODE='55006'; END IF; END $$;
+REVOKE ALL ON FUNCTION refs_finalize_wbs_test_bank_import_receipt(uuid,uuid,uuid),refs_start_wbs_test_bank_reconciliation(uuid,uuid,uuid,text,text),refs_wbs_test_bank_adjustment_post_batch(uuid,uuid,uuid,uuid,uuid[],text,text),refs_wbs_test_bank_adjustment_clear_batch(uuid,uuid,uuid,uuid[],text,text) FROM refs_app;
+DROP FUNCTION refs_wbs_test_bank_adjustment_clear_batch(uuid,uuid,uuid,uuid[],text,text);
+DROP FUNCTION refs_wbs_test_bank_adjustment_post_batch(uuid,uuid,uuid,uuid,uuid[],text,text);
+DROP FUNCTION refs_start_wbs_test_bank_reconciliation(uuid,uuid,uuid,text,text);
+DROP FUNCTION refs_finalize_wbs_test_bank_import_receipt(uuid,uuid,uuid);
+DROP TRIGGER trg_wbs_test_bank_import_receipt_immutable ON wbs_test_bank_import_receipt;
+DROP FUNCTION refs_guard_wbs_test_bank_import_receipt();
+DO $restore$ DECLARE fn record; BEGIN FOR fn IN SELECT function_definition FROM wbs_test_bank_legacy_function_backup ORDER BY function_name LOOP EXECUTE fn.function_definition; END LOOP; END $restore$;
+GRANT EXECUTE ON FUNCTION refs_begin_wbs_test_bank_staged_import(uuid,uuid,uuid,text,jsonb,text,text,text),refs_append_wbs_test_bank_staged_chunk(uuid,uuid,uuid,integer,jsonb,text),refs_finalize_wbs_test_bank_staged_import(uuid,uuid,uuid),refs_wbs_test_bank_adjustment_post_clear_batch(uuid,uuid,uuid,uuid,uuid[],text,text),refs_resolve_wbs_test_bank_match_fixture(uuid,uuid),refs_bind_wbs_test_bank_match_payment_source(uuid,uuid,uuid,uuid,uuid),refs_propose_wbs_test_bank_match_config(uuid,uuid) TO refs_app;
+DROP TABLE wbs_test_bank_adjustment_post_receipt,wbs_test_bank_import_receipt,wbs_test_bank_legacy_function_backup;
+COMMIT;

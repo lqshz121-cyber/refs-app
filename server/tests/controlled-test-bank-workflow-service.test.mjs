@@ -4,7 +4,7 @@ import {createControlledTestBankWorkflowService} from '../runtime/controlled-tes
 
 const uuid=n=>`${String(n).padStart(8,'0')}-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const tenantId=uuid(1),entityId=uuid(2),periodId=uuid(3),reconciliationId=uuid(4),attachmentId=uuid(5),matchId=uuid(6),journalId=uuid(7),snapshotId=uuid(8);
-const actors={importer:'bank-importer',maker:'bank-maker',submitter:'bank-submitter',reviewer:'bank-reviewer',approver:'bank-approver',poster:'bank-poster'};
+const actors={importer:'bank-importer',reconciliationStarter:'bank-starter',maker:'bank-maker',paymentMaker:'bank-payment-maker',matchMaker:'bank-match-maker',submitter:'bank-submitter',reviewer:'bank-reviewer',approver:'bank-approver',poster:'bank-poster',clearer:'bank-clearer',reopener:'bank-reopener'};
 const scope={tenantId,entityId,companyCode:'WBPA',bankAccountRef:'WBS_TEST_BANK',cashAccountCode:'111000',offsetAccountCode:'610000',actors};
 const input={tenantId,entityId,periodId,reconciliationId,reason:'Complete the isolated WBS Bank test workflow',idempotencyKey:'controlled-bank-run-001'};
 
@@ -23,7 +23,8 @@ function harness({bankAccountRef='WBS_TEST_BANK',transactionDate='2026-07-10',st
     async submitWbsTestBankAdjustmentBatch(args){calls.push(['submit-batch',args]);rows[1].adjustment_journal_status='PENDING_REVIEW';rows[1].adjustment_journal_version=1;return {stage:'SUBMIT'};},
     async reviewWbsTestBankAdjustmentBatch(args){calls.push(['review-batch',args]);rows[1].adjustment_journal_status='PENDING_APPROVAL';rows[1].adjustment_journal_version=2;return {stage:'REVIEW'};},
     async approveWbsTestBankAdjustmentBatch(args){calls.push(['approve-batch',args]);rows[1].adjustment_journal_status='APPROVED';rows[1].adjustment_journal_version=3;return {stage:'APPROVE'};},
-    async postClearWbsTestBankAdjustmentBatch(args){calls.push(['post-clear-batch',args]);rows[1].adjustment_journal_status='POSTED';rows[1].adjustment_journal_version=4;rows[1].adjustment_clearance_eligible=true;rows[1].clearance_state='CLEARED';version++;refresh();return {stage:'POST_CLEAR'};},
+    async postWbsTestBankAdjustmentBatch(args){calls.push(['post-batch',args]);rows[1].adjustment_journal_status='POSTED';rows[1].adjustment_journal_version=4;rows[1].adjustment_clearance_eligible=true;return {stage:'POST'};},
+    async clearWbsTestBankAdjustmentBatch(args){calls.push(['clear-batch',args]);rows[1].clearance_state='CLEARED';version++;refresh();return {stage:'CLEAR'};},
     async setReconciliationClearance(args){calls.push(['clear-match',args]);version++;rows.find(row=>row.bank_source_id===args.bankSourceId).clearance_state='CLEARED';refresh();return {revision:version,state:'CLEARED'};},
     async transitionReconciliation(args){calls.push([args.action.toLowerCase(),args]);version++;status={REVIEW:'IN_REVIEW',SIGN_OFF:'RECONCILED',REOPEN:'REOPENED'}[args.action];refresh();return {status,revision:version,snapshot_id:args.action==='SIGN_OFF'?snapshotId:null,snapshot_hash:args.action==='SIGN_OFF'?`sha256:${'a'.repeat(64)}`:null,idempotent:false};},
     async getSignedReconciliationSnapshot(){return [{reconciliation_snapshot_id:snapshotId,snapshot_hash:`sha256:${'a'.repeat(64)}`,snapshot_body:{items:[]}}];}
@@ -40,7 +41,7 @@ test('prefers exact Match, posts adjustment with distinct actors, clears, signs 
   assert.equal(actorFor('draftWbsTestBankAdjustmentBatch'),actors.maker);assert.equal(actorFor('submitWbsTestBankAdjustmentBatch'),actors.submitter);
   assert.ok(calls.some(call=>call[0]==='actor'&&call[1]===actors.reviewer&&call[2]==='transitionReconciliation'));
   assert.ok(calls.some(call=>call[0]==='actor'&&call[1]===actors.approver&&call[2]==='transitionReconciliation'));
-  assert.ok(calls.some(call=>call[0]==='actor'&&call[1]===actors.poster&&call[2]==='transitionReconciliation'));
+  assert.ok(calls.some(call=>call[0]==='actor'&&call[1]===actors.reopener&&call[2]==='transitionReconciliation'));
   const draft=calls.find(call=>call[0]==='draft-batch')[1];assert.equal(draft.reason.startsWith('UNSIGNED TEST ONLY'),true);assert.deepEqual(draft.attachmentIds,[attachmentId]);assert.deepEqual(draft.bankSourceIds,[rows[1].bank_source_id]);
   const replay=await service.run(input);assert.equal(replay.idempotent,true);assert.equal(replay.revision,6);
 });
@@ -59,7 +60,7 @@ test('processes a bounded chunk, returns PARTIAL, and advances with the same roo
   const completed=await service.run({...input,maxItems:1});
   assert.equal(completed.status,'CONTROLLED_TEST_BANK_WORKFLOW_REOPENED');assert.equal(completed.processed_count,2);assert.equal(completed.revision,6);
   assert.equal(calls.filter(call=>call[0]==='clear-match').length,1);assert.equal(calls.filter(call=>call[0]==='draft-batch').length,1);
-  for(const stage of ['draft-batch','submit-batch','review-batch','approve-batch','post-clear-batch'])assert.equal(calls.filter(call=>call[0]===stage).length,1);
+  for(const stage of ['draft-batch','submit-batch','review-batch','approve-batch','post-batch','clear-batch'])assert.equal(calls.filter(call=>call[0]===stage).length,1);
 });
 
 test('keeps 100-item lifecycle stages intact but post-clears in stable ten-item transactions',async()=>{
@@ -71,14 +72,15 @@ test('keeps 100-item lifecycle stages intact but post-clears in stable ten-item 
     async submitWbsTestBankAdjustmentBatch(args){calls.push(['submit',args]);for(const id of args.bankSourceIds)rows.find(row=>row.bank_source_id===id).adjustment_journal_status='PENDING_REVIEW';},
     async reviewWbsTestBankAdjustmentBatch(args){calls.push(['review',args]);for(const id of args.bankSourceIds)rows.find(row=>row.bank_source_id===id).adjustment_journal_status='PENDING_APPROVAL';},
     async approveWbsTestBankAdjustmentBatch(args){calls.push(['approve',args]);for(const id of args.bankSourceIds)rows.find(row=>row.bank_source_id===id).adjustment_journal_status='APPROVED';},
-    async postClearWbsTestBankAdjustmentBatch(args){calls.push(['post-clear',args]);for(const id of args.bankSourceIds){const row=rows.find(item=>item.bank_source_id===id);row.adjustment_journal_status='POSTED';row.clearance_state='CLEARED';}version++;refresh();},
+    async postWbsTestBankAdjustmentBatch(args){calls.push(['post',args]);for(const id of args.bankSourceIds)rows.find(item=>item.bank_source_id===id).adjustment_journal_status='POSTED';},
+    async clearWbsTestBankAdjustmentBatch(args){calls.push(['clear',args]);for(const id of args.bankSourceIds)rows.find(item=>item.bank_source_id===id).clearance_state='CLEARED';version++;refresh();},
     async setReconciliationClearance(){throw new Error('No matched row should use single-item clearance');},
     async transitionReconciliation(args){version++;status={REVIEW:'IN_REVIEW',SIGN_OFF:'RECONCILED',REOPEN:'REOPENED'}[args.action];refresh();return {status,revision:version,snapshot_id:args.action==='SIGN_OFF'?snapshotId:null,snapshot_hash:args.action==='SIGN_OFF'?`sha256:${'a'.repeat(64)}`:null,idempotent:false};},
     async getSignedReconciliationSnapshot(){return [{reconciliation_snapshot_id:snapshotId,snapshot_hash:`sha256:${'a'.repeat(64)}`,snapshot_body:{items:[]}}];}
   };
   const service=createControlledTestBankWorkflowService({scope,authorize:async()=>{},kernelForActor:()=>new Proxy({}, {get:(_,method)=>methods[method]})}),result=await service.run({...input,maxItems:100});
   assert.equal(result.status,'CONTROLLED_TEST_BANK_WORKFLOW_REOPENED');for(const stage of ['draft','submit','review','approve']){const stageCalls=calls.filter(call=>call[0]===stage);assert.equal(stageCalls.length,1);assert.equal(stageCalls[0][1].bankSourceIds.length,25);}
-  const postCalls=calls.filter(call=>call[0]==='post-clear').map(call=>call[1]);assert.deepEqual(postCalls.map(call=>call.bankSourceIds.length),[10,10,5]);assert.equal(new Set(postCalls.map(call=>call.idempotencyRoot)).size,3);assert.ok(postCalls.every(call=>/^pc:[0-9a-f]{64}$/.test(call.idempotencyRoot)));
+  const postCalls=calls.filter(call=>call[0]==='post').map(call=>call[1]),clearCalls=calls.filter(call=>call[0]==='clear').map(call=>call[1]);assert.deepEqual(postCalls.map(call=>call.bankSourceIds.length),[10,10,5]);assert.deepEqual(clearCalls.map(call=>call.bankSourceIds.length),[10,10,5]);assert.ok(postCalls.every(call=>/^post:[0-9a-f]{64}$/.test(call.idempotencyRoot)));assert.ok(clearCalls.every(call=>/^clear:[0-9a-f]{64}$/.test(call.idempotencyRoot)));
 });
 
 test('chains reconciliation revisions across multiple retained ACTIVE match clearances',async()=>{

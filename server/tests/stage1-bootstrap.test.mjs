@@ -12,7 +12,7 @@ const base={
   REFS_STAGE1_ENTITY_ID:'22222222-2222-4222-8222-222222222222',REFS_STAGE1_ENTITY_CODE:'ENTITY_1',REFS_STAGE1_ENTITY_NAME:'Stage 1 entity',
   REFS_STAGE1_PERIOD_ID:'33333333-3333-4333-8333-333333333333',REFS_STAGE1_PERIOD_CODE:'2026-08',REFS_STAGE1_PERIOD_START:'2026-08-01',REFS_STAGE1_PERIOD_END:'2026-08-31',
   REFS_STAGE1_BASE_CURRENCY:'USD',REFS_STAGE1_CASH_ACCOUNT_CODE:'111000',REFS_STAGE1_PROVISION_IDEMPOTENCY_KEY:'stage1-provision-20260809-001',
-  REFS_STAGE1_OIDC_SUBJECT:'auth0|observed-subject',REFS_STAGE1_GRANT_EXPECTED_VERSION:'0',REFS_STAGE1_GRANT_IDEMPOTENCY_KEY:'stage1-grant-20260809-001',
+  REFS_STAGE1_OIDC_SUBJECT:'auth0|observed-subject',REFS_STAGE1_GRANT_EXPECTED_VERSION:'0',REFS_STAGE1_GRANT_IDEMPOTENCY_KEY:'stage1-grant-20260809-001',REFS_STAGE1_GRANT_VALID_UNTIL:'2026-08-24T00:00:00.000Z',
 };
 
 test('Stage 1 bootstrap configuration is explicit, calendar-valid and fixed to minimal accounts and read permissions',()=>{
@@ -42,28 +42,20 @@ test('self-service reader activation is disabled unless the explicit staging-onl
   assert.throws(()=>stage1SelfGrantConfig({...base,REFS_STAGE1_SELF_GRANT_ENABLED:'STAGE1_AUTHORITATIVE_ONLY',REFS_DEPLOYMENT_ENV:'production'}),error=>error.code==='STAGE1_BOOTSTRAP_ENV_DENIED');
 });
 
-test('self-service WBS reader upgrade is a version-1 add-only read scope',()=>{
+test('self-service WBS reader upgrade is retired in favor of workflow grants',()=>{
   assert.equal(stage1SelfWbsReadUpgradeConfig(base),null);
-  const config=stage1SelfWbsReadUpgradeConfig({...base,REFS_STAGE1_SELF_GRANT_ENABLED:'STAGE1_AUTHORITATIVE_ONLY'});
-  assert.equal(config.expectedVersion,1);
-  assert.deepEqual(config.permissions,STAGE1_WBS_READ_PERMISSIONS);
-  assert.deepEqual(config.permissions.filter(value=>/IMPORT|POST|CREATE|APPROVE|WRITE/.test(value)),[]);
+  assert.equal(stage1SelfWbsReadUpgradeConfig({...base,REFS_STAGE1_SELF_GRANT_ENABLED:'STAGE1_AUTHORITATIVE_ONLY'}),null);
 });
 
-test('self-service WBS operator upgrade is version-2 and adds only exception-evidence retain',()=>{
+test('self-service WBS operator upgrade is retired in favor of workflow grants',()=>{
   assert.equal(stage1SelfWbsOperatorUpgradeConfig(base),null);
-  const config=stage1SelfWbsOperatorUpgradeConfig({...base,REFS_STAGE1_SELF_GRANT_ENABLED:'STAGE1_AUTHORITATIVE_ONLY'});
-  assert.equal(config.expectedVersion,2);assert.deepEqual(config.permissions,STAGE1_WBS_OPERATOR_PERMISSIONS);
-  assert.deepEqual(config.permissions.filter(value=>/IMPORT|POST|CREATE|APPROVE|REVIEW/.test(value)),[]);
-  assert.deepEqual(config.permissions.filter(value=>value==='WBS.PAYABLE.OPERATOR_ATTEST'),['WBS.PAYABLE.OPERATOR_ATTEST']);
+  assert.equal(stage1SelfWbsOperatorUpgradeConfig({...base,REFS_STAGE1_SELF_GRANT_ENABLED:'STAGE1_AUTHORITATIVE_ONLY'}),null);
 });
 
-test('controlled test workflow upgrade is version-3, staging-only and fixed to explicit test mutation permissions',()=>{
+test('controlled test single-actor self-upgrade is no longer exposed',()=>{
   const enabled={...base,REFS_STAGE1_SELF_GRANT_ENABLED:'STAGE1_AUTHORITATIVE_ONLY',REFS_WBS_TEST_IMPORT_MODE:'ENABLED'};
   assert.equal(stage1SelfControlledTestWorkflowUpgradeConfig(base),null);
-  const config=stage1SelfControlledTestWorkflowUpgradeConfig(enabled);
-  assert.equal(config.expectedVersion,3);assert.deepEqual(config.permissions,STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS);
-  assert.ok(config.permissions.includes('WBS.TEST.IMPORT'));assert.ok(config.permissions.includes('BANK.RECONCILIATION.SIGN_OFF'));assert.ok(config.permissions.includes('GL.JE.POST'));
+  assert.equal(stage1SelfControlledTestWorkflowUpgradeConfig(enabled),null);
   assert.equal(stage1SelfControlledTestWorkflowUpgradeConfig({...enabled,REFS_WBS_TEST_IMPORT_MODE:'DISABLED'}),null);
 });
 
@@ -73,21 +65,32 @@ test('Stage 1 grant wrapper refuses an altered permission set before reaching Po
 });
 
 test('Stage 1 WBS upgrade wrapper refuses altered versions and permission sets before PostgreSQL',async()=>{
-  const config={...stage1SelfWbsReadUpgradeConfig({...base,REFS_STAGE1_SELF_GRANT_ENABLED:'STAGE1_AUTHORITATIVE_ONLY'}),actorId:'auth0|reader',idempotencyKey:'wbs-read-upgrade-0001'};
+  const config={tenantId:base.REFS_STAGE1_TENANT_ID,entityId:base.REFS_STAGE1_ENTITY_ID,actorId:'auth0|reader',expectedVersion:1,authorityClass:'ANALYSIS',validUntil:base.REFS_STAGE1_GRANT_VALID_UNTIL,permissions:STAGE1_WBS_READ_PERMISSIONS,idempotencyKey:'wbs-read-upgrade-0001'};
   await assert.rejects(upgradeStage1WbsReadAccess({}, {...config,expectedVersion:0}),error=>error.code==='STAGE1_WBS_READ_UPGRADE_SCOPE_DENIED');
   await assert.rejects(upgradeStage1WbsReadAccess({}, {...config,permissions:[...STAGE1_READ_PERMISSIONS,'WBS.SNAPSHOT.IMPORT']}),error=>error.code==='STAGE1_WBS_READ_UPGRADE_SCOPE_DENIED');
+  await assert.rejects(upgradeStage1WbsReadAccess({},config),error=>error.code==='STAGE1_WBS_READ_UPGRADE_RETIRED');
 });
 
 test('Stage 1 WBS operator wrapper refuses broader or altered grants before PostgreSQL',async()=>{
-  const config={...stage1SelfWbsOperatorUpgradeConfig({...base,REFS_STAGE1_SELF_GRANT_ENABLED:'STAGE1_AUTHORITATIVE_ONLY'}),actorId:'auth0|reader',idempotencyKey:'wbs-operator-upgrade-0001'};
+  const config={tenantId:base.REFS_STAGE1_TENANT_ID,entityId:base.REFS_STAGE1_ENTITY_ID,actorId:'auth0|reader',expectedVersion:2,authorityClass:'ATTEST',validUntil:base.REFS_STAGE1_GRANT_VALID_UNTIL,permissions:STAGE1_WBS_OPERATOR_PERMISSIONS,idempotencyKey:'wbs-operator-upgrade-0001'};
   await assert.rejects(upgradeStage1WbsOperatorAccess({}, {...config,expectedVersion:1}),error=>error.code==='STAGE1_WBS_OPERATOR_UPGRADE_SCOPE_DENIED');
   await assert.rejects(upgradeStage1WbsOperatorAccess({}, {...config,permissions:[...STAGE1_WBS_READ_PERMISSIONS,'WBS.SNAPSHOT.IMPORT']}),error=>error.code==='STAGE1_WBS_OPERATOR_UPGRADE_SCOPE_DENIED');
+  await assert.rejects(upgradeStage1WbsOperatorAccess({},config),error=>error.code==='STAGE1_WBS_OPERATOR_UPGRADE_RETIRED');
 });
 
 test('controlled test workflow wrapper refuses altered versions and permissions before PostgreSQL',async()=>{
-  const config={...stage1SelfControlledTestWorkflowUpgradeConfig({...base,REFS_STAGE1_SELF_GRANT_ENABLED:'STAGE1_AUTHORITATIVE_ONLY',REFS_WBS_TEST_IMPORT_MODE:'ENABLED'}),actorId:'auth0|reader',idempotencyKey:'controlled-test-upgrade-0001'};
+  const config={tenantId:base.REFS_STAGE1_TENANT_ID,entityId:base.REFS_STAGE1_ENTITY_ID,actorId:'auth0|reader',expectedVersion:3,permissions:STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS,idempotencyKey:'controlled-test-upgrade-0001'};
   await assert.rejects(upgradeStage1ControlledTestWorkflowAccess({}, {...config,expectedVersion:2}),error=>error.code==='STAGE1_CONTROLLED_TEST_UPGRADE_SCOPE_DENIED');
   await assert.rejects(upgradeStage1ControlledTestWorkflowAccess({}, {...config,permissions:[...STAGE1_WBS_OPERATOR_PERMISSIONS,'WBS.TEST.IMPORT']}),error=>error.code==='STAGE1_CONTROLLED_TEST_UPGRADE_SCOPE_DENIED');
+  await assert.rejects(upgradeStage1ControlledTestWorkflowAccess({},config),error=>error.code==='STAGE1_CONTROLLED_TEST_UPGRADE_RETIRED');
+});
+
+test('Stage 1 runtime no longer calls legacy grant hashes or self-upgrade SQL wrappers',async()=>{
+  const source=await import('node:fs/promises').then(({readFile})=>readFile(new URL('../runtime/stage1-bootstrap.mjs',import.meta.url),'utf8'));
+  assert.doesNotMatch(source,/refs_grant_request_hash\(/);
+  assert.doesNotMatch(source,/refs_upgrade_stage1_(?:wbs_autorec_read|wbs_operator_attest|controlled_test_workflow)\(/);
+  for(const code of ['STAGE1_WBS_READ_UPGRADE_RETIRED','STAGE1_WBS_OPERATOR_UPGRADE_RETIRED','STAGE1_CONTROLLED_TEST_UPGRADE_RETIRED'])assert.match(source,new RegExp(code));
+  assert.match(source,/authorityClass:config\.authorityClass,validUntil:config\.validUntil/);
 });
 
 test('authenticated Stage 1 grants derive only the verified access-token subject and reject tenant swaps before PostgreSQL',async()=>{

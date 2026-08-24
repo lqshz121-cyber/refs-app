@@ -10,6 +10,7 @@ const ACCOUNT_CODE=/^[A-Z0-9._-]{1,32}$/;
 const IDEMPOTENCY=/^[A-Za-z0-9._:-]{8,128}$/;
 const SUBJECT=/^[^\u0000-\u001f\u007f]{1,200}$/;
 const ISO_DATE=/^\d{4}-\d{2}-\d{2}$/;
+const UTC_TIMESTAMP=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 export const STAGE1_READ_PERMISSIONS=Object.freeze(['AP.VIEW','AR.VIEW','BANK.VIEW','GL.JE.VIEW','GL.REPORT.VIEW']);
 // This is an upgrade of the fixed Stage 1 reader set, not a general WBS
@@ -56,6 +57,7 @@ const calendarDate=(value,key)=>{
   if(Number.isNaN(date.valueOf())||date.toISOString().slice(0,10)!==value)throw new KernelError('STAGE1_BOOTSTRAP_CONFIG_INVALID',`${key} is not a calendar date`);
   return value;
 };
+const grantExpiry=(environment)=>{const value=required(environment,'REFS_STAGE1_GRANT_VALID_UNTIL'),parsed=new Date(value);if(!UTC_TIMESTAMP.test(value)||!Number.isFinite(parsed.valueOf())||parsed.toISOString()!==value)throw new KernelError('STAGE1_BOOTSTRAP_CONFIG_INVALID','REFS_STAGE1_GRANT_VALID_UNTIL must be a canonical UTC timestamp');return value;};
 
 const period=(environment)=>{
   const periodCode=required(environment,'REFS_STAGE1_PERIOD_CODE');
@@ -101,6 +103,7 @@ export function stage1GrantConfig(environment=process.env){
     entityId:uuid(required(environment,'REFS_STAGE1_ENTITY_ID'),'REFS_STAGE1_ENTITY_ID'),
     actorId,
     expectedVersion,
+    authorityClass:'ANALYSIS',validUntil:grantExpiry(environment),
     idempotencyKey:text(required(environment,'REFS_STAGE1_GRANT_IDEMPOTENCY_KEY'),'REFS_STAGE1_GRANT_IDEMPOTENCY_KEY',{pattern:IDEMPOTENCY,max:128}),
     permissions:[...STAGE1_READ_PERMISSIONS],
   });
@@ -114,6 +117,7 @@ export function stage1AuthenticatedGrantConfig(environment=process.env){
     tenantId:uuid(required(environment,'REFS_STAGE1_TENANT_ID'),'REFS_STAGE1_TENANT_ID'),
     entityId:uuid(required(environment,'REFS_STAGE1_ENTITY_ID'),'REFS_STAGE1_ENTITY_ID'),
     expectedVersion,
+    authorityClass:'ANALYSIS',validUntil:grantExpiry(environment),
     idempotencyKey:text(required(environment,'REFS_STAGE1_GRANT_IDEMPOTENCY_KEY'),'REFS_STAGE1_GRANT_IDEMPOTENCY_KEY',{pattern:IDEMPOTENCY,max:128}),
     accessToken:required(environment,'REFS_AUTHENTICATED_ACCESS_TOKEN'),
     issuer:required(environment,'OIDC_ISSUER'),audience:required(environment,'OIDC_AUDIENCE'),jwksUri:required(environment,'OIDC_JWKS_URI'),
@@ -131,45 +135,27 @@ export function stage1SelfGrantConfig(environment=process.env){
     tenantId:uuid(required(environment,'REFS_STAGE1_TENANT_ID'),'REFS_STAGE1_TENANT_ID'),
     entityId:uuid(required(environment,'REFS_STAGE1_ENTITY_ID'),'REFS_STAGE1_ENTITY_ID'),
     expectedVersion:0,
+    authorityClass:'ANALYSIS',validUntil:grantExpiry(environment),
     permissions:[...STAGE1_READ_PERMISSIONS],
   });
 }
 
-// A user can reach this configuration only after the original self-service
-// grant has produced version 1.  The database upgrade function additionally
-// verifies that the prior active set is exactly the five Stage 1 read grants,
-// so this cannot overwrite an operator's broader or different grant set.
+// Legacy self-upgrades are permanently retired. Elevated WBS access must be
+// issued as finite, single-authority roles through the controlled grant flow.
 export function stage1SelfWbsReadUpgradeConfig(environment=process.env){
-  if(String(environment.REFS_STAGE1_SELF_GRANT_ENABLED||'')!=='STAGE1_AUTHORITATIVE_ONLY')return null;
-  exactStaging(environment);
-  return Object.freeze({
-    tenantId:uuid(required(environment,'REFS_STAGE1_TENANT_ID'),'REFS_STAGE1_TENANT_ID'),
-    entityId:uuid(required(environment,'REFS_STAGE1_ENTITY_ID'),'REFS_STAGE1_ENTITY_ID'),
-    expectedVersion:1,
-    permissions:[...STAGE1_WBS_READ_PERMISSIONS],
-  });
+  return null;
 }
 
 export function stage1SelfWbsOperatorUpgradeConfig(environment=process.env){
-  if(String(environment.REFS_STAGE1_SELF_GRANT_ENABLED||'')!=='STAGE1_AUTHORITATIVE_ONLY')return null;
-  exactStaging(environment);
-  return Object.freeze({
-    tenantId:uuid(required(environment,'REFS_STAGE1_TENANT_ID'),'REFS_STAGE1_TENANT_ID'),
-    entityId:uuid(required(environment,'REFS_STAGE1_ENTITY_ID'),'REFS_STAGE1_ENTITY_ID'),
-    expectedVersion:2,
-    permissions:[...STAGE1_WBS_OPERATOR_PERMISSIONS],
-  });
+  return null;
 }
 
 export function stage1SelfControlledTestWorkflowUpgradeConfig(environment=process.env){
-  if(String(environment.REFS_STAGE1_SELF_GRANT_ENABLED||'')!=='STAGE1_AUTHORITATIVE_ONLY'||String(environment.REFS_WBS_TEST_IMPORT_MODE||'').toUpperCase()!=='ENABLED')return null;
-  exactStaging(environment);
-  return Object.freeze({
-    tenantId:uuid(required(environment,'REFS_STAGE1_TENANT_ID'),'REFS_STAGE1_TENANT_ID'),
-    entityId:uuid(required(environment,'REFS_STAGE1_ENTITY_ID'),'REFS_STAGE1_ENTITY_ID'),
-    expectedVersion:3,
-    permissions:[...STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS],
-  });
+  // The former one-click bundle mixed service-only import, bank maker/reviewer,
+  // reconciliation reviewer/sign-off, and every JE lifecycle permission on one
+  // actor. Migration 274 retires that grant boundary. Controlled tests must use
+  // separately configured finite workflow roles and a distinct SERVICE actor.
+  return null;
 }
 
 const normalizedRow=row=>Object.fromEntries(Object.entries(row).map(([key,value])=>[key,value instanceof Date?value.toISOString().slice(0,10):value]));
@@ -229,60 +215,29 @@ export async function grantStage1ReadAccess(pool,config,{principalProvider=async
 }
 
 export async function upgradeStage1WbsReadAccess(pool,config,{principalProvider=async()=>({trusted:true,serviceId:'platform-iam-sync'})}={}){
-  if(config.expectedVersion!==1||config.permissions.length!==STAGE1_WBS_READ_PERMISSIONS.length||config.permissions.some((value,index)=>value!==STAGE1_WBS_READ_PERMISSIONS[index])){
+  if(config.expectedVersion!==1||config.authorityClass!=='ANALYSIS'||!UTC_TIMESTAMP.test(config.validUntil||'')||config.permissions.length!==STAGE1_WBS_READ_PERMISSIONS.length||config.permissions.some((value,index)=>value!==STAGE1_WBS_READ_PERMISSIONS[index])){
     throw new KernelError('STAGE1_WBS_READ_UPGRADE_SCOPE_DENIED','Stage 1 WBS upgrade must contain exactly the approved evidence-only read permissions');
   }
-  const principal=await principalProvider();
-  if(!principal||principal.trusted!==true||principal.serviceId!=='platform-iam-sync')throw new KernelError('GRANT_SYNC_PRINCIPAL_DENIED','Only the authenticated platform IAM sync service may reconcile grants');
-  return withSerializableRetry(pool,async client=>{
-    const identity=requireRow(await client.query('SELECT session_user,current_user'),'GRANT_SYNC_IDENTITY_MISSING','Grant sync DB identity missing');
-    if(identity.session_user!=='refs_grant_sync'||identity.current_user!=='refs_grant_sync')throw new KernelError('GRANT_SYNC_DB_IDENTITY_DENIED','Grant sync requires its isolated database login');
-    const requestHash=requireRow(await client.query('SELECT refs_grant_request_hash($1,$2,$3,$4,$5) AS request_hash',[config.tenantId,config.actorId,config.entityId,config.permissions,config.expectedVersion]),'GRANT_SYNC_HASH_FAILED','Canonical grant hash was not returned').request_hash;
-    const result=requireRow(await client.query('SELECT refs_upgrade_stage1_wbs_autorec_read($1,$2,$3,$4,$5,$6) AS result',[config.tenantId,config.actorId,config.entityId,config.idempotencyKey,requestHash,config.expectedVersion]),'STAGE1_WBS_READ_UPGRADE_FAILED','Stage 1 WBS read upgrade did not return a result').result;
-    const returned=[...(result.permissions||[])].sort();
-    const expected=[...STAGE1_WBS_READ_PERMISSIONS].sort();
-    if(returned.length!==expected.length||returned.some((value,index)=>value!==expected[index]))throw new KernelError('STAGE1_WBS_READ_UPGRADE_RESULT_INVALID','Stage 1 WBS read upgrade returned an unexpected permission set');
-    return {idempotent:result.idempotent===true,version:result.version,permissionCount:returned.length};
-  });
+  throw new KernelError('STAGE1_WBS_READ_UPGRADE_RETIRED','Self-service grant upgrades are retired; assign the finite ANALYSIS role through workflow:grant');
 }
 
 export async function upgradeStage1WbsOperatorAccess(pool,config,{principalProvider=async()=>({trusted:true,serviceId:'platform-iam-sync'})}={}){
-  if(config.expectedVersion!==2||config.permissions.length!==STAGE1_WBS_OPERATOR_PERMISSIONS.length||config.permissions.some((value,index)=>value!==STAGE1_WBS_OPERATOR_PERMISSIONS[index])){
+  if(config.expectedVersion!==2||config.authorityClass!=='ATTEST'||!UTC_TIMESTAMP.test(config.validUntil||'')||config.permissions.length!==STAGE1_WBS_OPERATOR_PERMISSIONS.length||config.permissions.some((value,index)=>value!==STAGE1_WBS_OPERATOR_PERMISSIONS[index])){
     throw new KernelError('STAGE1_WBS_OPERATOR_UPGRADE_SCOPE_DENIED','Stage 1 WBS operator upgrade must contain exactly the approved read and exception-evidence permissions');
   }
-  const principal=await principalProvider();
-  if(!principal||principal.trusted!==true||principal.serviceId!=='platform-iam-sync')throw new KernelError('GRANT_SYNC_PRINCIPAL_DENIED','Only the authenticated platform IAM sync service may reconcile grants');
-  return withSerializableRetry(pool,async client=>{
-    const identity=requireRow(await client.query('SELECT session_user,current_user'),'GRANT_SYNC_IDENTITY_MISSING','Grant sync DB identity missing');
-    if(identity.session_user!=='refs_grant_sync'||identity.current_user!=='refs_grant_sync')throw new KernelError('GRANT_SYNC_DB_IDENTITY_DENIED','Grant sync requires its isolated database login');
-    const requestHash=requireRow(await client.query('SELECT refs_grant_request_hash($1,$2,$3,$4,$5) AS request_hash',[config.tenantId,config.actorId,config.entityId,config.permissions,config.expectedVersion]),'GRANT_SYNC_HASH_FAILED','Canonical grant hash was not returned').request_hash;
-    const result=requireRow(await client.query('SELECT refs_upgrade_stage1_wbs_operator_attest($1,$2,$3,$4,$5,$6) AS result',[config.tenantId,config.actorId,config.entityId,config.idempotencyKey,requestHash,config.expectedVersion]),'STAGE1_WBS_OPERATOR_UPGRADE_FAILED','Stage 1 WBS operator upgrade did not return a result').result;
-    const returned=[...(result.permissions||[])].sort(),expected=[...STAGE1_WBS_OPERATOR_PERMISSIONS].sort();
-    if(returned.length!==expected.length||returned.some((value,index)=>value!==expected[index]))throw new KernelError('STAGE1_WBS_OPERATOR_UPGRADE_RESULT_INVALID','Stage 1 WBS operator upgrade returned an unexpected permission set');
-    return {idempotent:result.idempotent===true,version:result.version,permissionCount:returned.length};
-  });
+  throw new KernelError('STAGE1_WBS_OPERATOR_UPGRADE_RETIRED','Self-service grant upgrades are retired; assign the finite ATTEST role through workflow:grant');
 }
 
 export async function upgradeStage1ControlledTestWorkflowAccess(pool,config,{principalProvider=async()=>({trusted:true,serviceId:'platform-iam-sync'})}={}){
   if(config.expectedVersion!==3||config.permissions.length!==STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS.length||config.permissions.some((value,index)=>value!==STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS[index])){
     throw new KernelError('STAGE1_CONTROLLED_TEST_UPGRADE_SCOPE_DENIED','Controlled test workflow upgrade must contain exactly the approved staging test permissions');
   }
-  const principal=await principalProvider();
-  if(!principal||principal.trusted!==true||principal.serviceId!=='platform-iam-sync')throw new KernelError('GRANT_SYNC_PRINCIPAL_DENIED','Only the authenticated platform IAM sync service may reconcile grants');
-  return withSerializableRetry(pool,async client=>{
-    const identity=requireRow(await client.query('SELECT session_user,current_user'),'GRANT_SYNC_IDENTITY_MISSING','Grant sync DB identity missing');
-    if(identity.session_user!=='refs_grant_sync'||identity.current_user!=='refs_grant_sync')throw new KernelError('GRANT_SYNC_DB_IDENTITY_DENIED','Grant sync requires its isolated database login');
-    const requestHash=requireRow(await client.query('SELECT refs_grant_request_hash($1,$2,$3,$4,$5) AS request_hash',[config.tenantId,config.actorId,config.entityId,config.permissions,config.expectedVersion]),'GRANT_SYNC_HASH_FAILED','Canonical grant hash was not returned').request_hash;
-    const result=requireRow(await client.query('SELECT refs_upgrade_stage1_controlled_test_workflow($1,$2,$3,$4,$5,$6) AS result',[config.tenantId,config.actorId,config.entityId,config.idempotencyKey,requestHash,config.expectedVersion]),'STAGE1_CONTROLLED_TEST_UPGRADE_FAILED','Controlled test workflow upgrade did not return a result').result;
-    const returned=[...(result.permissions||[])].sort(),expected=[...STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS].sort();
-    if(returned.length!==expected.length||returned.some((value,index)=>value!==expected[index]))throw new KernelError('STAGE1_CONTROLLED_TEST_UPGRADE_RESULT_INVALID','Controlled test workflow upgrade returned an unexpected permission set');
-    return {idempotent:result.idempotent===true,version:result.version,permissionCount:returned.length};
-  });
+  throw new KernelError('STAGE1_CONTROLLED_TEST_UPGRADE_RETIRED','The single-actor controlled test upgrade is retired; grant separate finite maker, reviewer, approver, poster, and service roles through workflow:grant');
 }
 
 export async function grantStage1AuthenticatedReadAccess(pool,config,{authenticator}={}){
   const verified=authenticator||new OidcJwtAuthenticator({issuer:config.issuer,audience:config.audience,keyResolver:new RemoteJwksResolver({jwksUri:config.jwksUri})});
   const principal=await verified.authenticate({headers:{authorization:`Bearer ${config.accessToken}`}});
   if(principal.tenantId!==config.tenantId)throw new KernelError('STAGE1_GRANT_TENANT_DENIED','Authenticated token tenant does not match the configured Stage 1 tenant');
-  return grantStage1ReadAccess(pool,{tenantId:config.tenantId,entityId:config.entityId,actorId:principal.actorId,expectedVersion:config.expectedVersion,idempotencyKey:config.idempotencyKey,permissions:config.permissions});
+  return grantStage1ReadAccess(pool,{tenantId:config.tenantId,entityId:config.entityId,actorId:principal.actorId,expectedVersion:config.expectedVersion,authorityClass:config.authorityClass,validUntil:config.validUntil,idempotencyKey:config.idempotencyKey,permissions:config.permissions});
 }

@@ -2,6 +2,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const SHA256=/^sha256:[0-9a-f]{64}$/;
 const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const ACTOR_ROLES=Object.freeze(['sourceMaker','proposer','draftMaker','submitter','reviewer','approver','poster']);
+const GRANT_AUTHORITY=Object.freeze({sourceMaker:'SERVICE',proposer:'PREPARE',draftMaker:'DRAFT',submitter:'SUBMIT',reviewer:'REVIEW',approver:'APPROVE',poster:'POST'});
 
 export const CONTROLLED_TEST_AI_GRANT_BUNDLES=Object.freeze({
   sourceMaker:Object.freeze(['AI.TEST.WORKFLOW']),
@@ -33,6 +34,8 @@ function assertConfiguration(scope){
     ||new Set([scope.callerActorId.trim(),...ACTOR_ROLES.map(role=>scope.actors[role].trim())]).size!==ACTOR_ROLES.length+1){
     fail('CONTROLLED_TEST_AI_CONFIG_INVALID','Controlled-test caller and workflow actors must be canonical and distinct.');
   }
+  const expiry=new Date(scope.grantValidUntil);
+  if(typeof scope.grantValidUntil!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(scope.grantValidUntil)||!Number.isFinite(expiry.valueOf())||expiry.toISOString()!==scope.grantValidUntil)fail('CONTROLLED_TEST_AI_CONFIG_INVALID','Controlled-test actor grants require one canonical finite expiry.');
 }
 
 function assertSelection(input,scope){
@@ -89,7 +92,7 @@ export async function reconcileControlledTestAiWorkflowActorGrants({grantSync,sc
   assertConfiguration(scope);const results={};
   for(const role of ACTOR_ROLES){
     const permissions=[...CONTROLLED_TEST_AI_GRANT_BUNDLES[role]];
-    const result=await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId:scope.actors[role].trim(),permissions,expectedVersion:0,idempotencyKey:`controlled-test-ai-${role}-grant-v1`});
+    const result=await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId:scope.actors[role].trim(),permissions,authorityClass:GRANT_AUTHORITY[role],validUntil:scope.grantValidUntil,expectedVersion:0,idempotencyKey:`controlled-test-ai-${role}-grant-v1`});
     const returned=[...(result?.permissions||[])].sort(),expected=[...permissions].sort();
     if(returned.length!==expected.length||returned.some((permission,index)=>permission!==expected[index]))fail('CONTROLLED_TEST_AI_GRANT_INVALID',`Controlled-test AI ${role} grant is not exact.`);
     results[role]=Object.freeze({version:result.version,idempotent:result.idempotent===true,permission_count:returned.length});

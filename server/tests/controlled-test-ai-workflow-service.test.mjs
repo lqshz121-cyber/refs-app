@@ -5,7 +5,7 @@ import {createControlledTestAiWorkflowService,CONTROLLED_TEST_AI_GRANT_BUNDLES,r
 const ids={tenant:'11111111-1111-4111-8111-111111111111',entity:'22222222-2222-4222-8222-222222222222',period:'33333333-3333-4333-8333-333333333333',parent:'44444444-4444-4444-8444-444444444444',source:'55555555-5555-4555-8555-555555555555',line:'66666666-6666-4666-8666-666666666666',attachment:'77777777-7777-4777-8777-777777777777',controlled:'88888888-8888-4888-8888-888888888888',schedule:'99999999-9999-4999-8999-999999999999',scheduleLine:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',journal:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',batch:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'};
 const hash=`sha256:${'a'.repeat(64)}`;
 const actors={sourceMaker:'test-ai-source',proposer:'test-ai-proposer',draftMaker:'test-ai-draft',submitter:'test-ai-submit',reviewer:'test-ai-review',approver:'test-ai-approve',poster:'test-ai-post'};
-const scope={tenantId:ids.tenant,entityId:ids.entity,callerActorId:'authenticated-test-user',actors,prepaidAccountCode:'141500',expenseAccountCode:'610000'};
+const scope={tenantId:ids.tenant,entityId:ids.entity,callerActorId:'authenticated-test-user',actors,prepaidAccountCode:'141500',expenseAccountCode:'610000',grantValidUntil:'2026-08-24T00:00:00.000Z'};
 
 test('controlled test AI runner preserves source lineage and uses distinct standard workflow actors',async()=>{
   const calls=[];
@@ -56,6 +56,7 @@ test('controlled test AI runner rejects a proposal receipt that conflicts with t
 test('controlled test AI grant reconciliation gives each static actor only its frozen permission bundle',async()=>{
   const seen=[];const result=await reconcileControlledTestAiWorkflowActorGrants({scope,grantSync:{reconcile:async input=>{seen.push(input);return {permissions:input.permissions,version:1,idempotent:false};}}});
   assert.equal(seen.length,7);for(const [role,permissions] of Object.entries(CONTROLLED_TEST_AI_GRANT_BUNDLES))assert.deepEqual(seen.find(row=>row.actorId===actors[role]).permissions,[...permissions]);
+  assert.deepEqual(seen.map(row=>row.authorityClass),['SERVICE','PREPARE','DRAFT','SUBMIT','REVIEW','APPROVE','POST']);assert.ok(seen.every(row=>row.validUntil===scope.grantValidUntil));
   assert.equal(Object.keys(result).length,7);
 });
 

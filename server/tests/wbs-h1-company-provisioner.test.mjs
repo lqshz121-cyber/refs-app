@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
 import {readWbsCompanyCatalog,normalizeDirectWbsCompanyCatalog,provisionDirectWbsCompanyScopes,provisionWbsCompanyScopes} from '../tools/provision-wbs-h1-companies.mjs';
 
 const tenantId='10000000-0000-4000-8000-000000000001',templateEntityId='20000000-0000-4000-8000-000000000001';
@@ -26,10 +27,15 @@ test('provisions one entity and six periods per WBS company in one transaction',
   const result=await provisionWbsCompanyScopes({pool:{connect:async()=>client},tenantId,templateEntityId,catalog:{companies:[{company_code:'WBPA',company_name:'Wan Pacific'},{company_code:'WBSM',company_name:'San Marcos'}]}});
   assert.equal(result.status,'WBS_H1_COMPANY_SCOPES_READY');assert.equal(result.company_count,2);assert.equal(result.period_count,12);
   assert.equal(sql[0][0],'BEGIN');assert.equal(sql.at(-2)[0],'COMMIT');assert.equal(sql.at(-1)[0],'RELEASE');
-  assert.ok(sql.some(([text])=>/INSERT INTO runtime_actor_grant/.test(text)));assert.ok(sql.some(([text])=>/INSERT INTO account_master/.test(text)));
+  assert.equal(sql.some(([text])=>/runtime_actor_grant(?:_set)?/.test(text)),false);assert.ok(sql.some(([text])=>/INSERT INTO account_master/.test(text)));
   assert.ok(sql.some(([text])=>/UPDATE entity SET entity_code='REFS_US_STAGING'/.test(text)));
   assert.equal(sql.filter(([text])=>/INSERT INTO entity\(/.test(text)).length,2);
   assert.ok(sql.some(([text])=>/source_system='WBS'/.test(text)));
+});
+
+test('company provisioning never clones template grants or grant-set revisions',async()=>{
+  const source=await readFile(new URL('../tools/provision-wbs-h1-companies.mjs',import.meta.url),'utf8');
+  assert.doesNotMatch(source,/runtime_actor_grant(?:_set)?/);
 });
 
 test('fails closed on duplicate company identity before provisioning',async()=>{
@@ -69,6 +75,6 @@ test('provisions only missing direct payable companies without renaming the temp
   assert.equal(sql.filter(([text])=>/INSERT INTO entity\(/.test(text)).length,2);
   assert.equal(sql.filter(([text])=>/INSERT INTO accounting_period/.test(text)).length,12);
   assert.ok(!sql.some(([text])=>/UPDATE entity SET entity_code='WBPA'/.test(text)));
-  assert.ok(sql.some(([text])=>/wbs-direct-company-provisioner/.test(text)));
+  assert.equal(sql.some(([text])=>/runtime_actor_grant(?:_set)?/.test(text)),false);
   assert.equal(sql.at(-2)[0],'COMMIT');assert.equal(sql.at(-1)[0],'RELEASE');
 });
