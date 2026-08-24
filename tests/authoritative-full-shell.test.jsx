@@ -37,7 +37,7 @@ assert.match(reportNavMarkup, /Accounting Analysis Report/, 'the Reports workspa
 assert.doesNotMatch(journalNavMarkup, /Journal entries/, 'a one-page Journal workspace must not repeat its only child in a secondary menu');
 assert.match(reportNavMarkup, /aria-label="Accounting workspace navigation"/, 'the Reports secondary menu must retain its navigation landmark');
 assert.match(mobileReportNavMarkup, /aria-label="Close navigation"/, 'the Reports workspace must retain a reachable Close control in the mobile drawer');
-assert.match(navMarkup, /Bank transaction matching/); assert.match(navMarkup, /aria-label="Auto Reconciliation"/);
+assert.match(navMarkup, />Bank transactions</); assert.doesNotMatch(navMarkup, /Bank transaction matching/); assert.match(navMarkup, /aria-label="Auto Reconciliation"/);
 assert.match(navMarkup, /aria-expanded="true" aria-controls="authoritative-navigation-active-group" aria-label="Auto Reconciliation"/,
   'a multi-page rail group must announce the one secondary panel it currently exposes');
 assert.doesNotMatch(navMarkup, /aria-current="page"[^>]*aria-label="Auto Reconciliation"/,
