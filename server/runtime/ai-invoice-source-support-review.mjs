@@ -5,12 +5,13 @@ const CLASSIFICATIONS=new Set(['EXPENSE','PREPAID_AMORTIZATION','ACCRUAL_REVIEW'
 const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve:false,can_post:false});
 
 const text=(value,max)=>typeof value==='string'&&value.trim()===value&&value.length>0&&value.length<=max&&!/[\u0000-\u001f\u007f]/.test(value);
+const calendarDate=value=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))return false;const [year,month,day]=value.split('-').map(Number),date=new Date(Date.UTC(year,month-1,day));return date.getUTCFullYear()===year&&date.getUTCMonth()===month-1&&date.getUTCDate()===day;};
 
 export function reviewInvoiceSourceSupport(rows,{entityId,accountingPeriodId}={}){
   if(!UUID.test(entityId||'')||!UUID.test(accountingPeriodId||'')||!Array.isArray(rows)||rows.length>1000)throw new Error('AI_INVOICE_SOURCE_SUPPORT_SCOPE_INVALID');
   const seen=new Set(),findings=[];
   for(const row of rows){
-    if(!row||Object.getPrototypeOf(row)!==Object.prototype||!UUID.test(row.classification_evidence_id||'')||!UUID.test(row.entity_id||'')||!UUID.test(row.accounting_period_id||'')||row.entity_id!==entityId||row.accounting_period_id!==accountingPeriodId||!UUID.test(row.source_document_id||'')||!UUID.test(row.source_document_line_id||'')||!SHA256.test(row.source_payload_hash||'')||!SHA256.test(row.source_line_hash||'')||!SHA256.test(row.classification_hash||'')||!CLASSIFICATIONS.has(row.classification)||!text(row.vendor_ref,200)||!text(row.vendor_name,200)||!text(row.invoice_number,200)||!/^\d{4}-\d{2}-\d{2}$/.test(row.invoice_date||'')||!/^[A-Z]{3}$/.test(row.currency||'')||!MONEY.test(String(row.amount))||!Number.isSafeInteger(row.verified_attachment_count)||row.verified_attachment_count<0||row.verified_attachment_count>100)throw new Error('AI_INVOICE_SOURCE_SUPPORT_ROW_INVALID');
+    if(!row||Object.getPrototypeOf(row)!==Object.prototype||!UUID.test(row.classification_evidence_id||'')||!UUID.test(row.entity_id||'')||!UUID.test(row.accounting_period_id||'')||row.entity_id!==entityId||row.accounting_period_id!==accountingPeriodId||!UUID.test(row.source_document_id||'')||!UUID.test(row.source_document_line_id||'')||!SHA256.test(row.source_payload_hash||'')||!SHA256.test(row.source_line_hash||'')||!SHA256.test(row.classification_hash||'')||!CLASSIFICATIONS.has(row.classification)||!text(row.vendor_ref,200)||!text(row.vendor_name,200)||!text(row.invoice_number,200)||!calendarDate(row.invoice_date)||!/^[A-Z]{3}$/.test(row.currency||'')||!MONEY.test(String(row.amount))||!Number.isSafeInteger(row.verified_attachment_count)||row.verified_attachment_count<0||row.verified_attachment_count>100)throw new Error('AI_INVOICE_SOURCE_SUPPORT_ROW_INVALID');
     if(seen.has(row.classification_evidence_id))throw new Error('AI_INVOICE_SOURCE_SUPPORT_DUPLICATE_EVIDENCE');
     seen.add(row.classification_evidence_id);
     if(row.verified_attachment_count!==0)continue;

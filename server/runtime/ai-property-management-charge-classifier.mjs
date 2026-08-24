@@ -6,7 +6,7 @@ const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve
 const KEYS=Object.freeze(['accounting_period_id','amount','business_date','charge_code','currency','description','entity_id','lease_ref','party_ref','project_ref','property_ref','source_document_id','source_document_line_id','source_line_hash','source_payload_hash','unit_ref']);
 const text=(value,max)=>typeof value==='string'&&value.trim().length>0&&value.trim().length<=max;
 const nullable=(value,max)=>value===null||text(value,max);
-const date=value=>typeof value==='string'&&DATE.test(value)&&!Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+const date=value=>DATE.test(value||'')&&isStrictCalendarDate(value);
 const rules=Object.freeze([
   Object.freeze({classification:'RENT_REVENUE',pattern:/\b(?:rent|base\s+rent|monthly\s+rent)\b/i,risk_level:'LOW',accounting:'RENT_REVENUE_OR_RECEIVABLE',fields:['revenue_account','tenant_receivable_or_cash_match']}),
   Object.freeze({classification:'LATE_FEE_REVENUE',pattern:/\b(?:late\s+fee|late\s+charge)\b/i,risk_level:'LOW',accounting:'LATE_FEE_REVENUE_OR_RECEIVABLE',fields:['late_fee_revenue_account','collectibility']}),
@@ -36,6 +36,9 @@ export function classifyPropertyManagementCharge(row){
 
 export function classifyPropertyManagementChargeBatch(rows,{entityId,accountingPeriodId,limit=500}={}){
   if(!Array.isArray(rows)||rows.length>limit||!Number.isInteger(limit)||limit<1||limit>500||!UUID.test(entityId||'')||!UUID.test(accountingPeriodId||''))throw Object.assign(new Error('Property Management charge analysis requires one bounded entity and accounting period.'),{code:'AI_PROPERTY_MANAGEMENT_SCOPE_INVALID'});
+  if(rows.some(row=>!row||typeof row!=='object'||Array.isArray(row)||row.entity_id!==entityId||row.accounting_period_id!==accountingPeriodId))throw Object.assign(new Error('Property Management charge evidence is outside the authorized entity and period.'),{code:'AI_PROPERTY_MANAGEMENT_EVIDENCE_INVALID'});
+  if(new Set(rows.map(row=>row.source_document_line_id)).size!==rows.length||new Set(rows.map(row=>row.source_line_hash)).size!==rows.length)throw Object.assign(new Error('Property Management charge evidence contains a duplicate retained source line.'),{code:'AI_PROPERTY_MANAGEMENT_EVIDENCE_DUPLICATE'});
   const findings=Object.freeze(rows.map(classifyPropertyManagementCharge));
   return Object.freeze({schema_version:'AI_PROPERTY_MANAGEMENT_CHARGE_REVIEW_BATCH_V1',current_accounting_period_id:accountingPeriodId,scanned_line_count:rows.length,finding_count:findings.length,findings,action_flags:ACTIONS});
 }
+import {isStrictCalendarDate} from './ai-calendar-date.mjs';

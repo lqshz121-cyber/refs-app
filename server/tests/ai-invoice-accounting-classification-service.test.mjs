@@ -60,6 +60,15 @@ test('historical documents cannot crowd current-period invoices out of a bounded
   assert.equal(result.results[0].classification,'EXPENSE');assert.equal(result.results[0].source_document_id,documentId);
 });
 
+test('fails closed rather than truncating bounded period-reader or fallback invoice populations',async()=>{
+  const completeRow={source_document_id:documentId,source_document_line_id:lineId,source_payload_hash:hash('a'),source_line_hash:hash('b'),entity_id:entityId,accounting_period_id:periodId,accounting_date:'2026-01-31',vendor_name:'Ordinary Vendor',invoice_no:'INV-9',invoice_date:'2026-01-09',currency:'USD',amount:'100',service_period_start:null,service_period_end:null,description:'Monthly service',project_ref:null,property_ref:null,charge_code:null,accounting_status:'NOT_RECORDED'};
+  await assert.rejects(service({classificationInputReader:async()=>[completeRow]}).analyze({tenantId,entityId,accountingPeriodId:periodId,limit:1}),error=>error?.code==='AI_INVOICE_CLASSIFICATION_POPULATION_INCOMPLETE');
+  await assert.rejects(service({detailReader:async()=>[{source_document_id:documentId,payload_hash:hash('a'),currency:'USD',posted_journal_entry_ids:[],lines:[
+    {source_document_line_id:lineId,amount:'100.0000',party_ref:'Vendor',provider_trace:{trace_version:'WBS_PROVIDER_SOURCE_TRACE_V1',domain:'PAYABLES',disposition:'RETAINED',invoice_no:'INV-1',invoice_date:'2026-01-02'}},
+    {source_document_line_id:id(6),amount:'200.0000',party_ref:'Vendor',provider_trace:{trace_version:'WBS_PROVIDER_SOURCE_TRACE_V1',domain:'PAYABLES',disposition:'RETAINED',invoice_no:'INV-2',invoice_date:'2026-01-03'}}
+  ]}]}).analyze({tenantId,entityId,accountingPeriodId:periodId,limit:1}),error=>error?.code==='AI_INVOICE_CLASSIFICATION_POPULATION_INCOMPLETE');
+});
+
 test('passes exact period scope to source and duplicate evidence readers',async()=>{
   const calls=[];
   await service({sourceReader:async input=>(calls.push(['source',input]),[]),duplicateFindingReader:async input=>(calls.push(['duplicate',input]),[])}).analyze({tenantId,entityId,accountingPeriodId:periodId,limit:7});

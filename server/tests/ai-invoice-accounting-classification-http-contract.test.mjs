@@ -22,6 +22,12 @@ test('invoice classification fails closed on wrong scope or enabled accounting a
   }
 });
 
+test('invoice classification population failure is an exact no-store 503',async()=>{
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'controller'}),kernelFactory:async()=>({}),aiInvoiceAccountingClassificationServiceFactory:async()=>({analyze:async()=>{throw Object.assign(new Error('full'),{code:'AI_INVOICE_CLASSIFICATION_POPULATION_INCOMPLETE'});}})});
+  const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/ai/invoice-accounting-classifications?periodId=${periodId}&limit=1`});
+  assert.equal(response.status,503);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.code,'AI_INVOICE_CLASSIFICATION_POPULATION_INCOMPLETE');
+});
+
 test('OpenAPI publishes the exact read-only classification route and closed DTO',async()=>{
   const contract=JSON.parse(await readFile(new URL('../api/openapi-accounting.json',import.meta.url),'utf8')),operation=contract.paths['/entities/{entityId}/ai/invoice-accounting-classifications'].get;
   assert.equal(operation.operationId,'analyzeInvoiceAccountingClassifications');assert.equal(operation.responses['200'].$ref,'#/components/responses/AiInvoiceAccountingClassificationOk');

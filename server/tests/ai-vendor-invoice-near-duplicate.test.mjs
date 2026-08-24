@@ -21,3 +21,9 @@ test('fails closed for unsigned, unadmitted, incomplete, oversized, or policy-fr
   assert.throws(()=>detectVendorInvoiceNearDuplicates([],{currentAccountingPeriodId:id(7)}),error=>error.code==='AI_VENDOR_NEAR_DUPLICATE_POLICY_REQUIRED');
   assert.throws(()=>detectVendorInvoiceNearDuplicates(Array.from({length:501},(_,index)=>row(index+1)),{policy,currentAccountingPeriodId:id(7)}),error=>error.code==='AI_VENDOR_NEAR_DUPLICATE_SCOPE_INVALID');
 });
+
+test('rejects duplicate retained lines and extra policy fields before secrets or invented authority can reach findings',()=>{
+  const duplicate={...row(2,{invoice_number:'INV1001'}),source_document_line_id:row(1).source_document_line_id};
+  assert.throws(()=>detectVendorInvoiceNearDuplicates([row(1),duplicate],{policy,currentAccountingPeriodId:id(7)}),error=>error.code==='AI_VENDOR_NEAR_DUPLICATE_SOURCE_DUPLICATE');
+  for(const extra of [{authorization:'Bearer secret'},{api_key:'sk-secret'},{can_create_draft:true},{internal_rule_payload:{secret:'value'}}])assert.throws(()=>detectVendorInvoiceNearDuplicates([],{policy:{...policy,...extra},currentAccountingPeriodId:id(7)}),error=>error.code==='AI_VENDOR_NEAR_DUPLICATE_POLICY_REQUIRED');
+});

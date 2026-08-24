@@ -24,7 +24,8 @@ export function createAiAccountingApprovedDecisionService({sourceReader,loanSour
       const schedule=scheduleMatches.length===1?{schedule_id:scheduleMatches[0].ai_amortization_schedule_id,schedule_hash:scheduleMatches[0].proposal_hash}:null;
       packets.push(await settingsAdapter.buildInvoice({tenantId,entityId,accountingPeriodId,retainedSource:source,classification,amortizationScheduleTrace:schedule}));
     }
-    if(!Array.isArray(loanSources)||loanSources.length>limit||new Set(loanSources.map(row=>row.source_document_line_id)).size!==loanSources.length)fail('AI_ACCOUNTING_DECISION_POPULATION_MISMATCH','Construction loan decision population is unsafe or incomplete.');
+    if(!Array.isArray(loanSources)||loanSources.length>=limit)fail('AI_ACCOUNTING_DECISION_POPULATION_INCOMPLETE','The bounded construction-loan source read cannot prove population completeness.');
+    if(new Set(loanSources.map(row=>row.source_document_line_id)).size!==loanSources.length)fail('AI_ACCOUNTING_DECISION_POPULATION_MISMATCH','Construction loan decision population is unsafe or incomplete.');
     for(const source of loanSources)packets.push(await settingsAdapter.buildLoan({tenantId,entityId,accountingPeriodId,retainedSource:source}));
     if(packets.length!==sources.length+loanSources.length||packets.length>limit)fail('AI_ACCOUNTING_DECISION_POPULATION_MISMATCH','Every retained source must produce exactly one complete decision within the caller bound.');
     if(new Set(packets.map(row=>row.settings_snapshot_id)).size>1||new Set(packets.map(row=>row.settings_snapshot_hash)).size>1)fail('AI_ACCOUNTING_APPROVED_SETTINGS_UNAVAILABLE','AI accounting decisions require one exact approved settings snapshot for the entire batch.');

@@ -4,7 +4,7 @@ const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const MONEY4=/^-?(0|[1-9]\d*)\.\d{4}$/;
 const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve:false,can_post:false});
 const text=(value,max)=>typeof value==='string'&&value.trim().length>0&&value.trim().length<=max;
-const validDate=value=>typeof value==='string'&&DATE.test(value)&&!Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+const validDate=value=>DATE.test(value||'')&&isStrictCalendarDate(value);
 const normalize=value=>value.normalize('NFKC').toUpperCase().replace(/[^A-Z0-9]/g,'');
 
 function validSource(source){
@@ -20,13 +20,13 @@ function validPolicy(policy){
   return Object.entries(policy.approved_aliases_by_vendor).every(([vendor,aliases])=>text(vendor,200)&&Array.isArray(aliases)&&aliases.length>=1&&aliases.length<=50&&aliases.every(alias=>text(alias,300))&&new Set(aliases.map(normalize)).size===aliases.length);
 }
 
-export function detectBankPayeeVendorMismatches(rows,{policy,currentAccountingPeriodId}={}){
-  if(!Array.isArray(rows)||rows.length>500||!UUID.test(currentAccountingPeriodId||''))throw Object.assign(new Error('Bank payee/vendor analysis requires one period and at most 500 active match rows.'),{code:'AI_BANK_PAYEE_VENDOR_SCOPE_INVALID'});
+export function detectBankPayeeVendorMismatches(rows,{policy,entityId,currentAccountingPeriodId}={}){
+  if(!Array.isArray(rows)||rows.length>500||!UUID.test(entityId||'')||!UUID.test(currentAccountingPeriodId||''))throw Object.assign(new Error('Bank payee/vendor analysis requires one entity, one period, and at most 500 active match rows.'),{code:'AI_BANK_PAYEE_VENDOR_SCOPE_INVALID'});
   if(!validPolicy(policy))throw Object.assign(new Error('Bank payee/vendor analysis requires one approved alias policy.'),{code:'AI_BANK_PAYEE_VENDOR_POLICY_REQUIRED'});
   if(rows.some(row=>!validRow(row)))throw Object.assign(new Error('Bank payee/vendor analysis accepts only complete signed matched-payment evidence.'),{code:'AI_BANK_PAYEE_VENDOR_SOURCE_INVALID'});
+  if(rows.some(row=>row.entity_id!==entityId||row.accounting_period_id!==currentAccountingPeriodId))throw Object.assign(new Error('Bank payee/vendor evidence is outside the selected authoritative entity and period.'),{code:'AI_BANK_PAYEE_VENDOR_SCOPE_MISMATCH'});
   const findings=[];
   for(const row of rows){
-    if(row.accounting_period_id!==currentAccountingPeriodId)continue;
     const aliases=policy.approved_aliases_by_vendor[row.vendor_ref];
     if(!aliases)throw Object.assign(new Error('The matched invoice vendor has no approved alias evidence.'),{code:'AI_BANK_PAYEE_VENDOR_ALIAS_MISSING'});
     const observed=normalize(row.bank_payee_name),approved=aliases.map(normalize);
@@ -35,3 +35,4 @@ export function detectBankPayeeVendorMismatches(rows,{policy,currentAccountingPe
   }
   return Object.freeze({schema_version:'AI_BANK_PAYEE_VENDOR_MISMATCH_BATCH_V1',current_accounting_period_id:currentAccountingPeriodId,scanned_match_count:rows.length,finding_count:findings.length,findings:Object.freeze(findings),action_flags:ACTIONS});
 }
+import {isStrictCalendarDate} from './ai-calendar-date.mjs';

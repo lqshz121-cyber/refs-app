@@ -3,13 +3,14 @@ const HASH=/^sha256:[0-9a-f]{64}$/;
 const MONEY=/^(?:0|[1-9]\d*)\.\d{4}$/;
 const ACCOUNT=/^[A-Za-z0-9._:-]{1,64}$/;
 const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+const ROW_KEYS=['currency','deposit_amount','journal_entry_ids','journal_line_ids','ledger_line_ids','lease_ref','lineage_status','mapping_snapshot_hash','mapping_snapshot_id','mapping_status','period_id','posted_liability_amount','posted_revenue_amount','property_ref','revenue_account_code','security_deposit_liability_account_code','source_classification','source_document_id','source_document_line_id','source_line_hash','source_payload_hash','tenant_ref','unit_ref'].sort();
 const units=value=>BigInt(value.replace('.',''));
 const money=value=>{const negative=value<0n,absolute=negative?-value:value,digits=absolute.toString().padStart(5,'0');return `${negative?'-':''}${digits.slice(0,-4)}.${digits.slice(-4)}`;};
 const ids=value=>Array.isArray(value)&&value.length<=500&&value.every(id=>UUID.test(id||''))&&new Set(value).size===value.length;
 const text=value=>typeof value==='string'&&value.trim().length>0&&value.length<=128;
 
 function valid(row,periodId){
-  return row&&row.source_classification==='SECURITY_DEPOSIT'&&row.mapping_status==='APPROVED_EXACT'&&
+  return row&&Object.getPrototypeOf(row)===Object.prototype&&JSON.stringify(Object.keys(row).sort())===JSON.stringify(ROW_KEYS)&&row.source_classification==='SECURITY_DEPOSIT'&&row.mapping_status==='APPROVED_EXACT'&&
     UUID.test(row.period_id||'')&&row.period_id===periodId&&UUID.test(row.source_document_id||'')&&UUID.test(row.source_document_line_id||'')&&
     HASH.test(row.source_payload_hash||'')&&HASH.test(row.source_line_hash||'')&&HASH.test(row.mapping_snapshot_hash||'')&&UUID.test(row.mapping_snapshot_id||'')&&
     [row.property_ref,row.unit_ref,row.lease_ref,row.tenant_ref].every(text)&&/^[A-Z]{3}$/.test(row.currency||'')&&
@@ -26,16 +27,17 @@ export function detectSecurityDepositLiabilityReviews(rows,{entityId,accountingP
     const expected=units(row.deposit_amount),revenue=units(row.posted_revenue_amount),liability=units(row.posted_liability_amount);
     if(revenue===0n&&liability===expected)continue;
     const liabilityVariance=expected-liability;
+    const reclassAmount=revenue>0n&&liabilityVariance>0n?(revenue<liabilityVariance?revenue:liabilityVariance):0n;
     findings.push(Object.freeze({
       schema_version:'AI_SECURITY_DEPOSIT_LIABILITY_REVIEW_V1',finding_type:'SECURITY_DEPOSIT_REVENUE_MISCLASSIFICATION',risk_level:'HIGH',rule_id:'AI_SECURITY_DEPOSIT_LIABILITY_V1',
       entity_id:entityId,accounting_period_id:accountingPeriodId,...row,
       liability_variance:money(liabilityVariance),
       reason:`Refundable tenant deposit ${row.deposit_amount} for lease ${row.lease_ref} has source-bound Posted revenue/liability of ${row.posted_revenue_amount}/${row.posted_liability_amount}.`,
       suggested_action:'Verify refundability and any legally supported forfeiture; if still refundable, prepare a separately reviewed reclassification from revenue to the mapped security-deposit liability.',
-      suggested_journal_entry:revenue>0n?Object.freeze({status:'SUGGESTED_ONLY',debit_account_code:row.revenue_account_code,credit_account_code:row.security_deposit_liability_account_code,amount:row.posted_revenue_amount,memo:`Reclass refundable security deposit for lease ${row.lease_ref}`,source_document_id:row.source_document_id,source_document_line_id:row.source_document_line_id,debits_equal_credits:true}):null,
+      suggested_journal_entry:reclassAmount>0n?Object.freeze({status:'SUGGESTED_ONLY',debit_account_code:row.revenue_account_code,credit_account_code:row.security_deposit_liability_account_code,amount:money(reclassAmount),memo:`Reclass refundable security deposit for lease ${row.lease_ref}`,source_document_id:row.source_document_id,source_document_line_id:row.source_document_line_id,debits_equal_credits:true}):null,
       required_human_fields:Object.freeze(['refundability_review','lease_terms_review','forfeiture_evidence_if_any','posted_line_review','controller_approval']),action_flags:ACTIONS
     }));
-    if(findings.length===limit)break;
   }
+  if(findings.length>limit)throw Object.assign(new Error('Security-deposit liability finding population exceeds the requested complete response bound.'),{code:'AI_SECURITY_DEPOSIT_FINDING_POPULATION_INCOMPLETE'});
   return Object.freeze({schema_version:'AI_SECURITY_DEPOSIT_LIABILITY_REVIEW_BATCH_V1',scanned_deposit_count:rows.length,finding_count:findings.length,findings:Object.freeze(findings),action_flags:ACTIONS});
 }

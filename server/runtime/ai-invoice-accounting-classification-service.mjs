@@ -35,6 +35,7 @@ export function createAiInvoiceAccountingClassificationService({classificationIn
       const duplicates=new Set((Array.isArray(duplicateFindings)?duplicateFindings:[]).flatMap(row=>[row.source_document_id,row.candidate_source_document_id]).filter(Boolean));
       if(typeof classificationInputReader==='function'){
         const rows=Array.isArray(periodInputs)?periodInputs:[];
+        if(rows.length>=limit)throw Object.assign(new Error('The bounded invoice classification input read cannot prove population completeness.'),{code:'AI_INVOICE_CLASSIFICATION_POPULATION_INCOMPLETE'});
         const inputs=rows.map(row=>({...row,member_ref:row.member_ref??null,amount:money4(row.amount),duplicate_status:duplicates.has(row.source_document_id)?'POSSIBLE':'NONE',project_status:'NONE',cost_class:'UNKNOWN',asset_useful_life_months:null,capitalization_threshold:null}));
         const batch=classifyRetainedInvoiceBatch(inputs,{capitalizationPolicy});
         const controllerEvidence=includeControllerEvidence?Object.freeze(batch.results.map((result,index)=>treatmentEvidence(result,inputs[index]))):undefined;
@@ -54,7 +55,7 @@ export function createAiInvoiceAccountingClassificationService({classificationIn
         }
         if(evidence?.accounting_period_id!==accountingPeriodId||evidence?.signature_verified!==true||evidence?.admission_status!=='ADMITTED')continue;
         scannedDocumentCount+=1;
-        for(const line of lines.slice(0,Math.max(0,limit-inputs.length))){const trace=line.provider_trace;inputs.push({
+        for(const line of lines){const trace=line.provider_trace;inputs.push({
           source_document_id:detail.source_document_id,source_document_line_id:line.source_document_line_id,source_payload_hash:detail.payload_hash,source_line_hash:evidence.source_row_hash,
           entity_id:entityId,accounting_period_id:accountingPeriodId,accounting_date:document.accounting_date??trace.invoice_date,vendor_ref:line.party_ref,vendor_name:line.party_ref,invoice_no:trace.invoice_no,invoice_date:trace.invoice_date,
           currency:String(detail.currency||''),amount:money4(line.amount??detail.gross_amount),service_period_start:trace.accrual?.service_period_start??null,
@@ -67,8 +68,8 @@ export function createAiInvoiceAccountingClassificationService({classificationIn
           // returned by the classifier.
           project_status:'NONE',cost_class:'UNKNOWN',asset_useful_life_months:null,capitalization_threshold:null
         });}
-        if(inputs.length>=limit)break;
       }
+      if(inputs.length>limit)throw Object.assign(new Error('The retained invoice line population exceeds the requested complete response bound.'),{code:'AI_INVOICE_CLASSIFICATION_POPULATION_INCOMPLETE'});
       const batch=classifyRetainedInvoiceBatch(inputs,{capitalizationPolicy});
       return Object.freeze({...batch,scope:Object.freeze({tenant_id:tenantId,entity_id:entityId,accounting_period_id:accountingPeriodId}),scanned_document_count:scannedDocumentCount,eligible_invoice_line_count:inputs.length,action_flags:ACTIONS});
   };

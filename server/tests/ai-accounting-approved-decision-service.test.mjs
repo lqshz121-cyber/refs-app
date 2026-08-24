@@ -40,6 +40,13 @@ test('reader or settings failure produces no model, JE, audit, or outbox command
   assert.equal(buildCalls,0);assert.deepEqual(Object.keys(service()),['analyze']);
 });
 
+test('a saturated bounded loan-source read cannot produce a partial decision batch',async()=>{
+  const loanSource={source_document_id:id(40),source_document_line_id:id(41),source_payload_hash:hash('d'),source_line_hash:hash('e')};let builds=0;
+  const analyzer=createAiAccountingApprovedDecisionService({sourceReader:async()=>[],loanSourceReader:async()=>[loanSource],classificationService:{analyze:async()=>({results:[]})},scheduleReader:async()=>[],settingsAdapter:{buildInvoice:async()=>{builds+=1;return packet;},buildLoan:async()=>{builds+=1;return packet;}}});
+  await assert.rejects(analyzer.analyze({tenantId,entityId,accountingPeriodId:periodId,limit:1}),error=>error?.code==='AI_ACCOUNTING_DECISION_POPULATION_INCOMPLETE');
+  assert.equal(builds,0);
+});
+
 test('a batch cannot mix parent approved settings snapshots',async()=>{
   const secondSource={...source,source_document_id:id(6),source_document_line_id:id(7),source_payload_hash:hash('d'),source_line_hash:hash('e')},secondClassification={...classification,source_document_id:id(6),source_document_line_id:id(7),source_payload_hash:hash('d'),source_line_hash:hash('e')};let calls=0;
   await assert.rejects(service({sourceReader:async()=>[source,secondSource],classificationService:{analyze:async()=>({results:[classification,secondClassification]})},settingsAdapter:{buildInvoice:async()=>({...packet,settings_snapshot_id:id(++calls),settings_snapshot_hash:hash(String(calls))})}}).analyze({tenantId,entityId,accountingPeriodId:periodId}),error=>error.code==='AI_ACCOUNTING_APPROVED_SETTINGS_UNAVAILABLE');
@@ -49,6 +56,7 @@ test('existing GET decision route accepts the closed full batch and maps approve
   const batch={schema_version:'AI_ACCOUNTING_DECISION_PACKET_FULL_BATCH_V1',scope:{tenant_id:tenantId,entity_id:entityId,accounting_period_id:periodId},row_count:1,decision_counts:{ready_for_human_review:1,exception:0},packets:[packet],action_flags:{can_create_draft:false,can_review:false,can_approve:false,can_post:false}},url=`/api/v1/entities/${entityId}/ai/accounting-decisions?periodId=${periodId}`;
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'human-controller'}),kernelFactory:()=>({}),aiAccountingDecisionPacketServiceFactory:async()=>({analyze:async()=>batch})}),response=await api({method:'GET',url,headers:{}});assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data,batch);
   const unavailable=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'human-controller'}),kernelFactory:()=>({}),aiAccountingDecisionPacketServiceFactory:async()=>({analyze:async()=>{throw Object.assign(new Error('drift'),{code:'AI_ACCOUNTING_SETTINGS_BINDING_INVALID'});}})}),failure=await unavailable({method:'GET',url,headers:{}});assert.equal(failure.status,503);assert.equal(failure.headers['cache-control'],'no-store');assert.equal(failure.body.message,'Internal server error');
+  const saturated=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'human-controller'}),kernelFactory:()=>({}),aiAccountingDecisionPacketServiceFactory:async()=>({analyze:async()=>{throw Object.assign(new Error('full'),{code:'AI_ACCOUNTING_DECISION_POPULATION_INCOMPLETE'});}})}),populationFailure=await saturated({method:'GET',url,headers:{}});assert.equal(populationFailure.status,503);assert.equal(populationFailure.headers['cache-control'],'no-store');assert.equal(populationFailure.body.code,'AI_ACCOUNTING_DECISION_POPULATION_INCOMPLETE');
 });
 
 test('decision run delegates the complete validated population to one atomic batch command',async()=>{

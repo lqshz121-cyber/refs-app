@@ -4,7 +4,7 @@ const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const MONEY4=/^(0|[1-9]\d*)\.\d{4}$/;
 const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve:false,can_post:false});
 const text=(value,max)=>typeof value==='string'&&value.trim().length>0&&value.trim().length<=max;
-const validDate=value=>typeof value==='string'&&DATE.test(value)&&!Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+const validDate=value=>{if(typeof value!=='string'||!DATE.test(value))return false;const [year,month,day]=value.split('-').map(Number),date=new Date(Date.UTC(year,month-1,day));return date.getUTCFullYear()===year&&date.getUTCMonth()===month-1&&date.getUTCDate()===day;};
 const validSource=value=>value&&typeof value==='object'&&!Array.isArray(value)&&UUID.test(value.source_document_id||'')&&UUID.test(value.source_document_line_id||'')&&SHA256.test(value.source_payload_hash||'')&&SHA256.test(value.source_line_hash||'');
 
 function validRow(row){
@@ -18,13 +18,14 @@ function validRow(row){
     SHA256.test(row.project_status_snapshot_hash||'')&&SHA256.test(row.account_mapping_snapshot_hash||'')&&validSource(row.source_trace);
 }
 
-export function detectCwipPostCompletionFindings(rows,{currentAccountingPeriodId}={}){
-  if(!Array.isArray(rows)||rows.length>500||!UUID.test(currentAccountingPeriodId||''))throw Object.assign(new Error('Post-completion CWIP review requires one period and at most 500 posted ledger rows.'),{code:'AI_CWIP_POST_COMPLETION_SCOPE_INVALID'});
+export function detectCwipPostCompletionFindings(rows,{entityId,currentAccountingPeriodId}={}){
+  if(!Array.isArray(rows)||rows.length>500||!UUID.test(entityId||'')||!UUID.test(currentAccountingPeriodId||''))throw Object.assign(new Error('Post-completion CWIP review requires one entity, one period, and at most 500 posted ledger rows.'),{code:'AI_CWIP_POST_COMPLETION_SCOPE_INVALID'});
   if(rows.some(row=>!validRow(row)))throw Object.assign(new Error('Post-completion CWIP review accepts only complete posted CWIP, project lifecycle, mapping, and source evidence.'),{code:'AI_CWIP_POST_COMPLETION_SOURCE_INVALID'});
+  if(rows.some(row=>row.entity_id!==entityId||row.accounting_period_id!==currentAccountingPeriodId))throw Object.assign(new Error('Post-completion CWIP evidence is outside the authorized entity and period.'),{code:'AI_CWIP_POST_COMPLETION_SCOPE_MISMATCH'});
   if(new Set(rows.map(row=>row.ledger_line_id)).size!==rows.length)throw Object.assign(new Error('Post-completion CWIP review requires a unique retained ledger-line population.'),{code:'AI_CWIP_POST_COMPLETION_SOURCE_DUPLICATE'});
   const findings=[];
   for(const row of rows){
-    if(row.accounting_period_id!==currentAccountingPeriodId||row.posting_date<=row.completion_date)continue;
+    if(row.posting_date<=row.completion_date)continue;
     findings.push(Object.freeze({
       schema_version:'AI_CWIP_POST_COMPLETION_FINDING_V1',finding_type:'CWIP_POST_COMPLETION_CUTOFF',risk_level:'HIGH',rule_id:'AI_CWIP_POST_COMPLETION_CUTOFF_V1',
       entity_id:row.entity_id,accounting_period_id:row.accounting_period_id,project_ref:row.project_ref,project_status:row.project_status,completion_date:row.completion_date,

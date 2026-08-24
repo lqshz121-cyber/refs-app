@@ -7,7 +7,8 @@ export function createAiBankDuplicatePaymentService({sourceReader,materializeWri
   const analyze=async({tenantId,entityId,currentAccountingPeriodId,limit=500})=>{
     if(!UUID.test(tenantId||'')||!UUID.test(entityId||'')||!UUID.test(currentAccountingPeriodId||'')||!Number.isInteger(limit)||limit<1||limit>500)throw Object.assign(new Error('Bank duplicate-payment service scope is invalid'),{code:'AI_BANK_DUPLICATE_PAYMENT_SCOPE_INVALID'});
     const rows=await sourceReader({tenantId,entityId,currentAccountingPeriodId,limit});
-    return detectDuplicateBankPayments(rows,{currentAccountingPeriodId});
+    if(!Array.isArray(rows)||rows.length>=limit)throw Object.assign(new Error('Bank duplicate-payment analysis cannot prove that the authoritative population is complete.'),{code:'AI_BANK_DUPLICATE_PAYMENT_POPULATION_INCOMPLETE'});
+    return detectDuplicateBankPayments(rows,{entityId,currentAccountingPeriodId});
   };
   return Object.freeze({
     analyze,

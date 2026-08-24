@@ -16,3 +16,23 @@ test('AI analysis explanation is unavailable rather than falling back to browser
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'controller-a'}),kernelFactory:async()=>({})});
   const response=await api({method:'POST',url:path,headers:{'idempotency-key':'ai-analysis-001'},body:{}});assert.equal(response.status,503);assert.equal(response.body.code,'AI_ANALYSIS_EXPLANATION_UNAVAILABLE');
 });
+
+test('AI analysis explanation HTTP boundary rejects malformed, action-enabled, unbound, or credential-bearing service output',async()=>{
+  const invalid=[
+    {...memo,traceId:'different-trace'},
+    {...memo,extra:true},
+    {...memo,result:{...memo.result,can_create_draft:true}},
+    {...memo,result:{...memo.result,controller_actions:[{...memo.result.controller_actions[0],category:'UNKNOWN'}]}},
+    {...memo,result:{...memo.result,narrative:'Authorization: Bearer sk-live-EXAMPLECREDENTIAL'}},
+    {...memo,model:'api_key=sk-live-EXAMPLECREDENTIAL'}
+  ];
+  for(const unsafe of invalid){
+    const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'controller-a'}),kernelFactory:async()=>({}),aiAnalysisExplanationServiceFactory:async()=>({explain:async()=>unsafe})});
+    const response=await api({method:'POST',url:path,headers:{'idempotency-key':'ai-analysis-001'},body:{}});
+    assert.equal(response.status,502);assert.equal(response.body.code,'AI_ANALYSIS_RESPONSE_INVALID');assert.doesNotMatch(JSON.stringify(response.body),/EXAMPLECREDENTIAL/);
+  }
+});
+
+test('AI analysis explanation accepts an explicit null provider request id without weakening the closed receipt',async()=>{
+  const safe={...memo,providerRequestId:null};const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'controller-a'}),kernelFactory:async()=>({}),aiAnalysisExplanationServiceFactory:async()=>({explain:async()=>safe})});const response=await api({method:'POST',url:path,headers:{'idempotency-key':'ai-analysis-001'},body:{}});assert.equal(response.status,200);assert.equal(response.body.data.providerRequestId,null);
+});

@@ -77,6 +77,12 @@ test('rejects caller-asserted Draft and workflow roles, permissions, grant hashe
   for(const mutate of variants){const receipts=workflow(),payload=mutate(structuredClone(receipts[0].payload));receipts[0]={...receipts[0],payload,receipt_hash:hashAiAccountingEvidence(payload)};assert.throws(()=>reviewAiAccountingPostedOutcomeFullV1({packet,decisionToDraftReceipt:receipt,workflowReceipts:receipts,postedJournal:journal(postedLines),trialBalanceSnapshot:tb(postedLines),reportSnapshot:report(postedLines)}),error=>error.code==='AI_ACCOUNTING_OUTCOME_WORKFLOW_TRACE_INVALID');}
 });
 
+test('rejects impossible or non-canonical Draft and workflow timestamps',()=>{
+  const withDraftTime=created_at=>{const draft_receipt_payload={...structuredClone(receipt.draft_receipt_payload),created_at};return {...receipt,draft_receipt_payload,draft_receipt_hash:hashAiAccountingEvidence(draft_receipt_payload)};};
+  for(const created_at of ['2026-02-30T10:00:00Z','2026-08-20T10:00:00+00:00'])assert.throws(()=>review({packet,decisionToDraftReceipt:withDraftTime(created_at),postedJournal:journal(postedLines),trialBalanceSnapshot:tb(postedLines),reportSnapshot:report(postedLines)}),error=>error.code==='AI_ACCOUNTING_OUTCOME_TRACE_INVALID');
+  for(const at of ['2026-02-30T11:00:00Z','2026-08-20T11:00:00+00:00']){const receipts=workflow(),payload={...receipts[0].payload,at};receipts[0]={...receipts[0],payload,receipt_hash:hashAiAccountingEvidence(payload)};assert.throws(()=>reviewAiAccountingPostedOutcomeFullV1({packet,decisionToDraftReceipt:receipt,workflowReceipts:receipts,postedJournal:journal(postedLines),trialBalanceSnapshot:tb(postedLines),reportSnapshot:report(postedLines)}),error=>error.code==='AI_ACCOUNTING_OUTCOME_WORKFLOW_TRACE_INVALID');}
+});
+
 test('keeps a changed approved account as MISMATCH until a formal variance workflow exists',()=>{
   const changed=[{...postedLines[0],account_code:'620000'},postedLines[1]],actualReport=[{...delta,account_code:'620000'},liabilityDelta];
   const expectedLines=packet.proposed_journal.lines,actualLines=changed.map(({journal_line_id,ledger_line_id,...row})=>row);

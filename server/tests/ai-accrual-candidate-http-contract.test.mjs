@@ -48,3 +48,9 @@ test('AI accrual candidate analysis fails closed when unavailable or unsafe',asy
   }
   const operation=contract.paths['/entities/{entityId}/ai/accrual-candidates'].get;assert.equal(operation.operationId,'analyzeAiAccrualCandidates');assert.match(operation.description,/cannot create a Draft, review, approve, post, or write WBS/i);
 });
+
+test('an incomplete retained accrual population is an exact no-store 503',async()=>{
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'controller-a'}),kernelFactory:async()=>({}),aiAccrualCandidateAnalysisServiceFactory:async()=>({analyze:async()=>{throw Object.assign(new Error('truncated history'),{code:'AI_ACCRUAL_HISTORY_POPULATION_INCOMPLETE'});}})});
+  const response=await api({method:'GET',url:path,headers:{},body:null});
+  assert.equal(response.status,503);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.code,'AI_ACCRUAL_HISTORY_POPULATION_INCOMPLETE');
+});

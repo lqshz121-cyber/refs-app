@@ -25,6 +25,14 @@ test('invalid retained source or a current retained source prevents a candidate 
   assert.deepEqual((await existing.analyze(request)).candidates,[]);
 });
 
+test('a saturated retained-history reader fails closed before obligation lookups or accounting conclusions',async()=>{
+  let currentCalls=0,postedCalls=0;
+  const saturated=Array.from({length:241},(_,index)=>row(index%3+1));
+  const service=createAiAccrualCandidateAnalysisService({retainedHistoryReader:async()=>saturated,currentSourceReader:async()=>{currentCalls++;return [];},postedSourceReader:async()=>{postedCalls++;return [];}});
+  await assert.rejects(()=>service.analyze(request),error=>error instanceof AiAccrualCandidateError&&error.code==='AI_ACCRUAL_HISTORY_POPULATION_INCOMPLETE');
+  assert.equal(currentCalls,0);assert.equal(postedCalls,0);
+});
+
 test('a complete required10 explicitly-null payable is retained outside accrual analysis and cannot poison valid history',async()=>{
   const explicitNonAccrual={...row(4),external_dimension_refs:{...row(4).external_dimension_refs,...Object.fromEntries(accrualKeys.map(key=>[key,null]))}};
   let currentCalls=0;

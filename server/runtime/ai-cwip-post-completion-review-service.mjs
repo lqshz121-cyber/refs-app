@@ -8,7 +8,9 @@ export function createAiCwipPostCompletionReviewService({postedCwipReader}={}){
     async analyze({tenantId,entityId,accountingPeriodId,limit=500}={}){
       if(!UUID.test(tenantId||'')||!UUID.test(entityId||'')||!UUID.test(accountingPeriodId||'')||!Number.isSafeInteger(limit)||limit<1||limit>500)throw Object.assign(new Error('AI post-completion CWIP service scope is invalid.'),{code:'AI_CWIP_POST_COMPLETION_SCOPE_INVALID'});
       const rows=await postedCwipReader({tenantId,entityId,accountingPeriodId,limit});
-      return detectCwipPostCompletionFindings(rows,{currentAccountingPeriodId:accountingPeriodId});
+      if(!Array.isArray(rows))throw Object.assign(new Error('AI post-completion CWIP reader returned an invalid population.'),{code:'AI_CWIP_POST_COMPLETION_SOURCE_INVALID'});
+      if(rows.length===limit)throw Object.assign(new Error('AI post-completion CWIP population may be truncated at the bounded read limit.'),{code:'AI_CWIP_POST_COMPLETION_POPULATION_INCOMPLETE'});
+      return detectCwipPostCompletionFindings(rows,{entityId,currentAccountingPeriodId:accountingPeriodId});
     }
   });
 }

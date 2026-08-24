@@ -1,4 +1,5 @@
 import {AI_ANALYSIS_FINDING_CATEGORIES} from './ai-accounting-skill-registry.mjs';
+import {safeAiEvidenceTree} from './ai-secret-safety.mjs';
 
 const CATEGORIES=new Set(AI_ANALYSIS_FINDING_CATEGORIES);
 const text=value=>typeof value==='string'?value.trim():'';
@@ -19,6 +20,18 @@ const evidenceRow=(category,value)=>{
   return Object.freeze({category,finding_id:bounded(value.ai_finding_id||value.ai_prepaid_coverage_finding_id||value.ai_duplicate_payable_finding_id||value.ai_bank_duplicate_payment_finding_id||value.ai_vendor_invoice_amount_anomaly_finding_id||value.ai_vendor_invoice_frequency_anomaly_finding_id||value.ai_vendor_invoice_amount_drop_finding_id||value.ai_vendor_invoice_near_duplicate_finding_id||value.ai_manual_journal_risk_finding_id||value.ai_unmatched_bank_payment_finding_id||value.ai_cost_dimension_finding_id||value.ai_loan_reference_finding_id,128),rule_id:ruleId,risk_level:value.risk_level,confidence:Number(value.confidence),reason,suggested_action:suggestedAction,source_refs:Object.freeze([...new Set(sourceRefs)].slice(0,3)),evidence_hashes:Object.freeze([...new Set(evidenceHashes)].slice(0,4)),source_versions:Object.freeze([...new Set(sourceVersions)].slice(0,3)),created_at:createdAt});
 };
 const validEvidence=value=>Array.isArray(value)&&value.length<=120&&value.every(item=>item&&typeof item==='object'&&CATEGORIES.has(item.category)&&bounded(item.finding_id,128)&&bounded(item.rule_id,128)&&['HIGH','MEDIUM','LOW'].includes(item.risk_level)&&Number.isFinite(item.confidence)&&item.confidence>=0&&item.confidence<=1&&bounded(item.reason,2000)&&bounded(item.suggested_action,2000)&&Array.isArray(item.source_refs)&&item.source_refs.length>0&&item.source_refs.length<=3&&item.source_refs.every(ref=>bounded(ref,128))&&Array.isArray(item.evidence_hashes)&&item.evidence_hashes.length>0&&item.evidence_hashes.length<=4&&item.evidence_hashes.every(hash=>HASH.test(hash))&&Array.isArray(item.source_versions)&&item.source_versions.length<=3&&item.source_versions.every(version=>Number.isSafeInteger(version)&&version>=0)&&bounded(item.created_at,64));
+const completeEvidencePopulation=(summary,evidence)=>{
+  const evidenceByCategory=new Map();
+  for(const item of evidence){
+    const counts=evidenceByCategory.get(item.category)||{total:0,high:0,medium:0,low:0};
+    counts.total++;counts[item.risk_level.toLowerCase()]++;evidenceByCategory.set(item.category,counts);
+  }
+  if(evidenceByCategory.size!==summary.length)return false;
+  return summary.every(item=>{
+    const counts=evidenceByCategory.get(item.category);
+    return counts&&counts.total===item.total_findings&&counts.high===item.high_findings&&counts.medium===item.medium_findings&&counts.low===item.low_findings;
+  });
+};
 
 export class AiAnalysisExplanationError extends Error {constructor(code,message){super(message);this.code=code;}}
 const responseSchema=Object.freeze({name:'refs_ai_accounting_analysis_explanation',schema:{type:'object',additionalProperties:false,properties:{headline:{type:'string'},risk_level:{enum:['HIGH','MEDIUM','LOW','NONE']},narrative:{type:'string'},controller_actions:{type:'array',maxItems:6,items:{type:'object',additionalProperties:false,properties:{category:{type:'string'},finding_ids:{type:'array',minItems:1,maxItems:10,items:{type:'string'}},action:{type:'string'}},required:['category','finding_ids','action']}}},required:['headline','risk_level','narrative','controller_actions']}});
@@ -31,7 +44,19 @@ const validAction=(action,{traceById,requireTrace=false}={})=>{
 };
 const validResponse=(value,options={})=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).sort().join('|')==='controller_actions|headline|narrative|risk_level'&&text(value.headline).length>0&&text(value.headline).length<=280&&['HIGH','MEDIUM','LOW','NONE'].includes(value.risk_level)&&text(value.narrative).length>0&&text(value.narrative).length<=4000&&Array.isArray(value.controller_actions)&&value.controller_actions.length<=6&&value.controller_actions.every(action=>validAction(action,options));
 const redactedResponse=value=>Object.freeze({...value,headline:redact(value.headline),narrative:redact(value.narrative),controller_actions:Object.freeze(value.controller_actions.map(action=>Object.freeze({...action,action:redact(action.action)})))});
-const validPersistedResponse=value=>value&&typeof value==='object'&&typeof value.traceId==='string'&&typeof value.model==='string'&&Number.isSafeInteger(value.elapsedMs)&&value.elapsedMs>=0&&value.result&&value.result.can_create_draft===false&&value.result.can_review===false&&value.result.can_approve===false&&value.result.can_post===false&&validResponse({headline:value.result.headline,risk_level:value.result.risk_level,narrative:value.result.narrative,controller_actions:value.result.controller_actions});
+const exactKeys=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).sort().join('|')===[...keys].sort().join('|');
+const redactedForSafety=value=>typeof value==='string'?value.replace(/\b(?:api[ _-]?key|access[ _-]?token|refresh[ _-]?token|token|secret|password|authorization)\b\s*[:=]\s*\[REDACTED\]/gi,'redacted').replace(/\bBearer\s+\[REDACTED\]/gi,'redacted'):Array.isArray(value)?value.map(redactedForSafety):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).map(([key,item])=>[key,redactedForSafety(item)])):value;
+const safeRedactedTree=value=>safeAiEvidenceTree(redactedForSafety(value));
+const validPersistedResponse=(value,{expectedTraceId}={})=>{
+  if(!exactKeys(value,['traceId','providerRequestId','model','elapsedMs','result'])||!bounded(value.traceId,200)||(expectedTraceId&&value.traceId!==expectedTraceId)||(value.providerRequestId!==null&&!bounded(value.providerRequestId,255))||!bounded(value.model,255)||!Number.isSafeInteger(value.elapsedMs)||value.elapsedMs<0||value.elapsedMs>86_400_000)return false;
+  const result=value.result;
+  return exactKeys(result,['headline','risk_level','narrative','controller_actions','can_create_draft','can_review','can_approve','can_post'])&&result.can_create_draft===false&&result.can_review===false&&result.can_approve===false&&result.can_post===false&&validResponse({headline:result.headline,risk_level:result.risk_level,narrative:result.narrative,controller_actions:result.controller_actions},{requireTrace:true})&&safeRedactedTree(value);
+};
+
+export function assertAiAnalysisExplanationResponse(value,{expectedTraceId}={}){
+  if(!validPersistedResponse(value,{expectedTraceId}))throw new AiAnalysisExplanationError('AI_ANALYSIS_RESPONSE_INVALID','AI analysis returned an unsafe persisted controller explanation');
+  return value;
+}
 
 export function createAiAnalysisExplanationService({gateway,summaryReader,evidenceReader,auditRepository}={}){
   if(!gateway||typeof gateway.analyzeJson!=='function')throw new AiAnalysisExplanationError('AI_GATEWAY_DISABLED','AI analysis gateway is not configured');
@@ -41,9 +66,9 @@ export function createAiAnalysisExplanationService({gateway,summaryReader,eviden
   return Object.freeze({async explain({tenantId,entityId,actorId,traceId}={}){
     if(!text(tenantId)||!text(entityId)||!text(actorId))throw new AiAnalysisExplanationError('AI_ANALYSIS_SCOPE_INVALID','AI analysis requires tenant, entity, and authenticated actor scope');
     const raw=await summaryReader({tenantId,entityId});if(!Array.isArray(raw))throw new AiAnalysisExplanationError('AI_ANALYSIS_SUMMARY_INVALID','Authoritative AI analysis summary is unavailable');const summary=raw.map(row).filter(Boolean);if(summary.length!==raw.length||new Set(summary.map(item=>item.category)).size!==summary.length)throw new AiAnalysisExplanationError('AI_ANALYSIS_SUMMARY_INVALID','Authoritative AI analysis summary is invalid');
-    const rawEvidence=await evidenceReader({tenantId,entityId});if(!Array.isArray(rawEvidence))throw new AiAnalysisExplanationError('AI_ANALYSIS_EVIDENCE_INVALID','Authoritative AI finding evidence is unavailable');const evidence=rawEvidence.map(item=>evidenceRow(item?.category,item?.row));if(evidence.some(item=>item===null)||!validEvidence(evidence))throw new AiAnalysisExplanationError('AI_ANALYSIS_EVIDENCE_INVALID','Authoritative AI finding evidence is invalid');if(evidence.length===0)throw new AiAnalysisExplanationError('AI_ANALYSIS_EVIDENCE_EMPTY','AI analysis requires retained source-traceable finding evidence');
+    const rawEvidence=await evidenceReader({tenantId,entityId});if(!Array.isArray(rawEvidence))throw new AiAnalysisExplanationError('AI_ANALYSIS_EVIDENCE_INVALID','Authoritative AI finding evidence is unavailable');const evidence=rawEvidence.map(item=>evidenceRow(item?.category,item?.row));if(evidence.some(item=>item===null)||!validEvidence(evidence))throw new AiAnalysisExplanationError('AI_ANALYSIS_EVIDENCE_INVALID','Authoritative AI finding evidence is invalid');if(evidence.length===0)throw new AiAnalysisExplanationError('AI_ANALYSIS_EVIDENCE_EMPTY','AI analysis requires retained source-traceable finding evidence');if(!completeEvidencePopulation(summary,evidence))throw new AiAnalysisExplanationError('AI_ANALYSIS_EVIDENCE_POPULATION_INCOMPLETE','AI analysis requires the complete retained finding population represented by the authoritative summary');
     const reservation=await auditRepository.beginAiAccountingAnalysisExplanation({tenantId,entityId,summary,evidence,idempotencyKey:traceId}),state=reservation?.result?.state;
-    if(state==='REPLAY'&&validPersistedResponse(reservation.result.response))return reservation.result.response;
+    if(state==='REPLAY'&&validPersistedResponse(reservation.result.response,{expectedTraceId:traceId}))return reservation.result.response;
     if(state==='IN_PROGRESS')throw new AiAnalysisExplanationError('AI_ANALYSIS_IN_PROGRESS','AI analysis is already running for this idempotency key');
     if(state!=='STARTED'||typeof reservation.requestHash!=='string')throw new AiAnalysisExplanationError('AI_ANALYSIS_AUDIT_INVALID','AI analysis audit receipt is invalid');
     try{
@@ -51,8 +76,8 @@ export function createAiAnalysisExplanationService({gateway,summaryReader,eviden
       const traceById=new Map(evidence.map(item=>[item.finding_id,item.category]));
       if(!validResponse(output?.result,{traceById,requireTrace:true}))throw new AiAnalysisExplanationError('AI_ANALYSIS_RESPONSE_INVALID','AI analysis returned an invalid or untraceable controller explanation');
       const redactedResult=redactedResponse(output.result);if(!validResponse(redactedResult,{traceById,requireTrace:true}))throw new AiAnalysisExplanationError('AI_ANALYSIS_RESPONSE_INVALID','AI analysis returned an invalid controller explanation after redaction');
-      const safeOutput=Object.freeze({...output,result:Object.freeze({...redactedResult,can_create_draft:false,can_review:false,can_approve:false,can_post:false})});
-      return await auditRepository.completeAiAccountingAnalysisExplanation({tenantId,entityId,idempotencyKey:traceId,requestHash:reservation.requestHash,output:safeOutput});
+      const safeOutput=Object.freeze({...output,traceId,result:Object.freeze({...redactedResult,can_create_draft:false,can_review:false,can_approve:false,can_post:false})});
+      return assertAiAnalysisExplanationResponse(await auditRepository.completeAiAccountingAnalysisExplanation({tenantId,entityId,idempotencyKey:traceId,requestHash:reservation.requestHash,output:safeOutput}),{expectedTraceId:traceId});
     }catch(error){await auditRepository.abandonAiAccountingAnalysisExplanation({tenantId,entityId,idempotencyKey:traceId,requestHash:reservation.requestHash});throw error;}
   }});
 }

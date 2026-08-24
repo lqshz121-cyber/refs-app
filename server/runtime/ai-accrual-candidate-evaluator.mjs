@@ -5,14 +5,14 @@
 const text=value=>typeof value==='string'?value.trim():'';
 const HASH=/^sha256:[0-9a-f]{64}$/;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const PERIOD=/^\d{4}-\d{2}$/;
+const PERIOD=/^\d{4}-(?:0[1-9]|1[0-2])$/;
 const freeze=value=>Object.freeze(value);
 
 export class AiAccrualCandidateError extends Error {constructor(code,message){super(message);this.code=code;}}
 
 const requiredEvidence=Object.freeze(['service_period_start','service_period_end','recurring_obligation_id','service_frequency','obligation_status','source_document_id','source_document_line_id','source_payload_hash','source_line_hash','entity_id','accounting_period_id','currency','amount']);
 
-const validIsoDate=value=>/^\d{4}-\d{2}-\d{2}$/.test(text(value));
+const validIsoDate=value=>{const normalized=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(normalized))return false;const [year,month,day]=normalized.split('-').map(Number),date=new Date(Date.UTC(year,month-1,day));return date.getUTCFullYear()===year&&date.getUTCMonth()===month-1&&date.getUTCDate()===day;};
 const validAmount=value=>typeof value==='string'&&/^-?\d+(?:\.\d{1,2})?$/.test(value)&&Number(value)>0;
 const validEvidence=value=>value&&typeof value==='object'&&!Array.isArray(value)&&
   validIsoDate(value.service_period_start)&&validIsoDate(value.service_period_end)&&text(value.service_period_start)<=text(value.service_period_end)&&

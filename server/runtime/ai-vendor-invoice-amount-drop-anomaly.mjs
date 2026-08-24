@@ -6,7 +6,7 @@ const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve
 const POLICY_FIELDS=['drop_ratio_threshold_basis_points','minimum_absolute_drop','minimum_history_periods','policy_version','schema_version','setting_snapshot_hash','setting_snapshot_id'];
 const text=(value,max)=>typeof value==='string'&&value.trim().length>0&&value.trim().length<=max;
 const nullableText=(value,max)=>value===null||text(value,max);
-const validDate=value=>typeof value==='string'&&DATE.test(value)&&!Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+const validDate=value=>DATE.test(value||'')&&isStrictCalendarDate(value);
 const units=value=>BigInt(value.replace('.',''));
 const money=value=>`${value/10000n}.${String(value%10000n).padStart(4,'0')}`;
 const median=values=>{const sorted=[...values].sort((a,b)=>a<b?-1:a>b?1:0),middle=Math.floor(sorted.length/2);return sorted.length%2?sorted[middle]:(sorted[middle-1]+sorted[middle])/2n;};
@@ -18,6 +18,7 @@ export function detectVendorInvoiceAmountDropAnomalies(rows,{policy,currentAccou
   if(!Array.isArray(rows)||rows.length>500||!UUID.test(currentAccountingPeriodId||''))throw Object.assign(new Error('Vendor amount-drop analysis requires a current period and at most 500 retained invoice rows.'),{code:'AI_VENDOR_AMOUNT_DROP_SCOPE_INVALID'});
   if(!validPolicy(policy))throw Object.assign(new Error('Vendor amount-drop analysis requires exact approved threshold policy evidence.'),{code:'AI_VENDOR_AMOUNT_DROP_POLICY_REQUIRED'});
   if(rows.some(row=>!validRow(row)))throw Object.assign(new Error('Vendor amount-drop analysis accepts only complete admitted signed invoice evidence.'),{code:'AI_VENDOR_AMOUNT_DROP_SOURCE_INVALID'});
+  if(new Set(rows.map(row=>row.source_document_line_id)).size!==rows.length||new Set(rows.map(row=>row.source_line_hash)).size!==rows.length)throw Object.assign(new Error('Vendor amount-drop analysis requires unique retained invoice-line evidence.'),{code:'AI_VENDOR_AMOUNT_DROP_SOURCE_DUPLICATE'});
   const findings=[];
   for(const current of rows.filter(row=>row.accounting_period_id===currentAccountingPeriodId)){
     const history=rows.filter(row=>row.accounting_period_id!==currentAccountingPeriodId&&contextKey(row)===contextKey(current)),periods=new Set(history.map(row=>row.accounting_period_id));
@@ -29,3 +30,4 @@ export function detectVendorInvoiceAmountDropAnomalies(rows,{policy,currentAccou
   }
   return Object.freeze({schema_version:'AI_VENDOR_INVOICE_AMOUNT_DROP_BATCH_V1',current_accounting_period_id:currentAccountingPeriodId,scanned_line_count:rows.length,finding_count:findings.length,findings:Object.freeze(findings),action_flags:ACTIONS});
 }
+import {isStrictCalendarDate} from './ai-calendar-date.mjs';

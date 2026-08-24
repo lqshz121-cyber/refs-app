@@ -6,7 +6,8 @@ export function createAiManualJournalRiskService({journalReader,policyReader,mat
   const analyze=async({tenantId,entityId,currentAccountingPeriodId,limit=500})=>{
     if(!UUID.test(tenantId||'')||!UUID.test(entityId||'')||!UUID.test(currentAccountingPeriodId||'')||!Number.isInteger(limit)||limit<1||limit>500)throw Object.assign(new Error('Manual Journal risk service scope is invalid'),{code:'AI_MANUAL_JOURNAL_SCOPE_INVALID'});
     const [journals,policy]=await Promise.all([journalReader({tenantId,entityId,accountingPeriodId:currentAccountingPeriodId,limit}),policyReader({tenantId,entityId,accountingPeriodId:currentAccountingPeriodId})]);
-    return detectManualJournalRisks(journals,{policy,currentAccountingPeriodId});
+    if(!Array.isArray(journals)||journals.length>=limit)throw Object.assign(new Error('Manual Journal risk analysis cannot prove that the authoritative population is complete.'),{code:'AI_MANUAL_JOURNAL_POPULATION_INCOMPLETE'});
+    return detectManualJournalRisks(journals,{policy,entityId,currentAccountingPeriodId});
   };
   return Object.freeze({analyze,async analyzeAndMaterialize({tenantId,entityId,currentAccountingPeriodId,limit=500,idempotencyKey}){
     if(typeof materializeWriter!=='function')throw Object.assign(new Error('Manual Journal risk persistence is unavailable'),{code:'AI_MANUAL_JOURNAL_PERSISTENCE_UNAVAILABLE'});

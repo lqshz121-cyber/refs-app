@@ -15,3 +15,8 @@ test('AI accounting analysis report reads fail closed without a persistent repor
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'controller-a'}),kernelFactory:async()=>({})});
   const response=await api({method:'GET',url:path,headers:{},body:null});assert.equal(response.status,503);assert.equal(response.body.code,'SERIALIZATION_RETRY_EXHAUSTED');
 });
+
+test('AI accounting analysis report HTTP boundary rejects trace, ordering, shape, and action drift',async()=>{
+  const earlier={...report,idempotency_key:'ai-analysis-report-0002',completed_at:'2026-08-15T00:00:00.000Z',report:{...report.report,traceId:'ai-analysis-report-0002'}};
+  for(const unsafe of [[{...report,report:{...report.report,traceId:'wrong'}}],[earlier,report],[{...report,can_review:true}],[{...report,extra:true}],[{...report,completed_at:'2026-02-30T00:00:00.000Z'}],[{...report,actor_id:'Bearer sk-live-EXAMPLECREDENTIAL'}]]){const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'controller-a'}),kernelFactory:async()=>({listAiAccountingAnalysisReports:async()=>unsafe})});const response=await api({method:'GET',url:`${path}?limit=5`,headers:{},body:null});assert.equal(response.status,502);}
+});
