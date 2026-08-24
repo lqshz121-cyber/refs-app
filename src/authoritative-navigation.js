@@ -65,7 +65,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('bank-batch-pipeline', 'Bank Batch Pipeline', 'API_READ'),
     item('wbs-autorec-evidence', 'WBS AutoRec evidence', 'API_READ'),
     item('bank', 'Bank transactions', 'API_READ'),
-    item('reconciliation', 'Reconciliation worksheet', 'API_READ'),
+    item('reconciliation', 'Reconcile', 'API_READ'),
     item('checks-payments', 'Checks & payments'),
   ]),
   group('Journal Entry', [item('journals', 'Journal entries', 'API_READ')]),
