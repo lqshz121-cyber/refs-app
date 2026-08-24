@@ -57,3 +57,12 @@ test('uses only the repository-returned sealed chunk and rejects completion drif
 test('rejects caller policy expansion in an otherwise safe manifest before persistence',async()=>{
   const input={...manifest(),caller_policy:{auto_post:false}},events=[],service=createAiFullControllerModelService({repository:repository(events),gateway:{analyzeJson:async()=>{throw new Error('must not call');}}});await assert.rejects(()=>service.analyze({actorId:'actor',idempotencyKey:'full-scan-run-007',inputManifest:input}),error=>error.code==='AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID');assert.equal(events.length,0);
 });
+
+test('rejects open or malformed durable repository receipts',async()=>{
+  const input=manifest(),base=repository([]),cases=[{...base,beginAiFullControllerModelRun:async()=>({state:'STARTED',runHash:'not-a-hash'})},{...base,beginAiFullControllerModelRun:async()=>({state:'STARTED',runHash:'sha256:'+'a'.repeat(64),extra:true})},{...base,beginAiFullControllerModelChunk:async()=>({state:'STARTED',extra:true})},{...base,beginAiFullControllerModelMemo:async()=>({state:'STARTED',extra:true})}];
+  for(const value of cases)await assert.rejects(()=>createAiFullControllerModelService({repository:value,gateway:{analyzeJson:async facts=>resultFor(facts.facts,facts.traceName.endsWith('memo'))}}).analyze({actorId:'actor',idempotencyKey:'full-scan-run-008',inputManifest:input}),error=>/^AI_FULL_SCAN_MODEL_/.test(error.code));
+});
+
+test('rejects finding scope drift even when the outer manifest remains secret-free',async()=>{
+  const input=structuredClone(manifest());input.chunks[0].findings[0].evidence.entity_id='99999999-9999-4999-8999-999999999999';const events=[],service=createAiFullControllerModelService({repository:repository(events),gateway:{analyzeJson:async()=>{throw new Error('must not call');}}});await assert.rejects(()=>service.analyze({actorId:'actor',idempotencyKey:'full-scan-run-009',inputManifest:input}),error=>error.code==='AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID');assert.equal(events.length,0);
+});

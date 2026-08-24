@@ -11,6 +11,7 @@ const memoSchema=resultSchema('refs_ai_full_controller_memo');
 const modelMetadata=output=>({provider_request_id:output.providerRequestId??null,model:output.model,elapsed_ms:output.elapsedMs});
 const chunkResponse=(manifest,index,output)=>({schema_version:'AI_FULL_CONTROLLER_MODEL_CHUNK_RESPONSE_V1',snapshot_id:manifest.snapshot_id,snapshot_hash:manifest.snapshot_hash,chunk_index:index,chunk_hash:manifest.chunk_hashes[index],...output.result,model_metadata:modelMetadata(output)});
 const memoResponse=(manifest,hashes,reduction,output)=>({schema_version:'AI_FULL_CONTROLLER_MEMO_V1',snapshot_id:manifest.snapshot_id,snapshot_hash:manifest.snapshot_hash,chunk_response_hashes:hashes,memo_reduction_hash:reduction.reduction_hash,memo_citation_finding_ids:[...new Set(reduction.root_nodes.flatMap(node=>node.priority_findings.map(item=>item.finding_id)))],...output.result,model_metadata:modelMetadata(output)});
+const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&JSON.stringify(Object.keys(value).sort())===JSON.stringify([...keys].sort());
 
 export function createAiFullControllerModelService({gateway,repository}={}){
   if(!gateway||typeof gateway.analyzeJson!=='function')fail('AI_FULL_SCAN_MODEL_GATEWAY_REQUIRED','Full Controller model execution requires the controlled AI gateway.');
@@ -20,13 +21,13 @@ export function createAiFullControllerModelService({gateway,repository}={}){
       if(typeof actorId!=='string'||actorId.length<1||actorId.length>255||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>200||!safeAiEvidenceTree({actor_id:actorId,idempotency_key:idempotencyKey}))fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Model execution requires one safe authenticated actor and stable idempotency key.');
       assertAiFullControllerModelInputManifest(inputManifest);
       const run=await repository.beginAiFullControllerModelRun({actorId,idempotencyKey,inputManifest});
-      if(run?.state==='REPLAY')return buildAiFullControllerModelOutput({inputManifest,chunkResponses:run.output?.chunk_responses,finalMemo:run.output?.final_memo});
-      if(run?.state!=='STARTED'||typeof run.runHash!=='string')fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Durable model run reservation was not established.');
+      if(run?.state==='REPLAY'){if(!exact(run,['output','state']))fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Durable replay receipt is not closed.');return buildAiFullControllerModelOutput({inputManifest,chunkResponses:run.output?.chunk_responses,finalMemo:run.output?.final_memo});}
+      if(!exact(run,['runHash','state'])||run.state!=='STARTED'||!/^sha256:[0-9a-f]{64}$/.test(run.runHash||''))fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Durable model run reservation was not established.');
       const responses=[];
       try{
         for(const [index,chunk] of inputManifest.chunks.entries()){
           const reservation=await repository.beginAiFullControllerModelChunk({actorId,idempotencyKey,runHash:run.runHash,chunkIndex:index,chunkHash:chunk.chunk_hash});
-          if(!['STARTED','REPLAY'].includes(reservation?.state))fail('AI_FULL_SCAN_MODEL_CHUNK_RECEIPT_INVALID','Durable chunk reservation was not established.');
+          if(reservation?.state==='STARTED'?!exact(reservation,['state']):reservation?.state==='REPLAY'?!exact(reservation,['response','state']):true)fail('AI_FULL_SCAN_MODEL_CHUNK_RECEIPT_INVALID','Durable chunk reservation was not established.');
           let sealed;
           if(reservation.state==='REPLAY')sealed=sealAiFullControllerModelChunkResponse({inputManifest,response:reservation.response,index});
           else{
@@ -38,7 +39,7 @@ export function createAiFullControllerModelService({gateway,repository}={}){
           responses.push(sealed);
         }
         const hashes=responses.map(item=>item.response_hash),reduction=buildAiFullControllerMemoReduction({inputManifest,sealedChunkResponses:responses}),memoReservation=await repository.beginAiFullControllerModelMemo({actorId,idempotencyKey,runHash:run.runHash,chunkResponseHashes:hashes,reductionManifest:reduction});
-        if(!['STARTED','REPLAY'].includes(memoReservation?.state))fail('AI_FULL_SCAN_MODEL_MEMO_RECEIPT_INVALID','Durable memo reservation was not established.');
+        if(memoReservation?.state==='STARTED'?!exact(memoReservation,['state']):memoReservation?.state==='REPLAY'?!exact(memoReservation,['response','state']):true)fail('AI_FULL_SCAN_MODEL_MEMO_RECEIPT_INVALID','Durable memo reservation was not established.');
         let finalMemo;
         if(memoReservation.state==='REPLAY')finalMemo=memoReservation.response;
         else{
