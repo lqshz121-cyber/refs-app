@@ -25,21 +25,32 @@ const validateActions=(value,byId,expectedIds)=>{
   return cited.length===expectedIds.length&&new Set(cited).size===cited.length&&expectedIds.every(id=>cited.includes(id));
 };
 
-export function buildAiFullControllerModelOutput({inputManifest,chunkResponses,finalMemo}={}){
-  if(!inputManifest||inputManifest.schema_version!=='AI_FULL_CONTROLLER_MODEL_INPUT_MANIFEST_V1'||!UUID.test(inputManifest.snapshot_id||'')||!HASH.test(inputManifest.snapshot_hash||'')||!Number.isSafeInteger(inputManifest.chunk_count)||inputManifest.chunk_count<1||!Array.isArray(inputManifest.chunks)||inputManifest.chunks.length!==inputManifest.chunk_count||!Array.isArray(inputManifest.chunk_hashes)||!actions(inputManifest.action_flags)||!safeAiEvidenceTree(inputManifest))fail('AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID','Model output requires one safe, complete retained input manifest.');
+export function sealAiFullControllerModelChunkResponse({inputManifest,response,index}={}){
+  if(!inputManifest||!Number.isSafeInteger(index)||index<0||index>=inputManifest.chunk_count)fail('AI_FULL_SCAN_MODEL_OUTPUT_CHUNK_INVALID','A model chunk response requires one exact input chunk.');
+  const retainedHash=response?.response_hash,raw=structuredClone(response);delete raw?.response_hash;
+  if(!exact(raw,['action_flags','chunk_hash','chunk_index','controller_actions','headline','model_metadata','narrative','risk_summary','schema_version','snapshot_hash','snapshot_id'])||response.schema_version!=='AI_FULL_CONTROLLER_MODEL_CHUNK_RESPONSE_V1'||response.snapshot_id!==inputManifest.snapshot_id||response.snapshot_hash!==inputManifest.snapshot_hash||response.chunk_index!==index||response.chunk_hash!==inputManifest.chunk_hashes[index]||!text(response.headline,500)||!text(response.narrative,8000)||!risks(response.risk_summary)||!actions(response.action_flags)||!model(response.model_metadata)||!safeAiEvidenceTree(response))fail('AI_FULL_SCAN_MODEL_OUTPUT_CHUNK_INVALID','A model chunk response is unsafe or not bound to its exact input.');
+  const chunk=inputManifest.chunks[index],byId=new Map(chunk.findings.map(item=>[item.finding_id,item])),ids=[...byId.keys()];
+  if(JSON.stringify(response.risk_summary)!==JSON.stringify(riskSummary(chunk.findings))||!validateActions(response.controller_actions,byId,ids))fail('AI_FULL_SCAN_MODEL_OUTPUT_CHUNK_INVALID','A model chunk response omitted, duplicated, or invented retained evidence.');
+  const calculated=digest(raw);if(retainedHash!==undefined&&retainedHash!==calculated)fail('AI_FULL_SCAN_MODEL_OUTPUT_CHUNK_INVALID','A retained model chunk response hash does not match its closed payload.');
+  return Object.freeze({...raw,response_hash:calculated});
+}
+
+export function assertAiFullControllerModelInputManifest(inputManifest){
+  if(!inputManifest||inputManifest.schema_version!=='AI_FULL_CONTROLLER_MODEL_INPUT_MANIFEST_V1'||!UUID.test(inputManifest.snapshot_id||'')||!HASH.test(inputManifest.snapshot_hash||'')||!Number.isSafeInteger(inputManifest.chunk_count)||inputManifest.chunk_count<1||!Array.isArray(inputManifest.chunks)||inputManifest.chunks.length!==inputManifest.chunk_count||!Array.isArray(inputManifest.chunk_hashes)||inputManifest.chunk_hashes.length!==inputManifest.chunk_count||!actions(inputManifest.action_flags)||!safeAiEvidenceTree(inputManifest))fail('AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID','Model output requires one safe, complete retained input manifest.');
   const allFindings=inputManifest.chunks.flatMap(chunk=>chunk.findings||[]),allById=new Map(allFindings.map(item=>[item.finding_id,item]));
   if(allById.size!==allFindings.length||inputManifest.total_finding_count!==allFindings.length)fail('AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID','Input manifest finding identities are incomplete or duplicated.');
   for(const [index,chunk] of inputManifest.chunks.entries()){
     if(chunk.chunk_index!==index||chunk.chunk_count!==inputManifest.chunk_count||chunk.snapshot_id!==inputManifest.snapshot_id||chunk.snapshot_hash!==inputManifest.snapshot_hash||chunk.chunk_hash!==inputManifest.chunk_hashes[index])fail('AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID','Input chunks must be complete, ordered, and bound to the retained snapshot.');
     const unsigned=structuredClone(chunk);delete unsigned.chunk_hash;if(digest(unsigned)!==chunk.chunk_hash)fail('AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID','An input chunk hash does not match its closed payload.');
   }
+  return inputManifest;
+}
+
+export function buildAiFullControllerModelOutput({inputManifest,chunkResponses,finalMemo}={}){
+  assertAiFullControllerModelInputManifest(inputManifest);
+  const allFindings=inputManifest.chunks.flatMap(chunk=>chunk.findings||[]),allById=new Map(allFindings.map(item=>[item.finding_id,item]));
   if(!Array.isArray(chunkResponses)||chunkResponses.length!==inputManifest.chunk_count)fail('AI_FULL_SCAN_MODEL_OUTPUT_CHUNK_SET_INVALID','Every input chunk requires exactly one model response.');
-  const responses=chunkResponses.map((response,index)=>{
-    if(!exact(response,['action_flags','chunk_hash','chunk_index','controller_actions','headline','model_metadata','narrative','risk_summary','schema_version','snapshot_hash','snapshot_id'])||response.schema_version!=='AI_FULL_CONTROLLER_MODEL_CHUNK_RESPONSE_V1'||response.snapshot_id!==inputManifest.snapshot_id||response.snapshot_hash!==inputManifest.snapshot_hash||response.chunk_index!==index||response.chunk_hash!==inputManifest.chunk_hashes[index]||!text(response.headline,500)||!text(response.narrative,8000)||!risks(response.risk_summary)||!actions(response.action_flags)||!model(response.model_metadata)||!safeAiEvidenceTree(response))fail('AI_FULL_SCAN_MODEL_OUTPUT_CHUNK_INVALID','A model chunk response is unsafe or not bound to its exact input.');
-    const chunk=inputManifest.chunks[index],byId=new Map(chunk.findings.map(item=>[item.finding_id,item])),ids=[...byId.keys()];
-    if(JSON.stringify(response.risk_summary)!==JSON.stringify(riskSummary(chunk.findings))||!validateActions(response.controller_actions,byId,ids))fail('AI_FULL_SCAN_MODEL_OUTPUT_CHUNK_INVALID','A model chunk response omitted, duplicated, or invented retained evidence.');
-    return Object.freeze({...structuredClone(response),response_hash:digest(response)});
-  });
+  const responses=chunkResponses.map((response,index)=>sealAiFullControllerModelChunkResponse({inputManifest,response,index}));
   if(!exact(finalMemo,['action_flags','chunk_response_hashes','controller_actions','headline','model_metadata','narrative','risk_summary','schema_version','snapshot_hash','snapshot_id'])||finalMemo.schema_version!=='AI_FULL_CONTROLLER_MEMO_V1'||finalMemo.snapshot_id!==inputManifest.snapshot_id||finalMemo.snapshot_hash!==inputManifest.snapshot_hash||!Array.isArray(finalMemo.chunk_response_hashes)||JSON.stringify(finalMemo.chunk_response_hashes)!==JSON.stringify(responses.map(item=>item.response_hash))||!text(finalMemo.headline,500)||!text(finalMemo.narrative,12000)||!risks(finalMemo.risk_summary)||JSON.stringify(finalMemo.risk_summary)!==JSON.stringify(riskSummary(allFindings))||!actions(finalMemo.action_flags)||!model(finalMemo.model_metadata)||!validateActions(finalMemo.controller_actions,allById,[...allById.keys()])||!safeAiEvidenceTree(finalMemo))fail('AI_FULL_SCAN_MODEL_OUTPUT_MEMO_INVALID','Controller Memo must synthesize every retained chunk without inventing evidence or authority.');
   const payload={schema_version:'AI_FULL_CONTROLLER_MODEL_OUTPUT_V1',snapshot_id:inputManifest.snapshot_id,snapshot_hash:inputManifest.snapshot_hash,chunk_count:responses.length,total_finding_count:allFindings.length,chunk_responses:Object.freeze(responses),final_memo:Object.freeze(structuredClone(finalMemo)),action_flags:ACTIONS};
   return Object.freeze({...payload,output_hash:digest(payload)});
