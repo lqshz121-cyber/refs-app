@@ -281,5 +281,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"273_wbs_h1_accounting_control_reconciliation.sql",up:"a0e66cec57eca5aa297272a566dd358dceba3743d303f0c6252764e41b3c2f67",down:"8e489cff0c7d99642d3d6410a93d6476814f92113f62d32fddd1f2a862082ee7"}),
   Object.freeze({name:"274_runtime_grant_sod_expiry.sql",up:"be3b6ec2d95ce79686e7cc8446601305ac2c3f0279f2f8905ff0af14b97acede",down:"3fcb1389ac8dcd69d0f90f2da540904eb2382d168ebe50c76a8a0e8aef9688fb"}),
   Object.freeze({name:"275_wbs_test_payable_retain_human_draft.sql",up:"fc879395473083c404ad8018ae9bd4f766b72a84e8ffb4097ab34f13c86debeb",down:"6f211f4a22555e200666356a5d2b3322a26598d28a5e802545ca7ce9e0864ec6"}),
-  Object.freeze({name:"276_wbs_test_bank_sod_boundaries.sql",up:"89a8c8400ece7e3deec106d6358ecbed269d337b152362a6c20c3dabf3a658c1",down:"0696b58d0ff411a2f63cd8ec7ae1307bb770262a188ca8319253e45ef453f01f"}),
+  Object.freeze({name:"276_wbs_test_bank_sod_boundaries.sql",up:"37efa5311b9308f4ec3680f55341bb4da06a157f644d0fe551d54c35ef4a5375",down:"0696b58d0ff411a2f63cd8ec7ae1307bb770262a188ca8319253e45ef453f01f"}),
 ]);

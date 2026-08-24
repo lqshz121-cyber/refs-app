@@ -93,11 +93,11 @@ DO $migration$
 DECLARE fn text;
 BEGIN
   SELECT pg_get_functiondef('refs_begin_wbs_test_bank_staged_import(uuid,uuid,uuid,text,jsonb,text,text,text)'::regprocedure) INTO fn;
-  fn:=regexp_replace(fn,E'PERFORM refs_assert_scope\\(p_tenant, p_entity, ''BANK\\.RECONCILIATION\\.START''::text\\);','','g');
+  fn:=regexp_replace(fn,E'\\s*PERFORM\\s+(public\\.)?refs_assert_scope\\s*\\([^;]*''BANK\\.RECONCILIATION\\.START''[^;]*\\);','','g');
   IF fn LIKE '%BANK.RECONCILIATION.START%' THEN RAISE EXCEPTION 'Could not remove legacy START assertion from Bank stage begin'; END IF;
   EXECUTE fn;
   SELECT pg_get_functiondef('refs_append_wbs_test_bank_staged_chunk(uuid,uuid,uuid,integer,jsonb,text)'::regprocedure) INTO fn;
-  fn:=regexp_replace(fn,E'PERFORM refs_assert_scope\\(p_tenant, p_entity, ''BANK\\.RECONCILIATION\\.START''::text\\);','','g');
+  fn:=regexp_replace(fn,E'\\s*PERFORM\\s+(public\\.)?refs_assert_scope\\s*\\([^;]*''BANK\\.RECONCILIATION\\.START''[^;]*\\);','','g');
   IF fn LIKE '%BANK.RECONCILIATION.START%' THEN RAISE EXCEPTION 'Could not remove legacy START assertion from Bank stage append'; END IF;
   EXECUTE fn;
 END $migration$;
@@ -109,16 +109,16 @@ DO $match_boundary$
 DECLARE fn text;
 BEGIN
   SELECT pg_get_functiondef('refs_resolve_wbs_test_bank_match_fixture(uuid,uuid)'::regprocedure) INTO fn;
-  fn:=regexp_replace(fn,E'PERFORM (public\\.)?refs_assert_scope\\(p_tenant, p_entity, ''WBS\\.TEST\\.IMPORT''::text\\);','','g');
+  fn:=regexp_replace(fn,E'\\s*PERFORM\\s+(public\\.)?refs_assert_scope\\s*\\([^;]*''WBS\\.TEST\\.IMPORT''[^;]*\\);','','g');
   IF fn LIKE '%WBS.TEST.IMPORT%' THEN RAISE EXCEPTION 'Could not remove SERVICE assertion from Bank Match fixture read'; END IF;
   EXECUTE fn;
   SELECT pg_get_functiondef('refs_bind_wbs_test_bank_match_payment_source(uuid,uuid,uuid,uuid,uuid)'::regprocedure) INTO fn;
-  fn:=regexp_replace(fn,E'PERFORM (public\\.)?refs_assert_scope\\(p_tenant, p_entity, ''WBS\\.TEST\\.IMPORT''::text\\);','','g');
+  fn:=regexp_replace(fn,E'\\s*PERFORM\\s+(public\\.)?refs_assert_scope\\s*\\([^;]*''WBS\\.TEST\\.IMPORT''[^;]*\\);','','g');
   IF fn LIKE '%WBS.TEST.IMPORT%' THEN RAISE EXCEPTION 'Could not remove SERVICE assertion from payment source bind'; END IF;
   EXECUTE fn;
   SELECT pg_get_functiondef('refs_propose_wbs_test_bank_match_config(uuid,uuid)'::regprocedure) INTO fn;
-  fn:=regexp_replace(fn,E'PERFORM (public\\.)?refs_assert_scope\\(p_tenant, p_entity, ''WBS\\.TEST\\.IMPORT''::text\\);','','g');
-  fn:=regexp_replace(fn,E'PERFORM (public\\.)?refs_assert_scope\\(p_tenant, p_entity, ''AP\\.PAYMENT\\.CREATE''::text\\);','PERFORM refs_assert_scope(p_tenant,p_entity,''BANK.MATCH.CREATE'');','g');
+  fn:=regexp_replace(fn,E'\\s*PERFORM\\s+(public\\.)?refs_assert_scope\\s*\\([^;]*''WBS\\.TEST\\.IMPORT''[^;]*\\);','','g');
+  fn:=regexp_replace(fn,E'\\s*PERFORM\\s+(public\\.)?refs_assert_scope\\s*\\([^;]*''AP\\.PAYMENT\\.CREATE''[^;]*\\);',' PERFORM refs_assert_scope(p_tenant,p_entity,''BANK.MATCH.CREATE'');','g');
   IF fn LIKE '%WBS.TEST.IMPORT%' OR fn LIKE '%AP.PAYMENT.CREATE%' OR fn NOT LIKE '%BANK.MATCH.CREATE%' THEN RAISE EXCEPTION 'Could not split Bank Match configuration proposal authority'; END IF;
   EXECUTE fn;
 END $match_boundary$;
