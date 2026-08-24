@@ -190,6 +190,12 @@ assert.match(authoritativeShell,/payables:'wallet'[\s\S]*receivables:'inbox'/,
   'Payables and Receivables must use distinct glyphs from the same shared line-icon vocabulary');
 assert.match(authoritativeShell,/payables:'wallet', vendors:'users', 'bill-payments':'wallet', contractors:'users', '1099s':'document', receivables:'inbox'/,
   'Expenses children must use explicit semantic line-icon mappings instead of the shared document fallback');
+assert.match(authoritativeShell,/'source-documents':'document', receipts:'inbox', 'integration-hub':'cycle'/,
+  'Accounting receipt and integration destinations must use explicit semantic glyph mappings');
+assert.match(authoritativeShell,/'recurring-transactions':'cycle', 'revenue-recognition':'calendar', 'fixed-assets':'layers', amortization:'cycle'/,
+  'Accounting schedule destinations must use explicit semantic glyph mappings');
+assert.match(authoritativeShell,/'bank-accounts':'bank', 'my-accountant':'users', 'audit-log':'shield'/,
+  'the retained My accountant destination must use the shared people glyph rather than a document fallback');
 assert.doesNotMatch(authoritativeShell,/compactLabel|authoritative-nav-status|API_READ|Unavailable/,
   'navigation rows must not expose implementation statuses or letter abbreviations to finance readers');
 assert.match(unavailableWorkspace,/READ ONLY/,
