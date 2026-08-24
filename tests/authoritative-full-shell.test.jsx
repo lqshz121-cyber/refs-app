@@ -18,9 +18,10 @@ assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'e
 const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation','Source & Staging']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}} onTogglePanel={() => {}}/>);
 const inertToggleMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const collapsedNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}} panelCollapsed={true} onTogglePanel={() => {}}/>);
-const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroups={['Reports']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroups={['Reports & Analytics']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const rulesNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="rules" expandedGroups={['Auto Reconciliation']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const journalNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="journals" expandedGroups={['Journal Entry']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
-const mobileReportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroups={['Reports']} navOpen={true} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const mobileReportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroups={['Reports & Analytics']} navOpen={true} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const routeWinsMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="wbs-autorec-evidence" expandedGroups={['General Ledger']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 assert.match(navMarkup, /Control Center/); assert.match(navMarkup, /Accounting Operations/); assert.match(reportNavMarkup, /Reports/);
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
@@ -37,14 +38,21 @@ assert.match(reportNavMarkup, /Accounting Analysis Report/, 'the Reports workspa
 assert.doesNotMatch(journalNavMarkup, /Journal entries/, 'a one-page Journal workspace must not repeat its only child in a secondary menu');
 assert.match(reportNavMarkup, /aria-label="Accounting workspace navigation"/, 'the Reports secondary menu must retain its navigation landmark');
 assert.match(mobileReportNavMarkup, /aria-label="Close navigation"/, 'the Reports workspace must retain a reachable Close control in the mobile drawer');
-assert.match(navMarkup, /Bank transaction matching/); assert.match(navMarkup, /aria-label="Auto Reconciliation"/);
+assert.match(navMarkup, />Bank transactions</); assert.doesNotMatch(navMarkup, /Bank transaction matching/);
+assert.match(navMarkup, />Reconcile</); assert.doesNotMatch(navMarkup, />Reconciliation worksheet</);
+assert.match(rulesNavMarkup,/>Rules</);assert.match(rulesNavMarkup,/>Bank transactions</);assert.match(rulesNavMarkup,/>Reconcile</);
+assert.doesNotMatch(rulesNavMarkup,/>Core settings</);assert.doesNotMatch(rulesNavMarkup,/>Mapping Center</);
+assert.doesNotMatch(rulesNavMarkup,/New rule|Bank rules|Integration rules|Search by name or conditions|Auto-post|Edit|Reorder/,'the Auto Reconciliation navigation must not import rule mutation or automation controls');
+assert.match(navMarkup, /aria-label="Auto Reconciliation"/);
 assert.match(navMarkup, /aria-expanded="true" aria-controls="authoritative-navigation-active-group" aria-label="Auto Reconciliation"/,
   'a multi-page rail group must announce the one secondary panel it currently exposes');
 assert.doesNotMatch(navMarkup, /aria-current="page"[^>]*aria-label="Auto Reconciliation"/,
   'a multi-page workspace group is expanded, not itself the current page');
-assert.match(reportNavMarkup, /aria-expanded="true" aria-controls="authoritative-navigation-active-group" aria-label="Reports"/,
+assert.match(reportNavMarkup, /aria-expanded="true" aria-controls="authoritative-navigation-active-group" aria-label="Reports &amp; Analytics"/,
   'the multi-page Reports rail control must announce its expanded secondary menu');
-assert.doesNotMatch(reportNavMarkup, /aria-current="page"[^>]*aria-label="Reports"/,
+assert.match(reportNavMarkup, />Reports<\/span>/,'the full Reports & Analytics group name must retain a compact rail label');
+assert.match(reportNavMarkup, /<span>Reports &amp; Analytics<\/span>/,'the secondary panel must use the observed complete QBO group name');
+assert.doesNotMatch(reportNavMarkup, /aria-current="page"[^>]*aria-label="Reports &amp; Analytics"/,
   'the Reports group is expanded while its selected child is the current page');
 assert.doesNotMatch(navMarkup, /Source Documents/, 'an old workspace must not remain in the secondary panel after navigation');
 assert.match(navMarkup, /authoritative-navigation-active-group/, 'only the current workspace menu is rendered');

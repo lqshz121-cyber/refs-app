@@ -36,7 +36,7 @@ assert.match(bankTable,/BANK ACTIVITY/);assert.match(bankTable,/Status does not 
 assert.match(bankTable,/Bank queue read summary/);assert.match(bankTable,/Returned/);assert.match(bankTable,/Active matches/);assert.match(bankTable,/Unmatched/);assert.match(bankTable,/Journal references/);assert.doesNotMatch(bankTable,/Create reviewed Match|Unmatch evidence/);
 assert.equal((bankTable.match(/class="qbo-card"/g)||[]).length,0,'Bank queue counts must not expand into four dashboard cards');
 assert.equal((bankTable.match(/<span><i>/g)||[]).length,4,'Bank queue counts must remain four compact read-only facts');
-const emptyBank=renderToStaticMarkup(<AuthoritativeBankTable rows={[]} readAt="2026-08-14T10:00:00.000Z"/>);assert.match(emptyBank,/No bank transactions in this scope/);assert.match(emptyBank,/does not confirm a zero cash balance/);assert.match(emptyBank,/API records returned: 0/);assert.match(emptyBank,/Source freshness: not supplied by this endpoint/);assert.doesNotMatch(emptyBank,/<table/);
+const emptyBank=renderToStaticMarkup(<AuthoritativeBankTable rows={[]} readAt="2026-08-14T10:00:00.000Z"/>);assert.match(emptyBank,/No bank transactions in this scope/);assert.match(emptyBank,/does not confirm a zero cash balance/);assert.match(emptyBank,/<details class="authoritative-secondary-disclosure"><summary><span>Read evidence<\/span>/);assert.doesNotMatch(emptyBank,/authoritative-secondary-disclosure" open/,'Bank read diagnostics must not lengthen the default empty state');assert.match(emptyBank,/API records returned: 0/);assert.match(emptyBank,/Source freshness: not supplied by this endpoint/);assert.doesNotMatch(emptyBank,/<table/);
 
 const bankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}}/>);
 assert.match(bankDetail,/Back to bank transactions/);assert.match(bankDetail,/Bank transaction detail/);assert.match(bankDetail,/-\$125\.25/);assert.match(bankDetail,/2026-07-01/);assert.match(bankDetail,/2026-07-31/);
@@ -76,6 +76,11 @@ const source=readFileSync('src/authoritative-bank-workspace.jsx','utf8');
 assert.match(source,/phase==='LOADING'.*<StateBlock tone="loading"/s,'authoritative reads must expose a loading state through StateBlock');
 assert.match(readFileSync('src/ui.jsx','utf8'),/role=\{tone==='error' \? 'alert' : 'status'\}[\s\S]*aria-busy=\{tone==='loading' \? 'true' : undefined\}/,'StateBlock must announce loading as a busy status region');
 assert.match(source,/phase==='ERROR'.*<ReadError/s,'authoritative reads must expose an API error with retry');
+assert.match(source,/title:'Read access unavailable'/,'permission failures must lead with concise customer-facing language');
+assert.match(source,/title:'Scope unavailable'/,'invalid scopes must lead with concise customer-facing language');
+assert.match(source,/title:`Unable to load \$\{subject\}`/,'transport failures must name the business evidence that could not be loaded');
+assert.match(source,/\{error\?\.code\|\|'ACCOUNTING_API_UNAVAILABLE'\}: \{error\?\.message\|\|diagnostic\.detail\}/,'the visible diagnostic must retain the authoritative error code after the plain-language title');
+assert.doesNotMatch(source,/title:'(?:NO_PERMISSION|SCOPE_EMPTY|API_ERROR)/,'technical codes must not be the primary Bank read heading');
 assert.match(source,/phase==='READY'.*AuthoritativeBankTable/s,'Bank results must render only after an API success');
 assert.match(source,/phase==='READY'.*AuthoritativeReconciliationSummary/s,'Reconciliation results must render only after an API success');
 assert.match(source,/if\(selected\).*AuthoritativeBankDetail/s,'Bank detail must replace the list and retain an explicit Back path');
@@ -151,9 +156,9 @@ assert.match(source,/hasAuthorizedWorksheetEvidence/,'Controller controls must b
 assert.match(source,/Reconciliation controls blocked/,'An empty authoritative worksheet must explicitly block controller actions');
 assert.match(source,/hasAuthorizedWorksheetEvidence&&<section className="card" aria-label="Reconciliation lifecycle command"/,'Review, sign-off, and reopen controls must not render without authorized worksheet evidence');
 assert.doesNotMatch(source,/legacy-demo-app|module-banktx|module-bankrec/,'authoritative Bank/Reconcile hierarchy must not import legacy demo UI modules');
-assert.match(source,/NO_PERMISSION — authoritative read denied/,'Bank/Reconcile must distinguish an authorization failure from an empty response');
-assert.match(source,/SCOPE_EMPTY — configured scope unavailable/,'Bank/Reconcile must distinguish an unavailable scope from a zero balance');
-assert.match(source,/API_ERROR — authoritative read failed/,'Bank/Reconcile must distinguish a service failure from an empty response');
+assert.match(source,/title:'Read access unavailable'/,'Bank/Reconcile must distinguish an authorization failure from an empty response');
+assert.match(source,/title:'Scope unavailable'/,'Bank/Reconcile must distinguish an unavailable scope from a zero balance');
+assert.match(source,/title:`Unable to load \$\{subject\}`/,'Bank/Reconcile must distinguish a service failure from an empty response');
 assert.match(source,/INGESTION_BLOCKED — no signed admitted statements returned/,'Missing signed bank admission must be explicit rather than a generic zero');
 assert.match(source,/Source freshness: not supplied by this endpoint/,'The UI must not invent source freshness when the API returns none');
 assert.match(source,/Last authoritative API read/,'Bank/Reconcile must expose the latest successful API read time');

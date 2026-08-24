@@ -36,7 +36,7 @@ const shellSource = readFileSync(new URL('../src/authoritative-navigation-shell.
 assert.match(shellSource, /ITEM_ICONS\[item\.route\]/, 'secondary navigation must use a purpose-specific icon for each workspace');
 assert.match(shellSource, /GROUP_ICONS\[group\.label\]/, 'primary navigation icons must follow the stable workspace identity rather than its current list position');
 assert.match(shellSource, /'mapping-exceptions':'shield'/, 'Mapping Exceptions must use the shared exception/control glyph rather than the completion check');
-assert.match(shellSource, /payables:'wallet', receivables:'inbox'/, 'Payables and Receivables must remain distinguishable within the same shared stroke-icon system');
+assert.match(shellSource, /payables:'wallet',[\s\S]*?receivables:'inbox'/, 'Payables and Receivables must remain distinguishable within the same shared stroke-icon system');
 assert.doesNotMatch(shellSource, /GROUP_ICONS\[index\]/, 'reordering a workspace must never silently assign another workspace icon');
 assert.doesNotMatch(shellSource, /String\(index \+ 1\)\.padStart/, 'secondary navigation must not use numeric-only badges');
 console.log('authoritative navigation model: complete catalog retains only API-backed reads and fails closed elsewhere');

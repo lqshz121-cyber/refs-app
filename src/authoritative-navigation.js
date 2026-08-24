@@ -22,7 +22,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     ]),
   ]),
   group('Accounting Settings', [
-    item('settings', 'Core settings'), item('rules', 'Rule Center'), item('mapping', 'Mapping Center'),
+    item('settings', 'Core settings'), item('mapping', 'Mapping Center'),
   ]),
   group('Source & Staging', [
     item('wbs-payable-review', 'WBS Payable Review', 'API_READ', [
@@ -49,8 +49,9 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
   group('Auto Reconciliation', [
     item('bank-batch-pipeline', 'Bank Batch Pipeline', 'API_READ'),
     item('wbs-autorec-evidence', 'WBS AutoRec evidence', 'API_READ'),
-    item('bank', 'Bank transaction matching', 'API_READ'),
-    item('reconciliation', 'Reconciliation worksheet', 'API_READ'),
+    item('bank', 'Bank transactions', 'API_READ'),
+    item('reconciliation', 'Reconcile', 'API_READ'),
+    item('rules', 'Rules'),
     item('checks-payments', 'Checks & payments'),
   ]),
   group('Journal Entry', [item('journals', 'Journal entries', 'API_READ')]),
@@ -86,7 +87,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
   group('Payables & Receivables', [
     item('payables', 'Bills & expenses', 'API_READ'), item('receivables', 'Invoices & receipts', 'API_READ'),
   ]),
-  group('Reports', [item('reports', 'Standard reports', 'API_READ'),item('accounting-analysis-report', 'Accounting Analysis Report', 'API_READ')]),
+  group('Reports & Analytics', [item('reports', 'Standard reports', 'API_READ'),item('accounting-analysis-report', 'Accounting Analysis Report', 'API_READ')]),
   group('Administration', [
     item('master-data', 'Master Data'), item('bank-accounts', 'Bank Accounts'),
     item('audit-log', 'Audit Log'), item('users-settings', 'Users & settings'),
