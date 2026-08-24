@@ -75,9 +75,11 @@ const BankReadFailure=({error,onRetry,subject})=>{
   </StateBlock>;
 };
 
-const BankReadMetadata=({count,readAt,subject})=><p className="muted sm" aria-label={`${subject} authoritative read diagnostics`}>
-  API records returned: {count}. Last authoritative API read: {readAt||'not completed'}. Source freshness: not supplied by this endpoint.
-</p>;
+const BankReadMetadata=({count,readAt,subject})=><AuthoritativeSecondaryDisclosure label="Read evidence">
+  <section className="authoritative-bank-read-metadata"><p className="muted sm" aria-label={`${subject} authoritative read diagnostics`}>
+    API records returned: {count}. Last authoritative API read: {readAt||'not completed'}. Source freshness: not supplied by this endpoint.
+  </p></section>
+</AuthoritativeSecondaryDisclosure>;
 
 const statusTone=status=>/^(ACTIVE|RECONCILED|CLEARED)$/i.test(String(status||''))?'badge-ok':/^(UNMATCHED|DRAFT|IN_REVIEW|REOPENED)$/i.test(String(status||''))?'badge-warn':'badge-muted';
 const EvidenceBadge=({children})=><span className={`badge ${statusTone(children)}`}>{children||'UNMATCHED'}</span>;
