@@ -110,11 +110,13 @@ assert.doesNotMatch(workspaceViewSource, /seed\.js|repo\.js|localStorage|legacy-
 const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Source Documents',requirements:['Entity-scoped source-document list and immutable detail endpoints.','Separate authorised attachment-read contract.']}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.doesNotMatch(unavailableMarkup, /Entity-scoped source-document list|attachment-read contract/,
   'customer-facing setup pages must not expose implementation contracts');
-assert.match(unavailableMarkup, /Your finance administrator/);
+assert.doesNotMatch(unavailableMarkup, /finance administrator|company connection|confirm.*access/,
+  'an unavailable authoritative reader must not blame configuration or access without evidence');
 assert.match(unavailableMarkup, /Source Documents is not available yet/);
-assert.match(unavailableMarkup, /aria-label="Source Documents setup workspace"/);
+assert.match(unavailableMarkup, /aria-label="Source Documents workspace"/);
 assert.doesNotMatch(unavailableMarkup, /workspace workspace/);
-assert.match(unavailableMarkup, /Your finance administrator must confirm the company connection and access\. No sample data or accounting actions are available\./);
+assert.match(unavailableMarkup, /The authoritative API does not provide this workspace yet\. No sample data or actions are shown\./);
+assert.match(unavailableMarkup, />READ ONLY</);
 assert.match(unavailableMarkup, /role="status"/);
 assert.doesNotMatch(unavailableMarkup, /Nothing to review here yet|What happens next|Configured company|Configured period|qbo-toolgrid/);
 assert.doesNotMatch(unavailableMarkup, /SETUP REQUIRED|SETUP NEEDED/);
