@@ -35,6 +35,7 @@ import {createAiAccountingApprovedSettingsAdapter} from '../runtime/ai-accountin
 import {installApprovedAiSettingsFixture,retainFinal1PayableFixture} from './helpers/approved-ai-settings-fixture.mjs';
 import {readAuthoritativeSourceDocumentDetail,refreshAuthoritativeDocuments,refreshAuthoritativeFinancialStatementPeriodComparison,refreshAuthoritativeFinancialStatements,refreshAuthoritativeGeneralLedger,refreshAuthoritativeJournalEntries,refreshAuthoritativeSourceDocuments,refreshControlledTestAiSources} from '../../src/accounting-api.js';
 import {buildWbsH1AccountingControlPopulation} from '../runtime/wbs-h1-accounting-control-population.mjs';
+import {detectManualJournalRisks} from '../runtime/ai-manual-journal-risk.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -1982,6 +1983,31 @@ pgTest('outbox dispatcher reclaims expired leases and separates retry, dead-lett
   const states=(await adminPool.query('SELECT outbox_event_id,status,attempt_count,locked_by,locked_at,last_error,published_at IS NOT NULL published FROM outbox_event WHERE outbox_event_id=ANY($1::uuid[]) ORDER BY outbox_event_id',[ [firstId,secondId] ])).rows;assert.deepEqual(states.map(row=>[row.status,row.attempt_count,row.locked_by,row.locked_at,row.last_error,row.published]).sort(),[['FAILED',2,null,null,'EVENT_BUS_UNAVAILABLE',false],['PUBLISHED',2,null,null,null,true]].sort());
   const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ordinary-reader',[])});await assert.rejects(denied.claimOutboxV2({tenantId:ids.tenantId,limit:10,leaseSeconds:5}),error=>error.code==='42501');
   const other=await seed();await assert.rejects(second.claimOutboxV2({tenantId:other.tenantId,limit:1,leaseSeconds:5}),error=>error.code==='42501');
+});
+
+pgTest('manual Journal risk retains a HIGH no-attachment finding when ordinary source lineage exists',async()=>{
+  const ids=await seed({attachmentStatus:null,journalLines:[
+    {lineNo:1,accountCode:'111000',debit:50000,credit:0,memberRef:'BANK-1'},
+    {lineNo:2,accountCode:'291001',debit:0,credit:50000,memberRef:'VENDOR-1'}
+  ]});
+  const source=await attachAutoSource(ids);
+  const snapshot={schema_version:'AI_MANUAL_JOURNAL_RISK_POLICY_SNAPSHOT_V1',rule_id:'AI_MANUAL_JOURNAL_RISK_V1',policy_version:1,large_manual_journal_threshold:'10000.0000',round_amount_increment:'100.0000'};
+  const snapshotHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[JSON.stringify(snapshot)])).rows[0].hash;
+  await adminPool.query(`INSERT INTO setting_snapshot(tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,'AI_MANUAL_JOURNAL_RISK_POLICY','ENTITY',$2::text,1,'2026-01-01','2027-01-01','APPROVED',$3::jsonb,$4,'policy-maker','policy-approver',now())`,[ids.tenantId,ids.entityId,JSON.stringify(snapshot),snapshotHash]);
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'manual-je-risk-controller',['AI.ANALYSIS.EXPLAIN'])});
+  const inputs=await kernel.listAiManualJournalRiskInputs({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:500});
+  const policy=await kernel.getAiManualJournalRiskPolicy({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId});
+  assert.equal(inputs.length,1);assert.equal(inputs[0].attachment_count,0);assert.deepEqual(inputs[0].source_document_ids,[source.documentId]);
+  const batch=detectManualJournalRisks(inputs,{policy,currentAccountingPeriodId:ids.periodId});
+  assert.equal(batch.finding_count,1);assert.equal(batch.findings[0].risk_level,'HIGH');assert.ok(batch.findings[0].rule_ids.includes('MANUAL_JE_LARGE_NO_ATTACHMENT'));assert.match(batch.findings[0].reason,/source-document lineage alone/);
+  const first=await kernel.materializeAiManualJournalRisks({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,batch,idempotencyKey:'manual-je-ordinary-lineage-0001'});
+  const replay=await kernel.materializeAiManualJournalRisks({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,batch,idempotencyKey:'manual-je-ordinary-lineage-0001'});
+  assert.equal(first.inserted_count,1);assert.equal(first.replayed_count,0);assert.equal(replay.idempotent,true);assert.deepEqual(replay.finding_ids,first.finding_ids);
+  const retained=(await adminPool.query('SELECT finding FROM ai_manual_journal_risk_finding WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows;
+  assert.equal(retained.length,1);assert.deepEqual(retained[0].finding.source_document_ids,[source.documentId]);assert.equal(retained[0].finding.attachment_count,0);assert.equal(retained[0].finding.risk_level,'HIGH');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='AI_MANUAL_JOURNAL_RISK_MATERIALIZED'",[ids.tenantId])).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE tenant_id=$1 AND event_type='AI_MANUAL_JOURNAL_RISK_MATERIALIZED'",[ids.tenantId])).rows[0].n,1);
 });
 
 pgTest('finite human role sync enforces exact replacement, service-only deny, expiry, and context SoD',async()=>{
