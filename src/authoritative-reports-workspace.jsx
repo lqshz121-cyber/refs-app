@@ -506,7 +506,7 @@ export const AuthoritativeReportDetail=({row,returnContext,onBack})=>{
 </section>;
 };
 
-export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,environment=globalThis,initialCatalog=DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,onOpenArAging=()=>{},onOpenGeneralLedger=()=>{},onOpenReconciliation=()=>{},workspaceTitle='Standard reports',workspaceEyebrow='REPORTING',workspaceDescription='Review posted financial reports.',initialDimensionType='PROPERTY',initialDimensionRef=''}){
+export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,environment=globalThis,initialCatalog=DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,onOpenArAging=()=>{},onOpenGeneralLedger=()=>{},onOpenReconciliation=()=>{},workspaceTitle='Standard reports',workspaceEyebrow='REPORTING',workspaceDescription='',initialDimensionType='PROPERTY',initialDimensionRef=''}){
   const entityLabel=config?.scopePresentation?.entityLabel||'Configured entity';
   const periodLabel=config?.scopePresentation?.periodLabel||'Configured period';
   const initialCatalogState=normalizeAuthoritativeReportsCatalog(initialCatalog);
