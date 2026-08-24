@@ -12,6 +12,7 @@ const ids=snapshot=>snapshot.sections[0].findings.map((item,index)=>({section_ca
 test('chunks every retained finding exactly once and binds the manifest to snapshot and chunk hashes',()=>{
   const snapshot=evidence(),result=buildAiFullControllerModelInputChunks({snapshotId,evidenceSnapshot:snapshot,retainedFindingIds:ids(snapshot),chunkSize:2});
   assert.equal(result.chunk_count,2);assert.equal(result.total_finding_count,3);assert.deepEqual(result.chunks.map(chunk=>chunk.findings.length),[2,1]);assert.deepEqual(result.chunk_hashes,result.chunks.map(chunk=>chunk.chunk_hash));
+  assert.deepEqual(result.chunks.map(chunk=>chunk.risk_summary),[{high:1,medium:1,low:0},{high:1,medium:0,low:0}]);
   assert.deepEqual(result.chunks.flatMap(chunk=>chunk.findings.map(item=>item.finding_id)),ids(snapshot).map(item=>item.finding_id));assert.deepEqual(result.action_flags,actions);
 });
 
@@ -32,4 +33,3 @@ test('represents a complete zero-finding scan as one empty audited chunk',()=>{
   const snapshot=buildAiFullControllerScanEvidence({tenantId:tenant,entityId:entity,accountingPeriodId:period,releaseSha:'a'.repeat(40),capturedAt:'2026-08-23T21:00:00.000Z',requestedLimit:500,scan:{schema_version:'AI_FULL_CONTROLLER_SCAN_V1',entity_id:entity,current_accounting_period_id:period,status:'COMPLETE',required_section_count:1,complete_section_count:1,finding_count:0,risk_summary:{high:0,medium:0,low:0},coverage_summary:{complete_section_count:1,unavailable_section_count:0,unavailable_sections:[]},sections:[{category:'VENDOR_REVIEW',status:'COMPLETE',schema_version:'AI_VENDOR_REVIEW_BATCH_V1',finding_count:0,findings:[],action_flags:actions}],action_flags:actions}});
   const result=buildAiFullControllerModelInputChunks({snapshotId,evidenceSnapshot:snapshot,retainedFindingIds:[]});assert.equal(result.chunk_count,1);assert.deepEqual(result.chunks[0].findings,[]);
 });
-

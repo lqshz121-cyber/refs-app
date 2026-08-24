@@ -30,9 +30,8 @@ export function buildAiFullControllerModelInputChunks({snapshotId,evidenceSnapsh
   const chunkCount=Math.max(1,Math.ceil(findings.length/chunkSize)),chunks=[];
   for(let index=0;index<chunkCount;index++){
     const chunkFindings=findings.slice(index*chunkSize,(index+1)*chunkSize);
-    const payload={schema_version:'AI_FULL_CONTROLLER_MODEL_INPUT_CHUNK_V1',snapshot_id:snapshotId,snapshot_hash:evidenceSnapshot.snapshot_hash,tenant_id:evidenceSnapshot.tenant_id,entity_id:evidenceSnapshot.entity_id,accounting_period_id:evidenceSnapshot.accounting_period_id,release_sha:evidenceSnapshot.release_sha,chunk_index:index,chunk_count:chunkCount,total_finding_count:findings.length,section_categories:evidenceSnapshot.registered_section_categories,risk_summary:evidenceSnapshot.risk_summary,findings:chunkFindings,action_flags:ACTIONS};
+    const payload={schema_version:'AI_FULL_CONTROLLER_MODEL_INPUT_CHUNK_V1',snapshot_id:snapshotId,snapshot_hash:evidenceSnapshot.snapshot_hash,tenant_id:evidenceSnapshot.tenant_id,entity_id:evidenceSnapshot.entity_id,accounting_period_id:evidenceSnapshot.accounting_period_id,release_sha:evidenceSnapshot.release_sha,chunk_index:index,chunk_count:chunkCount,total_finding_count:findings.length,section_categories:evidenceSnapshot.registered_section_categories,risk_summary:{high:chunkFindings.filter(item=>item.evidence.risk_level==='HIGH').length,medium:chunkFindings.filter(item=>item.evidence.risk_level==='MEDIUM').length,low:chunkFindings.filter(item=>item.evidence.risk_level==='LOW').length},findings:chunkFindings,action_flags:ACTIONS};
     chunks.push(Object.freeze({...payload,chunk_hash:digest(payload)}));
   }
   return Object.freeze({schema_version:'AI_FULL_CONTROLLER_MODEL_INPUT_MANIFEST_V1',snapshot_id:snapshotId,snapshot_hash:evidenceSnapshot.snapshot_hash,chunk_count:chunks.length,total_finding_count:findings.length,chunk_hashes:Object.freeze(chunks.map(chunk=>chunk.chunk_hash)),chunks:Object.freeze(chunks),action_flags:ACTIONS});
 }
-

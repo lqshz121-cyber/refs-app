@@ -32,7 +32,8 @@ export function createAiFullControllerModelService({gateway,repository}={}){
           else{
             const output=await gateway.analyzeJson({traceId:`${idempotencyKey}:chunk:${index}`,traceName:'refs-ai-full-controller-chunk',actorId,facts:chunk,systemInstruction:'Analyze only the retained findings in this exact chunk. Cite every provided finding UUID exactly once under its provided category. Do not invent facts, sources, balances, journal entries, approvals, or authority. All action flags must remain false.',jsonSchema:chunkSchema});
             sealed=sealAiFullControllerModelChunkResponse({inputManifest,response:chunkResponse(inputManifest,index,output),index});
-            await repository.completeAiFullControllerModelChunk({actorId,idempotencyKey,runHash:run.runHash,chunkIndex:index,chunkHash:chunk.chunk_hash,response:sealed});
+            const persisted=await repository.completeAiFullControllerModelChunk({actorId,idempotencyKey,runHash:run.runHash,chunkIndex:index,chunkHash:chunk.chunk_hash,response:sealed});
+            sealed=sealAiFullControllerModelChunkResponse({inputManifest,response:persisted,index});
           }
           responses.push(sealed);
         }

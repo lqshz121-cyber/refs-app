@@ -48,3 +48,12 @@ test('rejects an unsafe or drifted input manifest before durable persistence or 
 test('rejects credential-bearing actor or idempotency metadata before receipts or model traces',async()=>{
   for(const scope of [{actorId:'Authorization: Bearer secret-value-123456',idempotencyKey:'full-scan-run-005'},{actorId:'actor',idempotencyKey:'token=secret-value-123456'}]){const events=[];let calls=0;const service=createAiFullControllerModelService({repository:repository(events),gateway:{analyzeJson:async()=>{calls++;}}});await assert.rejects(()=>service.analyze({...scope,inputManifest:manifest()}),error=>error.code==='AI_FULL_SCAN_MODEL_RUN_INVALID');assert.equal(events.length,0);assert.equal(calls,0);}
 });
+
+test('uses only the repository-returned sealed chunk and rejects completion drift before memo',async()=>{
+  const input=manifest(),events=[],base=repository(events),service=createAiFullControllerModelService({repository:{...base,completeAiFullControllerModelChunk:async value=>({...value.response,headline:'database drift'})},gateway:{analyzeJson:async value=>resultFor(value.facts,false)}});
+  await assert.rejects(()=>service.analyze({actorId:'actor',idempotencyKey:'full-scan-run-006',inputManifest:input}),error=>error.code==='AI_FULL_SCAN_MODEL_OUTPUT_CHUNK_INVALID');assert.equal(events.some(item=>item[0]==='begin-memo'),false);
+});
+
+test('rejects caller policy expansion in an otherwise safe manifest before persistence',async()=>{
+  const input={...manifest(),caller_policy:{auto_post:false}},events=[],service=createAiFullControllerModelService({repository:repository(events),gateway:{analyzeJson:async()=>{throw new Error('must not call');}}});await assert.rejects(()=>service.analyze({actorId:'actor',idempotencyKey:'full-scan-run-007',inputManifest:input}),error=>error.code==='AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID');assert.equal(events.length,0);
+});

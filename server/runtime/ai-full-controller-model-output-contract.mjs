@@ -3,6 +3,7 @@ import {safeAiEvidenceTree} from './ai-secret-safety.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HASH=/^sha256:[0-9a-f]{64}$/;
+const SHA=/^[0-9a-f]{40}$/;
 const CODE=/^[A-Z][A-Z0-9_]{2,127}$/;
 const ACTION_KEYS=['can_create_draft','can_review','can_approve','can_post'].sort();
 const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve:false,can_post:false});
@@ -13,6 +14,9 @@ const text=(value,max)=>typeof value==='string'&&value.trim()===value&&value.len
 const actions=value=>exact(value,ACTION_KEYS)&&ACTION_KEYS.every(key=>value[key]===false);
 const risks=value=>exact(value,['high','medium','low'])&&Object.values(value).every(count=>Number.isSafeInteger(count)&&count>=0);
 const model=value=>exact(value,['elapsed_ms','model','provider_request_id'])&&text(value.model,255)&&(value.provider_request_id===null||text(value.provider_request_id,255))&&Number.isSafeInteger(value.elapsed_ms)&&value.elapsed_ms>=0&&value.elapsed_ms<=86_400_000;
+const MANIFEST_KEYS=['action_flags','chunk_count','chunk_hashes','chunks','schema_version','snapshot_hash','snapshot_id','total_finding_count'];
+const CHUNK_KEYS=['accounting_period_id','action_flags','chunk_count','chunk_hash','chunk_index','entity_id','findings','release_sha','risk_summary','schema_version','section_categories','snapshot_hash','snapshot_id','tenant_id','total_finding_count'];
+const FINDING_KEYS=['evidence','finding_hash','finding_id','finding_index','section_category'];
 const fail=(code,message)=>{throw Object.assign(new Error(message),{code});};
 const riskSummary=findings=>({high:findings.filter(item=>item.evidence.risk_level==='HIGH').length,medium:findings.filter(item=>item.evidence.risk_level==='MEDIUM').length,low:findings.filter(item=>item.evidence.risk_level==='LOW').length});
 const validateActions=(value,byId,expectedIds,{exhaustive=true}={})=>{
@@ -36,11 +40,15 @@ export function sealAiFullControllerModelChunkResponse({inputManifest,response,i
 }
 
 export function assertAiFullControllerModelInputManifest(inputManifest){
-  if(!inputManifest||inputManifest.schema_version!=='AI_FULL_CONTROLLER_MODEL_INPUT_MANIFEST_V1'||!UUID.test(inputManifest.snapshot_id||'')||!HASH.test(inputManifest.snapshot_hash||'')||!Number.isSafeInteger(inputManifest.chunk_count)||inputManifest.chunk_count<1||!Array.isArray(inputManifest.chunks)||inputManifest.chunks.length!==inputManifest.chunk_count||!Array.isArray(inputManifest.chunk_hashes)||inputManifest.chunk_hashes.length!==inputManifest.chunk_count||!actions(inputManifest.action_flags)||!safeAiEvidenceTree(inputManifest))fail('AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID','Model output requires one safe, complete retained input manifest.');
+  if(!exact(inputManifest,MANIFEST_KEYS)||inputManifest.schema_version!=='AI_FULL_CONTROLLER_MODEL_INPUT_MANIFEST_V1'||!UUID.test(inputManifest.snapshot_id||'')||!HASH.test(inputManifest.snapshot_hash||'')||!Number.isSafeInteger(inputManifest.chunk_count)||inputManifest.chunk_count<1||!Array.isArray(inputManifest.chunks)||inputManifest.chunks.length!==inputManifest.chunk_count||!Array.isArray(inputManifest.chunk_hashes)||inputManifest.chunk_hashes.length!==inputManifest.chunk_count||!actions(inputManifest.action_flags)||!safeAiEvidenceTree(inputManifest))fail('AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID','Model output requires one safe, complete retained input manifest.');
   const allFindings=inputManifest.chunks.flatMap(chunk=>chunk.findings||[]),allById=new Map(allFindings.map(item=>[item.finding_id,item]));
-  if(allById.size!==allFindings.length||inputManifest.total_finding_count!==allFindings.length)fail('AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID','Input manifest finding identities are incomplete or duplicated.');
+  const coordinates=new Set(allFindings.map(item=>`${item.section_category}:${item.finding_index}`));
+  if(allById.size!==allFindings.length||coordinates.size!==allFindings.length||inputManifest.total_finding_count!==allFindings.length)fail('AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID','Input manifest finding identities are incomplete or duplicated.');
   for(const [index,chunk] of inputManifest.chunks.entries()){
-    if(chunk.chunk_index!==index||chunk.chunk_count!==inputManifest.chunk_count||chunk.snapshot_id!==inputManifest.snapshot_id||chunk.snapshot_hash!==inputManifest.snapshot_hash||chunk.chunk_hash!==inputManifest.chunk_hashes[index])fail('AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID','Input chunks must be complete, ordered, and bound to the retained snapshot.');
+    if(!exact(chunk,CHUNK_KEYS)||chunk.schema_version!=='AI_FULL_CONTROLLER_MODEL_INPUT_CHUNK_V1'||chunk.chunk_index!==index||chunk.chunk_count!==inputManifest.chunk_count||chunk.snapshot_id!==inputManifest.snapshot_id||chunk.snapshot_hash!==inputManifest.snapshot_hash||chunk.chunk_hash!==inputManifest.chunk_hashes[index]||chunk.total_finding_count!==inputManifest.total_finding_count||!UUID.test(chunk.tenant_id||'')||!UUID.test(chunk.entity_id||'')||!UUID.test(chunk.accounting_period_id||'')||!SHA.test(chunk.release_sha||'')||!Array.isArray(chunk.section_categories)||chunk.section_categories.length<1||chunk.section_categories.length>200||new Set(chunk.section_categories).size!==chunk.section_categories.length||JSON.stringify(chunk.section_categories)!==JSON.stringify([...chunk.section_categories].sort())||chunk.section_categories.some(category=>!CODE.test(category))||!Array.isArray(chunk.findings)||chunk.findings.length>100||!actions(chunk.action_flags))fail('AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID','Input chunks must be closed, ordered, scoped, and bound to the retained snapshot.');
+    if(index>0){const first=inputManifest.chunks[0];for(const key of ['tenant_id','entity_id','accounting_period_id','release_sha'])if(chunk[key]!==first[key])fail('AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID','Every model chunk must use one exact accounting scope and release.');}
+    for(const finding of chunk.findings)if(!exact(finding,FINDING_KEYS)||!UUID.test(finding.finding_id||'')||!HASH.test(finding.finding_hash||'')||!CODE.test(finding.section_category||'')||!chunk.section_categories.includes(finding.section_category)||!Number.isSafeInteger(finding.finding_index)||finding.finding_index<0||!safeAiEvidenceTree(finding.evidence)||digest(finding.evidence)!==finding.finding_hash)fail('AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID','Every model finding must be one closed retained identity and canonical evidence hash.');
+    if(JSON.stringify(chunk.risk_summary)!==JSON.stringify(riskSummary(chunk.findings)))fail('AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID','Each model chunk risk summary must be recomputed from its retained findings.');
     const unsigned=structuredClone(chunk);delete unsigned.chunk_hash;if(digest(unsigned)!==chunk.chunk_hash)fail('AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID','An input chunk hash does not match its closed payload.');
   }
   return inputManifest;
