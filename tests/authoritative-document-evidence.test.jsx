@@ -56,6 +56,8 @@ assert.match(workspaceMarkup,/class="tab tab-on"/,'the selected AP view must use
 assert.match(workspaceMarkup,/class="tab"/,'available AP views must use the shared tab geometry instead of browser-native buttons');
 assert.match(workspaceMarkup,/Vendor credits/);
 assert.match(workspaceMarkup,/AP Aging/);
+assert.match(workspaceMarkup,/<summary>More transaction types<\/summary>/,'unsupported QBO expense types must remain discoverable without expanding the primary tab row');
+assert.match(workspaceMarkup,/aria-label="Unavailable expense transaction types">Expense · Bill payment · Check · Purchase order · Recently paid · Item receipt · Receipt reminder — <b>Not available<\/b>/,'QBO transaction types without authoritative readers must be explicit and fail closed');
 assert.doesNotMatch(workspaceMarkup,/AP Aging unavailable/,'AP aging has an authenticated API contract and must be reachable');
 assert.match(workspaceMarkup,/id="authoritative-ap-aging-launch"/,'Back from AP aging must restore focus to the tab that opened it');
 assert.match(workspaceMarkup,/Vendors unavailable/);
