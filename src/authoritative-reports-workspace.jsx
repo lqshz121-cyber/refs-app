@@ -436,14 +436,14 @@ export const AuthoritativeJournalReport=({state,returnContext,onBack,onRefresh,p
   </section>;
 };
 
-export const AuthoritativeAccountListReport=({state,returnContext,onBack,onRefresh,page=0,onPageChange=()=>{}})=>{
+export const AuthoritativeAccountListReport=({state,returnContext,onBack,onRefresh,page=0,onPageChange=()=>{},backLabel='Back to standard reports'})=>{
   const rows=Array.isArray(state?.rows)?state.rows:[];
   const pageCount=Math.max(1,Math.ceil(rows.length/FULL_STATEMENT_PAGE_SIZE));
   const currentPage=Math.min(Math.max(Number.isSafeInteger(page)?page:0,0),pageCount-1);
   const start=currentPage*FULL_STATEMENT_PAGE_SIZE;
   const visibleRows=rows.slice(start,start+FULL_STATEMENT_PAGE_SIZE);
   return <section className="full-bleed qbo-transaction-report authoritative-evidence-page authoritative-full-statement authoritative-account-list-report" aria-label="Account List full report">
-    <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to standard reports</button></div>
+    <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>{backLabel}</button></div>
     <header className="accounting-page-head"><div><div className="page-eyebrow">ACCOUNTING REPORT</div><h1 className="page-h">Account List</h1><p className="page-subtitle">Review accounts and balances.</p></div><div className="report-period-chip"><span>Report scope</span><b><ScopeLabel context={returnContext}/></b><small>READ ONLY</small></div></header>
     <div className="authoritative-full-statement-actions"><button type="button" className="btn btn-sm btn-ghost" disabled={state?.phase==='LOADING'} onClick={onRefresh}>{state?.phase==='LOADING'?'Loading…':'Refresh'}</button><span className="badge badge-muted">READ ONLY</span></div>
     {state?.phase==='LOADING'&&<StateBlock tone="loading">Loading account list…</StateBlock>}
