@@ -28,6 +28,7 @@ assert.match(css,/@media\(max-width:900px\)\{[\s\S]*\.authoritative-bank-workspa
 assert.match(css,/\.authoritative-bank-workspace \.filterbar input,[\s\S]*min-height:44px/);
 assert.match(css,/\.authoritative-bank-workspace \.filterbar \.btn,[\s\S]*min-height:44px/);
 assert.match(css,/@media\(max-width:600px\)\{[\s\S]*\.authoritative-bank-workspace \.filterbar,[\s\S]*grid-template-columns:minmax\(0,1fr\)/);
+assert.match(css,/\.authoritative-reconciliation-history-empty\{margin:0;line-height:1\.45;\}/,'empty Reconcile history must remain a compact status line rather than lengthen the narrow first screen');
 
 // A segmented Bank queue remains a native button group with an explicit focus
 // outline and touch-sized targets instead of relying on a colour-only state.
