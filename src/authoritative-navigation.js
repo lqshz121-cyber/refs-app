@@ -26,10 +26,6 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Entity-scoped, effective-dated, immutable approved policy snapshots with revision, approver, audit, and usage evidence.',
       'Read-only transaction-posting, asset-and-expense, bill-and-expense, purchasing, and report-presentation policy detail and history; edits, threshold, form, or report-format changes, purchase-order or message actions, readiness automation, payments, and posting remain unavailable.',
     ]),
-    item('rules', 'Rules', 'API_UNAVAILABLE', [
-      'Entity-scoped immutable rule identity, revision, priority, conditions, mapping actions, status, usage, and audit evidence.',
-      'Read-only Bank and Integration rule lists, filters, paging, detail, and history; creation, editing, reordering, copying, enablement, automatic categorisation, matching, and posting remain unavailable.',
-    ]),
     item('mapping', 'Mapping Center', 'API_UNAVAILABLE', [
       'Entity- and period-scoped immutable mapping identity, revision, source field, destination account or dimension, effectivity, status, reviewer, approver, usage, and audit evidence.',
       'Read-only catalog, filters, paging, detail, history, and impact endpoints; create, edit, approve, deactivate, delete, import, automatic application, and accounting commands remain unavailable.',
@@ -66,7 +62,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('wbs-autorec-evidence', 'WBS AutoRec evidence', 'API_READ'),
     item('bank', 'Bank transactions', 'API_READ'),
     item('reconciliation', 'Reconcile', 'API_READ'),
-    item('rules', 'Rules'),
+    item('rules', 'Rules', 'API_UNAVAILABLE', [
+      'Entity-scoped immutable rule identity, revision, priority, conditions, mapping actions, status, usage, and audit evidence.',
+      'Read-only Bank and Integration rule lists, filters, paging, detail, and history; creation, editing, reordering, copying, enablement, automatic categorisation, matching, and posting remain unavailable.',
+    ]),
     item('checks-payments', 'Checks & payments'),
   ]),
   group('Journal Entry', [item('journals', 'Journal entries', 'API_READ')]),
