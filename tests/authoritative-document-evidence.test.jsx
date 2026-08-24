@@ -99,9 +99,9 @@ assert.doesNotMatch(workspaceMarkup,/>Filters</,'Expenses must not repeat a head
 assert.match(workspaceMarkup,/authoritative-secondary-disclosure/,'secondary WBS evidence must stay available without lengthening the default page');
 
 const emptyExpenseMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[]} adjustments={[]} view={{query:'',status:'ALL',transactionType:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
-assert.match(emptyExpenseMarkup,/All records/,'the default Expenses scope should use concise user-facing copy');
+assert.doesNotMatch(emptyExpenseMarkup,/authoritative-applied-scope|All records/,'default Expenses must not repeat a no-op scope line below its compact controls');
 assert.match(emptyExpenseMarkup,/No expenses found/);
-assert.match(emptyExpenseMarkup,/Try changing the filters\. Empty results do not confirm a zero balance\./);
+assert.match(emptyExpenseMarkup,/Change the filters to see more results\. Empty results do not confirm a zero balance\./);
 assert.doesNotMatch(emptyExpenseMarkup,/scoped API result|zero activity/,'Expenses empty-state copy must preserve the accounting caveat without exposing transport language');
 assert.equal((emptyExpenseMarkup.match(/No expenses found/g)||[]).length,1,'an empty Expenses scope must render one clear empty title');
 assert.doesNotMatch(emptyExpenseMarkup,/No authoritative adjustments in this scope/);
