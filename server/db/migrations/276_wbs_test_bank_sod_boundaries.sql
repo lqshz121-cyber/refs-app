@@ -76,10 +76,13 @@ CREATE TRIGGER trg_wbs_test_bank_import_receipt_immutable BEFORE UPDATE OR DELET
 -- Applied migrations 175/184/185 combined SERVICE import with human START and
 -- combined POST with CLEAR.  Retain their signatures for upgrade history, but
 -- make every legacy entry point fail closed after this migration.
-CREATE OR REPLACE FUNCTION refs_finalize_wbs_test_bank_staged_import(uuid,uuid,uuid) RETURNS jsonb
+CREATE OR REPLACE FUNCTION refs_finalize_wbs_test_bank_staged_import(p_tenant uuid,p_entity uuid,p_stage uuid) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 BEGIN RAISE EXCEPTION 'Legacy WBS TEST Bank import/start boundary is disabled after migration 276' USING ERRCODE='0A000'; END $$;
-CREATE OR REPLACE FUNCTION refs_wbs_test_bank_adjustment_post_clear_batch(uuid,uuid,uuid,uuid,uuid[],text,text) RETURNS jsonb
+CREATE OR REPLACE FUNCTION refs_wbs_test_bank_adjustment_post_clear_batch(
+  p_tenant uuid,p_entity uuid,p_reconciliation uuid,p_period uuid,
+  p_bank_source_ids uuid[],p_reason text,p_idempotency_root text
+) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 BEGIN RAISE EXCEPTION 'Legacy WBS TEST Bank POST/CLEAR boundary is disabled after migration 276' USING ERRCODE='0A000'; END $$;
 REVOKE ALL ON FUNCTION refs_finalize_wbs_test_bank_staged_import(uuid,uuid,uuid),refs_wbs_test_bank_adjustment_post_clear_batch(uuid,uuid,uuid,uuid,uuid[],text,text) FROM PUBLIC,refs_app;
