@@ -14,3 +14,8 @@ test('LiteLLM gateway fails closed for unsafe config, unstructured responses, an
   await assert.rejects(()=>gateway.analyzeJson({actorId:'actor',facts:{source:'retained'},systemInstruction:'Explain only.',jsonSchema:{name:'answer',schema:{type:'object'}}}),error=>error.code==='LITELLM_PROTOCOL_INVALID');
   await assert.rejects(()=>gateway.analyzeJson({actorId:'actor',facts:{rows:Array(101).fill(1)},systemInstruction:'Explain only.',jsonSchema:{name:'answer',schema:{type:'object'}}}),error=>error.code==='AI_FACTS_ARRAY_LIMIT');
 });
+
+test('LiteLLM gateway rejects an oversized serialized prompt before network',async()=>{
+  let calls=0;const gateway=createLiteLlmGateway({baseUrl:'https://gateway.example',apiKey:'virtual-key-123456',fetcher:async()=>{calls++;}}),facts=Object.fromEntries(Array.from({length:90},(_,index)=>[`field_${index}`,'x'.repeat(12000)]));
+  await assert.rejects(()=>gateway.analyzeJson({actorId:'actor',facts,systemInstruction:'Explain only retained facts.',jsonSchema:{name:'answer',schema:{type:'object'}}}),error=>error.code==='AI_FACTS_SIZE_LIMIT');assert.equal(calls,0);
+});

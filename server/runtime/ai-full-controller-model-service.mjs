@@ -1,5 +1,6 @@
 import {assertAiFullControllerModelInputManifest,buildAiFullControllerModelOutput,sealAiFullControllerModelChunkResponse} from './ai-full-controller-model-output-contract.mjs';
 import {buildAiFullControllerMemoReduction} from './ai-full-controller-memo-reduction-contract.mjs';
+import {safeAiEvidenceTree} from './ai-secret-safety.mjs';
 
 const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve:false,can_post:false});
 const METHODS=['beginAiFullControllerModelRun','beginAiFullControllerModelChunk','completeAiFullControllerModelChunk','beginAiFullControllerModelMemo','completeAiFullControllerModelRun','abandonAiFullControllerModelStage'];
@@ -16,7 +17,7 @@ export function createAiFullControllerModelService({gateway,repository}={}){
   if(!repository||METHODS.some(method=>typeof repository[method]!=='function'))fail('AI_FULL_SCAN_MODEL_REPOSITORY_REQUIRED','Full Controller model execution requires durable run, chunk, memo, and recovery receipts.');
   return Object.freeze({
     async analyze({actorId,idempotencyKey,inputManifest}={}){
-      if(typeof actorId!=='string'||actorId.length<1||actorId.length>255||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>200)fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Model execution requires one authenticated actor and stable idempotency key.');
+      if(typeof actorId!=='string'||actorId.length<1||actorId.length>255||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>200||!safeAiEvidenceTree({actor_id:actorId,idempotency_key:idempotencyKey}))fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Model execution requires one safe authenticated actor and stable idempotency key.');
       assertAiFullControllerModelInputManifest(inputManifest);
       const run=await repository.beginAiFullControllerModelRun({actorId,idempotencyKey,inputManifest});
       if(run?.state==='REPLAY')return buildAiFullControllerModelOutput({inputManifest,chunkResponses:run.output?.chunk_responses,finalMemo:run.output?.final_memo});

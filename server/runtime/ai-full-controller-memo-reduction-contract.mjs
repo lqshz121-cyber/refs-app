@@ -11,16 +11,16 @@ const addRisk=(left,right)=>({high:left.high+right.high,medium:left.medium+right
 const validRisk=value=>value&&Number.isSafeInteger(value.high)&&value.high>=0&&Number.isSafeInteger(value.medium)&&value.medium>=0&&Number.isSafeInteger(value.low)&&value.low>=0;
 const prioritySort=(a,b)=>riskRank[a.risk_level]-riskRank[b.risk_level]||a.finding_id.localeCompare(b.finding_id);
 
-export function buildAiFullControllerMemoReduction({inputManifest,sealedChunkResponses,groupSize=25,priorityLimit=20}={}){
+export function buildAiFullControllerMemoReduction({inputManifest,sealedChunkResponses,groupSize=25,priorityLimit=10}={}){
   if(!inputManifest||inputManifest.schema_version!=='AI_FULL_CONTROLLER_MODEL_INPUT_MANIFEST_V1'||!UUID.test(inputManifest.snapshot_id||'')||!HASH.test(inputManifest.snapshot_hash||'')||!Array.isArray(inputManifest.chunks)||!Array.isArray(sealedChunkResponses)||sealedChunkResponses.length!==inputManifest.chunks.length||!Number.isSafeInteger(groupSize)||groupSize<2||groupSize>100||!Number.isSafeInteger(priorityLimit)||priorityLimit<1||priorityLimit>100)fail('AI_FULL_SCAN_MEMO_REDUCTION_INVALID','Memo reduction requires exact retained chunks and bounded fanout.');
   const leaves=sealedChunkResponses.map((response,index)=>{
     const chunk=inputManifest.chunks[index];
     if(!response||response.chunk_index!==index||response.chunk_hash!==chunk.chunk_hash||!HASH.test(response.response_hash||'')||!validRisk(response.risk_summary)||!Array.isArray(response.controller_actions)||!safeAiEvidenceTree(response))fail('AI_FULL_SCAN_MEMO_REDUCTION_INVALID','Every reduction leaf must be one safe sealed chunk response.');
     const raw=structuredClone(response);delete raw.response_hash;if(digest(raw)!==response.response_hash)fail('AI_FULL_SCAN_MEMO_REDUCTION_INVALID','A reduction leaf response hash drifted.');
     const actionById=new Map();for(const action of response.controller_actions)for(const id of action.finding_ids||[])actionById.set(id,{category:action.category,action:action.action});
-    const priorities=chunk.findings.map(item=>({finding_id:item.finding_id,category:item.section_category,risk_level:item.evidence.risk_level,action:actionById.get(item.finding_id)?.action}));
+    const priorities=chunk.findings.map(item=>({finding_id:item.finding_id,category:item.section_category,risk_level:item.evidence.risk_level,action:actionById.get(item.finding_id)?.action?.slice(0,500)}));
     if(priorities.some(item=>!UUID.test(item.finding_id)||typeof item.action!=='string'))fail('AI_FULL_SCAN_MEMO_REDUCTION_INVALID','Reduction leaves require complete retained citations.');
-    return {node_hash:response.response_hash,finding_count:chunk.findings.length,risk_summary:response.risk_summary,priority_findings:priorities.sort(prioritySort).slice(0,priorityLimit),headline:response.headline};
+    return {node_hash:response.response_hash,finding_count:chunk.findings.length,risk_summary:response.risk_summary,priority_findings:priorities.sort(prioritySort).slice(0,priorityLimit),headline:response.headline.slice(0,300)};
   });
   let current=leaves,level=0;const nodes=[];
   while(current.length>100){

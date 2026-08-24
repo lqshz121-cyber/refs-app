@@ -44,3 +44,7 @@ test('rejects an unsafe or drifted input manifest before durable persistence or 
   const service=createAiFullControllerModelService({repository:repository(events),gateway:{analyzeJson:async()=>{calls++;}}});
   await assert.rejects(()=>service.analyze({actorId:'actor',idempotencyKey:'full-scan-run-004',inputManifest:input}),error=>error.code==='AI_FULL_SCAN_MODEL_OUTPUT_INPUT_INVALID');assert.equal(events.length,0);assert.equal(calls,0);
 });
+
+test('rejects credential-bearing actor or idempotency metadata before receipts or model traces',async()=>{
+  for(const scope of [{actorId:'Authorization: Bearer secret-value-123456',idempotencyKey:'full-scan-run-005'},{actorId:'actor',idempotencyKey:'token=secret-value-123456'}]){const events=[];let calls=0;const service=createAiFullControllerModelService({repository:repository(events),gateway:{analyzeJson:async()=>{calls++;}}});await assert.rejects(()=>service.analyze({...scope,inputManifest:manifest()}),error=>error.code==='AI_FULL_SCAN_MODEL_RUN_INVALID');assert.equal(events.length,0);assert.equal(calls,0);}
+});
