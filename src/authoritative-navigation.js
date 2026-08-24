@@ -138,7 +138,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     ]),
     item('receivables', 'Invoices & receipts', 'API_READ'),
   ]),
-  group('Reports', [item('reports', 'Standard reports', 'API_READ'),item('accounting-analysis-report', 'Accounting Analysis Report', 'API_READ')]),
+  group('Reports & Analytics', [item('reports', 'Standard reports', 'API_READ'),item('accounting-analysis-report', 'Accounting Analysis Report', 'API_READ')]),
   group('Administration', [
     item('master-data', 'Master Data'), item('bank-accounts', 'Bank Accounts'),
     item('my-accountant', 'My accountant', 'API_UNAVAILABLE', [
