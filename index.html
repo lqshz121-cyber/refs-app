@@ -1353,7 +1353,11 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-general-ledger-table th:nth-child(7),.authoritative-general-ledger-table td:nth-child(7),.authoritative-general-ledger-table th:nth-child(8),.authoritative-general-ledger-table td:nth-child(8){width:9%;}
 .authoritative-general-ledger-table th:nth-child(9),.authoritative-general-ledger-table td:nth-child(9){width:13%;}
 .authoritative-coa-table code,.authoritative-register-table code{white-space:nowrap;}
-.authoritative-coa-row-actions{display:flex;align-items:center;gap:6px;white-space:nowrap;}
+.authoritative-coa-row-actions{display:inline-flex;align-items:stretch;gap:0;white-space:nowrap;}
+.authoritative-coa-row-actions .btn{border-radius:0;}
+.authoritative-coa-row-actions .btn:first-child{border-radius:var(--qb-r-control) 0 0 var(--qb-r-control);}
+.authoritative-coa-row-actions .btn:last-child{margin-left:-1px;border-radius:0 var(--qb-r-control) var(--qb-r-control) 0;}
+.authoritative-coa-row-actions .btn:focus-visible{position:relative;z-index:1;}
 .authoritative-gl-detail-scope{margin-bottom:10px;}
 .authoritative-gl-amount-card{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0;}
 .authoritative-gl-amount-card>div{min-width:0;display:grid;gap:4px;}
