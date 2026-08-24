@@ -119,7 +119,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     ]),
   ]),
   group('Payables & Receivables', [
-    item('payables', 'Bills & expenses', 'API_READ'),
+    item('payables', 'Expense transactions', 'API_READ'),
     item('vendors', 'Vendors', 'API_UNAVAILABLE', [
       'Entity-scoped vendor master rows with immutable vendor identity, company, contact, tax-status, and open-balance facts.',
       'Read-only search, paging, and detail endpoints; vendor creation, bill creation, payment, email, print, export, and tax actions remain unavailable.',

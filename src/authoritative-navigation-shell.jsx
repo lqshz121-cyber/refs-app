@@ -10,7 +10,7 @@ const GROUP_SHORT_LABELS = Object.freeze({
   'General Ledger':'General',
   'Accounting Operations':'Operations',
   'Close':'Close',
-  'Payables & Receivables':'Payables',
+  'Payables & Receivables':'Expenses',
   'Reports':'Reports',
   'Administration':'Admin',
 });
