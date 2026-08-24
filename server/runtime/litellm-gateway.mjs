@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 
 const SECRET_KEY=/(?:authorization|api[_-]?key|secret|password|token|cookie|private[_-]?key|credential)/i;
+const SECRET_VALUE=/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}\b|\b(?:api[ _-]?key|access[ _-]?token|refresh[ _-]?token|token|secret|password|authorization)\b\s*[:=]\s*(?:Bearer\s+)?[^\s,;]+|\b(?:sk|rk|pk)-[A-Za-z0-9_-]{8,}\b/i;
 const text=value=>typeof value==='string'?value.trim():'';
 const safeJson=value=>value&&typeof value==='object'&&!Array.isArray(value);
 
@@ -9,7 +10,7 @@ export class LiteLlmGatewayError extends Error {constructor(code,message){super(
 export function redactAiFacts(value,{depth=0}={}){
   if(depth>8)throw new LiteLlmGatewayError('AI_FACTS_DEPTH_EXCEEDED','AI facts exceed the maximum nesting depth');
   if(value===null||typeof value==='boolean'||typeof value==='number')return value;
-  if(typeof value==='string')return value.length>12000?`${value.slice(0,12000)} [TRUNCATED]`:value;
+  if(typeof value==='string'){if(SECRET_VALUE.test(value))return '[REDACTED]';return value.length>12000?`${value.slice(0,12000)} [TRUNCATED]`:value;}
   if(Array.isArray(value)){if(value.length>100)throw new LiteLlmGatewayError('AI_FACTS_ARRAY_LIMIT','AI facts exceed the maximum array length');return value.map(item=>redactAiFacts(item,{depth:depth+1}));}
   if(!safeJson(value))throw new LiteLlmGatewayError('AI_FACTS_INVALID','AI facts must be JSON-compatible');
   const output={};for(const [key,item] of Object.entries(value)){output[key]=SECRET_KEY.test(key)?'[REDACTED]':redactAiFacts(item,{depth:depth+1});}return Object.freeze(output);
@@ -30,6 +31,7 @@ export class LiteLlmGateway {
   constructor({config,fetcher=globalThis.fetch,clock=()=>Date.now()}={}){if(!config||typeof fetcher!=='function')throw new LiteLlmGatewayError('LITELLM_GATEWAY_INVALID','LiteLLM gateway requires configuration and fetch');this.config=config;this.fetcher=fetcher;this.clock=clock;}
   async analyzeJson({traceId=`refs-ai-${randomUUID()}`,traceName='refs-accounting-analysis',actorId,facts,systemInstruction,jsonSchema}={}){
     if(!text(actorId)||!safeJson(facts)||!text(systemInstruction)||!safeJson(jsonSchema)||!text(jsonSchema.name)||!safeJson(jsonSchema.schema))throw new LiteLlmGatewayError('AI_ANALYSIS_REQUEST_INVALID','AI analysis requires actor identity, facts, system instruction, and JSON schema');
+    if([traceId,traceName,actorId,systemInstruction].some(value=>typeof value!=='string'||SECRET_VALUE.test(value)))throw new LiteLlmGatewayError('AI_ANALYSIS_METADATA_INVALID','AI model metadata and instructions must not contain credential-like values');
     const safeFacts=redactAiFacts(facts),serializedFacts=JSON.stringify({facts:safeFacts});if(Buffer.byteLength(serializedFacts,'utf8')>1_000_000)throw new LiteLlmGatewayError('AI_FACTS_SIZE_LIMIT','AI facts exceed the maximum serialized byte length');
     const startedAt=this.clock(),controller=new AbortController(),timer=setTimeout(()=>controller.abort(),this.config.timeoutMs);
     const payload={model:this.config.model,temperature:0,messages:[{role:'system',content:systemInstruction},{role:'user',content:serializedFacts}],response_format:{type:'json_schema',json_schema:{name:text(jsonSchema.name),strict:true,schema:jsonSchema.schema}},metadata:{trace_id:traceId,trace_name:traceName,trace_user_id:text(actorId)}};
