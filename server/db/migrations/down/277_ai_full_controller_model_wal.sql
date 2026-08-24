@@ -1,0 +1,13 @@
+BEGIN;
+DO $$ BEGIN IF EXISTS(SELECT 1 FROM ai_full_controller_model_run) THEN RAISE EXCEPTION 'migration 277 down refuses retained AI model run evidence'; END IF; END $$;
+DROP FUNCTION IF EXISTS refs_abandon_ai_full_controller_model_stage(uuid,text,text,text,text);
+DROP FUNCTION IF EXISTS refs_complete_ai_full_controller_model_run(uuid,text,text,text,jsonb);
+DROP FUNCTION IF EXISTS refs_begin_ai_full_controller_model_memo(uuid,text,text,text,jsonb,jsonb);
+DROP FUNCTION IF EXISTS refs_complete_ai_full_controller_model_chunk(uuid,text,text,text,integer,text,jsonb);
+DROP FUNCTION IF EXISTS refs_begin_ai_full_controller_model_chunk(uuid,text,text,text,integer,text);
+DROP FUNCTION IF EXISTS refs_begin_ai_full_controller_model_run(uuid,uuid,uuid,text,text,jsonb,text);
+DROP FUNCTION IF EXISTS refs_prepare_ai_full_controller_model_run(uuid,uuid,uuid,text,text,jsonb,text);
+DROP TABLE ai_full_controller_model_memo;
+DROP TABLE ai_full_controller_model_chunk;
+DROP TABLE ai_full_controller_model_run;
+COMMIT;

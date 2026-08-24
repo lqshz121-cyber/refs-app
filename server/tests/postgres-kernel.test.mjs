@@ -179,6 +179,43 @@ async function migrateDownThrough(pool,targetMigration){
 
 const hash=value=>`sha256:${createHash('sha256').update(String(value)).digest('hex')}`;
 
+pgTest('AI Full Controller model WAL is actor-bound, idempotent, recoverable, audited, and accounting read-only',async()=>{
+  const ids=await seed({status:'DRAFT'}),actorId='ai-full-controller-model-pg',idempotencyKey='ai-full-controller-model-pg-001';
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actorId,['AI.ANALYSIS.EXPLAIN'])});
+  const jsonHash=async value=>(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) value',[JSON.stringify(value)])).rows[0].value;
+  const accountingCounts=async()=>{const {rows:[row]}=await adminPool.query(`SELECT
+    (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,
+    (SELECT count(*)::int FROM journal_line WHERE tenant_id=$1) journal_lines,
+    (SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger_lines`,[ids.tenantId]);return row;};
+  const eventCounts=async()=>{const {rows:[row]}=await adminPool.query(`SELECT
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type LIKE 'AI_FULL_CONTROLLER_MODEL_%') audits,
+    (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND event_type LIKE 'AI_FULL_CONTROLLER_MODEL_%') outbox`,[ids.tenantId]);return row;};
+  const request={schema_version:'AI_FULL_CONTROLLER_MODEL_RUN_SCOPE_V1',tenant_id:ids.tenantId,entity_id:ids.entityId,accounting_period_id:ids.periodId,release_sha:'a'.repeat(40),requested_limit:500};
+  const chunkHash=hash('ai-full-controller-model-pg-chunk-0'),manifest={schema_version:'AI_FULL_CONTROLLER_MODEL_INPUT_MANIFEST_V1',chunk_hashes:[chunkHash],chunks:[{tenant_id:ids.tenantId,entity_id:ids.entityId,accounting_period_id:ids.periodId}]};
+  const accountingBefore=await accountingCounts(),prepared=await kernel.prepareAiFullControllerModelRun({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,actorId,idempotencyKey,request});assert.equal(prepared.state,'PREPARED');assert.match(prepared.preparedAt,/Z$/);
+  const started=await kernel.beginAiFullControllerModelRun({tenantId:ids.tenantId,actorId,idempotencyKey,inputManifest:manifest});
+  assert.equal(started.state,'STARTED');assert.match(started.runHash,/^sha256:[0-9a-f]{64}$/);
+  const reservation=await kernel.beginAiFullControllerModelChunk({tenantId:ids.tenantId,actorId,idempotencyKey,runHash:started.runHash,chunkIndex:0,chunkHash});assert.equal(reservation.state,'STARTED');
+  const chunkBase={schema_version:'AI_FULL_CONTROLLER_MODEL_CHUNK_RESPONSE_V1',chunk_index:0,chunk_hash:chunkHash,action_flags:{can_create_draft:false,can_review:false,can_approve:false,can_post:false}},chunkResponse={...chunkBase,response_hash:await jsonHash(chunkBase)};
+  const completedChunk=await kernel.completeAiFullControllerModelChunk({tenantId:ids.tenantId,actorId,idempotencyKey,runHash:started.runHash,chunkIndex:0,chunkHash,response:chunkResponse});assert.deepEqual(completedChunk.response,chunkResponse);
+  const reductionHash=hash('ai-full-controller-model-pg-reduction'),memo=await kernel.beginAiFullControllerModelMemo({tenantId:ids.tenantId,actorId,idempotencyKey,runHash:started.runHash,chunkResponseHashes:[chunkResponse.response_hash],reductionManifest:{reduction_hash:reductionHash}});assert.equal(memo.state,'STARTED');
+  const outputBase={schema_version:'AI_FULL_CONTROLLER_MODEL_OUTPUT_V1',chunk_responses:[chunkResponse],final_memo:{schema_version:'AI_FULL_CONTROLLER_MEMO_V1',action_flags:{can_create_draft:false,can_review:false,can_approve:false,can_post:false}}},output={...outputBase,output_hash:await jsonHash(outputBase)};
+  const completed=await kernel.completeAiFullControllerModelRun({tenantId:ids.tenantId,actorId,idempotencyKey,runHash:started.runHash,output});assert.deepEqual(completed.output,output);
+  const preparedReplay=await kernel.prepareAiFullControllerModelRun({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,actorId,idempotencyKey,request});assert.equal(preparedReplay.state,'REPLAY');assert.deepEqual(preparedReplay.inputManifest,manifest);assert.deepEqual(preparedReplay.output,output);
+  const replay=await kernel.beginAiFullControllerModelRun({tenantId:ids.tenantId,actorId,idempotencyKey,inputManifest:manifest});assert.equal(replay.state,'REPLAY');assert.deepEqual(replay.output,output);
+  await assert.rejects(kernel.prepareAiFullControllerModelRun({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,actorId,idempotencyKey,request:{...request,requested_limit:499}}),error=>error.code==='23505');
+  await assert.rejects(kernel.beginAiFullControllerModelRun({tenantId:ids.tenantId,actorId,idempotencyKey,inputManifest:{...manifest,extra:'different'}}),error=>error.code==='23505');
+  assert.deepEqual(await eventCounts(),{audits:3,outbox:3});assert.deepEqual(await accountingCounts(),accountingBefore);
+
+  const recoveryKey='ai-full-controller-model-pg-recovery';await kernel.prepareAiFullControllerModelRun({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,actorId,idempotencyKey:recoveryKey,request});const recovery=await kernel.beginAiFullControllerModelRun({tenantId:ids.tenantId,actorId,idempotencyKey:recoveryKey,inputManifest:manifest});
+  await kernel.beginAiFullControllerModelChunk({tenantId:ids.tenantId,actorId,idempotencyKey:recoveryKey,runHash:recovery.runHash,chunkIndex:0,chunkHash});
+  await kernel.completeAiFullControllerModelChunk({tenantId:ids.tenantId,actorId,idempotencyKey:recoveryKey,runHash:recovery.runHash,chunkIndex:0,chunkHash,response:chunkResponse});
+  await kernel.abandonAiFullControllerModelStage({tenantId:ids.tenantId,actorId,idempotencyKey:recoveryKey,runHash:recovery.runHash,errorCode:'AI_FULL_SCAN_MODEL_EXECUTION_FAILED'});
+  const restarted=await kernel.beginAiFullControllerModelRun({tenantId:ids.tenantId,actorId,idempotencyKey:recoveryKey,inputManifest:manifest});assert.equal(restarted.state,'STARTED');
+  const recoveredChunk=await kernel.beginAiFullControllerModelChunk({tenantId:ids.tenantId,actorId,idempotencyKey:recoveryKey,runHash:recovery.runHash,chunkIndex:0,chunkHash});assert.equal(recoveredChunk.state,'REPLAY');assert.deepEqual(recoveredChunk.response,chunkResponse);
+  assert.deepEqual(await eventCounts(),{audits:5,outbox:5});assert.deepEqual(await accountingCounts(),accountingBefore);
+});
+
 const retainPrepaidInvoiceClassification=async({ids,sourceDocumentId,label})=>{
   const line=(await adminPool.query('SELECT source_document_line_id FROM source_document_line WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3 ORDER BY line_no LIMIT 1',[ids.tenantId,ids.entityId,sourceDocumentId])).rows[0];
   assert.ok(line?.source_document_line_id,'prepaid classification fixture requires a retained source line');

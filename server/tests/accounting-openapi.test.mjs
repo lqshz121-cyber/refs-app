@@ -2,7 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';import {rea
 const contract=JSON.parse(await readFile(new URL('../api/openapi-accounting.json',import.meta.url),'utf8'));
 assert.deepEqual(contract.components.schemas.AuthoritativeScopeReadRow.properties.period_status.enum,['OPEN','SOFT_CLOSED','CLOSED'],'authoritative scope status must match the PostgreSQL period_status enum');
 const operations=Object.values(contract.paths).flatMap(path=>path.post?[path.post]:[]);
-const accountingCommands=operations.filter(operation=>operation.operationId!=='explainAiAccountingAnalysis');
+const accountingCommands=operations.filter(operation=>!['explainAiAccountingAnalysis','runAiFullControllerModel'].includes(operation.operationId));
 const propertyRentOperations=operations.filter(operation=>['reviewWbsPropertyRentPickup','createWbsPropertyRentPickupDraft','reviewInsurancePrepaidAmortization','createInsurancePrepaidAmortizationDraft'].includes(operation.operationId));
 operations.splice(0,operations.length,...operations.filter(operation=>!propertyRentOperations.includes(operation)));
 const insuranceResumeOperations=operations.filter(operation=>operation.operationId==='resumeProviderSignedWbsFinal1InsuranceAdmission');
@@ -17,7 +17,7 @@ test('accounting OpenAPI is 3.1, authenticated and operation ids match the runti
   assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitProviderSignedWbsPayables','admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','approveFinancialStatementSnapshot','approveWbsCompanyCatalogRow','approveWbsInsurancePcMappingProposal','assignAiFindingAction','attestObservedWbsPayables','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','classifyWbsCompanyCatalogRow','createAiAmortizationDraft','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','createReviewedWbsCostCwipDraft','createReviewedWbsPayableApDraft','createWbsAutoRecAutocDraft','createWbsAutoRecPayableIncurDraft','createWbsInsurancePcMappingProposal','explainAiAccountingAnalysis','finalizeAttachment','finalizeWbsAutoRecG11Incur','importWbsTestPayables','ingestAdmittedWbsPayables','postJournal','prepareFinancialStatementSnapshot','proposeAiAmortizationSchedule','recordAiAmortizationCoverageEvidence','recordWbsSnapshot','reserveAttachment','reserveWbsPayableAttachment','resolveAiFindingAction','retainProviderSignedWbsFinal1Bank','retainProviderSignedWbsFinal1CostControl','retainProviderSignedWbsFinal1Insurance','retainProviderSignedWbsFinal1Payables','retainProviderSignedWbsFinal1PropertyControl','retainWbsCompanyCatalogCandidate','reviewAdmittedWbsCostCwip','reviewAdmittedWbsPayable','reviewAiWbsPayableDraftProposal','reviewWbsAutoRecBankMatch','runControlledTestAiWorkflow','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','startReconciliationFromAdmittedWbsStatement','transitionJournal','transitionReconciliation','unmatchBankPayment','upgradeStage1WbsOperatorAccess','verifyWbsAutoRecTransitionContract']);
   }
   const operationIds=operations.map(operation=>operation.operationId);
-  assert.equal(operationIds.length,96);
+  assert.equal(operationIds.length,97);
   assert.equal(new Set(operationIds).size,operationIds.length);
   assert.ok(operationIds.includes('decideWbsH1AccountingSettings'));
   for(const operationId of ['createWbsH1AccountingControlRun','appendWbsH1AccountingControlRunLines','finalizeWbsH1AccountingControlRun'])assert.ok(operationIds.includes(operationId));
@@ -32,6 +32,7 @@ test('accounting OpenAPI is 3.1, authenticated and operation ids match the runti
   assert.ok(operationIds.includes('reviewFixedAssetRegister'));
   assert.ok(operationIds.includes('reviewFixedAssetDisposal'));
   assert.ok(operationIds.includes('reviewFixedAssetImpairment'));
+  assert.ok(operationIds.includes('runAiFullControllerModel'));
   const securityDepositRead=contract.paths['/entities/{entityId}/ai/security-deposits/liability-review']?.get;
   assert.equal(securityDepositRead.operationId,'reviewAiSecurityDepositLiability');
   assert.equal(securityDepositRead.responses['200'].headers['Cache-Control'].schema.const,'no-store');

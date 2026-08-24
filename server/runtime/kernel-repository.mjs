@@ -1149,6 +1149,42 @@ export class PostgresAccountingKernel{
     ));
   }
 
+  async prepareAiFullControllerModelRun({tenantId,entityId,accountingPeriodId,actorId,idempotencyKey,request}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_prepare_ai_full_controller_model_run($1,$2,$3,$4,$5,$6::jsonb,$7) AS result',
+      [tenantId,entityId,accountingPeriodId,actorId,idempotencyKey,JSON.stringify(request),canonicalRequestHash(request)]
+    ),'AI_FULL_CONTROLLER_MODEL_RUN_PREPARE_FAILED','Full Controller model pre-scan reservation was not produced').result);
+  }
+
+  async beginAiFullControllerModelRun({tenantId,actorId,idempotencyKey,inputManifest}){
+    const scope=inputManifest?.chunks?.[0]||{};
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_begin_ai_full_controller_model_run($1,$2,$3,$4,$5,$6::jsonb,$7) AS result',
+      [tenantId,scope.entity_id,scope.accounting_period_id,actorId,idempotencyKey,JSON.stringify(inputManifest),canonicalRequestHash({schema_version:'AI_FULL_CONTROLLER_MODEL_RUN_REQUEST_V1',actor_id:actorId,idempotency_key:idempotencyKey,input_manifest:inputManifest})]
+    ),'AI_FULL_CONTROLLER_MODEL_RUN_BEGIN_FAILED','Full Controller model run reservation was not produced').result);
+  }
+
+  async beginAiFullControllerModelChunk({tenantId,actorId,idempotencyKey,runHash,chunkIndex,chunkHash}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_begin_ai_full_controller_model_chunk($1,$2,$3,$4,$5,$6) AS result',[tenantId,actorId,idempotencyKey,runHash,chunkIndex,chunkHash]),'AI_FULL_CONTROLLER_MODEL_CHUNK_BEGIN_FAILED','Full Controller chunk reservation was not produced').result);
+  }
+
+  async completeAiFullControllerModelChunk({tenantId,actorId,idempotencyKey,runHash,chunkIndex,chunkHash,response}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_complete_ai_full_controller_model_chunk($1,$2,$3,$4,$5,$6,$7::jsonb) AS result',[tenantId,actorId,idempotencyKey,runHash,chunkIndex,chunkHash,JSON.stringify(response)]),'AI_FULL_CONTROLLER_MODEL_CHUNK_COMPLETE_FAILED','Full Controller chunk completion was not produced').result);
+  }
+
+  async beginAiFullControllerModelMemo({tenantId,actorId,idempotencyKey,runHash,chunkResponseHashes,reductionManifest}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_begin_ai_full_controller_model_memo($1,$2,$3,$4,$5::jsonb,$6::jsonb) AS result',[tenantId,actorId,idempotencyKey,runHash,JSON.stringify(chunkResponseHashes),JSON.stringify(reductionManifest)]),'AI_FULL_CONTROLLER_MODEL_MEMO_BEGIN_FAILED','Full Controller memo reservation was not produced').result);
+  }
+
+  async completeAiFullControllerModelRun({tenantId,actorId,idempotencyKey,runHash,output}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_complete_ai_full_controller_model_run($1,$2,$3,$4,$5::jsonb) AS result',[tenantId,actorId,idempotencyKey,runHash,JSON.stringify(output)]),'AI_FULL_CONTROLLER_MODEL_RUN_COMPLETE_FAILED','Full Controller model run completion was not produced').result);
+  }
+
+  async abandonAiFullControllerModelStage({tenantId,actorId,idempotencyKey,runHash,errorCode}){
+    return this.inSession(client=>client.query('SELECT refs_abandon_ai_full_controller_model_stage($1,$2,$3,$4,$5)',[tenantId,actorId,idempotencyKey,runHash,errorCode]));
+  }
+
+
   // The service may only create an evidence-bound proposal.  The returned
   // object deliberately has no Draft, approval, or posting authority.
   async proposeAiWbsPayableDraft({tenantId,entityId,reviewEvidenceId,modelId,promptVersion,idempotencyKey}){
