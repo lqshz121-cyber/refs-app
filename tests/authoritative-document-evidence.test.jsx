@@ -27,8 +27,10 @@ assert.doesNotMatch(list,/Authoritative API rows only|Open evidence/);
 assert.match(list,/Open balance/);
 assert.match(list,/Evidence Vendor/);
 assert.match(list,/id="authoritative-document-22222222-2222-4222-8222-222222222222"/);
-assert.match(list,/class="table-wrap authoritative-document-table" role="region" tabindex="0" aria-label="AP bills; scroll horizontally to view every column"/,'AP/AR list evidence must be reachable through a labelled keyboard-focusable horizontal scroll region');
-assert.match(list,/<th scope="col">Bill<\/th>/,'data-table headers must have column semantics');
+assert.match(list,/class="table-wrap authoritative-document-table authoritative-expense-table" role="region" tabindex="0" aria-label="AP bills; scroll horizontally to view every column"/,'AP list evidence must be reachable through a labelled keyboard-focusable horizontal scroll region');
+assert.match(list,/<th scope="col">Date<\/th><th scope="col">Type<\/th><th scope="col">No\.<\/th><th scope="col">Payee<\/th><th scope="col">Category<\/th><th scope="col">Due date<\/th><th scope="col" class="ta-r">Total<\/th><th scope="col" class="ta-r">Open balance<\/th><th scope="col">Status<\/th><th scope="col">Details<\/th>/,'AP headers must use the observed QBO vocabulary while retaining evidence-only fields');
+assert.match(list,/<td>Bill<\/td><td>B-100<\/td><td>Evidence Vendor<\/td><td>610000<\/td>/,'AP rows must expose only API-proven type, number, payee, and category facts');
+assert.doesNotMatch(list,/Bill Approval/,'document status must not be relabelled as the distinct QBO Bill Approval fact');
 
 const workspaceMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[bill]} adjustments={[adjustment]} view={{query:'Evidence',status:'PARTIALLY_PAID',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
 assert.match(workspaceMarkup,/Payables presentation filters/);
@@ -285,6 +287,7 @@ assert.match(workspace,/closest\('\.table-wrap'\)\?\.scrollLeft/,'AP and AR row 
 const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
 assert.match(styles,/\.authoritative-document-workspace,.authoritative-document-workspace>\*,.authoritative-document-table,.authoritative-adjustment-table\{min-width:0;max-width:100%;\}/,'AP/AR workspace descendants must be shrinkable so their table regions, not the page, own narrow-width overflow');
 assert.match(styles,/\.authoritative-document-table \.tbl\{min-width:980px;table-layout:fixed;\}/,'wide AP/AR evidence tables must reserve semantic columns inside their own scroll region');
+assert.match(styles,/\.authoritative-expense-table \.tbl\{min-width:1180px;\}/,'the QBO-aligned ten-column Expenses table must keep readable columns inside its contained scroller');
 assert.match(styles,/\.authoritative-adjustment-table \.tbl\{min-width:760px;table-layout:fixed;\}/,'six-column adjustment evidence must retain readable columns in its own contained scroller');
 assert.match(styles,/\.authoritative-document-detail-table \.tbl\{min-width:720px;table-layout:fixed;\}/,'four-column detail facts must retain readable columns without overflowing the page');
 assert.match(styles,/\.authoritative-return-context>summary\{cursor:pointer;list-style:none;white-space:nowrap;\}/,
