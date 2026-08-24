@@ -21,15 +21,15 @@ const adjustment={business_adjustment_id:'44444444-4444-4444-8444-444444444444',
 
 const list=renderToStaticMarkup(<AuthoritativeDocumentTable title="AP bills" documents={[bill]} kind="AP" onOpen={()=>{}}/>);
 assert.match(list,/1 bill/);
-assert.match(list,/Details/);
+assert.match(list,/Action/);
 assert.match(list,/View details/);
 assert.doesNotMatch(list,/Authoritative API rows only|Open evidence/);
 assert.match(list,/Open balance/);
 assert.match(list,/Evidence Vendor/);
 assert.match(list,/id="authoritative-document-22222222-2222-4222-8222-222222222222"/);
 assert.match(list,/class="table-wrap authoritative-document-table authoritative-expense-table" role="region" tabindex="0" aria-label="AP bills; scroll horizontally to view every column"/,'AP list evidence must be reachable through a labelled keyboard-focusable horizontal scroll region');
-assert.match(list,/<th scope="col">Date<\/th><th scope="col">Type<\/th><th scope="col">No\.<\/th><th scope="col">Payee<\/th><th scope="col">Category<\/th><th scope="col">Due date<\/th><th scope="col" class="ta-r">Total<\/th><th scope="col" class="ta-r">Open balance<\/th><th scope="col">Status<\/th><th scope="col">Details<\/th>/,'AP headers must use the observed QBO vocabulary while retaining evidence-only fields');
-assert.match(list,/<td>Bill<\/td><td>B-100<\/td><td>Evidence Vendor<\/td><td>610000<\/td>/,'AP rows must expose only API-proven type, number, payee, and category facts');
+assert.match(list,/<th scope="col">Bill date<\/th><th scope="col">Type<\/th><th scope="col">No\.<\/th><th scope="col">Vendor<\/th><th scope="col">Category<\/th><th scope="col">Due date<\/th><th scope="col" class="ta-r">Bill amount<\/th><th scope="col" class="ta-r">Open balance<\/th><th scope="col">Status<\/th><th scope="col">Action<\/th>/,'AP headers must use the freshly observed QBO Bills vocabulary while retaining REFS evidence-only fields');
+assert.match(list,/<td>Bill<\/td><td>B-100<\/td><td>Evidence Vendor<\/td><td>610000<\/td>/,'AP rows must expose only API-proven type, number, vendor, and category facts');
 assert.doesNotMatch(list,/Bill Approval/,'document status must not be relabelled as the distinct QBO Bill Approval fact');
 
 const workspaceMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[bill]} adjustments={[adjustment]} view={{query:'Evidence',status:'PARTIALLY_PAID',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
@@ -41,8 +41,8 @@ assert.doesNotMatch(workspaceSource,/'Not retained'/,'AP/AR visible missing-valu
 assert.doesNotMatch(workspaceSource,/\{bill&&<label>Transaction type <select/,'Expenses tabs already select All transactions, Bills, or Vendor credits; the filter toolbar must not repeat the same control');
 assert.match(workspaceMarkup,/Vendor credits/);
 assert.match(workspaceMarkup,/Category <select/);
-assert.match(workspaceMarkup,/Payee/);
-assert.match(workspaceMarkup,/All payees/);
+assert.match(workspaceMarkup,/Vendor/);
+assert.match(workspaceMarkup,/All vendors/);
 assert.match(workspaceMarkup,/All categories/);
 assert.doesNotMatch(workspaceMarkup,/Category \(offset account\)|All retained vendors|All retained offset accounts/,'Expenses filters should use concise accounting labels without exposing storage terminology');
 assert.match(workspaceMarkup,/Reset filters/);
@@ -84,7 +84,7 @@ assert.equal(isAuthoritativeDateFilterValue('2026-02-29'),false);
 assert.equal(isAuthoritativeDateFilterValue('2026-02-30'),false);
 assert.equal(isAuthoritativeDateFilterValue('08/20/2026'),false);
 assert.match(workspaceMarkup,/To: 2026-08-31/,'the applied Expenses scope must use the same visible To vocabulary');
-assert.match(workspaceMarkup,/Payee: Evidence Vendor/);
+assert.match(workspaceMarkup,/Vendor: Evidence Vendor/);
 assert.match(workspaceMarkup,/Category: 610000/);
 assert.match(workspaceMarkup,/Reset filters/);
 assert.match(workspaceMarkup,/Status: PARTIALLY_PAID/);
@@ -303,7 +303,7 @@ assert.match(styles,/\.authoritative-list-filters\{display:grid;grid-template-co
 assert.match(styles,/@media\s*\(max-width:1400px\)\s*\{\.authoritative-list-filters\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,'AP/AR filters must collapse before the permanent navigation leaves too little workspace width at desktop zoom and tablet sizes');
 assert.match(styles,/\.authoritative-list-filters input,\.authoritative-list-filters select\{min-width:0;width:100%;max-width:100%;\}/,'AP/AR controls must not exceed their responsive grid tracks');
 assert.match(workspaceSource,/className="authoritative-list-more-filters" onToggle=/,'AP/AR must keep secondary filters in a compact native disclosure');
-assert.match(workspaceSource,/<label>\{bill\?'Payee':'Customer'\} <select value=\{filterDraft\.counterparty\}[\s\S]*?\{bill&&\(accountCodes\.length>0\?<label>Category <select value=\{filterDraft\.accountCode\}/,'the compact disclosure must stage the observed AP Payee, shared counterparty behavior, and AP-only Category');
+assert.match(workspaceSource,/<label>\{bill\?'Vendor':'Customer'\} <select value=\{filterDraft\.counterparty\}[\s\S]*?\{bill&&\(accountCodes\.length>0\?<label>Category <select value=\{filterDraft\.accountCode\}/,'the compact disclosure must stage the observed AP Vendor, shared counterparty behavior, and AP-only Category');
 assert.match(workspaceSource,/onClick=\{\(\)=>change\(filterDraft\)\}>Apply<\/button>/,'secondary filter edits must not change the visible result until Apply');
 assert.match(workspaceSource,/onClick=\{\(\)=>\{if\(filterDetailsRef\.current\)filterDetailsRef\.current\.open=false;\}\}>Close<\/button>/,'Close must dismiss only the native filter disclosure without applying or resetting its staged values');
 assert.match(styles,/\.authoritative-list-more-filters\[open\]\{grid-column:1\/-1;\}/,'expanded AP/AR filters must stay contained within the filter region');
