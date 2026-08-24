@@ -27,6 +27,25 @@ const integrationMode=(value,name,production)=>{
   return mode;
 };
 const requireAll=(env,keys)=>{for(const key of keys)if(!env[key])throw new Error(`${key} is required`);};
+const RENDER_WBS_TEST_SCOPE=Object.freeze({
+  tenantId:'6fb25daf-0799-4805-bede-be54230da33c',
+  entityId:'ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3',
+  companyCode:'WBPA'
+});
+const RENDER_WBS_TEST_BANK_ACTOR_DEFAULTS=Object.freeze({
+  REFS_WBS_TEST_IMPORT_RECONCILIATION_STARTER_ACTOR_ID:'wbs-test-reconciliation-starter',
+  REFS_WBS_TEST_IMPORT_PAYMENT_MAKER_ACTOR_ID:'wbs-test-payment-maker',
+  REFS_WBS_TEST_IMPORT_MATCH_MAKER_ACTOR_ID:'wbs-test-match-maker',
+  REFS_WBS_TEST_IMPORT_CLEARER_ACTOR_ID:'wbs-test-clearer',
+  REFS_WBS_TEST_IMPORT_REOPENER_ACTOR_ID:'wbs-test-reopener'
+});
+const renderWbsTestActorEnv=env=>{
+  const exactRenderScope=String(env.RENDER||'').trim().toLowerCase()==='true'
+    &&env.REFS_WBS_TEST_IMPORT_TENANT_ID===RENDER_WBS_TEST_SCOPE.tenantId
+    &&env.REFS_WBS_TEST_IMPORT_ENTITY_ID===RENDER_WBS_TEST_SCOPE.entityId
+    &&env.REFS_WBS_TEST_IMPORT_COMPANY_CODE===RENDER_WBS_TEST_SCOPE.companyCode;
+  return exactRenderScope?{...RENDER_WBS_TEST_BANK_ACTOR_DEFAULTS,...env}:env;
+};
 const scannerCa=(env)=>{
   const pem=typeof env.VIRUS_SCANNER_CA_PEM==='string'?env.VIRUS_SCANNER_CA_PEM.trim():'';
   const file=typeof env.VIRUS_SCANNER_CA_FILE==='string'?env.VIRUS_SCANNER_CA_FILE.trim():'';
@@ -75,8 +94,9 @@ export function accountingServerConfig(env=process.env){
     if(String(env.REFS_DEPLOYMENT_ENV||'').trim().toLowerCase()!=='staging')throw new Error('REFS_WBS_TEST_IMPORT_MODE may be enabled only in staging');
     if(wbsLivePilotMode!=='ENABLED')throw new Error('REFS_WBS_TEST_IMPORT_MODE requires REFS_WBS_LIVE_PILOT_MODE=ENABLED');
     const actorKeys=['IMPORTER','RECONCILIATION_STARTER','MAKER','PAYMENT_MAKER','MATCH_MAKER','SUBMITTER','REVIEWER','APPROVER','POSTER','CLEARER','REOPENER'].map(role=>`REFS_WBS_TEST_IMPORT_${role}_ACTOR_ID`);
-    requireAll(env,['REFS_WBS_TEST_IMPORT_TENANT_ID','REFS_WBS_TEST_IMPORT_ENTITY_ID','REFS_WBS_TEST_IMPORT_COMPANY_CODE',...actorKeys]);
-    const actors=Object.fromEntries(actorKeys.map(key=>[key.slice('REFS_WBS_TEST_IMPORT_'.length,-'_ACTOR_ID'.length).toLowerCase().replace('reconciliation_starter','reconciliationStarter').replace('payment_maker','paymentMaker').replace('match_maker','matchMaker'),env[key]]));
+    requireAll(env,['REFS_WBS_TEST_IMPORT_TENANT_ID','REFS_WBS_TEST_IMPORT_ENTITY_ID','REFS_WBS_TEST_IMPORT_COMPANY_CODE']);
+    const actorEnv=renderWbsTestActorEnv(env);requireAll(actorEnv,actorKeys);
+    const actors=Object.fromEntries(actorKeys.map(key=>[key.slice('REFS_WBS_TEST_IMPORT_'.length,-'_ACTOR_ID'.length).toLowerCase().replace('reconciliation_starter','reconciliationStarter').replace('payment_maker','paymentMaker').replace('match_maker','matchMaker'),actorEnv[key]]));
     if(!UUID.test(env.REFS_WBS_TEST_IMPORT_TENANT_ID||'')||!UUID.test(env.REFS_WBS_TEST_IMPORT_ENTITY_ID||'')||!/^[A-Z0-9][A-Z0-9_:-]{0,63}$/.test(env.REFS_WBS_TEST_IMPORT_COMPANY_CODE||'')||new Set(Object.values(actors)).size!==actorKeys.length)throw new Error('REFS_WBS_TEST_IMPORT scope and actors must be canonical and distinct');
     wbsTestImport={tenantId:env.REFS_WBS_TEST_IMPORT_TENANT_ID,entityId:env.REFS_WBS_TEST_IMPORT_ENTITY_ID,companyCode:env.REFS_WBS_TEST_IMPORT_COMPANY_CODE,actors};
   }
