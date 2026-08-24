@@ -4,7 +4,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const MONEY4=/^-?(?:0|[1-9][0-9]{0,15})\.[0-9]{4}$/;
 const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const SHA256=/^sha256:[0-9a-f]{64}$/;
-const ACTOR_ROLES=Object.freeze(['importer','maker','submitter','reviewer','approver','poster']);
+const ACTOR_ROLES=Object.freeze(['importer','reconciliationStarter','maker','paymentMaker','matchMaker','submitter','reviewer','approver','poster','clearer','reopener']);
 const TEST_BANK=/^WBS_TEST_BANK(?:_2026_0[1-6])?$/;
 const POST_CLEAR_BATCH_SIZE=10;
 
@@ -19,7 +19,7 @@ const money=value=>{
   return MONEY4.test(normalized)?normalized:null;
 };
 const reason=value=>`UNSIGNED TEST ONLY — ${value}`;
-const postClearRoot=(root,ids)=>`pc:${createHash('sha256').update(`${root}\0${[...ids].sort().join('\0')}`,'utf8').digest('hex')}`;
+const stageRoot=(stage,root,ids)=>`${stage}:${createHash('sha256').update(`${root}\0${[...ids].sort().join('\0')}`,'utf8').digest('hex')}`;
 
 function assertConfiguration(scope){
   if(!scope||!UUID.test(scope.tenantId||'')||!UUID.test(scope.entityId||'')||!TEST_BANK.test(scope.bankAccountRef||'')||scope.cashAccountCode!=='111000'||scope.offsetAccountCode!=='610000'){
@@ -94,20 +94,21 @@ export function createControlledTestBankWorkflowService({kernelForActor,authoriz
       await authorize({tenantId,entityId});
       const kernels=Object.fromEntries(ACTOR_ROLES.map(role=>[role,kernelForActor(actors[role])]));
       const required={
-        importer:['listReconciliationScopes','listReconciliationWorksheet','getSignedReconciliationSnapshot'],
-        maker:['draftWbsTestBankAdjustmentBatch','listVerifiedCleanAttachmentIds'],submitter:['submitWbsTestBankAdjustmentBatch'],reviewer:['reviewWbsTestBankAdjustmentBatch','transitionReconciliation'],
-        approver:['approveWbsTestBankAdjustmentBatch','transitionReconciliation'],poster:['postClearWbsTestBankAdjustmentBatch','setReconciliationClearance','transitionReconciliation']
+        maker:['listReconciliationScopes','listReconciliationWorksheet','getSignedReconciliationSnapshot','draftWbsTestBankAdjustmentBatch','listVerifiedCleanAttachmentIds'],
+        submitter:['submitWbsTestBankAdjustmentBatch'],reviewer:['reviewWbsTestBankAdjustmentBatch','transitionReconciliation'],
+        approver:['approveWbsTestBankAdjustmentBatch','transitionReconciliation'],poster:['postWbsTestBankAdjustmentBatch'],
+        clearer:['clearWbsTestBankAdjustmentBatch','setReconciliationClearance'],reopener:['transitionReconciliation']
       };
-      for(const role of ACTOR_ROLES)if(!kernels[role]||required[role].some(method=>typeof kernels[role][method]!=='function'))fail('CONTROLLED_TEST_BANK_CONFIG_INVALID',`Controlled-test Bank ${role} kernel is unavailable.`);
+      for(const [role,methods] of Object.entries(required))if(!kernels[role]||methods.some(method=>typeof kernels[role][method]!=='function'))fail('CONTROLLED_TEST_BANK_CONFIG_INVALID',`Controlled-test Bank ${role} kernel is unavailable.`);
       const key=String(idempotencyKey),markedReason=reason(reviewReason);
-      let scopes=await kernels.importer.listReconciliationScopes({tenantId,entityId,limit:200});
+      let scopes=await kernels.maker.listReconciliationScopes({tenantId,entityId,limit:200});
       let reconciliation=scopes.find(row=>row.reconciliation_id===reconciliationId&&TEST_BANK.test(row.bank_account_ref||''));
       const monthly=/^WBS_TEST_BANK_(2026_0[1-6])$/.exec(reconciliation?.bank_account_ref||'');
       if(monthly&&(!date(reconciliation.statement_ending_date)||!reconciliation.statement_ending_date.startsWith(monthly[1].replace('_','-'))))reconciliation=null;
       if(!reconciliation)fail('CONTROLLED_TEST_BANK_SCOPE_DENIED','The selected reconciliation is not the fixed WBS TEST_ONLY Bank scope.');
 
       const snapshotResult=async({revision,idempotent,rows=[]})=>{
-        const snapshots=await kernels.importer.getSignedReconciliationSnapshot({tenantId,entityId,reconciliationId});
+        const snapshots=await kernels.maker.getSignedReconciliationSnapshot({tenantId,entityId,reconciliationId});
         const snapshot=snapshots[0];if(!snapshot||!UUID.test(snapshot.reconciliation_snapshot_id||'')||!SHA256.test(snapshot.snapshot_hash||''))fail('CONTROLLED_TEST_BANK_SNAPSHOT_INVALID','Controlled-test Bank signed snapshot is unavailable.');
         const counts=workflowCounts(rows.length?rows:(snapshot.snapshot_body?.items||[]));
         const processed=counts.adjusted_count+counts.matched_count;
@@ -124,14 +125,14 @@ export function createControlledTestBankWorkflowService({kernelForActor,authoriz
       };
 
       if(reconciliation.status==='RECONCILED'){
-        const reopened=await kernels.poster.transitionReconciliation({tenantId,entityId,reconciliationId,action:'REOPEN',expectedVersion:Number(reconciliation.version),reason:markedReason,idempotencyKey:`${key}:reopen`});
+        const reopened=await kernels.reopener.transitionReconciliation({tenantId,entityId,reconciliationId,action:'REOPEN',expectedVersion:Number(reconciliation.version),reason:markedReason,idempotencyKey:`${key}:reopen`});
         return snapshotResult({revision:Number(reopened.revision),idempotent:reopened.idempotent===true});
       }
-      let rows=await kernels.importer.listReconciliationWorksheet({tenantId,entityId,reconciliationId});
+      let rows=await kernels.maker.listReconciliationWorksheet({tenantId,entityId,reconciliationId});
       if(reconciliation.status==='REOPENED'&&rows.length>0&&rows.every(row=>row.clearance_state==='CLEARED'))return snapshotResult({revision:Number(reconciliation.version),idempotent:true,rows});
       if(reconciliation.status==='IN_REVIEW'){
         const signed=await kernels.approver.transitionReconciliation({tenantId,entityId,reconciliationId,action:'SIGN_OFF',expectedVersion:Number(reconciliation.version),reason:markedReason,idempotencyKey:`${key}:signoff`});
-        const reopened=await kernels.poster.transitionReconciliation({tenantId,entityId,reconciliationId,action:'REOPEN',expectedVersion:Number(signed.revision),reason:markedReason,idempotencyKey:`${key}:reopen`});
+        const reopened=await kernels.reopener.transitionReconciliation({tenantId,entityId,reconciliationId,action:'REOPEN',expectedVersion:Number(signed.revision),reason:markedReason,idempotencyKey:`${key}:reopen`});
         return snapshotResult({revision:Number(reopened.revision),idempotent:false,rows});
       }
 
@@ -142,7 +143,7 @@ export function createControlledTestBankWorkflowService({kernelForActor,authoriz
       const adjustmentIds=selectedRows.filter(row=>row.match_status!=='ACTIVE').map(row=>row.bank_source_id);
       let matchReconciliationVersion=matchedRows.length?Number(matchedRows[0].reconciliation_version):null;
       for(const row of matchedRows){
-          const cleared=await kernels.poster.setReconciliationClearance({tenantId,entityId,reconciliationId,bankSourceId:row.bank_source_id,expectedReconciliationVersion:matchReconciliationVersion,
+          const cleared=await kernels.clearer.setReconciliationClearance({tenantId,entityId,reconciliationId,bankSourceId:row.bank_source_id,expectedReconciliationVersion:matchReconciliationVersion,
             expectedBankVersion:Number(row.bank_version),clear:true,reason:markedReason,idempotencyKey:`${key}:${row.bank_source_id}:clear-match`});
           matchReconciliationVersion=Number(cleared.revision);
       }
@@ -156,16 +157,17 @@ export function createControlledTestBankWorkflowService({kernelForActor,authoriz
         await kernels.approver.approveWbsTestBankAdjustmentBatch(batch);
         for(let offset=0;offset<adjustmentIds.length;offset+=POST_CLEAR_BATCH_SIZE){
           const bankSourceIds=adjustmentIds.slice(offset,offset+POST_CLEAR_BATCH_SIZE);
-          await kernels.poster.postClearWbsTestBankAdjustmentBatch({...batch,bankSourceIds,periodId,reason:markedReason,idempotencyRoot:postClearRoot(key,bankSourceIds)});
+          await kernels.poster.postWbsTestBankAdjustmentBatch({...batch,bankSourceIds,periodId,reason:markedReason,idempotencyRoot:stageRoot('post',key,bankSourceIds)});
+          await kernels.clearer.clearWbsTestBankAdjustmentBatch({...batch,bankSourceIds,reason:markedReason,idempotencyRoot:stageRoot('clear',key,bankSourceIds)});
         }
       }
-      rows=await kernels.importer.listReconciliationWorksheet({tenantId,entityId,reconciliationId});
+      rows=await kernels.maker.listReconciliationWorksheet({tenantId,entityId,reconciliationId});
       if(!rows.length)fail('CONTROLLED_TEST_BANK_WORKFLOW_INCOMPLETE','Controlled-test Bank reconciliation has no retained items.');
       if(rows.some(row=>row.clearance_state!=='CLEARED'))return partialResult(rows);
       const currentVersion=Number(rows[0].reconciliation_version);
       const reviewed=await kernels.reviewer.transitionReconciliation({tenantId,entityId,reconciliationId,action:'REVIEW',expectedVersion:currentVersion,reason:markedReason,idempotencyKey:`${key}:review-reconciliation`});
       const signed=await kernels.approver.transitionReconciliation({tenantId,entityId,reconciliationId,action:'SIGN_OFF',expectedVersion:Number(reviewed.revision),reason:markedReason,idempotencyKey:`${key}:signoff`});
-      const reopened=await kernels.poster.transitionReconciliation({tenantId,entityId,reconciliationId,action:'REOPEN',expectedVersion:Number(signed.revision),reason:markedReason,idempotencyKey:`${key}:reopen`});
+      const reopened=await kernels.reopener.transitionReconciliation({tenantId,entityId,reconciliationId,action:'REOPEN',expectedVersion:Number(signed.revision),reason:markedReason,idempotencyKey:`${key}:reopen`});
       return snapshotResult({revision:Number(reopened.revision),idempotent:false,rows});
   };
   return Object.freeze({run,async runRange({tenantId,entityId,scopes,reason:reviewReason,idempotencyKey}={}){

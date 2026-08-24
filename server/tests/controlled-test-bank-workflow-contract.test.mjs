@@ -4,11 +4,16 @@ import fs from 'node:fs';
 import {WBS_TEST_IMPORT_GRANT_BUNDLES} from '../runtime/wbs-test-import-service.mjs';
 
 test('controlled Bank runner keeps exact distinct-role permission bundles and closed TEST_ONLY OpenAPI',()=>{
-  assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.importer,['WBS.TEST.IMPORT','BANK.RECONCILIATION.START','BANK.VIEW','BANK.MATCH.CREATE','AP.VIEW']);
-  assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.maker,['WBS.TEST.IMPORT','AP.BILL.CREATE','BANK.RECONCILIATION.ADJUSTMENT_DRAFT','GL.JE.CREATE','AP.PAYMENT.CREATE']);
+  assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.importer,['WBS.TEST.IMPORT']);
+  assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.reconciliationStarter,['BANK.RECONCILIATION.START']);
+  assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.maker,['AP.BILL.CREATE','BANK.RECONCILIATION.ADJUSTMENT_DRAFT','GL.JE.CREATE','BANK.VIEW']);
+  assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.paymentMaker,['AP.PAYMENT.CREATE']);
+  assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.matchMaker,['BANK.VIEW','AP.VIEW','BANK.MATCH.CREATE']);
   assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.reviewer,['GL.JE.REVIEW','BANK.RECONCILIATION.REVIEW']);
   assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.approver,['GL.JE.APPROVE','BANK.RECONCILIATION.SIGN_OFF']);
-  assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.poster,['GL.JE.POST','BANK.RECONCILIATION.CLEAR','BANK.RECONCILIATION.REOPEN']);
+  assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.poster,['GL.JE.POST']);
+  assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.clearer,['BANK.RECONCILIATION.CLEAR']);
+  assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.reopener,['BANK.RECONCILIATION.REOPEN']);
   const api=JSON.parse(fs.readFileSync(new URL('../api/openapi-accounting.json',import.meta.url),'utf8'));
   const operation=api.paths['/entities/{entityId}/wbs/test-import/bank-workflow/run'].post;
   assert.equal(operation.operationId,'runWbsControlledTestBankWorkflow');const requests=operation.requestBody.content['application/json'].schema.oneOf;assert.equal(requests.length,2);assert.deepEqual(requests[0].required,['periodId','reconciliationId','reason']);assert.deepEqual(requests[1].required,['scopes','reason']);assert.equal(requests[1].properties.scopes.maxItems,6);

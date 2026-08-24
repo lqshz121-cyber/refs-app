@@ -244,16 +244,29 @@ export class PostgresAccountingKernel{
     });
   }
 
-  async createWbsTestPayableDraft({tenantId,entityId,periodId,observation,row,rowIndex,idempotencyKey}){
+  async retainWbsTestPayableSource({tenantId,entityId,periodId,observation,row,rowIndex,idempotencyKey}){
     return this.inSession(async client=>{
       const payload=[tenantId,entityId,periodId,JSON.stringify(observation),JSON.stringify(row),rowIndex];
       const requestHash=requireRow(await client.query(
-        'SELECT refs_create_wbs_test_payable_draft_hash($1,$2,$3,$4::jsonb,$5::jsonb,$6) AS request_hash',payload
-      ),'WBS_TEST_IMPORT_HASH_FAILED','WBS test Payable import hash was not produced').request_hash;
+        'SELECT refs_retain_wbs_test_payable_source_hash($1,$2,$3,$4::jsonb,$5::jsonb,$6) AS request_hash',payload
+      ),'WBS_TEST_IMPORT_HASH_FAILED','WBS test Payable source retention hash was not produced').request_hash;
       return requireRow(await client.query(
-        'SELECT refs_create_wbs_test_payable_draft($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8) AS result',
+        'SELECT refs_retain_wbs_test_payable_source($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8) AS result',
         [...payload,idempotencyKey,requestHash]
-      ),'WBS_TEST_IMPORT_FAILED','WBS test Payable Draft was not created').result;
+      ),'WBS_TEST_IMPORT_FAILED','WBS test Payable source was not retained').result;
+    });
+  }
+
+  async createWbsTestPayableDraft({tenantId,entityId,sourceReceiptId,expectedReceiptHash,idempotencyKey}){
+    return this.inSession(async client=>{
+      const payload=[tenantId,entityId,sourceReceiptId,expectedReceiptHash];
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_create_wbs_test_payable_draft_hash($1,$2,$3,$4) AS request_hash',payload
+      ),'WBS_TEST_DRAFT_HASH_FAILED','WBS test Payable human Draft hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_create_wbs_test_payable_draft($1,$2,$3,$4,$5,$6) AS result',
+        [...payload,idempotencyKey,requestHash]
+      ),'WBS_TEST_DRAFT_FAILED','WBS test Payable human Draft was not created').result;
     });
   }
 
@@ -283,9 +296,16 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>{
       await client.query("SELECT set_config('statement_timeout',$1,true)",[WBS_TEST_BANK_FINALIZE_STATEMENT_TIMEOUT]);
       return requireRow(await client.query(
-        'SELECT refs_finalize_wbs_test_bank_staged_import($1,$2,$3) AS result',[tenantId,entityId,begin.stage_id]
+        'SELECT refs_finalize_wbs_test_bank_import_receipt($1,$2,$3) AS result',[tenantId,entityId,begin.stage_id]
       ),'WBS_TEST_BANK_FINALIZE_FAILED','Controlled test Bank staged import was not finalized').result;
     });
+  }
+
+  async startWbsTestBankReconciliation({tenantId,entityId,receiptId,expectedReceiptHash,idempotencyKey}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_start_wbs_test_bank_reconciliation($1,$2,$3,$4,$5) AS result',
+      [tenantId,entityId,receiptId,expectedReceiptHash,idempotencyKey]
+    ),'WBS_TEST_BANK_RECONCILIATION_START_FAILED','Exact WBS test Bank receipt was not consumed into a Draft reconciliation').result);
   }
 
   async ensureWbsTestH12026Periods({tenantId,entityId}){
@@ -2057,13 +2077,23 @@ export class PostgresAccountingKernel{
     });
   }
 
-  async postClearWbsTestBankAdjustmentBatch(args){
+  async postWbsTestBankAdjustmentBatch(args){
     return this.inSession(async client=>{
       await client.query("SELECT set_config('statement_timeout',$1,true)",[WBS_TEST_BANK_BATCH_STATEMENT_TIMEOUT]);
       return requireRow(await client.query(
-        'SELECT refs_wbs_test_bank_adjustment_post_clear_batch($1,$2,$3,$4,$5::uuid[],$6,$7) AS result',
+        'SELECT refs_wbs_test_bank_adjustment_post_batch($1,$2,$3,$4,$5::uuid[],$6,$7) AS result',
         [args.tenantId,args.entityId,args.reconciliationId,args.periodId,args.bankSourceIds,args.reason,args.idempotencyRoot]
-      ),'WBS_TEST_BANK_POST_CLEAR_BATCH_FAILED','Controlled-test Bank Post/Clear batch did not return a result').result;
+      ),'WBS_TEST_BANK_POST_BATCH_FAILED','Controlled-test Bank Post batch did not return a result').result;
+    });
+  }
+
+  async clearWbsTestBankAdjustmentBatch(args){
+    return this.inSession(async client=>{
+      await client.query("SELECT set_config('statement_timeout',$1,true)",[WBS_TEST_BANK_BATCH_STATEMENT_TIMEOUT]);
+      return requireRow(await client.query(
+        'SELECT refs_wbs_test_bank_adjustment_clear_batch($1,$2,$3,$4::uuid[],$5,$6) AS result',
+        [args.tenantId,args.entityId,args.reconciliationId,args.bankSourceIds,args.reason,args.idempotencyRoot]
+      ),'WBS_TEST_BANK_CLEAR_BATCH_FAILED','Controlled-test Bank Clear batch did not return a result').result;
     });
   }
 
