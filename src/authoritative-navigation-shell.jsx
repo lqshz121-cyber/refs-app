@@ -11,7 +11,7 @@ const GROUP_SHORT_LABELS = Object.freeze({
   'Accounting Operations':'Operations',
   'Close':'Close',
   'Payables & Receivables':'Payables',
-  'Reports':'Reports',
+  'Reports & Analytics':'Reports',
   'Administration':'Admin',
 });
 
