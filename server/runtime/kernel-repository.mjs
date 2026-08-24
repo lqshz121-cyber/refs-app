@@ -2491,15 +2491,16 @@ export class PostgresAccountingKernel{
     });
   }
 
-  async claimOutbox({tenantId,limit=100}){
+  async claimOutboxV2({tenantId,limit=100,leaseSeconds=300}){
     return this.inSession(async client=>(await client.query(
-      'SELECT * FROM refs_claim_outbox($1,refs_current_actor(),$2)',[tenantId,limit]
+      'SELECT * FROM refs_claim_outbox_v2($1,refs_current_actor(),$2,$3)',[tenantId,limit,leaseSeconds]
     )).rows);
   }
 
-  async completeOutbox({tenantId,eventId,success,error=null}){
-    return this.inSession(client=>client.query(
-      'SELECT refs_complete_outbox($1,$2,refs_current_actor(),$3,$4)',[tenantId,eventId,success,error]
-    ));
+  async completeOutboxV2({tenantId,eventId,success,retryable=false,errorCode=null,maxAttempts=8,retryBaseSeconds=5}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_complete_outbox_v2($1,$2,refs_current_actor(),$3,$4,$5,$6,$7) AS result',
+      [tenantId,eventId,success,retryable,errorCode,maxAttempts,retryBaseSeconds]
+    ),'OUTBOX_DISPATCH_COMPLETION_FAILED','Outbox dispatch completion did not return a receipt').result);
   }
 }

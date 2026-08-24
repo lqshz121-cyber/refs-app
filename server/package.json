@@ -63,6 +63,7 @@
     "test:reconciliation": "node --test tests/reconciliation-command-contract.test.mjs",
     "start": "node runtime/start-accounting-server.mjs",
     "start:attachment-cleanup": "node runtime/start-attachment-cleanup-worker.mjs",
+    "start:outbox-dispatch": "node runtime/start-outbox-dispatch-worker.mjs",
     "pg:start": "docker compose -f compose.yaml up -d --wait && node runtime/migrate.mjs up",
     "pg:stop": "docker compose -f compose.yaml down",
     "db:up": "node runtime/migrate.mjs up",
