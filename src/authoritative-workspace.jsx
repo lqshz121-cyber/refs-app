@@ -19,7 +19,7 @@ const amount=/^(?:0|[1-9]\d{0,15})(?:\.\d{1,4})?$/;
 const account=/^[A-Za-z0-9._-]{1,64}$/;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const revision=value=>Number.isSafeInteger(Number(value))&&Number(value)>=0;
-const secondaryFilterValues=view=>({from:view.from,through:view.through,counterparty:view.counterparty,accountCode:view.accountCode});
+const secondaryFilterValues=view=>({status:view.status,from:view.from,through:view.through,counterparty:view.counterparty,accountCode:view.accountCode});
 export const isAuthoritativeDateFilterValue=value=>{
   const text=String(value??'').trim();
   if(!text)return true;
@@ -97,7 +97,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   const state=normalizeAuthoritativeListView(view);
   const [filterDraft,setFilterDraft]=useState(()=>secondaryFilterValues(state));
   const filterDetailsRef=useRef(null);
-  useEffect(()=>setFilterDraft(secondaryFilterValues(state)),[state.from,state.through,state.counterparty,state.accountCode]);
+  useEffect(()=>setFilterDraft(secondaryFilterValues(state)),[state.status,state.from,state.through,state.counterparty,state.accountCode]);
   const dateField=bill?'bill_date':'inv_date';
   const counterpartyField=bill?'vendor_name':'customer_name';
   // Offset-account is an AP Bill category presentation filter. An account code
@@ -125,14 +125,14 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     state.status!=='ALL'?`Status: ${state.status}`:null,
     state.from?`From: ${state.from}`:null,
     state.through?`${bill?'To':'Through'}: ${state.through}`:null,
-    state.counterparty!=='ALL'?`${bill?'Vendor':'Customer'}: ${state.counterparty}`:null,
+    state.counterparty!=='ALL'?`${bill?'Payee':'Customer'}: ${state.counterparty}`:null,
     bill&&state.accountCode!=='ALL'?`Category: ${state.accountCode}`:null,
     bill&&state.transactionType!=='ALL'?`Transaction type: ${state.transactionType==='BILLS'?'Bills':'Vendor credits'}`:null,
   ].filter(Boolean);
   const invalidFrom=!isAuthoritativeDateFilterValue(filterDraft.from);
   const invalidThrough=!isAuthoritativeDateFilterValue(filterDraft.through);
   const invalidDateFilter=invalidFrom||invalidThrough;
-  const moreFilterCount=[state.from,state.through,state.counterparty!=='ALL',bill&&state.accountCode!=='ALL'].filter(Boolean).length;
+  const moreFilterCount=[bill&&state.status!=='ALL',state.from,state.through,state.counterparty!=='ALL',bill&&state.accountCode!=='ALL'].filter(Boolean).length;
   const change=patch=>onViewChange?.({...state,...patch,page:patch.page??1});
   const tabs=bill?[
     {id:'ALL',label:'All transactions'}, {id:'BILLS',label:'Bills'}, {id:'VENDOR_CREDITS',label:'Vendor credits'}, {id:'AGING',label:'AP Aging',focusId:'authoritative-ap-aging-launch'}, {id:'VENDORS',label:'Vendors',unavailable:true},
@@ -153,14 +153,15 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     <section className={`card authoritative-filter-card${bill?' authoritative-expense-filter-card':''}`} aria-label={`${workspaceLabel} API list filters`}>
     {!bill&&<div className="authoritative-filter-head"><div><h2>Filters</h2></div><span className="badge badge-muted">READ ONLY</span></div>}
     <div className="filter-bar authoritative-list-filters authoritative-compact-list-filters" role="search" aria-label={`${bill?'Payables':'Receivables'} presentation filters`}>
-      <label>Search <input value={state.query} onChange={event=>change({query:event.target.value})} placeholder={bill?'Bill, vendor, account, or reference':'Invoice, customer, account, or reference'}/></label>
-      <label>Status <select value={state.status} onChange={event=>change({status:event.target.value})}><option value="ALL">All statuses</option>{statuses.map(status=><option key={status} value={status}>{status}</option>)}</select></label>
+      <label>Search <input value={state.query} onChange={event=>change({query:event.target.value})} placeholder={bill?'Bill, payee, account, or reference':'Invoice, customer, account, or reference'}/></label>
+      {!bill&&<label>Status <select value={state.status} onChange={event=>change({status:event.target.value})}><option value="ALL">All statuses</option>{statuses.map(status=><option key={status} value={status}>{status}</option>)}</select></label>}
       <details ref={filterDetailsRef} className="authoritative-list-more-filters" onToggle={event=>{if(event.currentTarget.open)setFilterDraft(secondaryFilterValues(state));}}><summary aria-label={bill&&moreFilterCount?`Filter, ${moreFilterCount} active filters`:undefined}>{bill?'Filter':'More filters'}{!bill&&moreFilterCount?` (${moreFilterCount})`:''}</summary><div className="authoritative-list-more-filter-grid">
+        {bill&&<label>Status <select value={filterDraft.status} onChange={event=>setFilterDraft(current=>({...current,status:event.target.value}))}><option value="ALL">All statuses</option>{statuses.map(status=><option key={status} value={status}>{status}</option>)}</select></label>}
         <label>From <input type="text" inputMode="numeric" autoComplete="off" maxLength={10} pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}" placeholder="YYYY-MM-DD" aria-invalid={invalidFrom||undefined} value={filterDraft.from} onChange={event=>setFilterDraft(current=>({...current,from:event.target.value}))}/></label>
         <label>{bill?'To':'Through'} <input type="text" inputMode="numeric" autoComplete="off" maxLength={10} pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}" placeholder="YYYY-MM-DD" aria-invalid={invalidThrough||undefined} value={filterDraft.through} onChange={event=>setFilterDraft(current=>({...current,through:event.target.value}))}/></label>
-        <label>{bill?'Vendor':'Customer'} <select value={filterDraft.counterparty} onChange={event=>setFilterDraft(current=>({...current,counterparty:event.target.value}))}><option value="ALL">{bill?'All vendors':'All customers'}</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+        <label>{bill?'Payee':'Customer'} <select value={filterDraft.counterparty} onChange={event=>setFilterDraft(current=>({...current,counterparty:event.target.value}))}><option value="ALL">{bill?'All payees':'All customers'}</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
         {bill&&(accountCodes.length>0?<label>Category <select value={filterDraft.accountCode} onChange={event=>setFilterDraft(current=>({...current,accountCode:event.target.value}))}><option value="ALL">All categories</option>{accountCodes.map(code=><option key={code} value={code}>{code}</option>)}</select></label>:<span className="muted sm">Category unavailable for this result.</span>)}
-        <div className="authoritative-list-more-filter-actions">{invalidDateFilter&&<span className="muted sm" role="alert">Use YYYY-MM-DD.</span>}<button type="button" className="btn btn-sm btn-ghost" onClick={()=>setFilterDraft({from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset</button><button type="button" className="btn btn-sm" disabled={invalidDateFilter} onClick={()=>change(filterDraft)}>Apply</button><button type="button" className="btn btn-sm btn-ghost" onClick={()=>{if(filterDetailsRef.current)filterDetailsRef.current.open=false;}}>Close</button></div>
+        <div className="authoritative-list-more-filter-actions">{invalidDateFilter&&<span className="muted sm" role="alert">Use YYYY-MM-DD.</span>}<button type="button" className="btn btn-sm btn-ghost" onClick={()=>setFilterDraft({status:bill?'ALL':state.status,from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset</button><button type="button" className="btn btn-sm" disabled={invalidDateFilter} onClick={()=>change(filterDraft)}>Apply</button><button type="button" className="btn btn-sm btn-ghost" onClick={()=>{if(filterDetailsRef.current)filterDetailsRef.current.open=false;}}>Close</button></div>
       </div></details>
       <button type="button" className="btn btn-sm btn-ghost" disabled={!state.query&&!appliedScope.length} onClick={()=>change({query:'',status:'ALL',transactionType:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset filters</button>
       <span className="result-count" aria-live="polite">{visibleResultCount} {visibleResultCount===1?'result':'results'}</span>
