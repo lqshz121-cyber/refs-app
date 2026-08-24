@@ -17,6 +17,7 @@ test('workflow roles are frozen single-authority exact replacements and exclude 
     assert.equal(assertWorkflowRoleSafety(definition),definition);
   }
   assert.deepEqual(AUTHORITATIVE_WORKFLOW_ROLES.WBS_SNAPSHOT_IMPORTER_SERVICE,{authorityClass:'SERVICE',principalKind:'SERVICE',permissions:['WBS.SNAPSHOT.IMPORT']});
+  assert.deepEqual(AUTHORITATIVE_WORKFLOW_ROLES.OUTBOX_DISPATCHER_SERVICE,{authorityClass:'SERVICE',principalKind:'SERVICE',permissions:['OUTBOX.DISPATCH']});
   assert.deepEqual(permissions('WBS_OPERATOR_ATTESTER'),['WBS.AUTOREC.VIEW','WBS.PAYABLE.OPERATOR_ATTEST']);
   assert.equal(permissions('WBS_PAYABLE_MAKER').includes('GL.JE.SUBMIT'),false);
   assert.equal(permissions('BANK_RECONCILIATION_MAKER').includes('GL.JE.SUBMIT'),false);
@@ -92,4 +93,10 @@ test('provider service role is finite, exact, platform-synced, and unavailable t
   await assert.rejects(grantAuthenticatedWorkflowRole(pool,serviceConfig,{authenticator:{authenticate:async()=>({tenantId:serviceConfig.tenantId,actorId:'auth0|human'})}}),error=>error.code==='WORKFLOW_ROLE_SCOPE_DENIED');
   await assert.rejects(grantConfiguredServiceWorkflowRole(pool,{...serviceConfig,serviceActorId:'short'}),error=>error.code==='WORKFLOW_ROLE_SERVICE_PRINCIPAL_DENIED');
   await assert.rejects(grantConfiguredServiceWorkflowRole(pool,serviceConfig,{principalProvider:async()=>({trusted:false,serviceId:'platform-iam-sync'})}),error=>error.code==='GRANT_SYNC_PRINCIPAL_DENIED');
+});
+
+test('outbox dispatcher uses its dedicated service actor and exact replacement bundle',()=>{
+  const config=authoritativeWorkflowRoleGrantConfig({...base,REFS_WORKFLOW_ROLE:'OUTBOX_DISPATCHER_SERVICE',OUTBOX_DISPATCH_ACTOR_ID:'service|refs-outbox-dispatch',REFS_AUTHENTICATED_ACCESS_TOKEN:undefined,OIDC_ISSUER:undefined,OIDC_AUDIENCE:undefined,OIDC_JWKS_URI:undefined});
+  assert.equal(config.serviceActorId,'service|refs-outbox-dispatch');assert.equal(config.principalKind,'SERVICE');assert.equal(config.authorityClass,'SERVICE');assert.deepEqual(config.permissions,['OUTBOX.DISPATCH']);
+  assert.throws(()=>authoritativeWorkflowRoleGrantConfig({...base,REFS_WORKFLOW_ROLE:'OUTBOX_DISPATCHER_SERVICE',OUTBOX_DISPATCH_ACTOR_ID:''}),error=>error.code==='WORKFLOW_ROLE_CONFIG_MISSING');
 });

@@ -15,6 +15,7 @@ export const AUTHORITATIVE_WORKFLOW_ROLES=Object.freeze({
   WBS_SNAPSHOT_IMPORTER_SERVICE:role('SERVICE',['WBS.SNAPSHOT.IMPORT'],{principalKind:'SERVICE'}),
   ATTACHMENT_SCANNER_SERVICE:role('SERVICE',['ATTACHMENT.FINALIZE'],{principalKind:'SERVICE'}),
   ATTACHMENT_CLEANUP_SERVICE:role('SERVICE',['ATTACHMENT.CLEANUP'],{principalKind:'SERVICE'}),
+  OUTBOX_DISPATCHER_SERVICE:role('SERVICE',['OUTBOX.DISPATCH'],{principalKind:'SERVICE'}),
   WBS_OPERATOR_ATTESTER:role('ATTEST',['WBS.AUTOREC.VIEW','WBS.PAYABLE.OPERATOR_ATTEST']),
   AI_CONTROLLER_REVIEWER:role('ANALYSIS',[...READ,'AI.ANALYSIS.EXPLAIN','AI.AMORTIZATION.VIEW','AI.ACCOUNTING.SETTINGS.VIEW']),
   AI_FINDING_ASSIGNER:role('ASSIGN',[...READ,'AI.FINDING.ASSIGN']),
@@ -95,7 +96,10 @@ export function authoritativeWorkflowRoleGrantConfig(environment=process.env){
   const validUntil=required(environment,'REFS_WORKFLOW_GRANT_VALID_UNTIL');
   if(!validUtc(validUntil))throw new KernelError('WORKFLOW_ROLE_CONFIG_INVALID','Workflow role grant expiry must be a canonical UTC timestamp');
   const common={tenantId,entityId,role:roleName,principalKind:definition.principalKind,authorityClass:definition.authorityClass,permissions:[...definition.permissions],validUntil,expectedVersion,idempotencyKey};
-  if(definition.principalKind==='SERVICE')return Object.freeze({...common,serviceActorId:required(environment,'WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID')});
+  if(definition.principalKind==='SERVICE'){
+    const actorKey=roleName==='OUTBOX_DISPATCHER_SERVICE'?'OUTBOX_DISPATCH_ACTOR_ID':'WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID';
+    return Object.freeze({...common,serviceActorId:required(environment,actorKey)});
+  }
   return Object.freeze({...common,accessToken:required(environment,'REFS_AUTHENTICATED_ACCESS_TOKEN'),issuer:required(environment,'OIDC_ISSUER'),audience:required(environment,'OIDC_AUDIENCE'),jwksUri:required(environment,'OIDC_JWKS_URI')});
 }
 

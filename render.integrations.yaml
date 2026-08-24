@@ -165,3 +165,55 @@ services:
           type: web
           name: refs-accounting-api-integrations-staging
           envVarKey: S3_SESSION_TOKEN
+  # Dedicated transactional-outbox dispatcher. It has no API listener and must
+  # receive only the SERVICE-scoped OUTBOX.DISPATCH grant for each listed tenant.
+  - type: worker
+    name: refs-outbox-dispatch-staging
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: npm run start:outbox-dispatch
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: REFS_PG_REQUIRED
+        value: "1"
+      - key: DATABASE_URL
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-staging
+          envVarKey: DATABASE_URL
+      - key: MIGRATION_DATABASE_URL
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-staging
+          envVarKey: MIGRATION_DATABASE_URL
+      - key: CONTEXT_ISSUER_DATABASE_URL
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-staging
+          envVarKey: CONTEXT_ISSUER_DATABASE_URL
+      - key: GRANT_SYNC_DATABASE_URL
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-staging
+          envVarKey: GRANT_SYNC_DATABASE_URL
+      - key: OUTBOX_DISPATCH_ACTOR_ID
+        sync: false
+      - key: OUTBOX_DISPATCH_SCOPES
+        sync: false
+      - key: OUTBOX_PUBLISH_URL
+        sync: false
+      - key: OUTBOX_PUBLISH_TOKEN
+        sync: false
+      - key: OUTBOX_DISPATCH_BATCH
+        value: "100"
+      - key: OUTBOX_DISPATCH_INTERVAL_MS
+        value: "5000"
+      - key: OUTBOX_DISPATCH_LEASE_SECONDS
+        value: "300"
+      - key: OUTBOX_DISPATCH_MAX_ATTEMPTS
+        value: "8"
+      - key: OUTBOX_DISPATCH_RETRY_BASE_SECONDS
+        value: "5"

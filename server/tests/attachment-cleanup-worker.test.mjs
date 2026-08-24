@@ -1,6 +1,8 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {AttachmentCleanupWorker} from '../runtime/attachment-cleanup-worker.mjs';
 import {attachmentCleanupConfig} from '../runtime/start-attachment-cleanup-worker.mjs';
+import './outbox-dispatcher.test.mjs';
+import './outbox-dispatch-retry-279-contract.test.mjs';
 
 const principal={trusted:true,actorId:'cleanup-service',roleCode:'SERVICE'};const scope={tenantId:'t1',entityId:'e1'};
 test('production composition requires a dedicated actor and explicit entity scopes',()=>{const base={ATTACHMENT_CLEANUP_ACTOR_ID:'cleanup-service',ATTACHMENT_CLEANUP_SCOPES:JSON.stringify([scope]),S3_ENDPOINT:'https://s3.example.com',S3_BUCKET:'refs',S3_REGION:'us-east-1',S3_ACCESS_KEY_ID:'key',S3_SECRET_ACCESS_KEY:'secret'};assert.equal(attachmentCleanupConfig(base).actorId,'cleanup-service');assert.throws(()=>attachmentCleanupConfig({...base,ATTACHMENT_CLEANUP_ACTOR_ID:''}),/required/);assert.throws(()=>attachmentCleanupConfig({...base,ATTACHMENT_CLEANUP_SCOPES:'[]'}),/tenantId\/entityId/);});

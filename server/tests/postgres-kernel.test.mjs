@@ -1967,6 +1967,23 @@ pgTest('formal IAM grant sync reconciles and revokes desired state with version,
   await adminPool.query("UPDATE permission_catalog SET active=true,version=version+1 WHERE permission_code='AP.VIEW'");
 });
 
+pgTest('outbox dispatcher reclaims expired leases and separates retry, dead-letter, and publish completion',async()=>{
+  const ids=await seed(),firstId=randomUUID(),secondId=randomUUID(),payload={schema_version:'OUTBOX_TEST_EVENT_V1',value:'retained'};
+  const payloadHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[JSON.stringify(payload)])).rows[0].hash;
+  for(const eventId of [firstId,secondId])await adminPool.query(`INSERT INTO outbox_event(outbox_event_id,tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash)
+    VALUES($1,$2,$3,'OUTBOX_TEST',$1,'OUTBOX_TEST_EVENT',$4::jsonb,$5)`,[eventId,ids.tenantId,ids.entityId,JSON.stringify(payload),payloadHash]);
+  const first=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'outbox-worker-one',['OUTBOX.DISPATCH'])});
+  const claimed=await first.claimOutboxV2({tenantId:ids.tenantId,limit:1,leaseSeconds:5});assert.equal(claimed.length,1);assert.equal(claimed[0].attempt_count,1);assert.equal(claimed[0].locked_by,'outbox-worker-one');
+  await adminPool.query("UPDATE outbox_event SET locked_at=clock_timestamp()-interval '10 seconds' WHERE outbox_event_id=$1",[claimed[0].outbox_event_id]);
+  const second=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'outbox-worker-two',['OUTBOX.DISPATCH'])}),reclaimed=await second.claimOutboxV2({tenantId:ids.tenantId,limit:1,leaseSeconds:5});assert.equal(reclaimed.length,1);assert.equal(reclaimed[0].outbox_event_id,claimed[0].outbox_event_id);assert.equal(reclaimed[0].attempt_count,2);assert.equal(reclaimed[0].locked_by,'outbox-worker-two');
+  const dead=await second.completeOutboxV2({tenantId:ids.tenantId,eventId:reclaimed[0].outbox_event_id,success:false,retryable:true,errorCode:'EVENT_BUS_UNAVAILABLE',maxAttempts:2,retryBaseSeconds:1});assert.equal(dead.status,'FAILED');assert.equal(dead.retry_scheduled,false);
+  const next=(await second.claimOutboxV2({tenantId:ids.tenantId,limit:1,leaseSeconds:5}))[0],retry=await second.completeOutboxV2({tenantId:ids.tenantId,eventId:next.outbox_event_id,success:false,retryable:true,errorCode:'EVENT_BUS_UNAVAILABLE',maxAttempts:3,retryBaseSeconds:1});assert.equal(retry.status,'PENDING');assert.equal(retry.retry_scheduled,true);
+  await adminPool.query('UPDATE outbox_event SET available_at=clock_timestamp() WHERE outbox_event_id=$1',[next.outbox_event_id]);const finalClaim=(await second.claimOutboxV2({tenantId:ids.tenantId,limit:1,leaseSeconds:5}))[0],published=await second.completeOutboxV2({tenantId:ids.tenantId,eventId:finalClaim.outbox_event_id,success:true});assert.equal(published.status,'PUBLISHED');assert.equal(published.retry_scheduled,false);
+  const states=(await adminPool.query('SELECT outbox_event_id,status,attempt_count,locked_by,locked_at,last_error,published_at IS NOT NULL published FROM outbox_event WHERE outbox_event_id=ANY($1::uuid[]) ORDER BY outbox_event_id',[ [firstId,secondId] ])).rows;assert.deepEqual(states.map(row=>[row.status,row.attempt_count,row.locked_by,row.locked_at,row.last_error,row.published]).sort(),[['FAILED',2,null,null,'EVENT_BUS_UNAVAILABLE',false],['PUBLISHED',2,null,null,null,true]].sort());
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ordinary-reader',[])});await assert.rejects(denied.claimOutboxV2({tenantId:ids.tenantId,limit:10,leaseSeconds:5}),error=>error.code==='42501');
+  const other=await seed();await assert.rejects(second.claimOutboxV2({tenantId:other.tenantId,limit:1,leaseSeconds:5}),error=>error.code==='42501');
+});
+
 pgTest('finite human role sync enforces exact replacement, service-only deny, expiry, and context SoD',async()=>{
   const ids=await seed(),actor='auth0|finite-human-role',validUntil=new Date(Date.now()+60*60*1000).toISOString();
   const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
@@ -3179,10 +3196,10 @@ pgTest('posted journal, ledger, audit and outbox payload are immutable; outbox c
   await adminPool.query("INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency) VALUES($1,$2,'OUTBOX-B','WBS','OUTBOX-B','Outbox B','USD')",[entityB,ids.tenantId]);
   await adminPool.query("INSERT INTO outbox_event(outbox_event_id,tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash) VALUES($1,$2,$3,'TEST',$4,'ENTITY_B_EVENT','{}',$5)",[eventB,ids.tenantId,entityB,aggregateB,hash('entity-b-event')]);
   const dispatcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'worker-1',['OUTBOX.DISPATCH'])});
-  assert.equal((await dispatcher.claimOutbox({tenantId:ids.tenantId})).length,1);
-  await assert.rejects(dispatcher.completeOutbox({tenantId:ids.tenantId,eventId:eventB,success:true}),error=>error.code==='42501');
+  assert.equal((await dispatcher.claimOutboxV2({tenantId:ids.tenantId,limit:100,leaseSeconds:30})).length,1);
+  await assert.rejects(dispatcher.completeOutboxV2({tenantId:ids.tenantId,eventId:eventB,success:true}),error=>error.code==='42501');
   const second=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'worker-2',['OUTBOX.DISPATCH'])});
-  assert.equal((await second.claimOutbox({tenantId:ids.tenantId})).length,0);
+  assert.equal((await second.claimOutboxV2({tenantId:ids.tenantId,limit:100,leaseSeconds:30})).length,0);
 });
 
 /* AP payment reversal integration is reserved for the AP/AR owner suite. */
