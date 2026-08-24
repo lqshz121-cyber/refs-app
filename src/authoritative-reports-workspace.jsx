@@ -126,7 +126,7 @@ const UNAVAILABLE_REPORT_SHORTCUTS=Object.freeze([
 // or property-operation records are available in the browser.
 const PROPERTY_REPORT_SHORTCUTS=Object.freeze([
   ['PROPERTY_PROFITABILITY','Property P&L','Review property income and expenses.','OPERATING_ANALYSIS','PROPERTY'],
-  ['PROJECT_PROFITABILITY','Project P&L','Review project income and expenses.','OPERATING_ANALYSIS','PROJECT'],
+  ['PROJECT_PROFITABILITY','Project Profitability Summary','Review exact-project POSTED income and expense evidence.','OPERATING_ANALYSIS','PROJECT'],
   ['UNIT_PROFITABILITY','Unit profitability','Review unit income and expenses.','OPERATING_ANALYSIS','UNIT'],
   ['LOT_PROFITABILITY','Lot profitability','Review lot income and expenses.','OPERATING_ANALYSIS','LOT'],
   ['CWIP_ROLLFORWARD','CWIP rollforward','Review CWIP activity and balances.','CASH_AND_CAPITAL',null],
@@ -208,7 +208,7 @@ export const normalizeAuthoritativeReportsCatalog=value=>{
   const preview=REPORTS.some(([key])=>key===candidate.preview)?candidate.preview:DEFAULT_AUTHORITATIVE_REPORTS_CATALOG.preview;
   return {category,query,preview};
 };
-const DIMENSION_TYPES=Object.freeze([['PROPERTY','Property P&L'],['PROJECT','Project P&L'],['UNIT','Unit profitability'],['LOT','Lot profitability']]);
+const DIMENSION_TYPES=Object.freeze([['PROPERTY','Property P&L'],['PROJECT','Project Profitability Summary'],['UNIT','Unit profitability'],['LOT','Lot profitability']]);
 const fixed4=value=>{const match=/^(-?)([0-9]+)\.([0-9]{4})$/.exec(String(value??'0.0000'));if(!match)return 0n;return BigInt(`${match[1]}${match[2]}${match[3]}`);};
 const fixed4String=value=>{const negative=value<0n,absolute=negative?-value:value,digits=absolute.toString().padStart(5,'0');return `${negative?'-':''}${digits.slice(0,-4)}.${digits.slice(-4)}`;};
 const add=(...values)=>fixed4String(values.reduce((sum,value)=>sum+fixed4(value),0n));
