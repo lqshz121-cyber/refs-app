@@ -41,25 +41,28 @@ export function createAiFullControllerModelService({gateway,repository}={}){
       assertAiFullControllerModelInputManifest(inputManifest);
       const expectedRunHash=buildAiFullControllerModelRunHash({actorId,idempotencyKey,inputManifest});
       const run=await repository.beginAiFullControllerModelRun({actorId,idempotencyKey,inputManifest});
-      if(run?.state==='REPLAY'){if(!exact(run,['output','state']))fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Durable replay receipt is not closed.');return buildBoundOutput({inputManifest,chunkResponses:run.output?.chunk_responses,finalMemo:run.output?.final_memo,idempotencyKey});}
+      if(run?.state==='REPLAY'){if(!exact(run,['output','runHash','state'])||run.runHash!==expectedRunHash)fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Durable replay receipt is not bound to the exact run request.');return buildBoundOutput({inputManifest,chunkResponses:run.output?.chunk_responses,finalMemo:run.output?.final_memo,idempotencyKey});}
       if(!exact(run,['runHash','state'])||run.state!=='STARTED'||run.runHash!==expectedRunHash)fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Durable model run reservation is not bound to the exact actor, idempotency key, and input manifest.');
       const responses=[];
       try{
         for(const [index,chunk] of inputManifest.chunks.entries()){
           const reservation=await repository.beginAiFullControllerModelChunk({actorId,idempotencyKey,runHash:run.runHash,chunkIndex:index,chunkHash:chunk.chunk_hash});
-          if(reservation?.state==='STARTED'?!exact(reservation,['state']):reservation?.state==='REPLAY'?!exact(reservation,['response','state']):true)fail('AI_FULL_SCAN_MODEL_CHUNK_RECEIPT_INVALID','Durable chunk reservation was not established.');
+          const reservationKeys=reservation?.state==='STARTED'?['chunkHash','chunkIndex','runHash','state']:reservation?.state==='REPLAY'?['chunkHash','chunkIndex','response','runHash','state']:[];
+          if(!exact(reservation,reservationKeys)||reservation.runHash!==run.runHash||reservation.chunkIndex!==index||reservation.chunkHash!==chunk.chunk_hash)fail('AI_FULL_SCAN_MODEL_CHUNK_RECEIPT_INVALID','Durable chunk reservation is not bound to the exact run and chunk.');
           let sealed;
           if(reservation.state==='REPLAY')sealed=sealAiFullControllerModelChunkResponse({inputManifest,response:assertChunkTrace(reservation.response,idempotencyKey,index),index});
           else{
             const traceId=`${idempotencyKey}:chunk:${index}`,output=assertGatewayOutput(await gateway.analyzeJson({traceId,traceName:'refs-ai-full-controller-chunk',actorId,facts:chunk,systemInstruction:'Analyze only the retained findings in this exact chunk. Cite every provided finding UUID exactly once under its provided category. Do not invent facts, sources, balances, journal entries, approvals, or authority. All action flags must remain false.',jsonSchema:chunkSchema}),traceId);
             sealed=sealAiFullControllerModelChunkResponse({inputManifest,response:chunkResponse(inputManifest,index,output),index});
             const persisted=await repository.completeAiFullControllerModelChunk({actorId,idempotencyKey,runHash:run.runHash,chunkIndex:index,chunkHash:chunk.chunk_hash,response:sealed});
-            sealed=sealAiFullControllerModelChunkResponse({inputManifest,response:persisted,index});
+            if(!exact(persisted,['response','runHash'])||persisted.runHash!==run.runHash)fail('AI_FULL_SCAN_MODEL_CHUNK_RECEIPT_INVALID','Durable chunk completion is not bound to the exact run.');
+            sealed=sealAiFullControllerModelChunkResponse({inputManifest,response:persisted.response,index});
           }
           responses.push(sealed);
         }
         const hashes=responses.map(item=>item.response_hash),reduction=buildAiFullControllerMemoReduction({inputManifest,sealedChunkResponses:responses}),memoReservation=await repository.beginAiFullControllerModelMemo({actorId,idempotencyKey,runHash:run.runHash,chunkResponseHashes:hashes,reductionManifest:reduction});
-        if(memoReservation?.state==='STARTED'?!exact(memoReservation,['state']):memoReservation?.state==='REPLAY'?!exact(memoReservation,['response','state']):true)fail('AI_FULL_SCAN_MODEL_MEMO_RECEIPT_INVALID','Durable memo reservation was not established.');
+        const memoKeys=memoReservation?.state==='STARTED'?['chunkResponseHashes','reductionHash','runHash','state']:memoReservation?.state==='REPLAY'?['chunkResponseHashes','reductionHash','response','runHash','state']:[];
+        if(!exact(memoReservation,memoKeys)||memoReservation.runHash!==run.runHash||memoReservation.reductionHash!==reduction.reduction_hash||JSON.stringify(memoReservation.chunkResponseHashes)!==JSON.stringify(hashes))fail('AI_FULL_SCAN_MODEL_MEMO_RECEIPT_INVALID','Durable memo reservation is not bound to the exact run, reduction, and chunk receipts.');
         let finalMemo;
         if(memoReservation.state==='REPLAY')finalMemo=assertMemoTrace(memoReservation.response,idempotencyKey);
         else{
@@ -68,8 +71,8 @@ export function createAiFullControllerModelService({gateway,repository}={}){
         }
         const result=buildBoundOutput({inputManifest,chunkResponses:responses,finalMemo,idempotencyKey});
         const persisted=await repository.completeAiFullControllerModelRun({actorId,idempotencyKey,runHash:run.runHash,output:result});
-        if(!persisted||typeof persisted!=='object')fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Durable model run completion did not return retained output.');
-        return buildBoundOutput({inputManifest,chunkResponses:persisted.chunk_responses,finalMemo:persisted.final_memo,idempotencyKey});
+        if(!exact(persisted,['output','runHash'])||persisted.runHash!==run.runHash)fail('AI_FULL_SCAN_MODEL_RUN_INVALID','Durable model run completion is not bound to the exact run.');
+        return buildBoundOutput({inputManifest,chunkResponses:persisted.output?.chunk_responses,finalMemo:persisted.output?.final_memo,idempotencyKey});
       }catch(error){
         await repository.abandonAiFullControllerModelStage({actorId,idempotencyKey,runHash:run.runHash,errorCode:error?.code||'AI_FULL_SCAN_MODEL_EXECUTION_FAILED'}).catch(()=>{});
         if(/^AI_FULL_SCAN_MODEL_/.test(error?.code||''))throw error;
