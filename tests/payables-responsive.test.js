@@ -16,8 +16,8 @@ assert.match(workspace,/<summary aria-label=\{bill&&moreFilterCount\?`Filter, \$
   'the collapsed disclosure must keep the observed concise Expenses label and surface its active-filter count only to assistive technology');
 assert.match(workspace,/ref=\{filterDetailsRef\}[\s\S]*?>Close<\/button>/,
   'the contained Expenses filter must expose the observed explicit Close action without changing list state');
-assert.match(workspace,/<label>\{bill\?'Payee':'Customer'\} <select/,
-  'the responsive contract must retain the observed Expenses Payee and authoritative AR Customer selectors');
+assert.match(workspace,/<label>\{bill\?'Vendor':'Customer'\} <select/,
+  'the responsive contract must retain the observed AP Vendor and authoritative AR Customer selectors');
 assert.match(workspace,/type="text" inputMode="numeric" autoComplete="off" maxLength=\{10\} pattern="\[0-9\]\{4\}-\[0-9\]\{2\}-\[0-9\]\{2\}" placeholder="YYYY-MM-DD"/,
   'date filters must expose one stable English YYYY-MM-DD contract instead of a browser-localized native control');
 assert.doesNotMatch(workspace,/<input type="date"[^>]*filterDraft/,
