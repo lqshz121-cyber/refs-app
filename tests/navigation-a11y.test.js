@@ -92,6 +92,8 @@ assert.match(authoritativeTopbar,/<Icon name="menu" size=\{24\}\/>/,'the active 
 assert.match(authoritative,/<Icon name="menu" size=\{24\}\/>/,'the retained duplicate shell must not reintroduce clipped Menu text');
 assert.doesNotMatch(`${authoritativeTopbar}\n${authoritative}`,/>Menu<\/button>/,'authoritative navigation openers must not overflow their fixed square control');
 assert.match(ui,/menu:\s+\['M4\.5 6\.5h15', 'M4\.5 12h15', 'M4\.5 17\.5h15'\]/,'the menu glyph must stay in the self-authored currentColor icon family');
+assert.match(ui,/users:\s+\['M8\.8 11\.2a3\.3 3\.3 0 1 0 0-6\.6/,
+  'vendor and contractor navigation must use the shared self-authored people glyph rather than a text tile or third-party asset');
 assert.match(styles,/\.mobile-nav-btn svg\{display:block;width:24px;height:24px;\}/,'the 24px menu glyph must remain contained inside the fixed navigation control');
 
 // The authoritative surface must expose the same presentation-only theme
@@ -174,8 +176,10 @@ for(const shortLabel of ['Settings','Operations','Admin']) assert.match(authorit
   `${shortLabel} must remain a distinct readable primary workspace label`);
 assert.match(authoritativeShell,/<Icon name=\{ITEM_ICONS\[item\.route\] \|\| 'document'\} size=\{18\}\/>/,
   'the readable navigation row must render its icon at a compact, consistent size');
-assert.match(authoritativeShell,/payables:'wallet', receivables:'inbox'/,
+assert.match(authoritativeShell,/payables:'wallet'[\s\S]*receivables:'inbox'/,
   'Payables and Receivables must use distinct glyphs from the same shared line-icon vocabulary');
+assert.match(authoritativeShell,/payables:'wallet', vendors:'users', 'bill-payments':'wallet', contractors:'users', '1099s':'document', receivables:'inbox'/,
+  'Expenses children must use explicit semantic line-icon mappings instead of the shared document fallback');
 assert.doesNotMatch(authoritativeShell,/compactLabel|authoritative-nav-status|API_READ|Unavailable/,
   'navigation rows must not expose implementation statuses or letter abbreviations to finance readers');
 assert.match(unavailableWorkspace,/READ ONLY/,
