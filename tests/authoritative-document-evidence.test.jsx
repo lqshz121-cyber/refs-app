@@ -72,7 +72,8 @@ assert.doesNotMatch(apArPresentationSource,/seed\.js|repo\.js|localStorage|legac
   'the AP/AR presentation shell must receive authority facts as slots and never load local or API state itself');
 assert.doesNotMatch(workspaceMarkup,/Document and adjustment evidence/,'the compact workspace must not repeat a long internal contract block');
 assert.match(workspaceMarkup,/Search <input/);
-assert.match(workspaceMarkup,/<summary>Filter \(4\)<\/summary>/,'Expenses must use the observed concise QBO Filter label while showing its active-filter count');
+assert.match(workspaceMarkup,/<summary aria-label="Filter, 4 active filters">Filter<\/summary>/,'Expenses must keep the observed concise QBO Filter label while retaining the active-filter count for assistive technology');
+assert.doesNotMatch(workspaceMarkup,/>Filter \(4\)</,'Expenses must not expose its internal active-filter count in the compact visible toolbar');
 assert.doesNotMatch(workspaceMarkup,/<summary>More filters/,'Expenses must not retain the longer disclosure label');
 assert.match(workspaceMarkup,/>From <input[^>]*type="text"[^>]*inputMode="numeric"[^>]*placeholder="YYYY-MM-DD"/);
 assert.match(workspaceMarkup,/>To <input[^>]*type="text"[^>]*inputMode="numeric"[^>]*placeholder="YYYY-MM-DD"/,'Expenses must use the observed QBO From / To labels without exposing a browser-localized native date placeholder');
