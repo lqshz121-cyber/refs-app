@@ -1994,7 +1994,7 @@ pgTest('manual Journal risk retains a HIGH no-attachment finding when ordinary s
   const snapshot={schema_version:'AI_MANUAL_JOURNAL_RISK_POLICY_SNAPSHOT_V1',rule_id:'AI_MANUAL_JOURNAL_RISK_V1',policy_version:1,large_manual_journal_threshold:'10000.0000',round_amount_increment:'100.0000'};
   const snapshotHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[JSON.stringify(snapshot)])).rows[0].hash;
   await adminPool.query(`INSERT INTO setting_snapshot(tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
-    VALUES($1,$2,'AI_MANUAL_JOURNAL_RISK_POLICY','ENTITY',$2::text,1,'2026-01-01','2027-01-01','APPROVED',$3::jsonb,$4,'policy-maker','policy-approver',now())`,[ids.tenantId,ids.entityId,JSON.stringify(snapshot),snapshotHash]);
+    VALUES($1,$2::uuid,'AI_MANUAL_JOURNAL_RISK_POLICY','ENTITY',($2::uuid)::text,1,'2026-01-01','2027-01-01','APPROVED',$3::jsonb,$4,'policy-maker','policy-approver',now())`,[ids.tenantId,ids.entityId,JSON.stringify(snapshot),snapshotHash]);
   const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'manual-je-risk-controller',['AI.ANALYSIS.EXPLAIN'])});
   const inputs=await kernel.listAiManualJournalRiskInputs({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:500});
   const policy=await kernel.getAiManualJournalRiskPolicy({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId});
