@@ -117,8 +117,12 @@ BEGIN
   IF fn LIKE '%WBS.TEST.IMPORT%' THEN RAISE EXCEPTION 'Could not remove SERVICE assertion from payment source bind'; END IF;
   EXECUTE fn;
   SELECT pg_get_functiondef('refs_propose_wbs_test_bank_match_config(uuid,uuid)'::regprocedure) INTO fn;
-  fn:=regexp_replace(fn,E'\\s*PERFORM\\s+(public\\.)?refs_assert_scope\\s*\\([^;]*''WBS\\.TEST\\.IMPORT''[^;]*\\);','','g');
-  fn:=regexp_replace(fn,E'\\s*PERFORM\\s+(public\\.)?refs_assert_scope\\s*\\([^;]*''AP\\.PAYMENT\\.CREATE''[^;]*\\);',' PERFORM refs_assert_scope(p_tenant,p_entity,''BANK.MATCH.CREATE'');','g');
+  -- This proposal writes TEST_ONLY configuration evidence, so its permission
+  -- literal and audit receipt must both identify the one human Match-maker
+  -- authority.  pg_get_functiondef may add casts/qualification; replacing the
+  -- quoted permission literal is intentionally independent of its formatting.
+  fn:=replace(fn,'''WBS.TEST.IMPORT''','''BANK.MATCH.CREATE''');
+  fn:=replace(fn,'''AP.PAYMENT.CREATE''','''BANK.MATCH.CREATE''');
   IF fn LIKE '%WBS.TEST.IMPORT%' OR fn LIKE '%AP.PAYMENT.CREATE%' OR fn NOT LIKE '%BANK.MATCH.CREATE%' THEN RAISE EXCEPTION 'Could not split Bank Match configuration proposal authority'; END IF;
   EXECUTE fn;
 END $match_boundary$;
