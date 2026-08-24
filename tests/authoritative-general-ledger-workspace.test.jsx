@@ -19,12 +19,14 @@ test('General Ledger workspace is a retained read-only, contained-table surface'
   const styles=fs.readFileSync('index.html','utf8');
   const markup=renderToStaticMarkup(<AuthoritativeGeneralLedgerWorkspace config={displayConfig} fetcher={async()=>new Response(JSON.stringify({ok:true,data:[]}),{status:200})}/>);
   const reportsMarkup=renderToStaticMarkup(<AuthoritativeGeneralLedgerWorkspace config={displayConfig} fetcher={async()=>new Response(JSON.stringify({ok:true,data:[]}),{status:200})} onBack={()=>{}}/>);
+  const accountReportMarkup=renderToStaticMarkup(<AuthoritativeGeneralLedgerWorkspace config={displayConfig} fetcher={async()=>new Response(JSON.stringify({ok:true,data:[]}),{status:200})} initialAccountCode="111000" backLabel="Back to Chart of accounts" onBack={()=>{}}/>);
   for(const text of ['Apply','Loading…','results'])assert.match(markup,new RegExp(text));
   assert.match(markup,/<button type="button" class="btn btn-sm" disabled="">Apply<\/button>/,'GL must block duplicate filter reads during loading');
   assert.match(markup,/<button type="button" class="btn btn-sm btn-ghost" disabled="">Loading…<\/button>/,'GL must expose one disabled in-progress refresh state');
   assert.match(markup,/<span class="result-count" aria-live="polite">/,'GL result changes must be announced without another summary panel');
   assert.match(markup,/Review posted ledger activity\./);assert.match(markup,/ACCOUNTING/);assert.doesNotMatch(markup,/GENERAL LEDGER · POSTED EVIDENCE|Read-only POSTED ledger lines from the accounting API\./,'the list header must not repeat its title or expose evidence implementation terminology');
   assert.doesNotMatch(markup,/Back to standard reports/,'direct Accounting navigation must not pretend it has a Reports parent');assert.match(reportsMarkup,/Back to standard reports/,'the Reports entry must render the observed full-page catalog Back action');
+  assert.match(accountReportMarkup,/value="111000"/,'a COA report must start with the selected exact account code');assert.match(accountReportMarkup,/Back to Chart of accounts/,'a COA report must return to its exact parent');
   assert.match(markup,/Entity Wan Pacific Real Estate Development LLC \| period 2026-08/);assert.doesNotMatch(markup,/>Entity 11111111-1111-4111-8111-111111111111/);
   assert.match(markup,/<details class="authoritative-return-context"><summary>Scope rules<\/summary>/);assert.doesNotMatch(markup,/General Ledger reading path/);
   const source=String(AuthoritativeGeneralLedgerWorkspace);for(const text of ['Transaction date','Distribution account','View details','Details','Page','scroll horizontally','ad-hoc date overrides are not supplied'])assert.match(source,new RegExp(text));
