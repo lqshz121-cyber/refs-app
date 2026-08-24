@@ -29,6 +29,8 @@ assert.ok(AUTHORITATIVE_ROUTES.includes('revenue-recognition'),'the observed Acc
 assert.equal(navigationItemForRoute('revenue-recognition')?.availability,'API_UNAVAILABLE','Revenue recognition must fail closed until an immutable schedule reader exists');
 assert.ok(AUTHORITATIVE_ROUTES.includes('audit-log'),'the observed QBO Audit Log must remain directly discoverable without exposing incomplete audit fragments');
 assert.equal(navigationItemForRoute('audit-log')?.availability,'API_UNAVAILABLE','Audit Log must fail closed until a permission-scoped cross-workflow audit reader exists');
+assert.ok(AUTHORITATIVE_ROUTES.includes('my-accountant'),'the observed QBO My accountant entry must remain discoverable without granting collaboration or invitation authority');
+assert.equal(navigationItemForRoute('my-accountant')?.availability,'API_UNAVAILABLE','My accountant must fail closed until a permission-scoped accountant-collaboration reader exists');
 assert.ok(AUTHORITATIVE_ROUTES.includes('fixed-assets'),'the observed Accounting navigation must keep Fixed assets discoverable without granting asset or depreciation authority');
 assert.equal(navigationItemForRoute('fixed-assets')?.availability,'API_UNAVAILABLE','Fixed assets must fail closed until an immutable asset-register reader exists');
 assert.ok(AUTHORITATIVE_ROUTES.includes('integration-hub'),'the observed Accounting navigation must keep Integration transactions discoverable without granting connector or import authority');
@@ -51,6 +53,7 @@ const receiptsNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell nav
 const recurringNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="recurring-transactions" expandedGroups={['Accounting Operations']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const revenueRecognitionNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="revenue-recognition" expandedGroups={['Accounting Operations']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const auditLogNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="audit-log" expandedGroups={['Administration']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const myAccountantNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="my-accountant" expandedGroups={['Administration']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const fixedAssetsNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="fixed-assets" expandedGroups={['Accounting Operations']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const rulesNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="rules" expandedGroups={['Accounting Settings']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const closeNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="period-management" expandedGroups={['Close']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
@@ -78,6 +81,8 @@ assert.match(revenueRecognitionNavMarkup,/>Revenue recognition</);assert.match(r
 assert.doesNotMatch(revenueRecognitionNavMarkup,/See report|Manage settings|New schedule|Get started|ASC 606/,'the Accounting navigation must not import revenue schedule, settings, or onboarding actions');
 assert.match(auditLogNavMarkup,/>Audit Log</);assert.match(auditLogNavMarkup,/>Master Data</);assert.match(auditLogNavMarkup,/>Users &amp; settings</);
 assert.doesNotMatch(auditLogNavMarkup,/All Users|This Month|All events|Print Page|Export to CSV/,'the Administration navigation must not import audit filters or external-output actions');
+assert.match(myAccountantNavMarkup,/>My accountant</);assert.match(myAccountantNavMarkup,/>Audit Log</);assert.match(myAccountantNavMarkup,/>Users &amp; settings</);
+assert.doesNotMatch(myAccountantNavMarkup,/Invite|Change role|Subscribe|Find an expert|Intuit Experts/,'the Administration navigation must not import accountant invitations, access changes, subscriptions, or external-service actions');
 assert.match(fixedAssetsNavMarkup,/>Fixed assets</);assert.match(fixedAssetsNavMarkup,/>Revenue recognition</);assert.match(fixedAssetsNavMarkup,/>Prepaid expenses</);
 assert.doesNotMatch(fixedAssetsNavMarkup,/How it works|See reports|Add multiple assets|Add an asset/,'the Accounting navigation must not import asset onboarding or creation actions');
 assert.match(rulesNavMarkup,/>Rules</);assert.match(rulesNavMarkup,/>Accounting settings</);assert.match(rulesNavMarkup,/>Mapping Center</);
@@ -193,6 +198,10 @@ assert.doesNotMatch(revenueRecognitionUnavailableMarkup,/See report|Manage setti
 const auditLogUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('audit-log')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.match(auditLogUnavailableMarkup,/Audit Log is not available yet/);assert.match(auditLogUnavailableMarkup,/role="status"/);
 assert.doesNotMatch(auditLogUnavailableMarkup,/All Users|This Month|All events|Date Changed|History|Expand|Print Page|Export to CSV/,'the unavailable Audit Log route must not reproduce filters, event detail, print, or export actions');
+const myAccountantUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('my-accountant')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
+assert.match(myAccountantUnavailableMarkup,/My accountant is not available yet/);assert.match(myAccountantUnavailableMarkup,/role="status"/);
+assert.match(navigationItemForRoute('my-accountant').requirements.join(' '),/Permission-scoped, entity-bound accountant collaboration records/);
+assert.doesNotMatch(myAccountantUnavailableMarkup,/Invite accountant|Change role|Subscribe|Find an expert|Intuit Experts|Grant access/,'the unavailable My accountant route must not reproduce invitations, permission changes, subscriptions, or external-service actions');
 const fixedAssetsUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('fixed-assets')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.match(fixedAssetsUnavailableMarkup,/Fixed assets is not available yet/);assert.match(fixedAssetsUnavailableMarkup,/role="status"/);
 assert.doesNotMatch(fixedAssetsUnavailableMarkup,/How it works|See reports|Add multiple assets|Add an asset|automate your fixed asset depreciation/,'the unavailable Fixed assets route must not reproduce onboarding, creation, or automatic-depreciation actions');

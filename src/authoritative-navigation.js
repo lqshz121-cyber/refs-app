@@ -141,6 +141,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
   group('Reports', [item('reports', 'Standard reports', 'API_READ'),item('accounting-analysis-report', 'Accounting Analysis Report', 'API_READ')]),
   group('Administration', [
     item('master-data', 'Master Data'), item('bank-accounts', 'Bank Accounts'),
+    item('my-accountant', 'My accountant', 'API_UNAVAILABLE', [
+      'Permission-scoped, entity-bound accountant collaboration records with immutable membership identity, revision, status, firm display name, role, and audit history.',
+      'Read-only accountant access and history endpoints; invitations, role or permission changes, subscriptions, provider calls, and external expert services remain unavailable.',
+    ]),
     item('audit-log', 'Audit Log', 'API_UNAVAILABLE', [
       'Permission-scoped, entity-bound audit events with immutable event identity, timestamp, actor, event type, target identity/revision, correlation, and history facts.',
       'Read-only user, date, event, search, paging, and history-detail endpoints; settings, print, export, provider calls, and accounting mutations remain unavailable.',
