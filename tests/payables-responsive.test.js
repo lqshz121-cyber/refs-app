@@ -23,7 +23,7 @@ assert.match(workspace,/type="text" inputMode="numeric" autoComplete="off" maxLe
 assert.doesNotMatch(workspace,/<input type="date"[^>]*filterDraft/,
   'AP/AR filter dates must never regress to locale-dependent native placeholders');
 assert.match(styles,/\.authoritative-compact-list-filters\{grid-template-columns:minmax\(220px,2fr\) minmax\(150px,1fr\) auto auto auto;\}/,
-  'wide AP/AR lists must keep Search, Status, Filter, Reset and result count on one compact row');
+  'wide Expenses lists must keep Transaction Type, Filter, AP aging, Reset and result count on one compact row');
 assert.match(styles,/\.authoritative-list-more-filter-grid\{display:grid;grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/,
   'expanded secondary filters must use a contained grid instead of lengthening the default page');
 assert.match(styles,/@media\(max-width:1400px\)\{\.authoritative-compact-list-filters,\.authoritative-list-more-filter-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\);\}\}/,
@@ -38,10 +38,12 @@ assert.match(styles,/@media\(max-width:900px\)\{[\s\S]*?\.expense-toolbar>\*\{mi
   'legacy Payables toolbar labels and selects must also fit their tablet grid tracks');
 assert.match(styles,/@media\s*\(max-width:720px\)[\s\S]*?\.authoritative-list-filters\{grid-template-columns:minmax\(0,1fr\);\}/,
   'phone widths must collapse authoritative Payables filters to one safe column');
-assert.match(styles,/@media\(min-width:421px\) and \(max-width:720px\)\{\.authoritative-expense-filter-card \.authoritative-compact-list-filters\{grid-template-columns:minmax\(120px,1fr\) auto auto auto;/,
-  'observed 525px Expenses must keep its secondary controls in one compact row below Search');
-assert.match(styles,/\.authoritative-expense-filter-card \.authoritative-compact-list-filters>label:first-child\{grid-column:1\/-1;\}/,
-  'Expenses Search must retain a full-width first row while secondary controls stay compact');
+assert.match(styles,/@media\(min-width:421px\) and \(max-width:720px\)\{\.authoritative-expense-filter-card \.authoritative-compact-list-filters\{grid-template-columns:minmax\(140px,1fr\) auto auto;/,
+  'observed 525px Expenses must keep Transaction Type, Filter and AP aging in one compact first row');
+assert.match(styles,/\.authoritative-expense-filter-card \.authoritative-compact-list-filters>label:first-child\{grid-column:auto;\}/,
+  'Expenses Transaction Type must not consume a full-width row before the compact filter actions');
+assert.match(styles,/\.authoritative-expense-filter-card \.authoritative-compact-list-filters \.result-count\{grid-column:2\/-1;align-self:center;\}/,
+  'the 525px result count must share the second row without widening the page');
 assert.match(styles,/\.authoritative-document-workspace,\.authoritative-document-workspace>\*,\.authoritative-document-table,\.authoritative-adjustment-table\{min-width:0;max-width:100%;\}/,
   'the authoritative workspace must remain shrinkable while tables own their horizontal scrolling');
 assert.match(styles,/\.authoritative-register-table,\.authoritative-coa-table,\.authoritative-journal-table,\.authoritative-journal-line-table,\.authoritative-general-ledger-table,\.authoritative-document-table,\.authoritative-adjustment-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,
