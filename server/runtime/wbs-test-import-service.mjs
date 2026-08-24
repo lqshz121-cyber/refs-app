@@ -110,10 +110,21 @@ export function assertWbsTestRangeImportResult(value){
 }
 
 export async function reconcileWbsTestImportActorGrants({grantSync,scope}={}){
-  if(typeof grantSync?.reconcile!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Test-import grant sync is unavailable.');
+  if(typeof grantSync?.reconcile!=='function'||typeof grantSync?.currentVersion!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Test-import grant sync is unavailable.');
   assertConfiguration(scope);
   const authority={importer:'SERVICE',reconciliationStarter:'DRAFT',maker:'DRAFT',paymentMaker:'PAYMENT',matchMaker:'DRAFT',submitter:'SUBMIT',reviewer:'REVIEW',approver:'APPROVE',poster:'POST',clearer:'DRAFT',reopener:'REOPEN'};
-  for(const role of ACTOR_ROLES)await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId:scope.actors[role],permissions:WBS_TEST_IMPORT_GRANT_BUNDLES[role],authorityClass:authority[role],validUntil:role==='importer'?null:new Date(Date.now()+60*60*1000).toISOString(),expectedVersion:0,idempotencyKey:`wbs-test-import-${role}-grant-v276`});
+  const humanValidUntil=new Date(Date.now()+60*60*1000).toISOString();
+  for(const role of ACTOR_ROLES){
+    const actorId=scope.actors[role],validUntil=role==='importer'?null:humanValidUntil;
+    let completed=false;
+    for(let attempt=0;attempt<2&&!completed;attempt++){
+      const expectedVersion=await grantSync.currentVersion({tenantId:scope.tenantId,entityId:scope.entityId,actorId});
+      try{
+        await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId,permissions:WBS_TEST_IMPORT_GRANT_BUNDLES[role],authorityClass:authority[role],validUntil,expectedVersion,idempotencyKey:`wbs-test-import-${role}-grant-v278-${expectedVersion}`});
+        completed=true;
+      }catch(error){if(error?.code!=='40001'||attempt===1)throw error;}
+    }
+  }
 }
 
 export function createWbsTestImportService({pilotService,kernelForActor,authorizeBank,scope,resolveScope=null}={}){

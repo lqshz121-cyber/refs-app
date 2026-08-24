@@ -31,6 +31,11 @@ services:
         value: STAGE1_AUTHORITATIVE_ONLY
       - key: REFS_STAGE1_SELF_GRANT_ENABLED
         value: STAGE1_AUTHORITATIVE_ONLY
+      # Finite analysis access required by migration 274. Operators rotate
+      # this timestamp in Render; it must remain between five minutes and
+      # 24 hours when an authenticated reader grant is issued.
+      - key: REFS_STAGE1_GRANT_VALID_UNTIL
+        sync: false
       - key: REFS_STAGE1_TENANT_ID
         value: 6fb25daf-0799-4805-bede-be54230da33c
       - key: REFS_STAGE1_ENTITY_ID

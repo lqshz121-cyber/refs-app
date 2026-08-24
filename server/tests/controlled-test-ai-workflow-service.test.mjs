@@ -54,9 +54,10 @@ test('controlled test AI runner rejects a proposal receipt that conflicts with t
 });
 
 test('controlled test AI grant reconciliation gives each static actor only its frozen permission bundle',async()=>{
-  const seen=[];const result=await reconcileControlledTestAiWorkflowActorGrants({scope,grantSync:{reconcile:async input=>{seen.push(input);return {permissions:input.permissions,version:1,idempotent:false};}}});
+  const seen=[];const result=await reconcileControlledTestAiWorkflowActorGrants({scope,grantSync:{currentVersion:async()=>2,reconcile:async input=>{seen.push(input);return {permissions:input.permissions,version:3,idempotent:false};}}});
   assert.equal(seen.length,7);for(const [role,permissions] of Object.entries(CONTROLLED_TEST_AI_GRANT_BUNDLES))assert.deepEqual(seen.find(row=>row.actorId===actors[role]).permissions,[...permissions]);
   assert.deepEqual(seen.map(row=>row.authorityClass),['SERVICE','PREPARE','DRAFT','SUBMIT','REVIEW','APPROVE','POST']);assert.ok(seen.every(row=>row.validUntil===scope.grantValidUntil));
+  assert.ok(seen.every(row=>row.expectedVersion===2&&row.idempotencyKey.endsWith('-v278-2')));
   assert.equal(Object.keys(result).length,7);
 });
 
