@@ -4263,11 +4263,26 @@ pgTest('isolated financial-statement snapshots retain immutable versioned GL and
   assert.ok(live);assert.deepEqual(live.source_document_ids,[trace.documentId]);
   const preparer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'snapshot-maker',['GL.REPORT.VIEW','GL.REPORT.SNAPSHOT.PREPARE'])});
   const proposal=await preparer.prepareFinancialStatementSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,idempotencyKey:'statement-snapshot-prepare-001'});
-  assert.equal(proposal.status,'PENDING_APPROVAL');assert.equal(proposal.prepared_by,'snapshot-maker');
+  const proposalReplay=await preparer.prepareFinancialStatementSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,idempotencyKey:'statement-snapshot-prepare-001'});
+  assert.equal(proposal.status,'PENDING_APPROVAL');assert.equal(proposal.prepared_by,'snapshot-maker');assert.equal(proposal.idempotent,false);assert.deepEqual(proposalReplay,{...proposal,idempotent:true});
+  const makerQueue=await preparer.readFinancialStatementSnapshotProposalQueue({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,limit:20,offset:0});
+  assert.deepEqual({schema:makerQueue.schema_version,total:makerQueue.total_count,read:makerQueue.read_count,complete:makerQueue.population_complete,canApprove:makerQueue.rows[0].can_approve},{schema:'FINANCIAL_STATEMENT_SNAPSHOT_PROPOSAL_QUEUE_V1',total:1,read:1,complete:true,canApprove:false});
+  const makerDetail=await preparer.readFinancialStatementSnapshotProposal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,proposalId:proposal.financial_statement_snapshot_proposal_id});
+  const proposalExpense=makerDetail.rows.find(row=>row.statement_type==='INCOME_STATEMENT'&&row.account_code==='610000');
+  assert.deepEqual({status:makerDetail.status,canApprove:makerDetail.can_approve,balance:proposalExpense.display_balance,sources:proposalExpense.source_document_ids},{status:'PENDING_APPROVAL',canApprove:false,balance:'75.0000',sources:[trace.documentId]});
+  assert.ok(proposalExpense.journal_entry_ids.includes(ids.journalId));assert.match(proposalExpense.row_hash,/^sha256:[0-9a-f]{64}$/);
   await assert.rejects(preparer.approveFinancialStatementSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,proposalId:proposal.financial_statement_snapshot_proposal_id,idempotencyKey:'statement-snapshot-self-approve-001'}),error=>error.code==='42501');
-  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'snapshot-approver',['GL.REPORT.SNAPSHOT.APPROVE'])});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'snapshot-approver',['GL.REPORT.VIEW','GL.REPORT.SNAPSHOT.APPROVE'])});
+  const approverQueue=await approver.readFinancialStatementSnapshotProposalQueue({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,limit:20,offset:0});
+  assert.equal(approverQueue.rows[0].can_approve,true);
+  const approverDetail=await approver.readFinancialStatementSnapshotProposal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,proposalId:proposal.financial_statement_snapshot_proposal_id});
+  assert.equal(approverDetail.can_approve,true);assert.equal(approverDetail.snapshot_hash,proposal.snapshot_hash);
   const first=await approver.approveFinancialStatementSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,proposalId:proposal.financial_statement_snapshot_proposal_id,idempotencyKey:'statement-snapshot-approve-001'});
   assert.deepEqual({version:first.version,status:first.status,prepared:first.prepared_by,approved:first.approved_by},{version:'1',status:'APPROVED',prepared:'snapshot-maker',approved:'snapshot-approver'});
+  const firstReplay=await approver.approveFinancialStatementSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,proposalId:proposal.financial_statement_snapshot_proposal_id,idempotencyKey:'statement-snapshot-approve-001'});
+  assert.deepEqual(firstReplay,{...first,idempotent:true});assert.equal(first.idempotent,false);
+  const approvedDetail=await approver.readFinancialStatementSnapshotProposal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,proposalId:proposal.financial_statement_snapshot_proposal_id});
+  assert.deepEqual({status:approvedDetail.status,snapshot:approvedDetail.financial_statement_snapshot_id,version:approvedDetail.version,canApprove:approvedDetail.can_approve},{status:'APPROVED',snapshot:first.financial_statement_snapshot_id,version:1,canApprove:false});
   const secondProposal=await preparer.prepareFinancialStatementSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,idempotencyKey:'statement-snapshot-prepare-002'});
   const latest=await approver.approveFinancialStatementSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,proposalId:secondProposal.financial_statement_snapshot_proposal_id,idempotencyKey:'statement-snapshot-approve-002'});
   assert.equal(latest.version,'2');
@@ -4280,6 +4295,20 @@ pgTest('isolated financial-statement snapshots retain immutable versioned GL and
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'snapshot-reader'}),kernelFactory:async()=>liveReader});
   const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/financial-statement-snapshot?periodId=${ids.periodId}`,body:null,headers:{}});
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data[0].version,'2');
+  const workflowApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'snapshot-approver'}),kernelFactory:async()=>approver});
+  const queueResponse=await workflowApi({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/financial-statement-snapshot-proposals?periodId=${ids.periodId}&limit=20&offset=0`,body:null,headers:{}});
+  const detailResponse=await workflowApi({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/financial-statement-snapshot-proposals/${secondProposal.financial_statement_snapshot_proposal_id}?periodId=${ids.periodId}`,body:null,headers:{}});
+  assert.equal(queueResponse.status,200);assert.equal(queueResponse.headers['cache-control'],'no-store');assert.equal(queueResponse.body.data.total_count,2);assert.equal(detailResponse.status,200);assert.equal(detailResponse.body.data.financial_statement_snapshot_id,latest.financial_statement_snapshot_id);
+  const evidenceCounts=(await adminPool.query(`SELECT
+    count(*) FILTER(WHERE event_type='FINANCIAL_STATEMENT_SNAPSHOT_PROPOSED')::int AS proposed_audit,
+    count(*) FILTER(WHERE event_type='FINANCIAL_STATEMENT_SNAPSHOT_APPROVED')::int AS approved_audit
+    FROM audit_event WHERE tenant_id=$1 AND entity_id=$2`,[ids.tenantId,ids.entityId])).rows[0];
+  const outboxCounts=(await adminPool.query(`SELECT
+    count(*) FILTER(WHERE event_type='FINANCIAL_STATEMENT_SNAPSHOT_PROPOSED')::int AS proposed_outbox,
+    count(*) FILTER(WHERE event_type='FINANCIAL_STATEMENT_SNAPSHOT_APPROVED')::int AS approved_outbox,
+    count(*) FILTER(WHERE event_type IN('FINANCIAL_STATEMENT_SNAPSHOT_PROPOSED','FINANCIAL_STATEMENT_SNAPSHOT_APPROVED') AND payload_hash<>refs_jsonb_hash(payload))::int AS invalid_hash
+    FROM outbox_event WHERE tenant_id=$1 AND entity_id=$2`,[ids.tenantId,ids.entityId])).rows[0];
+  assert.deepEqual(evidenceCounts,{proposed_audit:2,approved_audit:2});assert.deepEqual(outboxCounts,{proposed_outbox:2,approved_outbox:2,invalid_hash:0});
 });
 
 pgTest('chart of accounts and account register read only same-entity POSTED fixed-decimal ledger evidence',async()=>{

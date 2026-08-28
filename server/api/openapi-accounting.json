@@ -1866,13 +1866,38 @@
       }
     },
     "/entities/{entityId}/reports/financial-statement-snapshot-proposals": {
+      "get": {
+        "operationId": "listFinancialStatementSnapshotProposals",
+        "summary": "List recoverable immutable statement snapshot proposals",
+        "description": "Returns a complete, scoped page of canonically revalidated pending and approved proposals. Approval capability is derived by the server from the current actor, immutable state, and preparer/approver segregation; the read cannot mutate reports or the ledger.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}},
+          {"name": "offset", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 0, "default": 0}}
+        ],
+        "responses": {"200": {"$ref": "#/components/responses/FinancialStatementSnapshotProposalQueueReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
+      },
       "post": {
         "operationId": "prepareFinancialStatementSnapshot",
         "summary": "Prepare a frozen statement snapshot from POSTED ledger evidence",
         "description": "Requires the report-snapshot preparer permission and report-view permission. Creates only an immutable pending proposal; it cannot approve itself or alter the ledger.",
         "parameters": [{"$ref": "#/components/parameters/EntityId"}, {"$ref": "#/components/parameters/IdempotencyKey"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "required": ["periodId"], "properties": {"periodId": {"$ref": "#/components/schemas/Uuid"}}}}}},
-        "responses": {"200": {"$ref": "#/components/responses/CommandReplay"}, "201": {"$ref": "#/components/responses/CommandCreated"}, "503": {"$ref": "#/components/responses/SerializationRetryExhausted"}, "default": {"$ref": "#/components/responses/Problem"}}
+        "responses": {"200": {"$ref": "#/components/responses/FinancialStatementSnapshotPrepareOk"}, "201": {"$ref": "#/components/responses/FinancialStatementSnapshotPrepareOk"}, "503": {"$ref": "#/components/responses/SerializationRetryExhausted"}, "default": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/reports/financial-statement-snapshot-proposals/{proposalId}": {
+      "get": {
+        "operationId": "getFinancialStatementSnapshotProposal",
+        "summary": "Read one immutable statement snapshot proposal",
+        "description": "Returns canonically revalidated MONEY4 statement rows and exact journal, ledger, and source lineage for independent review. The server exposes approval capability only to a distinct authorized approver.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name": "proposalId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}},
+          {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}
+        ],
+        "responses": {"200": {"$ref": "#/components/responses/FinancialStatementSnapshotProposalReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
       }
     },
     "/entities/{entityId}/reports/financial-statement-snapshot-proposals/{proposalId}/approve": {
@@ -1882,7 +1907,7 @@
         "description": "Requires the report-snapshot approver permission. The preparer is explicitly prohibited from approval; approval creates the next immutable statement version without changing GL evidence.",
         "parameters": [{"$ref": "#/components/parameters/EntityId"}, {"name": "proposalId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}, {"$ref": "#/components/parameters/IdempotencyKey"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false}}}},
-        "responses": {"200": {"$ref": "#/components/responses/CommandReplay"}, "201": {"$ref": "#/components/responses/CommandCreated"}, "503": {"$ref": "#/components/responses/SerializationRetryExhausted"}, "default": {"$ref": "#/components/responses/Problem"}}
+        "responses": {"200": {"$ref": "#/components/responses/FinancialStatementSnapshotApproveOk"}, "201": {"$ref": "#/components/responses/FinancialStatementSnapshotApproveOk"}, "503": {"$ref": "#/components/responses/SerializationRetryExhausted"}, "default": {"$ref": "#/components/responses/Problem"}}
       }
     },
     "/entities/{entityId}/reports/dimension-profitability": {
@@ -4497,6 +4522,40 @@
         }
       },
       "FinancialStatementSnapshotReadEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","items":{"$ref":"#/components/schemas/FinancialStatementSnapshotReadRow"}}}},
+      "FinancialStatementSnapshotProposalQueueItem": {
+        "type":"object","additionalProperties":false,
+        "required":["schema_version","financial_statement_snapshot_proposal_id","period_id","currency","snapshot_hash","ledger_evidence_hash","row_count","prepared_by","prepared_at","status","financial_statement_snapshot_id","version","approved_by","approved_at","can_approve"],
+        "properties":{
+          "schema_version":{"const":"FINANCIAL_STATEMENT_SNAPSHOT_PROPOSAL_QUEUE_ITEM_V1"},"financial_statement_snapshot_proposal_id":{"$ref":"#/components/schemas/Uuid"},"period_id":{"$ref":"#/components/schemas/Uuid"},"currency":{"type":"string","pattern":"^[A-Z]{3}$"},"snapshot_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"ledger_evidence_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"row_count":{"type":"integer","minimum":1},"prepared_by":{"type":"string","minLength":1,"maxLength":300},"prepared_at":{"type":"string","format":"date-time"},"status":{"type":"string","enum":["PENDING_APPROVAL","APPROVED"]},"financial_statement_snapshot_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"version":{"type":["integer","null"],"minimum":1},"approved_by":{"type":["string","null"],"minLength":1,"maxLength":300},"approved_at":{"type":["string","null"],"format":"date-time"},"can_approve":{"type":"boolean"}
+        }
+      },
+      "FinancialStatementSnapshotProposalQueue": {
+        "type":"object","additionalProperties":false,"required":["schema_version","scope","total_count","read_count","limit","offset","population_complete","rows"],
+        "properties":{"schema_version":{"const":"FINANCIAL_STATEMENT_SNAPSHOT_PROPOSAL_QUEUE_V1"},"scope":{"type":"object","additionalProperties":false,"required":["tenant_id","entity_id","period_id"],"properties":{"tenant_id":{"$ref":"#/components/schemas/Uuid"},"entity_id":{"$ref":"#/components/schemas/Uuid"},"period_id":{"$ref":"#/components/schemas/Uuid"}}},"total_count":{"type":"integer","minimum":0},"read_count":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100},"offset":{"type":"integer","minimum":0},"population_complete":{"type":"boolean"},"rows":{"type":"array","maxItems":100,"items":{"$ref":"#/components/schemas/FinancialStatementSnapshotProposalQueueItem"}}}
+      },
+      "FinancialStatementSnapshotProposalQueueEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/FinancialStatementSnapshotProposalQueue"}}},
+      "FinancialStatementSnapshotProposalRow": {
+        "type":"object","additionalProperties":false,"required":["statement_type","statement_section","classification_basis","account_code","account_name","opening_debit","opening_credit","period_debit","period_credit","ending_debit","ending_credit","display_balance","journal_entry_ids","journal_line_ids","ledger_line_ids","source_document_ids","row_hash"],
+        "properties":{"statement_type":{"type":"string","enum":["TRIAL_BALANCE","BALANCE_SHEET","INCOME_STATEMENT","CASH_FLOW"]},"statement_section":{"type":"string","minLength":1,"maxLength":128},"classification_basis":{"type":"string","minLength":1,"maxLength":200},"account_code":{"type":"string","minLength":1,"maxLength":64},"account_name":{"type":"string","minLength":1,"maxLength":300},"opening_debit":{"$ref":"#/components/schemas/Money"},"opening_credit":{"$ref":"#/components/schemas/Money"},"period_debit":{"$ref":"#/components/schemas/Money"},"period_credit":{"$ref":"#/components/schemas/Money"},"ending_debit":{"$ref":"#/components/schemas/Money"},"ending_credit":{"$ref":"#/components/schemas/Money"},"display_balance":{"$ref":"#/components/schemas/Money"},"journal_entry_ids":{"type":"array","minItems":1,"items":{"$ref":"#/components/schemas/Uuid"}},"journal_line_ids":{"type":"array","minItems":1,"items":{"$ref":"#/components/schemas/Uuid"}},"ledger_line_ids":{"type":"array","minItems":1,"items":{"$ref":"#/components/schemas/Uuid"}},"source_document_ids":{"type":"array","items":{"$ref":"#/components/schemas/Uuid"}},"row_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}
+      },
+      "FinancialStatementSnapshotProposal": {
+        "type":"object","additionalProperties":false,
+        "required":["schema_version","financial_statement_snapshot_proposal_id","period_id","currency","snapshot_hash","ledger_evidence_hash","row_count","prepared_by","prepared_at","status","financial_statement_snapshot_id","version","approved_by","approved_at","can_approve","rows"],
+        "properties":{"schema_version":{"const":"FINANCIAL_STATEMENT_SNAPSHOT_PROPOSAL_V1"},"financial_statement_snapshot_proposal_id":{"$ref":"#/components/schemas/Uuid"},"period_id":{"$ref":"#/components/schemas/Uuid"},"currency":{"type":"string","pattern":"^[A-Z]{3}$"},"snapshot_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"ledger_evidence_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"row_count":{"type":"integer","minimum":1},"prepared_by":{"type":"string","minLength":1,"maxLength":300},"prepared_at":{"type":"string","format":"date-time"},"status":{"type":"string","enum":["PENDING_APPROVAL","APPROVED"]},"financial_statement_snapshot_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"version":{"type":["integer","null"],"minimum":1},"approved_by":{"type":["string","null"],"minLength":1,"maxLength":300},"approved_at":{"type":["string","null"],"format":"date-time"},"can_approve":{"type":"boolean"},"rows":{"type":"array","minItems":1,"items":{"$ref":"#/components/schemas/FinancialStatementSnapshotProposalRow"}}}
+      },
+      "FinancialStatementSnapshotProposalEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/FinancialStatementSnapshotProposal"}}},
+      "FinancialStatementSnapshotPrepareReceipt": {
+        "type":"object","additionalProperties":false,
+        "required":["financial_statement_snapshot_proposal_id","status","snapshot_hash","ledger_evidence_hash","prepared_by","idempotent"],
+        "properties":{"financial_statement_snapshot_proposal_id":{"$ref":"#/components/schemas/Uuid"},"status":{"const":"PENDING_APPROVAL"},"snapshot_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"ledger_evidence_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"prepared_by":{"type":"string","minLength":1,"maxLength":300},"idempotent":{"type":"boolean"}}
+      },
+      "FinancialStatementSnapshotApproveReceipt": {
+        "type":"object","additionalProperties":false,
+        "required":["financial_statement_snapshot_id","financial_statement_snapshot_proposal_id","version","status","prepared_by","approved_by","snapshot_hash","ledger_evidence_hash","idempotent"],
+        "properties":{"financial_statement_snapshot_id":{"$ref":"#/components/schemas/Uuid"},"financial_statement_snapshot_proposal_id":{"$ref":"#/components/schemas/Uuid"},"version":{"type":"string","pattern":"^[1-9][0-9]*$"},"status":{"const":"APPROVED"},"prepared_by":{"type":"string","minLength":1,"maxLength":300},"approved_by":{"type":"string","minLength":1,"maxLength":300},"snapshot_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"ledger_evidence_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"idempotent":{"type":"boolean"}}
+      },
+      "FinancialStatementSnapshotPrepareEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/FinancialStatementSnapshotPrepareReceipt"}}},
+      "FinancialStatementSnapshotApproveEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/FinancialStatementSnapshotApproveReceipt"}}},
       "FinancialStatementPeriodComparisonReadRow": {
         "type": "object",
         "additionalProperties": false,
@@ -6701,6 +6760,18 @@
         "description": "Scoped immutable financial-statement snapshot evidence",
         "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FinancialStatementSnapshotReadEnvelope"}}}
+      },
+      "FinancialStatementSnapshotProposalQueueReadOk": {
+        "description":"Recoverable scoped statement snapshot proposal queue","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FinancialStatementSnapshotProposalQueueEnvelope"}}}
+      },
+      "FinancialStatementSnapshotProposalReadOk": {
+        "description":"Canonical immutable statement snapshot proposal evidence","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FinancialStatementSnapshotProposalEnvelope"}}}
+      },
+      "FinancialStatementSnapshotPrepareOk": {
+        "description":"Closed immutable statement snapshot proposal receipt","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FinancialStatementSnapshotPrepareEnvelope"}}}
+      },
+      "FinancialStatementSnapshotApproveOk": {
+        "description":"Closed independently approved statement snapshot receipt","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FinancialStatementSnapshotApproveEnvelope"}}}
       },
       "FinancialStatementPeriodComparisonReadOk": {
         "description": "Scoped two-period POSTED financial-statement comparison evidence",

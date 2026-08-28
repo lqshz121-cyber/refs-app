@@ -412,6 +412,31 @@ test('financial statement snapshot read exposes a versioned immutable evidence c
   for(const field of ['financial_statement_snapshot_id','version','snapshot_hash','ledger_evidence_hash','prepared_by','approved_by','journal_entry_ids','ledger_line_ids','source_document_ids','row_hash'])assert.ok(row.required.includes(field));
 });
 
+test('financial statement snapshot workflow exposes recoverable closed queue and evidence detail reads',()=>{
+  const workflow=contract.paths['/entities/{entityId}/reports/financial-statement-snapshot-proposals'];
+  const queue=workflow.get;
+  const detail=contract.paths['/entities/{entityId}/reports/financial-statement-snapshot-proposals/{proposalId}'].get;
+  const approval=contract.paths['/entities/{entityId}/reports/financial-statement-snapshot-proposals/{proposalId}/approve'].post;
+  assert.equal(queue.operationId,'listFinancialStatementSnapshotProposals');assert.equal(detail.operationId,'getFinancialStatementSnapshotProposal');
+  assert.equal(queue.responses['200'].$ref,'#/components/responses/FinancialStatementSnapshotProposalQueueReadOk');
+  assert.equal(detail.responses['200'].$ref,'#/components/responses/FinancialStatementSnapshotProposalReadOk');
+  assert.equal(queue.parameters.find(parameter=>parameter.name==='limit').schema.maximum,100);
+  for(const schemaName of ['FinancialStatementSnapshotProposalQueueItem','FinancialStatementSnapshotProposalQueue','FinancialStatementSnapshotProposalRow','FinancialStatementSnapshotProposal'])assert.equal(contract.components.schemas[schemaName].additionalProperties,false);
+  const item=contract.components.schemas.FinancialStatementSnapshotProposalQueueItem;
+  for(const field of ['snapshot_hash','ledger_evidence_hash','prepared_by','status','can_approve'])assert.ok(item.required.includes(field));
+  assert.deepEqual(item.properties.status.enum,['PENDING_APPROVAL','APPROVED']);
+  const row=contract.components.schemas.FinancialStatementSnapshotProposalRow;
+  for(const field of ['display_balance','journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids','row_hash'])assert.ok(row.required.includes(field));
+  assert.equal(contract.components.responses.FinancialStatementSnapshotProposalQueueReadOk.headers['Cache-Control'].schema.const,'no-store');
+  assert.equal(contract.components.responses.FinancialStatementSnapshotProposalReadOk.headers['Cache-Control'].schema.const,'no-store');
+  assert.equal(workflow.post.responses['201'].$ref,'#/components/responses/FinancialStatementSnapshotPrepareOk');
+  assert.equal(approval.responses['201'].$ref,'#/components/responses/FinancialStatementSnapshotApproveOk');
+  for(const schemaName of ['FinancialStatementSnapshotPrepareReceipt','FinancialStatementSnapshotApproveReceipt']){
+    const receipt=contract.components.schemas[schemaName];
+    assert.equal(receipt.additionalProperties,false);assert.ok(receipt.required.includes('idempotent'));assert.equal(receipt.properties.idempotent.type,'boolean');
+  }
+});
+
 test('dimension profitability is an exact, read-only Property, Project, or Unit ledger view',()=>{
   const operation=contract.paths['/entities/{entityId}/reports/dimension-profitability'].get;
   assert.equal(operation.operationId,'getDimensionProfitability');
