@@ -2482,8 +2482,14 @@ export class PostgresAccountingKernel{
   }
 
   async closePeriod(args){
-    const requestHash=canonicalRequestHash({tenant_id:args.tenantId,entity_id:args.entityId,period_id:args.periodId,expected_version:String(args.expectedVersion),expected_readiness_hash:args.expectedReadinessHash,reason:args.reason});
     return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        `SELECT refs_jsonb_hash(jsonb_build_object(
+          'tenant_id',$1::uuid,'entity_id',$2::uuid,'period_id',$3::uuid,'expected_version',$4::bigint::text,
+          'expected_readiness_hash',$5::text,'reason',$6::text
+        )) AS request_hash`,
+        [args.tenantId,args.entityId,args.periodId,args.expectedVersion,args.expectedReadinessHash,args.reason]
+      ),'PERIOD_CLOSE_REQUEST_HASH_FAILED','Period close request hash was not produced').request_hash;
       const row=requireRow(await client.query(
         'SELECT refs_close_period_v2($1,$2,$3,$4,$5,$6,$7,$8) AS result',
         [args.tenantId,args.entityId,args.periodId,args.expectedVersion,args.expectedReadinessHash,args.reason,args.idempotencyKey,requestHash]
