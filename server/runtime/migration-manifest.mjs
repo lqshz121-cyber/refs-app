@@ -287,4 +287,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"279_outbox_dispatch_retry.sql",up:"beaaa7863843583f54965fb37a8fdbdd9d2e8f6db3cb6ac47cfef605d7fd8c27",down:"27109e56380241f5051dd1df972139aaab0f07fb57699b25f47de396ad6e09ef"}),
   Object.freeze({name:"280_ai_manual_journal_verified_attachment_support.sql",up:"9d5d1764cbba267bb9106e832f8bddf6dbef3c373945673ad2f249a28b1b2ab5",down:"e65069ebc4c2bd0ac6e2545579a970f52ca5dda72bbd0c2a00f54917017cd11c"}),
   Object.freeze({name:"281_ai_accounting_decision_queue_read.sql",up:"3d02f719142075731914a74e4bf482446cd720457e849e9bc2cbfb3f90831476",down:"95929ed9732ce0b738217e52883270a3e12f356ae278a1a8f5e23d96f61928a0"}),
+  Object.freeze({name:"282_ai_admitted_source_booking_evidence_read.sql",up:"d379ea0b28252cba8fef9f915f2239e631e9a62358afcdd5352db39abc0758f8",down:"be310923c27310662d82f40c039134db8664cefa958571f4d2e42e9156b9e252"}),
 ]);
