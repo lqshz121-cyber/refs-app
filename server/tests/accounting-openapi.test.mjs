@@ -17,7 +17,7 @@ test('accounting OpenAPI is 3.1, authenticated and operation ids match the runti
   assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitProviderSignedWbsPayables','admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','approveFinancialStatementSnapshot','approveWbsCompanyCatalogRow','approveWbsInsurancePcMappingProposal','assignAiFindingAction','attestObservedWbsPayables','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','classifyWbsCompanyCatalogRow','createAiAmortizationDraft','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','createReviewedWbsCostCwipDraft','createReviewedWbsPayableApDraft','createWbsAutoRecAutocDraft','createWbsAutoRecPayableIncurDraft','createWbsInsurancePcMappingProposal','explainAiAccountingAnalysis','finalizeAttachment','finalizeWbsAutoRecG11Incur','importWbsTestPayables','ingestAdmittedWbsPayables','postJournal','prepareFinancialStatementSnapshot','proposeAiAmortizationSchedule','recordAiAmortizationCoverageEvidence','recordWbsSnapshot','reserveAttachment','reserveWbsPayableAttachment','resolveAiFindingAction','retainProviderSignedWbsFinal1Bank','retainProviderSignedWbsFinal1CostControl','retainProviderSignedWbsFinal1Insurance','retainProviderSignedWbsFinal1Payables','retainProviderSignedWbsFinal1PropertyControl','retainWbsCompanyCatalogCandidate','reviewAdmittedWbsCostCwip','reviewAdmittedWbsPayable','reviewAiWbsPayableDraftProposal','reviewWbsAutoRecBankMatch','runControlledTestAiWorkflow','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','startReconciliationFromAdmittedWbsStatement','transitionJournal','transitionReconciliation','unmatchBankPayment','upgradeStage1WbsOperatorAccess','verifyWbsAutoRecTransitionContract']);
   }
   const operationIds=operations.map(operation=>operation.operationId);
-  assert.equal(operationIds.length,97);
+  assert.equal(operationIds.length,98);
   assert.equal(new Set(operationIds).size,operationIds.length);
   assert.ok(operationIds.includes('decideWbsH1AccountingSettings'));
   for(const operationId of ['createWbsH1AccountingControlRun','appendWbsH1AccountingControlRunLines','finalizeWbsH1AccountingControlRun'])assert.ok(operationIds.includes(operationId));
@@ -28,6 +28,7 @@ test('accounting OpenAPI is 3.1, authenticated and operation ids match the runti
   assert.ok(operationIds.includes('materializeInvoiceAccountingClassifications'));
   assert.ok(operationIds.includes('materializeManualJournalRisks'));
   assert.ok(operationIds.includes('materializeBankDuplicatePayments'));
+  assert.ok(operationIds.includes('resolveAiBankDuplicatePayment'));
   assert.ok(operationIds.includes('proposeAiConstructionLoanEntry'));
   assert.ok(operationIds.includes('reviewFixedAssetRegister'));
   assert.ok(operationIds.includes('reviewFixedAssetDisposal'));

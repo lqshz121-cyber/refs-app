@@ -1,0 +1,11 @@
+BEGIN;
+DO $$ BEGIN IF EXISTS(SELECT 1 FROM ai_bank_duplicate_payment_lifecycle) THEN RAISE EXCEPTION 'Cannot roll back retained duplicate-payment lifecycle evidence' USING ERRCODE='55000';END IF;END $$;
+DO $$ DECLARE item record;BEGIN FOR item IN SELECT function_definition FROM ai_bank_duplicate_payment_lifecycle_function_backup ORDER BY function_identity LOOP EXECUTE item.function_definition;END LOOP;END $$;
+DROP TRIGGER ai_bank_duplicate_payment_supersede_after_insert ON ai_bank_duplicate_payment_finding;
+DROP FUNCTION refs_supersede_ai_bank_duplicate_payment_finding();
+DROP FUNCTION refs_resolve_ai_bank_duplicate_payment(uuid,uuid,uuid,uuid,text,text,jsonb,integer,text,text);
+DROP FUNCTION refs_resolve_ai_bank_duplicate_payment_hash(uuid,uuid,uuid,uuid,text,text,jsonb,integer);
+DROP VIEW ai_bank_duplicate_payment_current_finding;
+DROP TABLE ai_bank_duplicate_payment_lifecycle;
+DROP TABLE ai_bank_duplicate_payment_lifecycle_function_backup;
+COMMIT;
