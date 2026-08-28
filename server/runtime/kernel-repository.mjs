@@ -2336,7 +2336,7 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_cross_entity_payment_invoices($1,$2,$3,$4,$5,$6)',
       [tenantId,entityId,periodId,counterpartyEntityId,counterpartyPeriodId,limit]
-    )).rows);
+    )).rows.map(row=>({...row,payment_date:publicDate(row.payment_date),invoice_date:publicDate(row.invoice_date)})));
   }
 
   async listAiIntercompanyCounterpartyPeriods({tenantId,entityId,periodId,limit=100}){
