@@ -2307,7 +2307,11 @@ export class PostgresAccountingKernel{
   async getAiConstructionLoanProjectCostSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_construction_loan_project_cost_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
 
   async getAiConstructionLoanLenderBalances({tenantId,entityId,periodId}){
-    return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_construction_loan_lender_balances($1,$2,$3)',[tenantId,entityId,periodId])).rows);
+    return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_construction_loan_lender_balance_population($1,$2,$3)',[tenantId,entityId,periodId])).rows);
+  }
+
+  async getAiConstructionLoanGlBalances({tenantId,entityId,periodId}){
+    return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_construction_loan_gl_balances($1,$2,$3)',[tenantId,entityId,periodId])).rows);
   }
 
   async getAiConstructionLoanBalancePolicy({tenantId,entityId,periodId}){
