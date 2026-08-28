@@ -18,6 +18,7 @@ test('workflow roles are frozen single-authority exact replacements and exclude 
   }
   assert.deepEqual(AUTHORITATIVE_WORKFLOW_ROLES.WBS_SNAPSHOT_IMPORTER_SERVICE,{authorityClass:'SERVICE',principalKind:'SERVICE',permissions:['WBS.SNAPSHOT.IMPORT']});
   assert.deepEqual(AUTHORITATIVE_WORKFLOW_ROLES.OUTBOX_DISPATCHER_SERVICE,{authorityClass:'SERVICE',principalKind:'SERVICE',permissions:['OUTBOX.DISPATCH']});
+  assert.deepEqual(AUTHORITATIVE_WORKFLOW_ROLES.AI_ACCOUNTING_DECISION_MAKER,{authorityClass:'DRAFT',principalKind:'HUMAN',permissions:['AP.VIEW','AR.VIEW','BANK.VIEW','GL.JE.VIEW','GL.REPORT.VIEW','WBS.AUTOREC.VIEW','GL.JE.CREATE']});
   assert.deepEqual(permissions('WBS_OPERATOR_ATTESTER'),['WBS.AUTOREC.VIEW','WBS.PAYABLE.OPERATOR_ATTEST']);
   assert.equal(permissions('WBS_PAYABLE_MAKER').includes('GL.JE.SUBMIT'),false);
   assert.equal(permissions('BANK_RECONCILIATION_MAKER').includes('GL.JE.SUBMIT'),false);
