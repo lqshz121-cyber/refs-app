@@ -13,7 +13,6 @@ test('builds one canonical release-bound snapshot with stable section and findin
   assert.deepEqual(first,second);assert.match(first.snapshot_hash,/^sha256:[0-9a-f]{64}$/);assert.deepEqual(first.registered_section_categories,['BANK_RECONCILIATION','VENDOR_SPEND']);
   assert.match(first.sections[1].section_hash,/^sha256:[0-9a-f]{64}$/);assert.match(first.sections[1].findings[0].finding_hash,/^sha256:[0-9a-f]{64}$/);assert.equal(first.sections[1].findings[0].finding_index,0);assert.deepEqual(first.action_flags,actions);
 });
-
 test('rejects missing sections, count/risk drift, duplicate findings, scope drift, unsafe secrets, and action authority',()=>{
   const mutations=[
     value=>{value.sections.pop();},value=>{value.finding_count=2;},value=>{value.risk_summary.high=0;},
@@ -27,4 +26,3 @@ test('rejects impossible timestamps, unordered or duplicate categories, and malf
   assert.throws(()=>buildAiFullControllerScanEvidence({...input(scan()),capturedAt:'2026-02-30T00:00:00.000Z'}),error=>error.code==='AI_FULL_SCAN_EVIDENCE_SCOPE_INVALID');
   for(const mutate of [value=>value.sections.reverse(),value=>{value.sections[1].category='BANK_RECONCILIATION';},value=>{value.sections[0].findings=[finding];}]){const value=structuredClone(scan());mutate(value);assert.throws(()=>buildAiFullControllerScanEvidence(input(value)),error=>/^AI_FULL_SCAN_EVIDENCE_/.test(error.code));}
 });
-

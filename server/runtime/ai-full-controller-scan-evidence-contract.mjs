@@ -50,4 +50,3 @@ export function buildAiFullControllerScanEvidence({tenantId,entityId,accountingP
   const payload={schema_version:'AI_FULL_CONTROLLER_SCAN_EVIDENCE_V1',tenant_id:tenantId,entity_id:entityId,accounting_period_id:accountingPeriodId,release_sha:releaseSha,captured_at:capturedAt,requested_limit:requestedLimit,scan_status:scan.status,registered_section_categories:categories,required_section_count:sections.length,complete_section_count:completeCount,finding_count:findingCount,risk_summary:riskSummary,sections,action_flags:ACTIONS};
   return Object.freeze({...payload,snapshot_hash:hash(payload)});
 }
-
