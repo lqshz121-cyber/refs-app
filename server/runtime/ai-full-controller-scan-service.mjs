@@ -2,21 +2,23 @@ import {safeAiEvidenceTree} from './ai-secret-safety.mjs';
 
 const ACTION_KEYS=Object.freeze(['can_create_draft','can_review','can_approve','can_post']);
 const ACTIONS=Object.freeze(Object.fromEntries(ACTION_KEYS.map(key=>[key,false])));
+const canonical=value=>value===null||typeof value!=='object'?JSON.stringify(value):Array.isArray(value)?`[${value.map(canonical).join(',')}]`:`{${Object.keys(value).sort().map(key=>`${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
 
 export class AiFullControllerScanError extends Error{
   constructor(code,message){super(message);this.name='AiFullControllerScanError';this.code=code;}
 }
 
 function closedActions(value){return value&&typeof value==='object'&&Object.keys(value).length===4&&ACTION_KEYS.every(key=>value[key]===false);}
+function findingActionsClosed(value){return ACTION_KEYS.every(key=>!(key in value)||value[key]===false)&&(!('action_flags' in value)||closedActions(value.action_flags));}
 function explainedFinding(value){return value&&typeof value==='object'&&
   typeof value.rule_id==='string'&&/^[A-Z][A-Z0-9_]{2,127}$/.test(value.rule_id)&&
   ['HIGH','MEDIUM','LOW'].includes(value.risk_level)&&
   typeof value.reason==='string'&&value.reason.trim().length>=8&&value.reason.length<=2000&&
-  typeof value.suggested_action==='string'&&value.suggested_action.trim().length>=8&&value.suggested_action.length<=2000;}
+  typeof value.suggested_action==='string'&&value.suggested_action.trim().length>=8&&value.suggested_action.length<=2000&&findingActionsClosed(value);}
 function closedBatch(value,{entityId,periodId}){
-  return value&&typeof value==='object'&&safeAiEvidenceTree(value)&&value.current_accounting_period_id===periodId&&
+  return value&&typeof value==='object'&&safeAiEvidenceTree(value)&&typeof value.schema_version==='string'&&/^[A-Z][A-Z0-9_]{2,127}$/.test(value.schema_version)&&value.current_accounting_period_id===periodId&&
     Number.isSafeInteger(value.finding_count)&&value.finding_count>=0&&Array.isArray(value.findings)&&
-    value.finding_count===value.findings.length&&value.findings.length<=2000&&closedActions(value.action_flags)&&
+    value.finding_count===value.findings.length&&value.findings.length<=2000&&new Set(value.findings.map(canonical)).size===value.findings.length&&closedActions(value.action_flags)&&
     value.findings.every(finding=>explainedFinding(finding)&&(!('entity_id' in finding)||finding.entity_id===entityId)&&(!('accounting_period_id' in finding)||finding.accounting_period_id===periodId));
 }
 

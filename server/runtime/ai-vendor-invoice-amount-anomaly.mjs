@@ -3,7 +3,7 @@ const SHA256=/^sha256:[0-9a-f]{64}$/;
 const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const MONEY4=/^(0|[1-9]\d*)\.\d{4}$/;
 const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve:false,can_post:false});
-const validDate=value=>typeof value==='string'&&DATE.test(value)&&!Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+const validDate=value=>DATE.test(value||'')&&isStrictCalendarDate(value);
 const text=(value,max)=>typeof value==='string'&&value.trim().length>0&&value.trim().length<=max;
 const nullableText=(value,max)=>value===null||text(value,max);
 const units=value=>BigInt(value.replace('.',''));
@@ -30,3 +30,4 @@ export function detectVendorInvoiceAmountAnomalies(rows,{policy,currentAccountin
   }
   return Object.freeze({schema_version:'AI_VENDOR_INVOICE_AMOUNT_ANOMALY_BATCH_V1',current_accounting_period_id:currentAccountingPeriodId,scanned_line_count:rows.length,finding_count:findings.length,findings:Object.freeze(findings),action_flags:ACTIONS});
 }
+import {isStrictCalendarDate} from './ai-calendar-date.mjs';

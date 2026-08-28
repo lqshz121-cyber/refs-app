@@ -8,7 +8,8 @@ export function createAiBankPayeeVendorMismatchService({matchedPaymentReader,pol
     async analyze({tenantId,entityId,accountingPeriodId,limit=500}={}){
       if(!UUID.test(tenantId||'')||!UUID.test(entityId||'')||!UUID.test(accountingPeriodId||'')||!Number.isSafeInteger(limit)||limit<1||limit>500)throw Object.assign(new Error('AI bank payee/vendor service scope is invalid.'),{code:'AI_BANK_PAYEE_VENDOR_SCOPE_INVALID'});
       const [rows,policy]=await Promise.all([matchedPaymentReader({tenantId,entityId,accountingPeriodId,limit}),policyReader({tenantId,entityId,accountingPeriodId})]);
-      return detectBankPayeeVendorMismatches(rows,{policy,currentAccountingPeriodId:accountingPeriodId});
+      if(!Array.isArray(rows)||rows.length>=limit)throw Object.assign(new Error('The bounded bank payee/vendor source read cannot prove population completeness.'),{code:'AI_BANK_PAYEE_VENDOR_POPULATION_INCOMPLETE'});
+      return detectBankPayeeVendorMismatches(rows,{policy,entityId,currentAccountingPeriodId:accountingPeriodId});
     }
   });
 }

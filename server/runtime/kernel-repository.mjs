@@ -788,6 +788,44 @@ export class PostgresAccountingKernel{
   async listAiLoanReferenceFindingsForPeriod({tenantId,entityId,periodId,limit=50}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_loan_reference_findings_for_period($1,$2,$3,$4)',[tenantId,entityId,periodId,limit])).rows);}
   async readAiCwipPostCompletionSource({tenantId,entityId,accountingPeriodId,limit=500}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_cwip_post_completion_source($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows);}
   async readAiInvoiceClassificationSource({tenantId,entityId,accountingPeriodId,limit=100}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_invoice_classification_source_v2($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date),invoice_date:publicDate(row.invoice_date),service_period_start:publicDate(row.service_period_start),service_period_end:publicDate(row.service_period_end)})));}
+
+  async listAiAdmittedSourceBookingEvidence({tenantId,entityId,accountingPeriodId,limit=500}){
+    return this.inSession(async client=>{
+      await client.query("SELECT refs_assert_scope($1,$2,'AI.ANALYSIS.EXPLAIN')",[tenantId,entityId]);
+      return (await client.query(`
+      SELECT r.tenant_id,r.entity_id,a.company_code,r.accounting_period_id,
+             r.wbs_final1_retained_evidence_admission_id AS admission_id,a.receipt_hash AS admission_hash,
+             d.source_document_id,l.source_document_line_id,d.payload_hash AS source_payload_hash,
+             r.raw_row_hash AS source_line_hash,l.party_ref AS vendor_ref,d.business_date,d.accounting_date,
+             d.currency::text,abs(l.amount)::text AS amount,
+             to_char(statement_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS queried_at,
+             COALESCE((SELECT array_agg(b.business_document_id ORDER BY b.business_document_id)
+                         FROM business_document b WHERE b.tenant_id=r.tenant_id AND b.entity_id=r.entity_id
+                           AND b.source_document_id=r.source_document_id AND b.document_kind='AP_BILL'),ARRAY[]::uuid[]) AS ap_document_ids,
+             COALESCE((SELECT array_agg(x.journal_entry_id ORDER BY x.journal_entry_id) FROM(
+                         SELECT DISTINCT sl.journal_entry_id FROM source_link sl
+                          WHERE sl.tenant_id=r.tenant_id AND sl.entity_id=r.entity_id
+                            AND sl.source_document_id=r.source_document_id AND sl.journal_entry_id IS NOT NULL) x),ARRAY[]::uuid[]) AS journal_entry_ids,
+             COALESCE((SELECT array_agg(x.ledger_line_id ORDER BY x.ledger_line_id) FROM(
+                         SELECT DISTINCT ll.ledger_line_id FROM source_link sl JOIN ledger_line ll
+                           ON ll.tenant_id=sl.tenant_id AND ll.entity_id=sl.entity_id AND ll.journal_entry_id=sl.journal_entry_id
+                          WHERE sl.tenant_id=r.tenant_id AND sl.entity_id=r.entity_id AND sl.source_document_id=r.source_document_id
+                         UNION SELECT DISTINCT sl.ledger_line_id FROM source_link sl
+                          WHERE sl.tenant_id=r.tenant_id AND sl.entity_id=r.entity_id
+                            AND sl.source_document_id=r.source_document_id AND sl.ledger_line_id IS NOT NULL) x),ARRAY[]::uuid[]) AS ledger_line_ids
+        FROM wbs_final1_retained_source_row r
+        JOIN wbs_final1_retained_evidence_admission a ON a.tenant_id=r.tenant_id AND a.entity_id=r.entity_id
+          AND a.wbs_final1_retained_evidence_admission_id=r.wbs_final1_retained_evidence_admission_id AND a.domain=r.domain
+        JOIN source_document d ON d.tenant_id=r.tenant_id AND d.entity_id=r.entity_id AND d.source_document_id=r.source_document_id
+        JOIN source_document_line l ON l.tenant_id=r.tenant_id AND l.entity_id=r.entity_id
+          AND l.source_document_id=r.source_document_id AND l.source_document_line_id=r.source_document_line_id
+       WHERE r.tenant_id=$1 AND r.entity_id=$2 AND r.accounting_period_id=$3 AND r.domain='PAYABLES'
+         AND r.outcome='STAGING_REVIEW_REQUIRED' AND r.exception_codes='[]'::jsonb
+         AND d.status IN ('PENDING_REVIEW','READY_FOR_DRAFT')
+       ORDER BY d.accounting_date,d.source_document_id,l.line_no,l.source_document_line_id
+       LIMIT $4`,[tenantId,entityId,accountingPeriodId,limit+1])).rows.map(row=>({...row,business_date:publicDate(row.business_date),accounting_date:publicDate(row.accounting_date)}));
+    });
+  }
   async readAiConstructionLoanSource({tenantId,entityId,accountingPeriodId,limit=100}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_construction_loan_source($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows);}
   async readAiConstructionLoanDecisionSource({tenantId,entityId,accountingPeriodId,limit=100}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_construction_loan_decision_source($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows.map(row=>({...row,business_date:publicDate(row.business_date),accounting_date:publicDate(row.accounting_date)})));}
   async readAiClosingSettlementSource({tenantId,entityId,accountingPeriodId,limit=500}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_closing_settlement_source($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows.map(row=>({...row,closing_date:publicDate(row.closing_date)})));}
@@ -832,7 +870,7 @@ export class PostgresAccountingKernel{
         JOIN accounting_period p ON p.tenant_id=r.tenant_id AND p.entity_id=r.entity_id AND p.period_id=r.accounting_period_id AND p.ledger_code='PRIMARY'
         JOIN accounting_period current_period ON current_period.tenant_id=r.tenant_id AND current_period.entity_id=r.entity_id AND current_period.period_id=$3 AND current_period.ledger_code='PRIMARY'
         WHERE r.tenant_id=$1 AND r.entity_id=$2 AND r.domain='PAYABLES' AND d.document_type='WBS_FINAL1_PAYABLE' AND d.status='PENDING_REVIEW' AND p.status='CLOSED' AND p.starts_on<current_period.starts_on
-        ORDER BY p.starts_on DESC,d.source_document_id DESC LIMIT $4`,[tenantId,entityId,currentPeriodId,limit])).rows;
+        ORDER BY p.starts_on DESC,d.source_document_id DESC LIMIT $4`,[tenantId,entityId,currentPeriodId,limit+1])).rows;
     });
   }
 
@@ -1110,6 +1148,42 @@ export class PostgresAccountingKernel{
       'SELECT refs_abandon_ai_accounting_analysis_explanation($1,$2,$3,$4)',[tenantId,entityId,idempotencyKey,requestHash]
     ));
   }
+
+  async prepareAiFullControllerModelRun({tenantId,entityId,accountingPeriodId,actorId,idempotencyKey,request}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_prepare_ai_full_controller_model_run($1,$2,$3,$4,$5,$6::jsonb,$7) AS result',
+      [tenantId,entityId,accountingPeriodId,actorId,idempotencyKey,JSON.stringify(request),canonicalRequestHash(request)]
+    ),'AI_FULL_CONTROLLER_MODEL_RUN_PREPARE_FAILED','Full Controller model pre-scan reservation was not produced').result);
+  }
+
+  async beginAiFullControllerModelRun({tenantId,actorId,idempotencyKey,inputManifest}){
+    const scope=inputManifest?.chunks?.[0]||{};
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_begin_ai_full_controller_model_run($1,$2,$3,$4,$5,$6::jsonb,$7) AS result',
+      [tenantId,scope.entity_id,scope.accounting_period_id,actorId,idempotencyKey,JSON.stringify(inputManifest),canonicalRequestHash({schema_version:'AI_FULL_CONTROLLER_MODEL_RUN_REQUEST_V1',actor_id:actorId,idempotency_key:idempotencyKey,input_manifest:inputManifest})]
+    ),'AI_FULL_CONTROLLER_MODEL_RUN_BEGIN_FAILED','Full Controller model run reservation was not produced').result);
+  }
+
+  async beginAiFullControllerModelChunk({tenantId,actorId,idempotencyKey,runHash,chunkIndex,chunkHash}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_begin_ai_full_controller_model_chunk($1,$2,$3,$4,$5,$6) AS result',[tenantId,actorId,idempotencyKey,runHash,chunkIndex,chunkHash]),'AI_FULL_CONTROLLER_MODEL_CHUNK_BEGIN_FAILED','Full Controller chunk reservation was not produced').result);
+  }
+
+  async completeAiFullControllerModelChunk({tenantId,actorId,idempotencyKey,runHash,chunkIndex,chunkHash,response}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_complete_ai_full_controller_model_chunk($1,$2,$3,$4,$5,$6,$7::jsonb) AS result',[tenantId,actorId,idempotencyKey,runHash,chunkIndex,chunkHash,JSON.stringify(response)]),'AI_FULL_CONTROLLER_MODEL_CHUNK_COMPLETE_FAILED','Full Controller chunk completion was not produced').result);
+  }
+
+  async beginAiFullControllerModelMemo({tenantId,actorId,idempotencyKey,runHash,chunkResponseHashes,reductionManifest}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_begin_ai_full_controller_model_memo($1,$2,$3,$4,$5::jsonb,$6::jsonb) AS result',[tenantId,actorId,idempotencyKey,runHash,JSON.stringify(chunkResponseHashes),JSON.stringify(reductionManifest)]),'AI_FULL_CONTROLLER_MODEL_MEMO_BEGIN_FAILED','Full Controller memo reservation was not produced').result);
+  }
+
+  async completeAiFullControllerModelRun({tenantId,actorId,idempotencyKey,runHash,output}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_complete_ai_full_controller_model_run($1,$2,$3,$4,$5::jsonb) AS result',[tenantId,actorId,idempotencyKey,runHash,JSON.stringify(output)]),'AI_FULL_CONTROLLER_MODEL_RUN_COMPLETE_FAILED','Full Controller model run completion was not produced').result);
+  }
+
+  async abandonAiFullControllerModelStage({tenantId,actorId,idempotencyKey,runHash,errorCode}){
+    return this.inSession(client=>client.query('SELECT refs_abandon_ai_full_controller_model_stage($1,$2,$3,$4,$5)',[tenantId,actorId,idempotencyKey,runHash,errorCode]));
+  }
+
 
   // The service may only create an evidence-bound proposal.  The returned
   // object deliberately has no Draft, approval, or posting authority.

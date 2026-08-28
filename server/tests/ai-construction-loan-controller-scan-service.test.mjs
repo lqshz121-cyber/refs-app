@@ -8,7 +8,7 @@ const row=(description,direction='OUTFLOW',overrides={})=>({source_document_id:'
 
 test('classifies the complete retained loan population with review-only accounting treatment',async()=>{
   let received;
-  const service=createAiConstructionLoanControllerScanService({sourceReader:async scope=>{received=scope;return [row('Construction draw advance','INFLOW'),row('Monthly interest payment'),row('Principal payment'),row('Origination fee'),row('Tax reserve','DEBIT')];}});
+  const service=createAiConstructionLoanControllerScanService({sourceReader:async scope=>{received=scope;return [row('Construction draw advance','INFLOW'),row('Monthly interest payment','OUTFLOW',{source_document_line_id:'10000000-0000-4000-8000-000000000002',source_line_hash:hash('c')}),row('Principal payment','OUTFLOW',{source_document_line_id:'10000000-0000-4000-8000-000000000003',source_line_hash:hash('d')}),row('Origination fee','OUTFLOW',{source_document_line_id:'10000000-0000-4000-8000-000000000004',source_line_hash:hash('e')}),row('Tax reserve','DEBIT',{source_document_line_id:'10000000-0000-4000-8000-000000000005',source_line_hash:hash('f')})];}});
   const batch=await service.analyze({tenantId:'tenant',entityId,accountingPeriodId:periodId,limit:500});
   assert.deepEqual(received,{tenantId:'tenant',entityId,accountingPeriodId:periodId,limit:500});
   assert.deepEqual(batch.findings.map(item=>item.classification),['LOAN_DRAW','INTEREST_REVIEW','PRINCIPAL_REPAYMENT','LOAN_FEE_REVIEW','ESCROW_RESERVE']);
@@ -28,4 +28,13 @@ test('returns a closed zero-row batch and rejects non-array source responses',as
   assert.equal((await empty.analyze({tenantId:'tenant',entityId,accountingPeriodId:periodId})).finding_count,0);
   const invalid=createAiConstructionLoanControllerScanService({sourceReader:async()=>null});
   await assert.rejects(invalid.analyze({tenantId:'tenant',entityId,accountingPeriodId:periodId}),error=>error.code==='AI_LOAN_CONTROLLER_SOURCE_INVALID');
+});
+
+test('rejects invalid bounds and a saturated construction-loan population before concluding coverage',async()=>{
+  let reads=0;
+  const service=createAiConstructionLoanControllerScanService({sourceReader:async()=>{reads++;return [row('Construction draw advance','INFLOW'),row('Principal payment')];}});
+  await assert.rejects(service.analyze({tenantId:'tenant',entityId,accountingPeriodId:periodId,limit:0}),error=>error.code==='AI_LOAN_CONTROLLER_SCAN_SCOPE_INVALID');
+  assert.equal(reads,0);
+  await assert.rejects(service.analyze({tenantId:'tenant',entityId,accountingPeriodId:periodId,limit:2}),error=>error.code==='AI_LOAN_CONTROLLER_POPULATION_INCOMPLETE');
+  assert.equal(reads,1);
 });

@@ -17,6 +17,13 @@ test('fails before reading for an invalid scope',async()=>{
   await assert.rejects(()=>service.analyze({tenantId:'bad',entityId:id(1),currentAccountingPeriodId:id(8)}),error=>error.code==='AI_BANK_DUPLICATE_PAYMENT_SCOPE_INVALID');assert.equal(reads,0);
 });
 
+test('fails closed on a saturated population before findings or materialization',async()=>{
+  let writes=0;const service=createAiBankDuplicatePaymentService({sourceReader:async()=>rows,materializeWriter:async()=>{writes+=1;}});
+  await assert.rejects(()=>service.analyze({tenantId:id(80),entityId:id(1),currentAccountingPeriodId:id(8),limit:2}),error=>error.code==='AI_BANK_DUPLICATE_PAYMENT_POPULATION_INCOMPLETE');
+  await assert.rejects(()=>service.analyzeAndMaterialize({tenantId:id(80),entityId:id(1),currentAccountingPeriodId:id(8),limit:2,idempotencyKey:'bank-duplicate-saturated'}),error=>error.code==='AI_BANK_DUPLICATE_PAYMENT_POPULATION_INCOMPLETE');
+  assert.equal(writes,0);
+});
+
 test('materializes only the freshly recomputed immutable batch under one stable command identity',async()=>{
   let written;const receipt={schema_version:'AI_BANK_DUPLICATE_PAYMENT_RUN_RECEIPT_V1',can_create_draft:false,can_review:false,can_approve:false,can_post:false};
   const service=createAiBankDuplicatePaymentService({sourceReader:async()=>rows,materializeWriter:async input=>(written=input,receipt)});

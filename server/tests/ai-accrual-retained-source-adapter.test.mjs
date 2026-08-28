@@ -15,12 +15,14 @@ test('adapts only hash-bound Final-1 payable evidence and canonically derives th
   assert.equal(canonicalAiRecurringObligationId({recurringObligationId:'WBS-OBL-9'}),'WBS-OBL-9');
 });
 
-test('refuses unresolved periods, mutable source states, missing obligation keys, and hash mismatches',()=>{
+test('refuses unresolved or impossible periods, mutable source states, missing obligation keys, and hash mismatches',()=>{
   const valid={...base(),external_dimension_refs:{...base().external_dimension_refs,signed_service_frequency:'MONTHLY',signed_obligation_status:'ACTIVE'}};
   for(const row of [
     {...valid,source_status:'READY_FOR_DRAFT'},
     {...valid,external_dimension_refs:{...valid.external_dimension_refs,accounting_period_resolution:'UNRESOLVED'}},
     {...valid,external_dimension_refs:{...valid.external_dimension_refs,raw_row_hash:'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'}},
-    {...valid,party_ref:null,external_dimension_refs:{...valid.external_dimension_refs,signed_contract_id:null,signed_charge_code:null}}
+    {...valid,party_ref:null,external_dimension_refs:{...valid.external_dimension_refs,signed_contract_id:null,signed_charge_code:null}},
+    {...valid,period_code:'2026-13'},
+    {...valid,external_dimension_refs:{...valid.external_dimension_refs,signed_service_period_end:'2026-02-30'}}
   ])assert.throws(()=>adaptRetainedWbsPayableForAiAccrual(row),error=>error instanceof AiAccrualCandidateError);
 });

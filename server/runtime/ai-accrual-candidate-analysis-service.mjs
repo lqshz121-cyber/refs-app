@@ -8,6 +8,7 @@ import {adaptRetainedWbsPayableForAiAccrual,classifyRetainedWbsPayableForAiAccru
 const text=value=>typeof value==='string'?value.trim():'';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PERIOD=/^\d{4}-\d{2}$/;
+const MAX_RETAINED_HISTORY_ROWS=240;
 const scope=value=>value&&typeof value==='object'&&!Array.isArray(value)&&UUID.test(text(value.tenantId))&&UUID.test(text(value.entityId))&&UUID.test(text(value.currentPeriodId))&&/^[A-Z0-9][A-Z0-9_-]{0,63}$/.test(text(value.companyCode))&&PERIOD.test(text(value.currentPeriodKey))&&Number.isSafeInteger(value.currentPeriodOrdinal)&&value.currentPeriodOrdinal>=0;
 const fail=(code,message)=>{throw new AiAccrualCandidateError(code,message);};
 
@@ -17,7 +18,8 @@ export function createAiAccrualCandidateAnalysisService({retainedHistoryReader,c
     if(!scope(input))fail('ACCRUAL_SCOPE_INVALID','Accrual analysis requires authoritative tenant, entity, and current accounting-period scope.');
     const request=Object.freeze({tenantId:text(input.tenantId),entityId:text(input.entityId),companyCode:text(input.companyCode),currentPeriodId:text(input.currentPeriodId),currentPeriodKey:text(input.currentPeriodKey),currentPeriodOrdinal:input.currentPeriodOrdinal});
     const rawHistory=await retainedHistoryReader(request);
-    if(!Array.isArray(rawHistory)||rawHistory.length>1000)fail('ACCRUAL_HISTORY_INVALID','Retained accrual history is unavailable or exceeds the bounded analysis limit.');
+    if(!Array.isArray(rawHistory))fail('ACCRUAL_HISTORY_INVALID','Retained accrual history is unavailable.');
+    if(rawHistory.length>MAX_RETAINED_HISTORY_ROWS)fail('AI_ACCRUAL_HISTORY_POPULATION_INCOMPLETE','Retained accrual history exceeds the complete bounded analysis population.');
     // Explicitly-null accrual dimensions are a legal retained Payables shape,
     // not malformed evidence. Keep them out of this narrow AI analysis rather
     // than letting one non-accrual line reject a whole historical window.

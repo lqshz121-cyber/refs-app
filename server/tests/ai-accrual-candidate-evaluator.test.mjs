@@ -18,8 +18,13 @@ test('three exact signed prior obligations with no current source produce only a
 
 test('incomplete, mismatched, or nonconsecutive evidence cannot become an accrual candidate',()=>{
   assert.throws(()=>evaluateAiAccrualCandidate(input({priorEvidence:[record({ordinal:3,source_line_hash:'sha256:not-a-hash'}),record({ordinal:2}),record({ordinal:1})]})),error=>error instanceof AiAccrualCandidateError&&error.code==='ACCRUAL_EVIDENCE_INVALID');
+  assert.throws(()=>evaluateAiAccrualCandidate(input({priorEvidence:[record({ordinal:3,service_period_end:'2026-02-30'}),record({ordinal:2}),record({ordinal:1})]})),error=>error instanceof AiAccrualCandidateError&&error.code==='ACCRUAL_EVIDENCE_INVALID');
   assert.equal(evaluateAiAccrualCandidate(input({priorEvidence:[record({ordinal:3}),record({ordinal:2,recurring_obligation_id:'different'}),record({ordinal:1})]})).status,'NO_ACCRUAL_CANDIDATE');
   assert.equal(evaluateAiAccrualCandidate(input({priorEvidence:[record({ordinal:3}),record({ordinal:1}),record({ordinal:0})]})).reason,'HISTORICAL_PERIODS_NOT_CONSECUTIVE');
+});
+
+test('impossible current accounting-period months fail before historical evidence is evaluated',()=>{
+  assert.throws(()=>evaluateAiAccrualCandidate(input({currentPeriodKey:'2026-13'})),error=>error instanceof AiAccrualCandidateError&&error.code==='ACCRUAL_SCOPE_INVALID');
 });
 
 test('a retained or posted current-period source prevents an omitted-accrual claim',()=>{

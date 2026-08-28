@@ -17,7 +17,7 @@ export function detectPrepaidBalanceReconciliationReviews(rows,{entityId,account
       if(reported===0n)continue;
       findings.push(Object.freeze({schema_version:'AI_PREPAID_BALANCE_RECONCILIATION_REVIEW_V1',finding_type:'PREPAID_BALANCE_MISMATCH',risk_level:'HIGH',rule_id:'AI_SOURCE_BOUND_PREPAID_BALANCE_RECONCILIATION_V1',entity_id:entityId,accounting_period_id:accountingPeriodId,...row,variance_amount:money(reported),reason:`Source-bound prepaid balance ${row.actual_source_bound_balance} differs from scheduled unamortized balance ${row.expected_unamortized_balance} by ${money(reported)}.`,suggested_action:'Recalculate the schedule, inspect every source-bound Posted amortization entry, and prepare a human-reviewed correction only when the retained evidence supports it.',required_human_fields:Object.freeze(['schedule_recalculation','posted_amortization_review','remaining_coverage_confirmation','controller_conclusion']),action_flags:ACTIONS}));
     }
-    if(findings.length===limit)break;
   }
+  if(findings.length>limit)throw Object.assign(new Error('Prepaid balance-reconciliation finding population exceeds the requested complete response bound.'),{code:'AI_PREPAID_BALANCE_FINDING_POPULATION_INCOMPLETE'});
   return Object.freeze({schema_version:'AI_PREPAID_BALANCE_RECONCILIATION_BATCH_V1',scanned_schedule_count:rows.length,finding_count:findings.length,findings:Object.freeze(findings),action_flags:ACTIONS});
 }

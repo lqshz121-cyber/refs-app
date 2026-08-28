@@ -16,6 +16,8 @@ test('missing property, ambiguous nature and malformed source fail closed',()=>{
   const malformed=line(1);delete malformed.source_line_hash;assert.equal(classifyClosingSettlementLine(malformed).rule_id,'AI_CLOSING_SETTLEMENT_SOURCE_INVALID_V1');
 });
 
+test('impossible closing dates fail closed instead of being normalized by JavaScript',()=>{for(const closing_date of ['2026-02-29','2026-02-30','2026-04-31','2026-13-01'])assert.equal(classifyClosingSettlementLine(line(1,{closing_date})).rule_id,'AI_CLOSING_SETTLEMENT_SOURCE_INVALID_V1');assert.equal(classifyClosingSettlementLine(line(1,{closing_date:'2028-02-29'})).treatment,'PURCHASE_PRICE');});
+
 test('batch produces a source-bound imbalance finding and balanced statement produces none',()=>{
   const debit=line(1),credit=line(2,{line_code:'LOAN',description:'Mortgage loan proceeds',side:'CREDIT'});
   const unbalanced=analyzeClosingSettlement([debit,{...credit,amount:'450000.0000'}],{entityId:ids.entity,accountingPeriodId:ids.period});
@@ -23,4 +25,8 @@ test('batch produces a source-bound imbalance finding and balanced statement pro
   const balanced=analyzeClosingSettlement([debit,credit],{entityId:ids.entity,accountingPeriodId:ids.period});assert.equal(balanced.finding_count,2);assert.equal(balanced.findings.some(item=>item.finding_type==='CLOSING_SETTLEMENT_IMBALANCE'),false);
 });
 
-test('scope and population are bounded',()=>{assert.throws(()=>analyzeClosingSettlement(new Array(501).fill(line(1)),{entityId:ids.entity,accountingPeriodId:ids.period}),error=>error.code==='AI_CLOSING_SETTLEMENT_SCOPE_INVALID');});
+test('scope and population are bounded and a saturated reader fails closed',()=>{
+  assert.throws(()=>analyzeClosingSettlement([],{entityId:ids.entity,accountingPeriodId:ids.period,limit:0}),error=>error.code==='AI_CLOSING_SETTLEMENT_SCOPE_INVALID');
+  assert.throws(()=>analyzeClosingSettlement([line(1),line(2)],{entityId:ids.entity,accountingPeriodId:ids.period,limit:2}),error=>error.code==='AI_CLOSING_SETTLEMENT_POPULATION_INCOMPLETE');
+  assert.equal(analyzeClosingSettlement([line(1)],{entityId:ids.entity,accountingPeriodId:ids.period,limit:2}).finding_count,2);
+});

@@ -7,7 +7,7 @@ import {AiAccrualCandidateError} from './ai-accrual-candidate-evaluator.mjs';
 const text=value=>typeof value==='string'?value.trim():'';
 const HASH=/^sha256:[0-9a-f]{64}$/;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const PERIOD=/^\d{4}-\d{2}$/;
+const PERIOD=/^\d{4}-(?:0[1-9]|1[0-2])$/;
 const DATE=/^(\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z)?$/;
 const object=value=>value&&typeof value==='object'&&!Array.isArray(value);
 const fail=(code,message)=>{throw new AiAccrualCandidateError(code,message);};
@@ -17,6 +17,8 @@ const ACCRUAL_DIMENSION_KEYS=Object.freeze(REQUIRED_SIGNED_PAYABLE_KEYS.slice(3)
 const canonicalDate=value=>{
   const match=DATE.exec(text(value));
   if(!match)fail('ACCRUAL_RETAINED_SOURCE_INVALID','Retained service-period evidence must use an ISO source date or UTC timestamp.');
+  const [year,month,day]=match[1].split('-').map(Number),date=new Date(Date.UTC(year,month-1,day));
+  if(date.getUTCFullYear()!==year||date.getUTCMonth()!==month-1||date.getUTCDate()!==day)fail('ACCRUAL_RETAINED_SOURCE_INVALID','Retained service-period evidence contains an impossible calendar date.');
   return match[1];
 };
 

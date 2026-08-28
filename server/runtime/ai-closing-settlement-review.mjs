@@ -6,7 +6,7 @@ const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve
 const ALLOWED_KEYS=Object.freeze(['accounting_period_id','amount','closing_date','counterparty_name','currency','description','entity_id','line_code','project_ref','property_ref','settlement_type','side','source_document_id','source_document_line_id','source_line_hash','source_payload_hash']);
 const text=(value,max)=>typeof value==='string'&&value.trim().length>0&&value.trim().length<=max;
 const nullableText=(value,max)=>value===null||text(value,max);
-const validDate=value=>typeof value==='string'&&DATE.test(value)&&!Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+const validDate=value=>{if(typeof value!=='string'||!DATE.test(value))return false;const [year,month,day]=value.split('-').map(Number),date=new Date(Date.UTC(year,month-1,day));return date.getUTCFullYear()===year&&date.getUTCMonth()===month-1&&date.getUTCDate()===day;};
 const units=value=>BigInt(value.replace('.',''));
 const money=value=>`${value/10000n}.${String(value%10000n).padStart(4,'0')}`;
 
@@ -44,7 +44,8 @@ export function classifyClosingSettlementLine(row){
 }
 
 export function analyzeClosingSettlement(rows,{entityId,accountingPeriodId,limit=500}={}){
-  if(!Array.isArray(rows)||rows.length>limit||limit<1||limit>500||!UUID.test(entityId||'')||!UUID.test(accountingPeriodId||''))throw Object.assign(new Error('Closing settlement review requires one bounded entity and accounting period.'),{code:'AI_CLOSING_SETTLEMENT_SCOPE_INVALID'});
+  if(!Array.isArray(rows)||limit<1||limit>500||!UUID.test(entityId||'')||!UUID.test(accountingPeriodId||''))throw Object.assign(new Error('Closing settlement review requires one bounded entity and accounting period.'),{code:'AI_CLOSING_SETTLEMENT_SCOPE_INVALID'});
+  if(rows.length>=limit)throw Object.assign(new Error('The bounded closing-settlement source read cannot prove population completeness.'),{code:'AI_CLOSING_SETTLEMENT_POPULATION_INCOMPLETE'});
   const classified=rows.map(classifyClosingSettlementLine),groups=new Map();
   for(const row of rows.filter(validRow)){const key=`${row.source_document_id}|${row.currency}`;if(!groups.has(key))groups.set(key,{document:row.source_document_id,currency:row.currency,debit:0n,credit:0n,hashes:[]});const group=groups.get(key);if(row.side==='DEBIT')group.debit+=units(row.amount);if(row.side==='CREDIT')group.credit+=units(row.amount);group.hashes.push(row.source_line_hash);}
   const imbalance=[];
