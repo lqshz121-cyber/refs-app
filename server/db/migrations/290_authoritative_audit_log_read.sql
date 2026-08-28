@@ -1,7 +1,7 @@
 BEGIN;
 
 INSERT INTO permission_catalog(permission_code,domain,risk_class,sod_class)
-VALUES('AUDIT.VIEW','AUDIT','MEDIUM','AUDIT_READ')
+VALUES('AUDIT.VIEW','AUDIT','MEDIUM','AUDIT_READER')
 ON CONFLICT(permission_code) DO UPDATE SET active=true,domain=EXCLUDED.domain,risk_class=EXCLUDED.risk_class,
   sod_class=EXCLUDED.sod_class,version=permission_catalog.version+1,effective_to=NULL;
 
