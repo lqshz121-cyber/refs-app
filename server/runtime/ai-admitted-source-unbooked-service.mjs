@@ -41,7 +41,7 @@ export function createAiAdmittedSourceUnbookedAnalysisService({bookingEvidenceRe
   return Object.freeze({async analyze({tenantId,entityId,currentAccountingPeriodId,limit=500}={}){
     if(![tenantId,entityId,currentAccountingPeriodId].every(value=>UUID.test(value||''))||!Number.isSafeInteger(limit)||limit<1||limit>500)fail('AI_ADMITTED_SOURCE_UNBOOKED_SCOPE_INVALID','Exact tenant, entity, period, and bounded population are required.');
     const rows=await bookingEvidenceReader({tenantId,entityId,accountingPeriodId:currentAccountingPeriodId,limit});
-    if(!Array.isArray(rows)||rows.length>=limit)fail('AI_ADMITTED_SOURCE_UNBOOKED_POPULATION_INCOMPLETE','The bounded admitted Payable read cannot prove population completeness.');
+    if(!Array.isArray(rows)||rows.length>limit)fail('AI_ADMITTED_SOURCE_UNBOOKED_POPULATION_INCOMPLETE','The bounded admitted Payable read cannot prove population completeness.');
     const findings=[];
     for(const row of rows){
       if(!validRow(row,{tenantId,entityId,currentAccountingPeriodId}))fail('AI_ADMITTED_SOURCE_UNBOOKED_EVIDENCE_INVALID','Server booking evidence is malformed, unscoped, or incomplete.');

@@ -31,8 +31,13 @@ test('does not report a blocked source when authoritative booking evidence alrea
   assert.equal(result.scanned_source_count,1);assert.equal(result.finding_count,0);
 });
 
-test('fails closed when the reader exceeds the bound or returns drifted and unsafe evidence',async()=>{
-  await assert.rejects(()=>createAiAdmittedSourceUnbookedAnalysisService({bookingEvidenceReader:async()=>Array.from({length:10},(_,index)=>row(index+1))}).analyze(input),error=>error.code==='AI_ADMITTED_SOURCE_UNBOOKED_POPULATION_INCOMPLETE');
+test('accepts the exact bound and fails closed only when the limit-plus-one probe proves overflow',async()=>{
+  const exact=await createAiAdmittedSourceUnbookedAnalysisService({bookingEvidenceReader:async()=>Array.from({length:10},(_,index)=>row(index+1))}).analyze(input);
+  assert.equal(exact.scanned_source_count,10);assert.equal(exact.finding_count,10);
+  await assert.rejects(()=>createAiAdmittedSourceUnbookedAnalysisService({bookingEvidenceReader:async()=>Array.from({length:11},(_,index)=>row(index+1))}).analyze(input),error=>error.code==='AI_ADMITTED_SOURCE_UNBOOKED_POPULATION_INCOMPLETE');
+});
+
+test('fails closed for drifted and unsafe evidence',async()=>{
   await assert.rejects(()=>createAiAdmittedSourceUnbookedAnalysisService({bookingEvidenceReader:async()=>[row(1,{entity_id:id(99)})]}).analyze(input),error=>error.code==='AI_ADMITTED_SOURCE_UNBOOKED_EVIDENCE_INVALID');
   await assert.rejects(()=>createAiAdmittedSourceUnbookedAnalysisService({bookingEvidenceReader:async()=>[row(1,{authorization:'Bearer secret'})]}).analyze(input),error=>error.code==='AI_ADMITTED_SOURCE_UNBOOKED_EVIDENCE_INVALID');
   await assert.rejects(()=>createAiAdmittedSourceUnbookedAnalysisService({bookingEvidenceReader:async()=>[row(1,{exception_codes:['WBS_PAYABLE_ATTACHMENT_REQUIRED','WBS_PAYABLE_ATTACHMENT_REQUIRED']})]}).analyze(input),error=>error.code==='AI_ADMITTED_SOURCE_UNBOOKED_EVIDENCE_INVALID');
