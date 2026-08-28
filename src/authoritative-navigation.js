@@ -26,9 +26,9 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Entity- and period-scoped immutable approved core-accounting policy snapshots with version, approver, hash, close gates, materiality and coverage evidence.',
       'Expense-form, purchasing, and report-presentation policy detail and history remain unavailable; edits, threshold changes, purchase-order or message actions, readiness automation, payments, and posting are never exposed here.',
     ]),
-    item('mapping', 'Mapping Center', 'API_UNAVAILABLE', [
-      'Entity- and period-scoped immutable mapping identity, revision, source field, destination account or dimension, effectivity, status, reviewer, approver, usage, and audit evidence.',
-      'Read-only catalog, filters, paging, detail, history, and impact endpoints; create, edit, approve, deactivate, delete, import, automatic application, and accounting commands remain unavailable.',
+    item('mapping', 'Mapping Center', 'API_READ', [
+      'Entity- and period-scoped complete approved account-to-statement and report-row mappings with account role, class, effectivity, version, snapshot hash, population hash and approval evidence.',
+      'Vendor, source-field, project, property, cost-code, exception, usage and history mapping readers remain unavailable; create, edit, approve, deactivate, delete, import, automatic application, and accounting commands are never exposed here.',
     ]),
   ]),
   group('Source & Staging', [
