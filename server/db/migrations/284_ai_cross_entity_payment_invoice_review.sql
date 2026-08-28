@@ -81,8 +81,8 @@ BEGIN
       AND d.document_number=l.external_dimension_refs->>'signed_invoice_no' AND d.accounting_date=sd.accounting_date
       AND d.currency=sd.currency AND d.gross_amount=abs(l.amount)
   ), current_counts AS (
-    SELECT signed_business_id,invoice_number,invoice_date,currency,gross_amount,count(DISTINCT source_document_id)::integer identity_count
-    FROM current_sources GROUP BY signed_business_id,invoice_number,invoice_date,currency,gross_amount
+    SELECT cs.signed_business_id,cs.invoice_number,cs.invoice_date,cs.currency,cs.gross_amount,count(DISTINCT cs.source_document_id)::integer identity_count
+    FROM current_sources cs GROUP BY cs.signed_business_id,cs.invoice_number,cs.invoice_date,cs.currency,cs.gross_amount
   ), counterparty_sources AS (
     SELECT r.accounting_period_id,sd.source_document_id,l.source_document_line_id,sd.currency,abs(l.amount)::numeric(20,4) invoice_amount,
       NULLIF(btrim(l.external_dimension_refs->>'signed_business_id'),'') signed_business_id,
@@ -105,8 +105,8 @@ BEGIN
       AND NULLIF(btrim(l.external_dimension_refs->>'signed_invoice_no'),'') IS NOT NULL
       AND l.external_dimension_refs->>'signed_invoice_date'=sd.business_date::text AND sd.document_no=l.external_dimension_refs->>'signed_invoice_no'
   ), counterparty_counts AS (
-    SELECT signed_business_id,invoice_number,invoice_date,currency,invoice_amount,count(DISTINCT source_document_id)::integer identity_count
-    FROM counterparty_sources GROUP BY signed_business_id,invoice_number,invoice_date,currency,invoice_amount
+    SELECT cs.signed_business_id,cs.invoice_number,cs.invoice_date,cs.currency,cs.invoice_amount,count(DISTINCT cs.source_document_id)::integer identity_count
+    FROM counterparty_sources cs GROUP BY cs.signed_business_id,cs.invoice_number,cs.invoice_date,cs.currency,cs.invoice_amount
   ), payments AS (
     SELECT po,ba,cs,cc.identity_count current_identity_count,je.journal_entry_id,
       ledger.ledger_line_ids,ledger.ledger_hash
