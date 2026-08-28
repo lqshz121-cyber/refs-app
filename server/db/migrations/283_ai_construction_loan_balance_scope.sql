@@ -240,7 +240,9 @@ BEGIN
      AND m.effective_from::date<=s.statement_date
      AND (m.effective_to IS NULL OR m.effective_to::date>s.statement_date)
      AND m.input_keys=jsonb_build_object('loan_ref',s.loan_ref)
-    WHERE m.snapshot_hash=public.refs_jsonb_hash(m.snapshot)
+    WHERE m.snapshot_hash=public.refs_jsonb_hash(
+      jsonb_build_object('input_keys',m.input_keys,'output_rules',m.output_rules)
+    )
       AND m.output_rules ? 'account_code'
       AND m.output_rules->>'account_code'~'^[0-9A-Za-z._-]{1,64}$'
   )

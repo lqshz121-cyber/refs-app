@@ -288,5 +288,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"280_ai_manual_journal_verified_attachment_support.sql",up:"9d5d1764cbba267bb9106e832f8bddf6dbef3c373945673ad2f249a28b1b2ab5",down:"e65069ebc4c2bd0ac6e2545579a970f52ca5dda72bbd0c2a00f54917017cd11c"}),
   Object.freeze({name:"281_ai_accounting_decision_queue_read.sql",up:"3d02f719142075731914a74e4bf482446cd720457e849e9bc2cbfb3f90831476",down:"95929ed9732ce0b738217e52883270a3e12f356ae278a1a8f5e23d96f61928a0"}),
   Object.freeze({name:"282_ai_admitted_source_booking_evidence_read.sql",up:"d379ea0b28252cba8fef9f915f2239e631e9a62358afcdd5352db39abc0758f8",down:"be310923c27310662d82f40c039134db8664cefa958571f4d2e42e9156b9e252"}),
-  Object.freeze({name:"283_ai_construction_loan_balance_scope.sql",up:"c2fde68e9ee4cc6a0de8e6cfa414bf39a9202b4d0d5b6cc70be5b1a933639182",down:"65ea233ac5cf392bbd3a9b7e04308032edd9788c326ffe60cd27d2859d4dcca5"}),
+  Object.freeze({name:"283_ai_construction_loan_balance_scope.sql",up:"434697e08059f086575e7a6ed348ca04546a93c0d8445d8837c8b58b1d4064f0",down:"65ea233ac5cf392bbd3a9b7e04308032edd9788c326ffe60cd27d2859d4dcca5"}),
 ]);
