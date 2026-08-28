@@ -43,6 +43,7 @@ import {authoritativeScopePresentation} from './authoritative-scope-presentation
 import {AuthoritativeAccessStatus} from './authoritative-access-status.jsx';
 import {AuthoritativePeriodCloseWorkspace} from './authoritative-period-close-workspace.jsx';
 import {AuthoritativeAuditLogWorkspace} from './authoritative-audit-log-workspace.jsx';
+import {AuthoritativeAccountingSettingsWorkspace} from './authoritative-accounting-settings-workspace.jsx';
 
 export const authoritativeRuntimeConfigured = (environment = globalThis) =>
   Boolean(accountingApiConfig(environment) && oidcRuntimeConfig(environment));
@@ -617,7 +618,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'general-ledger' && <AuthoritativeGeneralLedgerWorkspace key={`general-ledger-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} onBack={reportGeneralLedgerDetail?closeReportGeneralLedger:null}/>}
         {phase === 'READY' && ['month-end-close','period-management'].includes(route) && <AuthoritativePeriodCloseWorkspace key={`period-close-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} currentActorAccess={accessState.status==='READY'?accessState.row:null}/>}
         {phase === 'READY' && route === 'audit-log' && <AuthoritativeAuditLogWorkspace key={`audit-log-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
-        {phase === 'READY' && !['overview','payables','receivables','bank-batch-pipeline','bank','reconciliation','wbs-payable-review','ai-audit','ai-je-workbench','accounting-analysis-report','wbs-autorec-evidence','integration-hub','reports','project-cost-cwip','unit-cost-ledger','property-ops-pickup','construction-loan','amortization','intercompany','consolidation','journals','source-documents','chart-of-accounts','account-inquiry','general-ledger','accruals','month-end-close','period-management','audit-log'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
+        {phase === 'READY' && route === 'settings' && <AuthoritativeAccountingSettingsWorkspace key={`accounting-settings-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
+        {phase === 'READY' && !['overview','payables','receivables','bank-batch-pipeline','bank','reconciliation','wbs-payable-review','ai-audit','ai-je-workbench','accounting-analysis-report','wbs-autorec-evidence','integration-hub','reports','project-cost-cwip','unit-cost-ledger','property-ops-pickup','construction-loan','amortization','intercompany','consolidation','journals','source-documents','chart-of-accounts','account-inquiry','general-ledger','accruals','month-end-close','period-management','audit-log','settings'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
       </main>
     </div>
   </div>;
