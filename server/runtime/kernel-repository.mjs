@@ -2332,6 +2332,13 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async readAiCrossEntityPaymentInvoices({tenantId,entityId,periodId,counterpartyEntityId,counterpartyPeriodId,limit=501}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_cross_entity_payment_invoices($1,$2,$3,$4,$5,$6)',
+      [tenantId,entityId,periodId,counterpartyEntityId,counterpartyPeriodId,limit]
+    )).rows.map(row=>({...row,payment_date:publicDate(row.payment_date),invoice_date:publicDate(row.invoice_date)})));
+  }
+
   async listAiIntercompanyCounterpartyPeriods({tenantId,entityId,periodId,limit=100}){
     return this.inSession(async client=>(await client.query(`SELECT DISTINCT
         CASE WHEN mapping.input_keys->>'counterparty_entity_id'~*'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN (mapping.input_keys->>'counterparty_entity_id')::uuid END AS counterparty_entity_id,
