@@ -2192,6 +2192,20 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async readFinancialStatementSnapshotProposalQueue({tenantId,entityId,periodId,limit=20,offset=0}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_financial_statement_snapshot_proposal_queue($1,$2,$3,$4,$5) AS result',
+      [tenantId,entityId,periodId,limit,offset]
+    ),'STATEMENT_SNAPSHOT_PROPOSAL_QUEUE_FAILED','Statement snapshot proposal queue did not return a result').result);
+  }
+
+  async readFinancialStatementSnapshotProposal({tenantId,entityId,periodId,proposalId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_financial_statement_snapshot_proposal($1,$2,$3,$4) AS result',
+      [tenantId,entityId,periodId,proposalId]
+    ),'STATEMENT_SNAPSHOT_PROPOSAL_READ_FAILED','Statement snapshot proposal did not return a result').result);
+  }
+
   async prepareFinancialStatementSnapshot({tenantId,entityId,periodId,idempotencyKey}){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
