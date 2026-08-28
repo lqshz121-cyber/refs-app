@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {aiAccountingDecisionCommandIdempotencyKey,createAuthoritativeAiAccountingDecisionDraft,decideAuthoritativeAiAccountingDecision,refreshAuthoritativeAiAccountingDecisionQueue} from '../src/accounting-api.js';
+import {createHash} from 'node:crypto';
+import {aiAccountingDecisionCommandIdempotencyKey,aiAccountingPostedOutcomeIdempotencyKey,createAuthoritativeAiAccountingDecisionDraft,decideAuthoritativeAiAccountingDecision,refreshAuthoritativeAiAccountingDecisionQueue,retainAuthoritativeAiAccountingPostedOutcomeReview} from '../src/accounting-api.js';
 
 const id=n=>`${String(n).padStart(8,'0')}-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const entityId=id(1),periodId=id(2),decisionId=id(3),humanId=id(4),hash=`sha256:${'a'.repeat(64)}`;
 const config={baseUrl:'https://accounting.example',entityId,periodId,getAccessToken:async()=> 'a'.repeat(48)};
 const action_flags={can_accept_or_reject:true,can_create_draft:false,can_retain_posted_outcome:false,can_submit:false,can_review:false,can_approve:false,can_post:false};
 const decision={ai_accounting_decision_id:decisionId,decision_hash:hash,packet_status:'READY_FOR_HUMAN_REVIEW',action_flags};
+const canonical=value=>{if(value===null||typeof value!=='object')return JSON.stringify(value);if(Array.isArray(value))return `[${value.map(canonical).join(',')}]`;return `{${Object.keys(value).sort().map(key=>`${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;};
+const canonicalHash=value=>`sha256:${createHash('sha256').update(canonical(value)).digest('hex')}`;
 
 test('browser reads an empty retained decision page with no-store and exact scope',async()=>{
   let request;const data={schema_version:'AI_ACCOUNTING_DECISION_QUEUE_V1',scope:{tenant_id:id(9),entity_id:entityId,accounting_period_id:periodId},total_count:0,read_count:0,limit:50,offset:0,population_complete:true,rows:[]};
@@ -28,4 +31,16 @@ test('accepted evidence can create only a Draft receipt',async()=>{
   const receipt={schema_version:'AI_ACCOUNTING_DECISION_DRAFT_V1',ai_accounting_decision_draft_evidence_id:id(5),ai_accounting_decision_id:decisionId,ai_accounting_human_decision_id:humanId,journal_entry_id:id(6),status:'DRAFT',revision:0,idempotent:false,can_review:false,can_approve:false,can_post:false};
   const result=await createAuthoritativeAiAccountingDecisionDraft({config,decision:accepted,reason,idempotencyKey,fetcher:async()=>({ok:true,status:201,json:async()=>({ok:true,data:receipt})})});
   assert.equal(result.ok,true);assert.equal(result.data.status,'DRAFT');assert.equal(result.data.can_post,false);
+});
+
+test('Posted decision retains only server-derived review evidence with canonical hash and command identity',async()=>{
+  const posted={...decision,draft_evidence:{journal_status:'POSTED'},latest_posted_outcome_review:null,action_flags:{...action_flags,can_accept_or_reject:false,can_retain_posted_outcome:true}};
+  const key=await aiAccountingPostedOutcomeIdempotencyKey({config,decision:posted});assert.match(key,/^ai-posted-outcome:[0-9a-f]{64}$/);
+  const evidence={schema_version:'AI_ACCOUNTING_POSTED_OUTCOME_EVIDENCE_V1',ai_accounting_decision_id:decisionId,decision_hash:hash,human_decision_id:humanId,acceptance_hash:hash,draft_evidence_id:id(5),draft_evidence_hash:hash,journal_entry_id:id(6),journal_status:'POSTED',journal_revision:4,proposed_lines_hash:hash,journal_lines_hash:hash,ledger_lines_hash:hash,workflow_evidence_hash:hash,expected_report_deltas_hash:hash,actual_report_deltas_hash:hash,financial_statement_snapshot_id:id(7),financial_statement_snapshot_hash:hash,ledger_evidence_hash:hash,proposed_journal_exact:true,posted_ledger_exact:true,workflow_exact:true,report_snapshot_exact:true,can_create_draft:false,can_review:false,can_approve:false,can_post:false};
+  const base={schema_version:'AI_ACCOUNTING_POSTED_OUTCOME_REVIEW_V1',ai_accounting_posted_outcome_review_id:id(8),ai_accounting_decision_id:decisionId,review_revision:0,status:'CONSISTENT',reason_codes:[],reviewed_by:'controller',reviewed_at:'2026-08-28T12:00:00.000Z',evidence,can_create_draft:false,can_review:false,can_approve:false,can_post:false};
+  const review={...base,review_hash:canonicalHash({decision_id:decisionId,revision:0,status:'CONSISTENT',reason_codes:[],evidence}),idempotent:false};let request;
+  const retained=await retainAuthoritativeAiAccountingPostedOutcomeReview({config,decision:posted,idempotencyKey:key,fetcher:async(url,init)=>(request={url,init},{ok:true,status:201,json:async()=>({ok:true,data:review})})});
+  assert.equal(retained.ok,true,JSON.stringify(retained));assert.equal(retained.data.status,'CONSISTENT');assert.equal(request.init.cache,'no-store');assert.deepEqual(JSON.parse(request.init.body),{expected_decision_hash:hash,expected_review_revision:-1});assert.equal(Object.hasOwn(JSON.parse(request.init.body),'evidence'),false);
+  const forged={...review,review_hash:hash};const rejected=await retainAuthoritativeAiAccountingPostedOutcomeReview({config,decision:posted,idempotencyKey:key,fetcher:async()=>({ok:true,status:201,json:async()=>({ok:true,data:forged})})});assert.equal(rejected.code,'AI_POSTED_OUTCOME_REVIEW_PROTOCOL');
+  const wrongKey=await retainAuthoritativeAiAccountingPostedOutcomeReview({config,decision:posted,idempotencyKey:'posted-outcome-wrong-key',fetcher:async()=>{throw new Error('must not call network')}});assert.equal(wrongKey.code,'AI_POSTED_OUTCOME_REVIEW_COMMAND_INVALID');
 });
