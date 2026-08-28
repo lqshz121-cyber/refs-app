@@ -49,8 +49,8 @@ BEGIN
   IF p_limit IS NULL OR p_limit<1 OR p_limit>501 THEN RAISE EXCEPTION 'Cross-entity payment review limit must be between 1 and 501' USING ERRCODE='22023';END IF;
   PERFORM refs_assert_ai_analysis_scope(p_tenant,p_entity);
   PERFORM refs_assert_ai_analysis_scope(p_tenant,p_counterparty_entity);
-  SELECT * INTO current_period FROM accounting_period WHERE tenant_id=p_tenant AND entity_id=p_entity AND period_id=p_period AND ledger_code='PRIMARY';
-  SELECT * INTO counterparty_period FROM accounting_period WHERE tenant_id=p_tenant AND entity_id=p_counterparty_entity AND period_id=p_counterparty_period AND ledger_code='PRIMARY';
+  SELECT ap.* INTO current_period FROM accounting_period ap WHERE ap.tenant_id=p_tenant AND ap.entity_id=p_entity AND ap.period_id=p_period AND ap.ledger_code='PRIMARY';
+  SELECT ap.* INTO counterparty_period FROM accounting_period ap WHERE ap.tenant_id=p_tenant AND ap.entity_id=p_counterparty_entity AND ap.period_id=p_counterparty_period AND ap.ledger_code='PRIMARY';
   IF current_period.period_id IS NULL OR counterparty_period.period_id IS NULL OR current_period.starts_on<>counterparty_period.starts_on OR current_period.ends_on<>counterparty_period.ends_on THEN
     RAISE EXCEPTION 'Cross-entity payment review requires aligned primary accounting periods' USING ERRCODE='22023';
   END IF;
