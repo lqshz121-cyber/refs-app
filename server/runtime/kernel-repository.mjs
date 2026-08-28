@@ -2482,14 +2482,26 @@ export class PostgresAccountingKernel{
   }
 
   async closePeriod(args){
-    const requestHash=canonicalRequestHash({tenantId:args.tenantId,entityId:args.entityId,periodId:args.periodId,expectedVersion:args.expectedVersion});
     return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        `SELECT refs_jsonb_hash(jsonb_build_object(
+          'tenant_id',$1::uuid,'entity_id',$2::uuid,'period_id',$3::uuid,'expected_version',$4::bigint::text,
+          'expected_readiness_hash',$5::text,'reason',$6::text
+        )) AS request_hash`,
+        [args.tenantId,args.entityId,args.periodId,args.expectedVersion,args.expectedReadinessHash,args.reason]
+      ),'PERIOD_CLOSE_REQUEST_HASH_FAILED','Period close request hash was not produced').request_hash;
       const row=requireRow(await client.query(
-        'SELECT refs_close_period($1,$2,$3,$4,$5,$6,refs_current_actor()) AS result',
-        [args.tenantId,args.entityId,args.periodId,args.expectedVersion,args.idempotencyKey,requestHash]
+        'SELECT refs_close_period_v2($1,$2,$3,$4,$5,$6,$7,$8) AS result',
+        [args.tenantId,args.entityId,args.periodId,args.expectedVersion,args.expectedReadinessHash,args.reason,args.idempotencyKey,requestHash]
       ),'PERIOD_CLOSE_FAILED','Period close did not return a result');
       return row.result;
     });
+  }
+
+  async readPeriodCloseReadiness(args){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_period_close_readiness($1,$2,$3) AS result',[args.tenantId,args.entityId,args.periodId]
+    ),'PERIOD_CLOSE_READINESS_FAILED','Period close readiness was not produced').result);
   }
 
   async retainWbsH1AccountingControlPopulation({tenantId,entityId,runId,idempotencyKey,population,linePageFactory=null}){
