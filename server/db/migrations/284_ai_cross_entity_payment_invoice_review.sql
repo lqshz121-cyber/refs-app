@@ -128,11 +128,11 @@ BEGIN
   SELECT p_entity,p_period,p_counterparty_entity,p_counterparty_period,
     (p.po).payment_occurrence_id,(p.ba).business_allocation_id,(p.po).business_document_id,p.journal_entry_id,p.ledger_line_ids,
     refs_jsonb_hash(jsonb_build_object('schema_version','AI_CROSS_ENTITY_PAYMENT_EVIDENCE_V1','payment_occurrence_id',(p.po).payment_occurrence_id,'business_allocation_id',(p.ba).business_allocation_id,'business_document_id',(p.po).business_document_id,'journal_entry_id',p.journal_entry_id,'ledger_hash',p.ledger_hash,'request_hash',(p.po).request_hash)),
-    (p.po).amount,(p.ba).amount,(p.po).currency,(p.po).accounting_date,p.cs.signed_business_id,p.cs.invoice_number,p.cs.invoice_date,p.cs.gross_amount,
-    p.cs.source_document_id,p.cs.source_document_line_id,p.cs.source_payload_hash,p.cs.source_line_hash,
+    (p.po).amount,(p.ba).amount,(p.po).currency,(p.po).accounting_date,(p.cs).signed_business_id,(p.cs).invoice_number,(p.cs).invoice_date,(p.cs).gross_amount,
+    (p.cs).source_document_id,(p.cs).source_document_line_id,(p.cs).source_payload_hash,(p.cs).source_line_hash,
     c.source_document_id,c.source_document_line_id,c.source_payload_hash,c.source_line_hash,p.current_identity_count,counts.identity_count
   FROM payments p
-  JOIN counterparty_sources c ON c.signed_business_id=p.cs.signed_business_id AND c.invoice_number=p.cs.invoice_number AND c.invoice_date=p.cs.invoice_date AND c.currency=p.cs.currency AND c.invoice_amount=p.cs.gross_amount
+  JOIN counterparty_sources c ON c.signed_business_id=(p.cs).signed_business_id AND c.invoice_number=(p.cs).invoice_number AND c.invoice_date=(p.cs).invoice_date AND c.currency=(p.cs).currency AND c.invoice_amount=(p.cs).gross_amount
   JOIN counterparty_counts counts ON counts.signed_business_id=c.signed_business_id AND counts.invoice_number=c.invoice_number AND counts.invoice_date=c.invoice_date AND counts.currency=c.currency AND counts.invoice_amount=c.invoice_amount
   ORDER BY (p.po).accounting_date,(p.po).payment_occurrence_id,c.source_document_id,c.source_document_line_id LIMIT p_limit;
 END;$$;
