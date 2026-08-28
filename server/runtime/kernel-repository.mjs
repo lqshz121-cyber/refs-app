@@ -917,6 +917,14 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async resolveAiBankDuplicatePayment({tenantId,entityId,aiFindingActionId,findingId,findingHash,conclusion,humanEvidence,expectedRevision,idempotencyKey}){
+    return this.inSession(async client=>{
+      const values=[tenantId,entityId,aiFindingActionId,findingId,findingHash,conclusion,humanEvidence,expectedRevision];
+      const requestHash=requireRow(await client.query('SELECT refs_resolve_ai_bank_duplicate_payment_hash($1,$2,$3,$4,$5,$6,$7,$8) AS request_hash',values),'AI_BANK_DUPLICATE_PAYMENT_RESOLUTION_HASH_FAILED','Duplicate-payment resolution hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_resolve_ai_bank_duplicate_payment($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',[...values,idempotencyKey,requestHash]),'AI_BANK_DUPLICATE_PAYMENT_RESOLUTION_FAILED','Duplicate-payment resolution did not return a result').result;
+    });
+  }
+
   async readAiAccountingAnalysisSummary({tenantId,entityId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_accounting_analysis_summary($1,$2)',[tenantId,entityId]

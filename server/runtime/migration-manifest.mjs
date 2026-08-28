@@ -290,4 +290,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"282_ai_admitted_source_booking_evidence_read.sql",up:"d379ea0b28252cba8fef9f915f2239e631e9a62358afcdd5352db39abc0758f8",down:"be310923c27310662d82f40c039134db8664cefa958571f4d2e42e9156b9e252"}),
   Object.freeze({name:"283_ai_construction_loan_balance_scope.sql",up:"434697e08059f086575e7a6ed348ca04546a93c0d8445d8837c8b58b1d4064f0",down:"65ea233ac5cf392bbd3a9b7e04308032edd9788c326ffe60cd27d2859d4dcca5"}),
   Object.freeze({name:"284_ai_cross_entity_payment_invoice_review.sql",up:"195711c9bb476fc380de716e1671da20d9d9802dc01b2c4e5be020532fd71b45",down:"b62d84b4f7557faa10d4b0e869de5f17b589359bcc9d0abb9db4096c2d4bda74"}),
+  Object.freeze({name:"285_ai_bank_duplicate_payment_lifecycle.sql",up:"8cae59b61ddca25123f6789ea3f4007e3a774c42a1300bb09b34020d0ef3ba2c",down:"95ca184bfbcb996edb574e19c74962a0229571daa53852398495849ec950e5d6"}),
 ]);
