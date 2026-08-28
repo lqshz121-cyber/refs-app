@@ -797,41 +797,7 @@ export class PostgresAccountingKernel{
   async readAiInvoiceClassificationSource({tenantId,entityId,accountingPeriodId,limit=100}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_invoice_classification_source_v2($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date),invoice_date:publicDate(row.invoice_date),service_period_start:publicDate(row.service_period_start),service_period_end:publicDate(row.service_period_end)})));}
 
   async listAiAdmittedSourceBookingEvidence({tenantId,entityId,accountingPeriodId,limit=500}){
-    return this.inSession(async client=>{
-      await client.query("SELECT refs_assert_scope($1,$2,'AI.ANALYSIS.EXPLAIN')",[tenantId,entityId]);
-      return (await client.query(`
-      SELECT r.tenant_id,r.entity_id,a.company_code,r.accounting_period_id,
-             r.wbs_final1_retained_evidence_admission_id AS admission_id,a.receipt_hash AS admission_hash,
-             d.source_document_id,l.source_document_line_id,d.payload_hash AS source_payload_hash,
-             r.raw_row_hash AS source_line_hash,l.party_ref AS vendor_ref,d.business_date,d.accounting_date,
-             d.currency::text,abs(l.amount)::text AS amount,
-             to_char(statement_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS queried_at,
-             COALESCE((SELECT array_agg(b.business_document_id ORDER BY b.business_document_id)
-                         FROM business_document b WHERE b.tenant_id=r.tenant_id AND b.entity_id=r.entity_id
-                           AND b.source_document_id=r.source_document_id AND b.document_kind='AP_BILL'),ARRAY[]::uuid[]) AS ap_document_ids,
-             COALESCE((SELECT array_agg(x.journal_entry_id ORDER BY x.journal_entry_id) FROM(
-                         SELECT DISTINCT sl.journal_entry_id FROM source_link sl
-                          WHERE sl.tenant_id=r.tenant_id AND sl.entity_id=r.entity_id
-                            AND sl.source_document_id=r.source_document_id AND sl.journal_entry_id IS NOT NULL) x),ARRAY[]::uuid[]) AS journal_entry_ids,
-             COALESCE((SELECT array_agg(x.ledger_line_id ORDER BY x.ledger_line_id) FROM(
-                         SELECT DISTINCT ll.ledger_line_id FROM source_link sl JOIN ledger_line ll
-                           ON ll.tenant_id=sl.tenant_id AND ll.entity_id=sl.entity_id AND ll.journal_entry_id=sl.journal_entry_id
-                          WHERE sl.tenant_id=r.tenant_id AND sl.entity_id=r.entity_id AND sl.source_document_id=r.source_document_id
-                         UNION SELECT DISTINCT sl.ledger_line_id FROM source_link sl
-                          WHERE sl.tenant_id=r.tenant_id AND sl.entity_id=r.entity_id
-                            AND sl.source_document_id=r.source_document_id AND sl.ledger_line_id IS NOT NULL) x),ARRAY[]::uuid[]) AS ledger_line_ids
-        FROM wbs_final1_retained_source_row r
-        JOIN wbs_final1_retained_evidence_admission a ON a.tenant_id=r.tenant_id AND a.entity_id=r.entity_id
-          AND a.wbs_final1_retained_evidence_admission_id=r.wbs_final1_retained_evidence_admission_id AND a.domain=r.domain
-        JOIN source_document d ON d.tenant_id=r.tenant_id AND d.entity_id=r.entity_id AND d.source_document_id=r.source_document_id
-        JOIN source_document_line l ON l.tenant_id=r.tenant_id AND l.entity_id=r.entity_id
-          AND l.source_document_id=r.source_document_id AND l.source_document_line_id=r.source_document_line_id
-       WHERE r.tenant_id=$1 AND r.entity_id=$2 AND r.accounting_period_id=$3 AND r.domain='PAYABLES'
-         AND r.outcome='STAGING_REVIEW_REQUIRED' AND r.exception_codes='[]'::jsonb
-         AND d.status IN ('PENDING_REVIEW','READY_FOR_DRAFT')
-       ORDER BY d.accounting_date,d.source_document_id,l.line_no,l.source_document_line_id
-       LIMIT $4`,[tenantId,entityId,accountingPeriodId,limit+1])).rows.map(row=>({...row,business_date:publicDate(row.business_date),accounting_date:publicDate(row.accounting_date)}));
-    });
+    return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_admitted_source_booking_evidence($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit+1])).rows.map(row=>({...row,business_date:publicDate(row.business_date),accounting_date:publicDate(row.accounting_date)})));
   }
   async readAiConstructionLoanSource({tenantId,entityId,accountingPeriodId,limit=100}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_construction_loan_source($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows);}
   async readAiConstructionLoanDecisionSource({tenantId,entityId,accountingPeriodId,limit=100}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_construction_loan_decision_source($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows.map(row=>({...row,business_date:publicDate(row.business_date),accounting_date:publicDate(row.accounting_date)})));}
