@@ -34,12 +34,12 @@ test('new vendor material invoice review requires signed source, policy, and his
 test('monthly vendor spend review requires a complete current and historical source set with no accounting authority',()=>{const item=AI_ACCOUNTING_SKILLS.find(skill=>skill.id==='VENDOR_MONTHLY_SPEND_VARIANCE_REVIEW');assert.equal(item.status,'IMPLEMENTED_REVIEW_CANDIDATE');assert.equal(item.finding_category,null);for(const field of ['current_source_trace','history_source_line_hashes','approved_vendor_anomaly_policy','entity_id','accounting_period_id'])assert.ok(item.required_evidence.includes(field));assert.deepEqual(item.allowed_outputs,['vendor_monthly_spend_review_candidate']);assert.deepEqual(item.prohibited_actions,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});});
 test('AP cutoff review requires exact period and Posted lineage with no accounting authority',()=>{const item=AI_ACCOUNTING_SKILLS.find(skill=>skill.id==='AP_INVOICE_CUTOFF_REVIEW');assert.equal(item.status,'IMPLEMENTED_REVIEW_CANDIDATE');assert.equal(item.finding_category,null);for(const field of ['invoice_business_date','invoice_accounting_period_id','invoice_period_status','posted_journal_entry_id','current_accounting_period_id'])assert.ok(item.required_evidence.includes(field));assert.deepEqual(item.allowed_outputs,['ap_invoice_cutoff_review_candidate']);assert.deepEqual(item.prohibited_actions,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});});
 
-test('intercompany controller exposes only reciprocal posted-evidence review candidates',()=>{
+test('intercompany controller exposes reciprocal balances and exact cross-entity payment-invoice review candidates',()=>{
   const intercompany=AI_ACCOUNTING_SKILLS.find(item=>item.id==='INTERCOMPANY_CLOSE_CONTROLLER');
   assert.equal(intercompany.status,'IMPLEMENTED_REVIEW_CANDIDATE');
   assert.equal(intercompany.finding_category,null);
-  assert.deepEqual(intercompany.allowed_outputs,['intercompany_close_review_candidate']);
-  for(const field of ['entity_id','counterparty_entity_id','reciprocal_mapping_snapshots','posted_journal_entry_ids','ledger_line_ids','source_document_ids'])assert.ok(intercompany.required_evidence.includes(field));
+  assert.deepEqual(intercompany.allowed_outputs,['intercompany_close_review_candidate','cross_entity_payment_invoice_review_candidate']);
+  for(const field of ['entity_id','counterparty_entity_id','reciprocal_mapping_snapshots','posted_journal_entry_ids','ledger_line_ids','source_document_ids','payment_occurrence_id','signed_business_id','counterparty_signed_invoice_source'])assert.ok(intercompany.required_evidence.includes(field));
   assert.deepEqual(intercompany.prohibited_actions,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
 });
 
