@@ -22,9 +22,9 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     ]),
   ]),
   group('Accounting Settings', [
-    item('settings', 'Accounting settings', 'API_UNAVAILABLE', [
-      'Entity-scoped, effective-dated, immutable approved policy snapshots with revision, approver, audit, and usage evidence.',
-      'Read-only transaction-posting, asset-and-expense, bill-and-expense, purchasing, and report-presentation policy detail and history; edits, threshold, form, or report-format changes, purchase-order or message actions, readiness automation, payments, and posting remain unavailable.',
+    item('settings', 'Accounting settings', 'API_READ', [
+      'Entity- and period-scoped immutable approved core-accounting policy snapshots with version, approver, hash, close gates, materiality and coverage evidence.',
+      'Expense-form, purchasing, and report-presentation policy detail and history remain unavailable; edits, threshold changes, purchase-order or message actions, readiness automation, payments, and posting are never exposed here.',
     ]),
     item('mapping', 'Mapping Center', 'API_UNAVAILABLE', [
       'Entity- and period-scoped immutable mapping identity, revision, source field, destination account or dimension, effectivity, status, reviewer, approver, usage, and audit evidence.',
