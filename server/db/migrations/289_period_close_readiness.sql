@@ -84,7 +84,7 @@ BEGIN
   v_canonical:=refs_jsonb_hash(jsonb_build_object('tenant_id',p_tenant,'entity_id',p_entity,'period_id',p_period,
     'expected_version',p_expected_version::text,'expected_readiness_hash',p_expected_readiness_hash,'reason',p_reason));
   IF p_request_hash<>v_canonical THEN RAISE EXCEPTION 'Period close request hash is not canonical' USING ERRCODE='22023';END IF;
-  v_receipt:=refs_reserve_idempotency(p_tenant,'CLOSE_PERIOD_V2:'||p_entity,p_idempotency_key,p_request_hash,v_actor);
+  v_receipt:=refs_reserve_idempotency(p_tenant,'CLOSE_PERIOD:'||p_entity,p_idempotency_key,p_request_hash,v_actor);
   IF v_receipt.status='SUCCEEDED' THEN RETURN v_receipt.response_body||jsonb_build_object('idempotent',true);END IF;
 
   SELECT * INTO v_period FROM accounting_period WHERE tenant_id=p_tenant AND entity_id=p_entity AND period_id=p_period FOR UPDATE;
