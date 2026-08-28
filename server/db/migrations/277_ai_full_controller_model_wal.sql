@@ -1,5 +1,26 @@
 BEGIN;
 
+CREATE FUNCTION refs_ai_full_controller_canonical_json(value jsonb)
+RETURNS text LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE result text;
+BEGIN
+  CASE jsonb_typeof(value)
+    WHEN 'object' THEN
+      SELECT '{'||COALESCE(string_agg(to_jsonb(entry.key)::text||':'||refs_ai_full_controller_canonical_json(entry.value),',' ORDER BY entry.key COLLATE "C"),'')||'}'
+      INTO result FROM jsonb_each(value) AS entry;
+    WHEN 'array' THEN
+      SELECT '['||COALESCE(string_agg(refs_ai_full_controller_canonical_json(item.value),',' ORDER BY item.ordinality),'')||']'
+      INTO result FROM jsonb_array_elements(value) WITH ORDINALITY AS item(value,ordinality);
+    ELSE result:=value::text;
+  END CASE;
+  RETURN result;
+END $$;
+
+CREATE FUNCTION refs_ai_full_controller_canonical_hash(value jsonb)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
+  SELECT 'sha256:'||encode(digest(convert_to(refs_ai_full_controller_canonical_json(value),'UTF8'),'sha256'),'hex')
+$$;
+
 CREATE TABLE ai_full_controller_model_run (
   ai_full_controller_model_run_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL,
@@ -30,7 +51,7 @@ DECLARE r ai_full_controller_model_run%ROWTYPE; actual text; prepared_at text;
 BEGIN
   PERFORM refs_assert_scope(p_tenant,p_entity,'AI.ANALYSIS.EXPLAIN');
   IF p_actor IS DISTINCT FROM refs_current_actor() OR p_actor IS NULL OR length(p_actor) NOT BETWEEN 1 AND 255 OR p_key IS NULL OR length(p_key) NOT BETWEEN 8 AND 200 THEN RAISE EXCEPTION 'Actor-bound model run identity is invalid' USING ERRCODE='22023'; END IF;
-  actual:=refs_jsonb_hash(p_request);
+  actual:=refs_ai_full_controller_canonical_hash(p_request);
   IF actual IS DISTINCT FROM p_request_hash OR p_request->>'release_sha' IS NULL OR p_request->>'requested_limit' IS NULL OR jsonb_typeof(p_request->'requested_limit')<>'number' OR p_request<>jsonb_build_object('schema_version','AI_FULL_CONTROLLER_MODEL_RUN_SCOPE_V1','tenant_id',p_tenant,'entity_id',p_entity,'accounting_period_id',p_period,'release_sha',p_request->>'release_sha','requested_limit',(p_request->>'requested_limit')::integer) OR p_request->>'release_sha' !~ '^[0-9a-f]{40}$' OR (p_request->>'requested_limit')::integer NOT BETWEEN 1 AND 2000 THEN RAISE EXCEPTION 'Model run request scope or hash mismatch' USING ERRCODE='22023'; END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended(p_tenant::text||':'||p_actor||':'||p_key,0));
   SELECT * INTO r FROM ai_full_controller_model_run WHERE tenant_id=p_tenant AND actor_id=p_actor AND idempotency_key=p_key FOR UPDATE;
@@ -80,7 +101,7 @@ BEGIN
   PERFORM refs_assert_scope(p_tenant,p_entity,'AI.ANALYSIS.EXPLAIN');
   IF p_actor IS DISTINCT FROM refs_current_actor() OR p_key IS NULL OR length(p_key) NOT BETWEEN 8 AND 200 THEN RAISE EXCEPTION 'Actor-bound model run identity is invalid' USING ERRCODE='22023'; END IF;
   IF p_manifest IS NULL OR jsonb_typeof(p_manifest)<>'object' OR jsonb_typeof(p_manifest->'chunks')<>'array' OR jsonb_array_length(p_manifest->'chunks')<1 OR p_run_hash !~ '^sha256:[0-9a-f]{64}$' THEN RAISE EXCEPTION 'Model run manifest is required' USING ERRCODE='22023'; END IF;
-  actual:=refs_jsonb_hash(jsonb_build_object('schema_version','AI_FULL_CONTROLLER_MODEL_RUN_REQUEST_V1','actor_id',p_actor,'idempotency_key',p_key,'input_manifest',p_manifest));
+  actual:=refs_ai_full_controller_canonical_hash(jsonb_build_object('schema_version','AI_FULL_CONTROLLER_MODEL_RUN_REQUEST_V1','actor_id',p_actor,'idempotency_key',p_key,'input_manifest',p_manifest));
   IF actual IS DISTINCT FROM p_run_hash OR EXISTS(SELECT 1 FROM jsonb_array_elements(p_manifest->'chunks') AS item WHERE item->>'tenant_id' IS DISTINCT FROM p_tenant::text OR item->>'entity_id' IS DISTINCT FROM p_entity::text OR item->>'accounting_period_id' IS DISTINCT FROM p_period::text) THEN RAISE EXCEPTION 'Model run manifest scope or hash mismatch' USING ERRCODE='22023'; END IF;
   SELECT * INTO r FROM ai_full_controller_model_run WHERE tenant_id=p_tenant AND actor_id=p_actor AND idempotency_key=p_key FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'Pre-scan model run reservation is required' USING ERRCODE='P0002'; END IF;
@@ -115,7 +136,7 @@ DECLARE r ai_full_controller_model_run%ROWTYPE; c ai_full_controller_model_chunk
 BEGIN
   SELECT * INTO r FROM ai_full_controller_model_run WHERE tenant_id=p_tenant AND run_hash=p_run_hash FOR UPDATE; IF NOT FOUND THEN RAISE EXCEPTION 'Model run not found' USING ERRCODE='P0002'; END IF;
   PERFORM refs_assert_scope(r.tenant_id,r.entity_id,'AI.ANALYSIS.EXPLAIN'); IF p_actor IS DISTINCT FROM refs_current_actor() OR r.actor_id<>p_actor OR r.idempotency_key<>p_key THEN RAISE EXCEPTION 'Actor-bound run mismatch' USING ERRCODE='22023'; END IF;
-  h:=refs_jsonb_hash(p_response-'response_hash'); IF p_response->>'response_hash'<>h OR p_response->>'chunk_hash'<>p_chunk_hash OR (p_response->>'chunk_index')::integer<>p_index THEN RAISE EXCEPTION 'Chunk response hash mismatch' USING ERRCODE='22023'; END IF;
+  h:=refs_ai_full_controller_canonical_hash(p_response-'response_hash'); IF p_response->>'response_hash'<>h OR p_response->>'chunk_hash'<>p_chunk_hash OR (p_response->>'chunk_index')::integer<>p_index THEN RAISE EXCEPTION 'Chunk response hash mismatch' USING ERRCODE='22023'; END IF;
   SELECT * INTO c FROM ai_full_controller_model_chunk WHERE tenant_id=p_tenant AND ai_full_controller_model_run_id=r.ai_full_controller_model_run_id AND chunk_index=p_index FOR UPDATE; IF NOT FOUND OR c.chunk_hash<>p_chunk_hash THEN RAISE EXCEPTION 'Chunk reservation mismatch' USING ERRCODE='22023'; END IF;
   IF c.state='COMPLETED' AND c.response<>p_response THEN RAISE EXCEPTION 'Chunk completion conflict' USING ERRCODE='23505'; END IF;
   UPDATE ai_full_controller_model_chunk SET state='COMPLETED',response=p_response,response_hash=h,completed_at=COALESCE(completed_at,clock_timestamp()) WHERE ai_full_controller_model_chunk_id=c.ai_full_controller_model_chunk_id;
@@ -143,9 +164,9 @@ DECLARE r ai_full_controller_model_run%ROWTYPE; m ai_full_controller_model_memo%
 BEGIN
   SELECT * INTO r FROM ai_full_controller_model_run WHERE tenant_id=p_tenant AND run_hash=p_run_hash FOR UPDATE; IF NOT FOUND THEN RAISE EXCEPTION 'Model run not found' USING ERRCODE='P0002'; END IF; PERFORM refs_assert_scope(r.tenant_id,r.entity_id,'AI.ANALYSIS.EXPLAIN');
   IF p_actor IS DISTINCT FROM refs_current_actor() OR r.actor_id<>p_actor OR r.idempotency_key<>p_key THEN RAISE EXCEPTION 'Actor-bound completion mismatch' USING ERRCODE='22023'; END IF;
-  oh:=refs_jsonb_hash(p_output-'output_hash'); IF p_output->>'output_hash'<>oh THEN RAISE EXCEPTION 'Model output hash mismatch' USING ERRCODE='22023'; END IF;
+  oh:=refs_ai_full_controller_canonical_hash(p_output-'output_hash'); IF p_output->>'output_hash'<>oh THEN RAISE EXCEPTION 'Model output hash mismatch' USING ERRCODE='22023'; END IF;
   SELECT * INTO m FROM ai_full_controller_model_memo WHERE tenant_id=p_tenant AND ai_full_controller_model_run_id=r.ai_full_controller_model_run_id FOR UPDATE; IF NOT FOUND THEN RAISE EXCEPTION 'Memo reservation missing' USING ERRCODE='22023'; END IF;
-  mh:=refs_jsonb_hash(p_output->'final_memo'); IF m.state='COMPLETED' AND m.response<>p_output->'final_memo' THEN RAISE EXCEPTION 'Memo completion conflict' USING ERRCODE='23505'; END IF;
+  mh:=refs_ai_full_controller_canonical_hash(p_output->'final_memo'); IF m.state='COMPLETED' AND m.response<>p_output->'final_memo' THEN RAISE EXCEPTION 'Memo completion conflict' USING ERRCODE='23505'; END IF;
   UPDATE ai_full_controller_model_memo SET state='COMPLETED',response=p_output->'final_memo',response_hash=mh,completed_at=COALESCE(completed_at,clock_timestamp()) WHERE ai_full_controller_model_memo_id=m.ai_full_controller_model_memo_id;
   IF r.state='COMPLETED' AND r.output<>p_output THEN RAISE EXCEPTION 'Run completion conflict' USING ERRCODE='23505'; END IF;
   UPDATE ai_full_controller_model_run SET state='COMPLETED',output=p_output,output_hash=oh,error_code=NULL,revision=revision+1,updated_at=clock_timestamp(),completed_at=COALESCE(completed_at,clock_timestamp()) WHERE ai_full_controller_model_run_id=r.ai_full_controller_model_run_id;

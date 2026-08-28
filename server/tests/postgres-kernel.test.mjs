@@ -182,7 +182,6 @@ const hash=value=>`sha256:${createHash('sha256').update(String(value)).digest('h
 pgTest('AI Full Controller model WAL is actor-bound, idempotent, recoverable, audited, and accounting read-only',async()=>{
   const ids=await seed({status:'DRAFT'}),actorId='ai-full-controller-model-pg',idempotencyKey='ai-full-controller-model-pg-001';
   const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actorId,['AI.ANALYSIS.EXPLAIN'])});
-  const jsonHash=async value=>(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) value',[JSON.stringify(value)])).rows[0].value;
   const accountingCounts=async()=>{const {rows:[row]}=await adminPool.query(`SELECT
     (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,
     (SELECT count(*)::int FROM journal_line WHERE tenant_id=$1) journal_lines,
@@ -196,10 +195,10 @@ pgTest('AI Full Controller model WAL is actor-bound, idempotent, recoverable, au
   const started=await kernel.beginAiFullControllerModelRun({tenantId:ids.tenantId,actorId,idempotencyKey,inputManifest:manifest});
   assert.equal(started.state,'STARTED');assert.match(started.runHash,/^sha256:[0-9a-f]{64}$/);
   const reservation=await kernel.beginAiFullControllerModelChunk({tenantId:ids.tenantId,actorId,idempotencyKey,runHash:started.runHash,chunkIndex:0,chunkHash});assert.equal(reservation.state,'STARTED');
-  const chunkBase={schema_version:'AI_FULL_CONTROLLER_MODEL_CHUNK_RESPONSE_V1',chunk_index:0,chunk_hash:chunkHash,action_flags:{can_create_draft:false,can_review:false,can_approve:false,can_post:false}},chunkResponse={...chunkBase,response_hash:await jsonHash(chunkBase)};
+  const chunkBase={schema_version:'AI_FULL_CONTROLLER_MODEL_CHUNK_RESPONSE_V1',chunk_index:0,chunk_hash:chunkHash,action_flags:{can_create_draft:false,can_review:false,can_approve:false,can_post:false}},chunkResponse={...chunkBase,response_hash:canonicalRequestHash(chunkBase)};
   const completedChunk=await kernel.completeAiFullControllerModelChunk({tenantId:ids.tenantId,actorId,idempotencyKey,runHash:started.runHash,chunkIndex:0,chunkHash,response:chunkResponse});assert.deepEqual(completedChunk.response,chunkResponse);
   const reductionHash=hash('ai-full-controller-model-pg-reduction'),memo=await kernel.beginAiFullControllerModelMemo({tenantId:ids.tenantId,actorId,idempotencyKey,runHash:started.runHash,chunkResponseHashes:[chunkResponse.response_hash],reductionManifest:{reduction_hash:reductionHash}});assert.equal(memo.state,'STARTED');
-  const outputBase={schema_version:'AI_FULL_CONTROLLER_MODEL_OUTPUT_V1',chunk_responses:[chunkResponse],final_memo:{schema_version:'AI_FULL_CONTROLLER_MEMO_V1',action_flags:{can_create_draft:false,can_review:false,can_approve:false,can_post:false}}},output={...outputBase,output_hash:await jsonHash(outputBase)};
+  const outputBase={schema_version:'AI_FULL_CONTROLLER_MODEL_OUTPUT_V1',chunk_responses:[chunkResponse],final_memo:{schema_version:'AI_FULL_CONTROLLER_MEMO_V1',action_flags:{can_create_draft:false,can_review:false,can_approve:false,can_post:false}}},output={...outputBase,output_hash:canonicalRequestHash(outputBase)};
   const completed=await kernel.completeAiFullControllerModelRun({tenantId:ids.tenantId,actorId,idempotencyKey,runHash:started.runHash,output});assert.deepEqual(completed.output,output);
   const preparedReplay=await kernel.prepareAiFullControllerModelRun({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,actorId,idempotencyKey,request});assert.equal(preparedReplay.state,'REPLAY');assert.deepEqual(preparedReplay.inputManifest,manifest);assert.deepEqual(preparedReplay.output,output);
   const replay=await kernel.beginAiFullControllerModelRun({tenantId:ids.tenantId,actorId,idempotencyKey,inputManifest:manifest});assert.equal(replay.state,'REPLAY');assert.deepEqual(replay.output,output);
@@ -2036,7 +2035,7 @@ pgTest('manual Journal risk retains a HIGH no-attachment finding when ordinary s
   const inputs=await kernel.listAiManualJournalRiskInputs({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:500});
   const policy=await kernel.getAiManualJournalRiskPolicy({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId});
   assert.equal(inputs.length,1);assert.equal(inputs[0].attachment_count,0);assert.deepEqual(inputs[0].source_document_ids,[source.documentId]);
-  const batch=detectManualJournalRisks(inputs,{policy,currentAccountingPeriodId:ids.periodId});
+  const batch=detectManualJournalRisks(inputs,{policy,entityId:ids.entityId,currentAccountingPeriodId:ids.periodId});
   assert.equal(batch.finding_count,1);assert.equal(batch.findings[0].risk_level,'HIGH');assert.ok(batch.findings[0].rule_ids.includes('MANUAL_JE_LARGE_NO_ATTACHMENT'));assert.match(batch.findings[0].reason,/source-document lineage alone/);
   const first=await kernel.materializeAiManualJournalRisks({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,batch,idempotencyKey:'manual-je-ordinary-lineage-0001'});
   const replay=await kernel.materializeAiManualJournalRisks({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,batch,idempotencyKey:'manual-je-ordinary-lineage-0001'});

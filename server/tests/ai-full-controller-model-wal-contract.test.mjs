@@ -12,7 +12,7 @@ const server=readFileSync(new URL('../runtime/accounting-server.mjs',import.meta
 const http=readFileSync(new URL('../api/accounting-http.mjs',import.meta.url),'utf8');
 
 test('277 retains actor-bound run chunk memo WAL with atomic audit and outbox',()=>{
-  for(const token of ['ai_full_controller_model_run','ai_full_controller_model_chunk','ai_full_controller_model_memo','refs_prepare_ai_full_controller_model_run','PREPARED','pg_advisory_xact_lock','refs_begin_ai_full_controller_model_run','refs_begin_ai_full_controller_model_chunk','refs_complete_ai_full_controller_model_chunk','refs_begin_ai_full_controller_model_memo','refs_complete_ai_full_controller_model_run','refs_abandon_ai_full_controller_model_stage',"'AI.ANALYSIS.EXPLAIN'",'Idempotency key conflicts','audit_event','outbox_event'])assert.ok(up.includes(token),`missing ${token}`);
+  for(const token of ['ai_full_controller_model_run','ai_full_controller_model_chunk','ai_full_controller_model_memo','refs_ai_full_controller_canonical_json','refs_ai_full_controller_canonical_hash','refs_prepare_ai_full_controller_model_run','PREPARED','pg_advisory_xact_lock','refs_begin_ai_full_controller_model_run','refs_begin_ai_full_controller_model_chunk','refs_complete_ai_full_controller_model_chunk','refs_begin_ai_full_controller_model_memo','refs_complete_ai_full_controller_model_run','refs_abandon_ai_full_controller_model_stage',"'AI.ANALYSIS.EXPLAIN'",'Idempotency key conflicts','audit_event','outbox_event'])assert.ok(up.includes(token),`missing ${token}`);
   assert.match(down,/refuses retained AI model run evidence/);
 });
 

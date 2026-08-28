@@ -10,4 +10,6 @@ DROP FUNCTION IF EXISTS refs_prepare_ai_full_controller_model_run(uuid,uuid,uuid
 DROP TABLE ai_full_controller_model_memo;
 DROP TABLE ai_full_controller_model_chunk;
 DROP TABLE ai_full_controller_model_run;
+DROP FUNCTION IF EXISTS refs_ai_full_controller_canonical_hash(jsonb);
+DROP FUNCTION IF EXISTS refs_ai_full_controller_canonical_json(jsonb);
 COMMIT;
