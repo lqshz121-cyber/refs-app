@@ -20,7 +20,7 @@ test('Posted outcome route accepts only CAS selection and returns closed no-acti
 test('Posted outcome history is decision scoped, no-store and rejects unsafe or cross-decision evidence',async()=>{
   let seen;const api=createAccountingApi({authenticate:async()=>principal,kernelFactory:async()=>({listAiAccountingPostedOutcomeReviews:async input=>(seen=input,[review])})});
   const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/ai/accounting-decisions/${decisionId}/posted-outcome-reviews?limit=25`,headers:{}});
-  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(seen.decisionId,decisionId);assert.equal(seen.limit,25);assert.equal(response.body.data[0].can_post,false);
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(seen.decisionId,decisionId);assert.equal(seen.limit,26);assert.equal(response.body.data.schema_version,'AI_ACCOUNTING_POSTED_OUTCOME_REVIEW_HISTORY_V1');assert.equal(response.body.data.population_complete,true);assert.equal(response.body.data.read_count,1);assert.equal(response.body.data.rows[0].can_post,false);
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/ai/accounting-decisions/${decisionId}/posted-outcome-reviews?limit=0`,headers:{}})).status,400);
   const unsafe=createAccountingApi({authenticate:async()=>principal,kernelFactory:async()=>({listAiAccountingPostedOutcomeReviews:async()=>[{...review,ai_accounting_decision_id:entityId}]})});
   assert.equal((await unsafe({method:'GET',url:`/api/v1/entities/${entityId}/ai/accounting-decisions/${decisionId}/posted-outcome-reviews`,headers:{}})).status,502);
@@ -31,6 +31,8 @@ test('Posted outcome history is decision scoped, no-store and rejects unsafe or 
   assert.equal((await duplicate({method:'GET',url:`/api/v1/entities/${entityId}/ai/accounting-decisions/${decisionId}/posted-outcome-reviews`,headers:{}})).status,502);
   const forged=createAccountingApi({authenticate:async()=>principal,kernelFactory:async()=>({listAiAccountingPostedOutcomeReviews:async()=>[{...review,review_hash:hash}]})});
   assert.equal((await forged({method:'GET',url:`/api/v1/entities/${entityId}/ai/accounting-decisions/${decisionId}/posted-outcome-reviews`,headers:{}})).status,502);
+  const saturated=createAccountingApi({authenticate:async()=>principal,kernelFactory:async()=>({listAiAccountingPostedOutcomeReviews:async()=>Array.from({length:200},(_,index)=>withReviewHash({...reviewBase,ai_accounting_posted_outcome_review_id:`${String(index+1).padStart(8,'0')}-0000-4000-8000-${String(index+1).padStart(12,'0')}`,review_revision:199-index}))})});
+  const bounded=await saturated({method:'GET',url:`/api/v1/entities/${entityId}/ai/accounting-decisions/${decisionId}/posted-outcome-reviews?limit=200`,headers:{}});assert.equal(bounded.status,200);assert.equal(bounded.body.data.read_count,200);assert.equal(bounded.body.data.population_complete,false);
 });
 
 test('Posted outcome route rejects caller evidence, missing idempotency and action-enabled responses',async()=>{
@@ -43,5 +45,5 @@ test('Posted outcome route rejects caller evidence, missing idempotency and acti
 test('OpenAPI exposes closed command and no-store history without workflow authority',async()=>{
   const spec=JSON.parse(await readFile(new URL('../api/openapi-accounting.json',import.meta.url),'utf8')),path=spec.paths['/entities/{entityId}/ai/accounting-decisions/{decisionId}/posted-outcome-reviews'],op=path.post,schema=op.requestBody.content['application/json'].schema;
   assert.equal(schema.additionalProperties,false);assert.deepEqual(schema.required.sort(),['expected_decision_hash','expected_review_revision']);assert.match(op.description,/cannot provide policy, workflow, Journal, ledger, or report evidence/);assert.match(op.description,/cannot create, review, approve, or post/);
-  assert.equal(path.get.responses[200].headers['Cache-Control'].schema.const,'no-store');assert.equal(spec.components.schemas.AiAccountingPostedOutcomeReview.additionalProperties,false);assert.equal(spec.components.schemas.AiAccountingPostedOutcomeEvidence.additionalProperties,false);
+  assert.equal(path.get.responses[200].headers['Cache-Control'].schema.const,'no-store');assert.equal(path.get.responses[200].content['application/json'].schema.properties.data.$ref,'#/components/schemas/AiAccountingPostedOutcomeReviewHistory');assert.equal(spec.components.schemas.AiAccountingPostedOutcomeReviewHistory.additionalProperties,false);assert.equal(spec.components.schemas.AiAccountingPostedOutcomeReview.additionalProperties,false);assert.equal(spec.components.schemas.AiAccountingPostedOutcomeEvidence.additionalProperties,false);
 });
