@@ -114,7 +114,7 @@
     "test:wbs-provider-final1": "node --test tests/wbs-provider-final1-delivery.test.mjs tests/wbs-provider-final1-business-delivery.test.mjs tests/wbs-provider-final1-business-admission-contract.test.mjs",
     "test:wbs-provider-final1-normalizer": "node --test tests/wbs-provider-final1-payable-normalizer.test.mjs",
     "test:wbs-provider-final1-insurance": "node --test tests/wbs-provider-final1-insurance-normalizer.test.mjs",
-    "test:wbs-final1-retained-source": "node --test tests/wbs-final1-retained-source-evidence-contract.test.mjs tests/wbs-final1-evidence-storage.test.mjs tests/wbs-provider-final1-retained-evidence-admission.test.mjs tests/wbs-provider-final1-retained-evidence-http-contract.test.mjs",
+    "test:wbs-final1-retained-source": "node --test tests/wbs-final1-retained-source-evidence-contract.test.mjs tests/wbs-final1-evidence-storage.test.mjs tests/wbs-provider-final1-retained-evidence-admission.test.mjs tests/wbs-provider-final1-retained-evidence-http-contract.test.mjs tests/ai-admitted-source-review-lifecycle-contract.test.mjs",
     "test:stage3:g11-authoritative-e2e": "node runtime/verify-stage3-g11-authoritative-e2e.mjs",
     "test:ai-vendor-monthly-spend": "node --test tests/ai-vendor-monthly-spend-anomaly.test.mjs tests/ai-vendor-monthly-spend-anomaly-service.test.mjs tests/ai-vendor-monthly-spend-anomaly-http-contract.test.mjs tests/ai-vendor-monthly-spend-population-read-contract.test.mjs"
   },
