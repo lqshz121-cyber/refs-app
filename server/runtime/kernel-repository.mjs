@@ -203,6 +203,13 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async readAiAccountingDecisionQueue({tenantId,entityId,accountingPeriodId,limit=50,offset=0}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_ai_accounting_decision_queue($1,$2,$3,$4,$5) AS result',
+      [tenantId,entityId,accountingPeriodId,limit,offset]
+    ),'AI_DECISION_QUEUE_UNAVAILABLE','The retained AI accounting decision queue was not returned').result);
+  }
+
   async humanDecideAiAccounting({tenantId,entityId,decisionId,expectedDecisionHash,expectedRevision,outcome,reason,idempotencyKey}){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query("SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',$1::uuid,'entity_id',$2::uuid,'decision_id',$3::uuid,'expected_hash',$4::text,'expected_revision',$5::bigint,'outcome',upper($6::text),'reason',btrim($7::text))) AS request_hash",[tenantId,entityId,decisionId,expectedDecisionHash,expectedRevision,outcome,reason]),'AI_HUMAN_DECISION_HASH_FAILED','Human AI accounting decision hash was not produced').request_hash;

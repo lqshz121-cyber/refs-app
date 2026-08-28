@@ -6,6 +6,7 @@ import {AuthoritativeControlledTestAiWorkflow} from './authoritative-controlled-
 import {AuthoritativeCapitalizationPanel} from './authoritative-capitalization-panel.jsx';
 import {AuthoritativeExpensePanel} from './authoritative-expense-panel.jsx';
 import {AuthoritativeConstructionLoanPanel} from './authoritative-construction-loan-panel.jsx';
+import {AuthoritativeAiAccountingDecisionWorkbench} from './authoritative-ai-accounting-decision-workbench.jsx';
 
 const empty={phase:'LOADING',rows:[],error:null};
 export function AuthoritativeAiJeWorkspace({config,fetcher=globalThis.fetch,onAccountingRefresh}){
@@ -40,6 +41,7 @@ export function AuthoritativeAiJeWorkspace({config,fetcher=globalThis.fetch,onAc
     <AuthoritativeExpensePanel config={config} fetcher={fetcher}/>
     <AuthoritativeCapitalizationPanel config={config} fetcher={fetcher}/>
     <AuthoritativeConstructionLoanPanel config={config} fetcher={fetcher}/>
+    <AuthoritativeAiAccountingDecisionWorkbench config={config} fetcher={fetcher} onAccountingRefresh={onAccountingRefresh}/>
     <section className="report-workbench" aria-label="AI amortization Draft workbench">
       <div className="report-workbench-head"><div><b>Source-bound amortization proposals</b><div className="page-subtitle">Every Draft keeps its exact schedule, source, period and clean attachments.</div></div><button type="button" className="btn" onClick={load} disabled={schedules.phase==='LOADING'}>{schedules.phase==='LOADING'?'Refreshing...':'Refresh'}</button></div>
       <p className="muted sm" aria-label="AI Draft authority boundary">HUMAN MAKER | MANUAL DRAFT ONLY | NO SUBMIT | NO REVIEW | NO APPROVE | NO POST</p>

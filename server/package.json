@@ -8,7 +8,7 @@
   "scripts": {
     "test:wbs-accounting-settings-proposal": "node --test tests/wbs-accounting-settings-proposal.test.mjs tests/wbs-h1-accounting-settings-proposal.test.mjs tests/wbs-h1-accounting-settings-proposal-http.test.mjs",
     "test:wbs-bookkeeping-instructions": "node --test tests/wbs-bookkeeping-instruction-evidence.test.mjs",
-    "test:ai-decision-human-draft": "node --test tests/ai-accounting-decision-human-draft-contract.test.mjs tests/ai-accounting-decision-human-draft-http.test.mjs tests/ai-accounting-decision-batch-retain-contract.test.mjs tests/ai-accounting-approved-decision-service.test.mjs",
+    "test:ai-decision-human-draft": "node --test tests/ai-accounting-decision-human-draft-contract.test.mjs tests/ai-accounting-decision-human-draft-http.test.mjs tests/ai-accounting-decision-batch-retain-contract.test.mjs tests/ai-accounting-approved-decision-service.test.mjs tests/ai-accounting-decision-queue-http.test.mjs tests/ai-accounting-decision-queue-read-contract.test.mjs",
     "test:ai-posted-outcome-review": "node --test tests/ai-accounting-posted-outcome-persistence-contract.test.mjs tests/ai-accounting-posted-outcome-http.test.mjs",
     "test:wbs-signed-admission": "node --test tests/wbs-signed-delivery-admission.test.mjs",
     "test:wbs-cost-cwip": "node --test tests/wbs-admitted-cost-cwip-ingestion.test.mjs",
