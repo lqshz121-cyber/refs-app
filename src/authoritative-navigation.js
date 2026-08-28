@@ -27,8 +27,8 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Expense-form, purchasing, and report-presentation policy detail and history remain unavailable; edits, threshold changes, purchase-order or message actions, readiness automation, payments, and posting are never exposed here.',
     ]),
     item('mapping', 'Mapping Center', 'API_READ', [
-      'Entity- and period-scoped complete approved account-to-statement and report-row mappings with account role, class, effectivity, version, snapshot hash, population hash and approval evidence.',
-      'Vendor, source-field, project, property, cost-code, exception, usage and history mapping readers remain unavailable; create, edit, approve, deactivate, delete, import, automatic application, and accounting commands are never exposed here.',
+      'Entity- and period-scoped complete approved account-to-statement, report-row, project, property and cost-code mappings with effectivity, version, snapshot hash, population hash and approval evidence.',
+      'Vendor, source-field, exception, usage and history mapping readers remain unavailable; create, edit, approve, deactivate, delete, import, automatic application, and accounting commands are never exposed here.',
     ]),
   ]),
   group('Source & Staging', [

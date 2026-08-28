@@ -1,0 +1,23 @@
+import test from'node:test';
+import assert from'node:assert/strict';
+import{createAccountingApi}from'../api/accounting-http.mjs';
+import{approvedSettingsFixture,tenantId,entityId,periodId}from'./wbs-ai-approved-settings-reader.test.mjs';
+
+const principal={trusted:true,tenantId,actorId:'mapping-reader',permissions:['AI.ACCOUNTING.SETTINGS.VIEW']};
+const request=(query=`periodId=${periodId}`,extra={})=>({method:'GET',url:`/api/v1/entities/${entityId}/dimension-mappings?${query}`,headers:{authorization:'Bearer signed',...(extra.headers||{})},body:extra.body??null});
+
+test('serves complete approved dimension mappings through an exact no-store read boundary',async()=>{
+  let args;const api=createAccountingApi({authenticate:async()=>principal,kernelFactory:async()=>({readApprovedWbsAiEntityPeriodSettings:async input=>(args=input,approvedSettingsFixture())})});
+  const response=await api(request());
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');
+  assert.deepEqual(args,{tenantId,entityId,periodId,readOnly:true});
+  assert.equal(response.body.data.population.population_complete,true);assert.equal(response.body.data.mappings.length,1);
+  assert.equal(response.body.data.mappings[0].project_ref,'project-1');
+  assert.deepEqual(response.body.data.action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+});
+
+test('rejects extra query, read mutation headers, bodies, and unsafe kernel results',async()=>{
+  const apiFor=result=>createAccountingApi({authenticate:async()=>principal,kernelFactory:async()=>({readApprovedWbsAiEntityPeriodSettings:async()=>result})});
+  for(const req of [request(`${`periodId=${periodId}`}&limit=20`),request(undefined,{headers:{'if-match':'"1"'}}),request(undefined,{headers:{'idempotency-key':'not-for-get'}}),request(undefined,{body:{}})])assert.equal((await apiFor(approvedSettingsFixture())(req)).status,400);
+  for(const unsafe of [{...approvedSettingsFixture(),entity_id:'99999999-9999-4999-8999-999999999999'},{...approvedSettingsFixture(),can_post:true}])assert.equal((await apiFor(unsafe)(request())).status,503);
+});
