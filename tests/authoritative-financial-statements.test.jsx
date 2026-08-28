@@ -72,6 +72,8 @@ async function main(){
   assert.ok(markup.indexOf('authoritative-report-shortcuts authoritative-core-report-shortcuts')<markup.indexOf('aria-label="Report groups"'),'the global Common reports directory must precede report-builder groups like the observed QBO first-screen hierarchy');
   const cashCapitalCatalogMarkup=renderToStaticMarkup(<AuthoritativeReportsWorkspace config={config} fetcher={fetcher} initialCatalog={{category:'CASH_AND_CAPITAL',query:'',preview:'TRIAL_BALANCE'}}/>);
   assert.match(cashCapitalCatalogMarkup,/id="authoritative-report-ar-aging"/,'Common reports must remain a global directory when a non-statement report group is selected');
+  assert.ok(markup.indexOf('authoritative-common-report-directory')<markup.indexOf('aria-label="Report groups"'),'the global Common reports directory must precede report-builder groups like the observed QBO first-screen hierarchy');
+  assert.match(cashCapitalCatalogMarkup,/authoritative-common-report-directory/,'Common reports must remain a global directory when a non-statement report group is selected');
   assert.ok(commonReportsMarkup.indexOf('A/R aging control totals')<commonReportsMarkup.indexOf('Balance Sheet')&&commonReportsMarkup.indexOf('Balance Sheet')<commonReportsMarkup.indexOf('Profit and Loss'),'Common reports must lead with the three observed high-use report roles without mislabelling currency control totals as customer aging summary');
   assert.doesNotMatch(commonReportsMarkup,/Accounts receivable aging summary/,'the currency control-total reader must not claim the unavailable QBO customer aging summary');
   assert.doesNotMatch(commonReportsMarkup,/authoritative-favorite-/,'read-only Common reports must not retain internal favorite semantics');

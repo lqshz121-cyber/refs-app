@@ -290,6 +290,7 @@ assert.match(workspace,/closest\('\.table-wrap'\)\?\.scrollLeft/,'AP and AR row 
 const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
 assert.match(styles,/\.authoritative-document-workspace,.authoritative-document-workspace>\*,.authoritative-document-table,.authoritative-adjustment-table\{min-width:0;max-width:100%;\}/,'AP/AR workspace descendants must be shrinkable so their table regions, not the page, own narrow-width overflow');
 assert.match(styles,/\.authoritative-document-table \.tbl\{min-width:980px;table-layout:fixed;\}/,'wide AP/AR evidence tables must reserve semantic columns inside their own scroll region');
+assert.match(styles,/\.authoritative-expense-table \.tbl\{min-width:1180px;\}/,'the QBO-aligned ten-column Expenses table must keep readable columns inside its contained scroller');
 assert.match(styles,/\.authoritative-adjustment-table \.tbl\{min-width:760px;table-layout:fixed;\}/,'six-column adjustment evidence must retain readable columns in its own contained scroller');
 assert.match(styles,/\.authoritative-document-detail-table \.tbl\{min-width:720px;table-layout:fixed;\}/,'four-column detail facts must retain readable columns without overflowing the page');
 assert.match(styles,/\.authoritative-return-context>summary\{cursor:pointer;list-style:none;white-space:nowrap;\}/,
