@@ -35,6 +35,7 @@ test('accounting OpenAPI is 3.1, authenticated and operation ids match the runti
   assert.ok(operationIds.includes('reviewFixedAssetDisposal'));
   assert.ok(operationIds.includes('reviewFixedAssetImpairment'));
   assert.ok(operationIds.includes('runAiFullControllerModel'));
+  const auditRead=contract.paths['/entities/{entityId}/audit-events'].get;assert.equal(auditRead.operationId,'readAuthoritativeAuditLog');assert.equal(auditRead.responses['200'].headers['Cache-Control'].schema.const,'no-store');assert.equal(contract.components.schemas.AuthoritativeAuditEvent.additionalProperties,false);assert.equal(contract.components.schemas.AuthoritativeAuditLogPage.properties.action_flags.$ref,'#/components/schemas/AiInvoiceNoAccountingActions');
   const securityDepositRead=contract.paths['/entities/{entityId}/ai/security-deposits/liability-review']?.get;
   assert.equal(securityDepositRead.operationId,'reviewAiSecurityDepositLiability');
   assert.equal(securityDepositRead.responses['200'].headers['Cache-Control'].schema.const,'no-store');

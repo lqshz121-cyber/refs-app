@@ -87,6 +87,15 @@ pgTest('AI vendor monthly spend reads one complete signed current-source populat
   const withoutSuperseded=await reader.readAiVendorMonthlySpendPopulation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId});assert.equal(withoutSuperseded.population_line_count,0);assert.deepEqual(withoutSuperseded.rows,[]);
 });
 
+pgTest('authoritative Audit Log is permissioned, entity scoped, redacted and keyset paged',async()=>{
+  const ids=await seed({status:'DRAFT'}),reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'audit-reader',['AUDIT.VIEW'])});
+  const first=await reader.readAuthoritativeAuditLog({tenantId:ids.tenantId,entityId:ids.entityId,limit:1});
+  assert.equal(first.schema_version,'AUTHORITATIVE_AUDIT_LOG_PAGE_V1');assert.equal(first.scope.entity_id,ids.entityId);assert.equal(first.read_count,1);assert.equal(first.events.length,1);assert.equal(first.has_more,true);assert.ok(first.next_cursor);assert.deepEqual(first.redaction,{metadata_excluded:true,reason_excluded:true,request_references_hashed:true});assert.deepEqual(first.action_flags,{can_post:false,can_review:false,can_approve:false,can_create_draft:false});
+  const event=first.events[0];assert.match(event.request_ref_hash,/^sha256:[0-9a-f]{64}$/);assert.match(event.correlation_ref_hash,/^sha256:[0-9a-f]{64}$/);assert.equal(Object.hasOwn(event,'metadata'),false);assert.equal(Object.hasOwn(event,'reason'),false);assert.equal(Object.hasOwn(event,'request_id'),false);
+  const second=await reader.readAuthoritativeAuditLog({tenantId:ids.tenantId,entityId:ids.entityId,limit:1,cursorAt:first.next_cursor.occurred_at,cursorId:first.next_cursor.audit_event_id});assert.equal(second.events.length,1);assert.notEqual(second.events[0].audit_event_id,event.audit_event_id);
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'report-only',['GL.REPORT.VIEW'])});await assert.rejects(denied.readAuthoritativeAuditLog({tenantId:ids.tenantId,entityId:ids.entityId,limit:10}),error=>error.code==='42501');
+});
+
 after(async()=>{
   if(adminPool)await adminPool.query('TRUNCATE tenant CASCADE').catch(()=>{});
   if(runtimePool)await runtimePool.end();
