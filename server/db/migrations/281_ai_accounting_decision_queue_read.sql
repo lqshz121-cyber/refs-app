@@ -152,8 +152,8 @@ BEGIN
         ) END,
         'action_flags',jsonb_build_object(
           'can_accept_or_reject',h.ai_accounting_human_decision_id IS NULL AND refs_entity_has_permission(p_entity,'GL.JE.CREATE'),
-          'can_create_draft',h.decision='ACCEPTED' AND de.ai_accounting_decision_draft_evidence_id IS NULL AND refs_entity_has_permission(p_entity,'GL.JE.CREATE'),
-          'can_retain_posted_outcome',je.status='POSTED' AND refs_entity_has_permission(p_entity,'AI.ANALYSIS.EXPLAIN'),
+          'can_create_draft',COALESCE(h.decision='ACCEPTED' AND de.ai_accounting_decision_draft_evidence_id IS NULL AND refs_entity_has_permission(p_entity,'GL.JE.CREATE'),false),
+          'can_retain_posted_outcome',COALESCE(je.status='POSTED' AND refs_entity_has_permission(p_entity,'AI.ANALYSIS.EXPLAIN'),false),
           'can_submit',false,
           'can_review',false,
           'can_approve',false,
