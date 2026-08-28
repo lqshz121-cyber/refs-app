@@ -1486,9 +1486,10 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const decisionId=requireUuid(parts[6],'decisionId');requireExactQuery(parsedUrl.searchParams,['limit']);allowOnly(payload,[]);const limit=parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):100;
         if(!Number.isSafeInteger(limit)||limit<1||limit>200)throw new AccountingApiError(400,'AI_POSTED_OUTCOME_REVIEW_HISTORY_INVALID','limit must be an integer from 1 to 200');
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.listAiAccountingPostedOutcomeReviews!=='function')throw new AccountingApiError(503,'AI_POSTED_OUTCOME_REVIEW_HISTORY_UNAVAILABLE','AI Posted outcome review history is not configured');
-        result=await kernel.listAiAccountingPostedOutcomeReviews({tenantId:principal.tenantId,entityId,decisionId,limit});
-        if(!Array.isArray(result)||result.length>limit||result.some(item=>!safeAiPostedOutcomeReview(item,{decisionId}))||result.some((item,index)=>index>0&&result[index-1].review_revision<=item.review_revision))throw new AccountingApiError(502,'AI_POSTED_OUTCOME_REVIEW_HISTORY_INVALID','AI Posted outcome review history returned unsafe evidence');
-        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+        const probeLimit=Math.min(limit+1,200);result=await kernel.listAiAccountingPostedOutcomeReviews({tenantId:principal.tenantId,entityId,decisionId,limit:probeLimit});
+        if(!Array.isArray(result)||result.length>probeLimit||result.some(item=>!safeAiPostedOutcomeReview(item,{decisionId}))||result.some((item,index)=>index>0&&result[index-1].review_revision<=item.review_revision))throw new AccountingApiError(502,'AI_POSTED_OUTCOME_REVIEW_HISTORY_INVALID','AI Posted outcome review history returned unsafe evidence');
+        const populationComplete=result.length<probeLimit,rows=result.slice(0,limit);
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:{schema_version:'AI_ACCOUNTING_POSTED_OUTCOME_REVIEW_HISTORY_V1',limit,read_count:rows.length,population_complete:populationComplete,rows}}};
       }
       if(method==='POST'&&parts.length===8&&parts[4]==='ai'&&parts[5]==='accounting-decisions'&&parts[7]==='posted-outcome-reviews'){
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['expected_decision_hash','expected_review_revision']);const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.retainAiAccountingPostedOutcomeReview!=='function')throw new AccountingApiError(503,'AI_POSTED_OUTCOME_REVIEW_UNAVAILABLE','AI Posted outcome review persistence is not configured');
