@@ -38,6 +38,7 @@ import {readAuthoritativeSourceDocumentDetail,refreshAuthoritativeDocuments,refr
 import {buildWbsH1AccountingControlPopulation} from '../runtime/wbs-h1-accounting-control-population.mjs';
 import {detectManualJournalRisks} from '../runtime/ai-manual-journal-risk.mjs';
 import {detectCrossEntityPaymentInvoiceReviews} from '../runtime/ai-cross-entity-payment-invoice-review.mjs';
+import {AUTHORITATIVE_WORKFLOW_ROLES} from '../runtime/workflow-role-grant.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -2213,7 +2214,7 @@ pgTest('two connections enforce duplicate canonical raw source and atomic idempo
 pgTest('period close readiness blocks while a journal remains unposted',async()=>{
   const ids=await seed();
   await installApprovedAiSettingsFixture({pool:adminPool,ids,companyCode:ids.sourceEntityId});
-  const closer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'closer',['GL.PERIOD.CLOSE','AI.ACCOUNTING.SETTINGS.VIEW'])});
+  const closer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'closer',AUTHORITATIVE_WORKFLOW_ROLES.GL_PERIOD_CLOSER.permissions)});
   const readiness=await closer.readPeriodCloseReadiness(ids);assert.equal(readiness.ready,false);assert.equal(readiness.blockers.some(item=>item.code==='UNPOSTED_JOURNALS'),true);
   const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids)});await kernel.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'post-before-close'});
   assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM ledger_line')).rows[0].n,2);
@@ -2225,7 +2226,7 @@ pgTest('period close requires current approved settings and statement evidence, 
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids)});await poster.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'post-before-close-positive'});
   const preparer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'close-report-preparer',['GL.REPORT.SNAPSHOT.PREPARE','GL.REPORT.VIEW'])}),proposal=await preparer.prepareFinancialStatementSnapshot({...ids,idempotencyKey:'close-report-prepare'});
   const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'close-report-approver',['GL.REPORT.SNAPSHOT.APPROVE'])});await approver.approveFinancialStatementSnapshot({...ids,proposalId:proposal.financial_statement_snapshot_proposal_id,idempotencyKey:'close-report-approve'});
-  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'closer',['GL.PERIOD.CLOSE','AI.ACCOUNTING.SETTINGS.VIEW'])});
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'closer',AUTHORITATIVE_WORKFLOW_ROLES.GL_PERIOD_CLOSER.permissions)});
   const readiness=await kernel.readPeriodCloseReadiness(ids);assert.equal(readiness.ready,true);assert.deepEqual(readiness.blockers,[]);
   const args={...ids,expectedVersion:0,expectedReadinessHash:readiness.readiness_hash,reason:'Controller verified current settings, sources, journals, and approved statements.',idempotencyKey:'close-key-0001'};
   const first=await kernel.closePeriod(args);
