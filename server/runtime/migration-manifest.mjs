@@ -286,4 +286,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"278_runtime_grant_revision_reader.sql",up:"59e8788a2b62ef31898c4909e70644f83d1d66c57572bc4a811d6c21e3f9634a",down:"6e136cf39a9f8b70fa220a29479bdc8844c909b5c599ceb600f2b0501818ba2e"}),
   Object.freeze({name:"279_outbox_dispatch_retry.sql",up:"beaaa7863843583f54965fb37a8fdbdd9d2e8f6db3cb6ac47cfef605d7fd8c27",down:"27109e56380241f5051dd1df972139aaab0f07fb57699b25f47de396ad6e09ef"}),
   Object.freeze({name:"280_ai_manual_journal_verified_attachment_support.sql",up:"9d5d1764cbba267bb9106e832f8bddf6dbef3c373945673ad2f249a28b1b2ab5",down:"e65069ebc4c2bd0ac6e2545579a970f52ca5dda72bbd0c2a00f54917017cd11c"}),
+  Object.freeze({name:"281_ai_accounting_decision_queue_read.sql",up:"a56c4752b596e0521f0216605d503d11c52a9fcb7efe87a5a4b9879b1baa2e00",down:"95929ed9732ce0b738217e52883270a3e12f356ae278a1a8f5e23d96f61928a0"}),
 ]);

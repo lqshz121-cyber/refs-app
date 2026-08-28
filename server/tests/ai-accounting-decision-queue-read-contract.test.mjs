@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
 
 const read=path=>readFile(new URL(path,import.meta.url),'utf8');
 test('migration 281 retains a scoped append-only decision queue without workflow escalation',async()=>{
@@ -10,4 +11,5 @@ test('migration 281 retains a scoped append-only decision queue without workflow
   assert.match(down,/DROP FUNCTION(?: IF EXISTS)? refs_read_ai_accounting_decision_queue/);
   assert.match(repository,/readAiAccountingDecisionQueue/);
   assert.match(roles,/AI_ACCOUNTING_DECISION_MAKER:role\('DRAFT',\[\.\.\.READ,'GL\.JE\.CREATE'\]\)/);
+  assert.ok(MIGRATION_MANIFEST.some(item=>item.name==='281_ai_accounting_decision_queue_read.sql'));
 });
