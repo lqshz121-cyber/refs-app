@@ -22,7 +22,14 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     ]),
   ]),
   group('Accounting Settings', [
-    item('settings', 'Core settings'), item('mapping', 'Mapping Center'),
+    item('settings', 'Accounting settings', 'API_UNAVAILABLE', [
+      'Entity-scoped, effective-dated, immutable approved policy snapshots with revision, approver, audit, and usage evidence.',
+      'Read-only transaction-posting, asset-and-expense, bill-and-expense, purchasing, and report-presentation policy detail and history; edits, threshold, form, or report-format changes, purchase-order or message actions, readiness automation, payments, and posting remain unavailable.',
+    ]),
+    item('mapping', 'Mapping Center', 'API_UNAVAILABLE', [
+      'Entity- and period-scoped immutable mapping identity, revision, source field, destination account or dimension, effectivity, status, reviewer, approver, usage, and audit evidence.',
+      'Read-only catalog, filters, paging, detail, history, and impact endpoints; create, edit, approve, deactivate, delete, import, automatic application, and accounting commands remain unavailable.',
+    ]),
   ]),
   group('Source & Staging', [
     item('wbs-payable-review', 'WBS Payable Review', 'API_READ', [
@@ -36,6 +43,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('source-documents', 'Source Documents', 'API_READ', [
       'Entity-scoped source-document list and immutable detail endpoints.',
       'Separate authorised attachment-read contract; upload and finalise endpoints are not a document reader.',
+    ]),
+    item('receipts', 'Receipts', 'API_UNAVAILABLE', [
+      'Entity-scoped receipt queue with immutable receipt, attachment object/version, content hash, creator, review status, and extracted accounting facts.',
+      'Read-only For review and Reviewed list/detail endpoints; upload, OCR, review mutation, add-to-books, export, customize, and payment promotion remain unavailable.',
     ]),
     item('integration-hub', 'WBS Data Import', 'API_READ', [
       'Read production WBS Payables, Bank, AutoRec and Journal evidence for one explicit company and date scope.',
@@ -51,7 +62,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('wbs-autorec-evidence', 'WBS AutoRec evidence', 'API_READ'),
     item('bank', 'Bank transactions', 'API_READ'),
     item('reconciliation', 'Reconcile', 'API_READ'),
-    item('rules', 'Rules'),
+    item('rules', 'Rules', 'API_UNAVAILABLE', [
+      'Entity-scoped immutable rule identity, revision, priority, conditions, mapping actions, status, usage, and audit evidence.',
+      'Read-only Bank and Integration rule lists, filters, paging, detail, and history; creation, editing, reordering, copying, enablement, automatic categorisation, matching, and posting remain unavailable.',
+    ]),
     item('checks-payments', 'Checks & payments'),
   ]),
   group('Journal Entry', [item('journals', 'Journal entries', 'API_READ')]),
@@ -77,20 +91,64 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     // The available scope is the existing two-entity reconciliation reader;
     // it does not expose an uncontracted intercompany posting workflow.
     item('intercompany', 'Intercompany', 'API_READ'),
-    item('fixed-assets', 'Fixed Assets'),
+    item('recurring-transactions', 'Recurring transactions', 'API_UNAVAILABLE', [
+      'Entity-scoped recurring-template rows with immutable template identity, revision, type, interval, dates, counterparty, currency, amount, and status.',
+      'Read-only filter, paging, and detail endpoints; template lifecycle, reminder execution, recurring payment management, and accounting commands remain unavailable.',
+    ]),
+    item('revenue-recognition', 'Revenue recognition', 'API_UNAVAILABLE', [
+      'Entity- and period-scoped recognition schedules with immutable source, schedule revision, dates, accounts, currency, amount, status, Journal, ledger, and audit identifiers.',
+      'Read-only list, detail, and report endpoints; settings, rule changes, schedule creation, automatic Journal generation, and posting remain unavailable.',
+    ]),
+    item('fixed-assets', 'Fixed assets', 'API_UNAVAILABLE', [
+      'Entity-scoped fixed-asset register rows with immutable asset identity/revision, dates, cost, residual value, method/life, accumulated depreciation, net book value, status, accounts, source, Journal, ledger, and audit identifiers.',
+      'Read-only list, detail, and report endpoints; asset creation, bulk import, edits, depreciation generation, disposal, and posting remain unavailable.',
+    ]),
     // QBO calls this surface Prepaid expenses. REFS keeps its stronger
     // Amortization Center controls behind that familiar accounting label.
     item('amortization', 'Prepaid expenses', 'API_READ'),
     item('accruals', 'Accrual Center'),
   ]),
-  group('Close', [item('month-end-close', 'Month-End Close'), item('period-management', 'Period Management')]),
+  group('Close', [
+    item('month-end-close', 'Month-End Close', 'API_UNAVAILABLE', [
+      'Entity- and period-scoped close checklist, owner, status, retained evidence, blocker, approval, and immutable audit history.',
+      'Read-only checklist, blocker, evidence, and history endpoints; completion, sign-off, reopen, Journal, and posting commands remain unavailable.',
+    ]),
+    item('period-management', 'Period Management', 'API_UNAVAILABLE', [
+      'Entity-scoped immutable period identity, dates, OPEN or CLOSED state, revision, actor, reason, close cutoff, and audit evidence.',
+      'Read-only period list, detail, and history endpoints; open, close, reopen, cutoff edits, accounting-method changes, and posting remain separately authorised and unavailable.',
+    ]),
+  ]),
   group('Payables & Receivables', [
-    item('payables', 'Bills & expenses', 'API_READ'), item('receivables', 'Invoices & receipts', 'API_READ'),
+    item('payables', 'Expense transactions', 'API_READ'),
+    item('vendors', 'Vendors', 'API_UNAVAILABLE', [
+      'Entity-scoped vendor master rows with immutable vendor identity, company, contact, tax-status, and open-balance facts.',
+      'Read-only search, paging, and detail endpoints; vendor creation, bill creation, payment, email, print, export, and tax actions remain unavailable.',
+    ]),
+    item('bill-payments', 'Bill payments', 'API_UNAVAILABLE', [
+      'Entity- and period-scoped retained Bill Payment evidence with immutable Bill, payment, Journal, ledger, and audit identifiers.',
+      'Read-only list and detail endpoints; payment initiation, approval, void, release, and external money movement remain unavailable.',
+    ]),
+    item('contractors', 'Contractors', 'API_UNAVAILABLE', [
+      'Permission-scoped contractor identity, W-9 status, and retained payment evidence with immutable source and audit identifiers.',
+      'Read-only search, status, paging, and detail endpoints; invitations, setup, direct deposit, bulk pay, 1099 filing, and tax actions remain unavailable.',
+    ]),
+    item('1099s', '1099s', 'API_UNAVAILABLE', [
+      'Tax-permission-scoped filing-year snapshots with immutable recipient, W-9, form, filing, correction, and audit identifiers.',
+      'Read-only recipient and completed-form endpoints; preparation, autofill, import, e-file, correction, download, print, mail, and export remain unavailable.',
+    ]),
+    item('receivables', 'Invoices & receipts', 'API_READ'),
   ]),
   group('Reports & Analytics', [item('reports', 'Standard reports', 'API_READ'),item('accounting-analysis-report', 'Accounting Analysis Report', 'API_READ')]),
   group('Administration', [
     item('master-data', 'Master Data'), item('bank-accounts', 'Bank Accounts'),
-    item('audit-log', 'Audit Log'), item('users-settings', 'Users & settings'),
+    item('my-accountant', 'My accountant', 'API_UNAVAILABLE', [
+      'Permission-scoped, entity-bound accountant collaboration records with immutable membership identity, revision, status, firm display name, role, and audit history.',
+      'Read-only accountant access and history endpoints; invitations, role or permission changes, subscriptions, provider calls, and external expert services remain unavailable.',
+    ]),
+    item('audit-log', 'Audit Log', 'API_UNAVAILABLE', [
+      'Permission-scoped, entity-bound audit events with immutable event identity, timestamp, actor, event type, target identity/revision, correlation, and history facts.',
+      'Read-only user, date, event, search, paging, and history-detail endpoints; settings, print, export, provider calls, and accounting mutations remain unavailable.',
+    ]), item('users-settings', 'Users & settings'),
   ]),
 ]);
 

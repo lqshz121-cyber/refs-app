@@ -28,6 +28,9 @@ assert.match(reconciliationInitial,/Choose an existing statement to review\./);a
 assert.match(reconciliationInitial,/Reconciliation history/);assert.match(reconciliationInitial,/Loading reconciliation history/);assert.match(reconciliationInitial,/READ ONLY/);
 assert.match(source,/No reconciliation history\.<\/b> Enter a bank account and statement ending date below\./,'an empty history must use one concise instruction instead of a second oversized empty-state card');
 assert.match(source,/state\.phase==='IDLE'&&!\(scopeDiscovery\.phase==='READY'&&!scopeDiscovery\.rows\.length\)/,'the empty history must suppress the duplicate idle prompt while retaining the statement controls');
+assert.doesNotMatch(reconciliationInitial,/Back to standard reports/,'direct Reconcile navigation must not claim a Reports parent');
+const reconciliationFromReports=renderToStaticMarkup(<AuthoritativeReconciliationWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}} onBack={()=>{}}/>);
+assert.match(reconciliationFromReports,/Back to standard reports/,'the Reports shortcut must expose an exact parent Back action without changing the reconciliation read model');
 assert.match(reconciliationInitial,/Choose a statement/);assert.match(reconciliationInitial,/Select a bank account and statement ending date\./);assert.doesNotMatch(reconciliationInitial,/Reconciliation evidence|Available reconciliation scopes|Discovering reconciliation scopes|No read requested yet/,'the first screen must use concise accounting language');
 assert.match(reconciliationInitial,/Signed admitted statements/);assert.match(reconciliationInitial,/SIGNED \+ ADMITTED/);assert.match(reconciliationInitial,/separate from UNSIGNED PILOT/);assert.match(reconciliationInitial,/Load signed statements/);
 const admittedInitial=renderToStaticMarkup(<AuthoritativeAdmittedStatements config={config} bankAccountRef="BANK-1" fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);

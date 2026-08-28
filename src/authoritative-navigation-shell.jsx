@@ -10,7 +10,7 @@ const GROUP_SHORT_LABELS = Object.freeze({
   'General Ledger':'General',
   'Accounting Operations':'Operations',
   'Close':'Close',
-  'Payables & Receivables':'Payables',
+  'Payables & Receivables':'Expenses',
   'Reports & Analytics':'Reports',
   'Administration':'Admin',
 });
@@ -32,7 +32,7 @@ const GROUP_ICONS = Object.freeze({
   'Accounting Operations':'layers',
   Close:'calendar',
   'Payables & Receivables':'wallet',
-  Reports:'bars',
+  'Reports & Analytics':'bars',
   Administration:'shield',
 });
 const ITEM_ICONS = Object.freeze({
