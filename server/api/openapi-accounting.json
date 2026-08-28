@@ -1865,6 +1865,25 @@
         }
       }
     },
+    "/entities/{entityId}/periods/{periodId}/close-readiness": {
+      "get": {
+        "operationId": "getPeriodCloseReadiness",
+        "summary": "Read authoritative period-close readiness",
+        "description": "Recomputes a closed fail-closed checklist from the exact approved close-policy settings, zero unposted journals, zero current admitted-source blockers, and the latest independently approved financial statement snapshot matching the current POSTED ledger. The returned readiness hash binds every close input and this read cannot close or mutate a period.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"periodId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "responses": {"200":{"$ref":"#/components/responses/PeriodCloseReadinessOk"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/periods/{periodId}/close": {
+      "post": {
+        "operationId": "closeAccountingPeriod",
+        "summary": "Close an evidence-complete accounting period",
+        "description": "Requires GL.PERIOD.CLOSE, a strong period-version If-Match, an idempotency key, a human reason, and the exact latest readiness hash. The server locks the period and recomputes all readiness evidence atomically; any blocker or evidence drift rejects the close. This command never creates or posts a journal and has no reopen path.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"periodId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/IfMatch"}],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["expectedReadinessHash","reason"],"properties":{"expectedReadinessHash":{"$ref":"#/components/schemas/Sha256"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses":{"200":{"$ref":"#/components/responses/PeriodCloseOk"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/reports/financial-statement-snapshot-proposals": {
       "get": {
         "operationId": "listFinancialStatementSnapshotProposals",
@@ -4556,6 +4575,11 @@
       },
       "FinancialStatementSnapshotPrepareEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/FinancialStatementSnapshotPrepareReceipt"}}},
       "FinancialStatementSnapshotApproveEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/FinancialStatementSnapshotApproveReceipt"}}},
+      "PeriodCloseBlocker":{"type":"object","additionalProperties":false,"required":["code","count"],"properties":{"code":{"enum":["ADMITTED_SOURCE_REVIEW_OPEN","APPROVED_CLOSE_POLICY_UNAVAILABLE","APPROVED_STATEMENT_SNAPSHOT_MISSING","APPROVED_STATEMENT_SNAPSHOT_STALE","PERIOD_NOT_OPEN","UNPOSTED_JOURNALS"]},"count":{"type":"integer","minimum":1}}},
+      "PeriodCloseReadiness":{"type":"object","additionalProperties":false,"required":["schema_version","tenant_id","entity_id","period_id","period_code","period_status","period_version","settings_snapshot_id","settings_hash","close_policy_snapshot_id","close_policy_hash","financial_statement_snapshot_id","financial_statement_snapshot_hash","ledger_evidence_hash","unposted_journal_count","admitted_source_blocker_count","blockers","ready","readiness_hash","can_close"],"properties":{"schema_version":{"const":"PERIOD_CLOSE_READINESS_V1"},"tenant_id":{"$ref":"#/components/schemas/Uuid"},"entity_id":{"$ref":"#/components/schemas/Uuid"},"period_id":{"$ref":"#/components/schemas/Uuid"},"period_code":{"type":"string","minLength":1,"maxLength":64},"period_status":{"enum":["OPEN","SOFT_CLOSED","CLOSED"]},"period_version":{"type":"string","pattern":"^[0-9]+$"},"settings_snapshot_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"settings_hash":{"oneOf":[{"$ref":"#/components/schemas/Sha256"},{"type":"null"}]},"close_policy_snapshot_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"close_policy_hash":{"oneOf":[{"$ref":"#/components/schemas/Sha256"},{"type":"null"}]},"financial_statement_snapshot_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"financial_statement_snapshot_hash":{"oneOf":[{"$ref":"#/components/schemas/Sha256"},{"type":"null"}]},"ledger_evidence_hash":{"oneOf":[{"$ref":"#/components/schemas/Sha256"},{"type":"null"}]},"unposted_journal_count":{"type":"integer","minimum":0},"admitted_source_blocker_count":{"type":"integer","minimum":0},"blockers":{"type":"array","items":{"$ref":"#/components/schemas/PeriodCloseBlocker"}},"ready":{"type":"boolean"},"readiness_hash":{"$ref":"#/components/schemas/Sha256"},"can_close":{"type":"boolean"}}},
+      "PeriodCloseReadinessEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/PeriodCloseReadiness"}}},
+      "PeriodCloseReceipt":{"type":"object","additionalProperties":false,"required":["schema_version","period_id","version","status","readiness_hash","closed_by","idempotent"],"properties":{"schema_version":{"const":"PERIOD_CLOSE_RECEIPT_V2"},"period_id":{"$ref":"#/components/schemas/Uuid"},"version":{"type":"string","pattern":"^[1-9][0-9]*$"},"status":{"const":"CLOSED"},"readiness_hash":{"$ref":"#/components/schemas/Sha256"},"closed_by":{"type":"string","minLength":1,"maxLength":300},"idempotent":{"type":"boolean"}}},
+      "PeriodCloseEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/PeriodCloseReceipt"}}},
       "FinancialStatementPeriodComparisonReadRow": {
         "type": "object",
         "additionalProperties": false,
@@ -6773,6 +6797,8 @@
       "FinancialStatementSnapshotApproveOk": {
         "description":"Closed independently approved statement snapshot receipt","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FinancialStatementSnapshotApproveEnvelope"}}}
       },
+      "PeriodCloseReadinessOk":{"description":"Authoritative fail-closed period-close readiness","headers":{"Cache-Control":{"schema":{"const":"no-store"}},"ETag":{"schema":{"type":"string"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/PeriodCloseReadinessEnvelope"}}}},
+      "PeriodCloseOk":{"description":"Evidence-bound immutable period-close receipt","headers":{"Cache-Control":{"schema":{"const":"no-store"}},"ETag":{"schema":{"type":"string"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/PeriodCloseEnvelope"}}}},
       "FinancialStatementPeriodComparisonReadOk": {
         "description": "Scoped two-period POSTED financial-statement comparison evidence",
         "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},

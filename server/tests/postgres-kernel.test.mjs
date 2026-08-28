@@ -2210,33 +2210,30 @@ pgTest('two connections enforce duplicate canonical raw source and atomic idempo
   await assert.rejects(firstKernel.postJournal({...args,expectedRevision:1,requestHash:hash('caller-is-ignored')}),error=>error.code==='23505');
 });
 
-pgTest('period close and post serialize on the period row',async()=>{
+pgTest('period close readiness blocks while a journal remains unposted',async()=>{
   const ids=await seed();
-  const closeClient=await runtimePool.connect();
-  try{
-    await closeClient.query('BEGIN');await closeClient.query('SET LOCAL ROLE refs_app');
-    const closeSession=await trustedSession(ids,'closer',['GL.PERIOD.CLOSE']);
-    await closeClient.query('SELECT refs_bootstrap_context($1)',[closeSession.contextToken]);
-    await closeClient.query('SELECT refs_close_period($1,$2,$3,0,$4,$5,refs_current_actor())',[ids.tenantId,ids.entityId,ids.periodId,'close-race-key',hash('close-race')]);
-    const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids)});
-    const posting=kernel.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'post-close-race',requestHash:hash('race')});
-    await new Promise(resolve=>setTimeout(resolve,100));
-    await closeClient.query('COMMIT');
-    await assert.rejects(posting,error=>error.code==='55000');
-  }finally{closeClient.release();}
-  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM ledger_line')).rows[0].n,0);
+  await installApprovedAiSettingsFixture({pool:adminPool,ids,companyCode:ids.sourceEntityId});
+  const closer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'closer',['GL.PERIOD.CLOSE','AI.ACCOUNTING.SETTINGS.VIEW'])});
+  const readiness=await closer.readPeriodCloseReadiness(ids);assert.equal(readiness.ready,false);assert.equal(readiness.blockers.some(item=>item.code==='UNPOSTED_JOURNALS'),true);
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids)});await kernel.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'post-before-close'});
+  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM ledger_line')).rows[0].n,2);
 });
 
-pgTest('period close is OPEN-only, audited, idempotent and replayable',async()=>{
+pgTest('period close requires current approved settings and statement evidence, then is audited and replayable',async()=>{
   const ids=await seed();
-  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'closer',['GL.PERIOD.CLOSE'])});
-  const args={...ids,expectedVersion:0,idempotencyKey:'close-key-0001',requestHash:hash('close')};
+  await installApprovedAiSettingsFixture({pool:adminPool,ids,companyCode:ids.sourceEntityId});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids)});await poster.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'post-before-close-positive'});
+  const preparer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'close-report-preparer',['GL.REPORT.SNAPSHOT.PREPARE','GL.REPORT.VIEW'])}),proposal=await preparer.prepareFinancialStatementSnapshot({...ids,idempotencyKey:'close-report-prepare'});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'close-report-approver',['GL.REPORT.SNAPSHOT.APPROVE'])});await approver.approveFinancialStatementSnapshot({...ids,proposalId:proposal.financial_statement_snapshot_proposal_id,idempotencyKey:'close-report-approve'});
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'closer',['GL.PERIOD.CLOSE','AI.ACCOUNTING.SETTINGS.VIEW'])});
+  const readiness=await kernel.readPeriodCloseReadiness(ids);assert.equal(readiness.ready,true);assert.deepEqual(readiness.blockers,[]);
+  const args={...ids,expectedVersion:0,expectedReadinessHash:readiness.readiness_hash,reason:'Controller verified current settings, sources, journals, and approved statements.',idempotencyKey:'close-key-0001'};
   const first=await kernel.closePeriod(args);
   const replay=await kernel.closePeriod(args);
   assert.equal(first.status,'CLOSED');assert.equal(first.idempotent,false);assert.equal(replay.idempotent,true);
-  await assert.rejects(kernel.closePeriod({...args,idempotencyKey:'close-key-0002',requestHash:hash('close2')}),error=>error.code==='55000');
-  assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM audit_event WHERE event_type='PERIOD_CLOSED'")).rows[0].n,1);
-  assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM outbox_event WHERE event_type='PERIOD_CLOSED'")).rows[0].n,1);
+  await assert.rejects(kernel.closePeriod({...args,idempotencyKey:'close-key-0002'}),error=>error.code==='55000');
+  assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM audit_event WHERE event_type='PERIOD_CLOSED_V2'")).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM outbox_event WHERE event_type='PERIOD_CLOSED_V2'")).rows[0].n,1);
 });
 
 pgTest('CAS edit rejects stale revision and forged body actor is not an input surface',async()=>{
@@ -3214,8 +3211,7 @@ pgTest('runtime reversal creates an exact Draft inverse in a new OPEN period and
   const ids=await seed({status:'APPROVED'});
   const originalPoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'original-poster',['GL.JE.POST'])});
   await originalPoster.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'post-original-reversal-test'});
-  const closer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'period-closer',['GL.PERIOD.CLOSE'])});
-  await closer.closePeriod({...ids,expectedVersion:0,idempotencyKey:'close-original-period'});
+  await adminPool.query("UPDATE accounting_period SET status='CLOSED',version=version+1,closed_by='fixture',closed_at=now() WHERE period_id=$1",[ids.periodId]);
   const augustPeriod=randomUUID();
   await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
   const requester=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'reversal-requester',['GL.JE.REVERSE'])});
@@ -3318,8 +3314,7 @@ pgTest('AP payment partial occurrence posts and reversal restores bill balance a
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'payment-poster',['GL.JE.POST'])});
   await poster.postJournal({...ids,journalEntryId:payment.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'payment-post-400'});
   assert.equal((await adminPool.query('SELECT open_balance FROM business_document WHERE business_document_id=$1',[billId])).rows[0].open_balance,'60.0000');
-  const closer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'payment-period-closer',['GL.PERIOD.CLOSE'])});
-  await closer.closePeriod({...ids,expectedVersion:0,idempotencyKey:'close-payment-period'});
+  await adminPool.query("UPDATE accounting_period SET status='CLOSED',version=version+1,closed_by='fixture',closed_at=now() WHERE period_id=$1",[ids.periodId]);
   const augustPeriod=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
   const reversalMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'payment-reversal-maker',['AP.PAYMENT.REVERSE'])});
   const reversal=await reversalMaker.createApPaymentReversal({...ids,sourceOccurrenceId:payment.payment_occurrence_id,periodId:augustPeriod,journalNumber:'PAY-400-REV',journalDate:'2026-08-02',reason:'Reverse duplicate payment',idempotencyKey:'payment-reversal-400'});
@@ -3423,8 +3418,7 @@ pgTest('AR receipt and reversal keep aging and the 120200 control balance in loc
   await assert.rejects(reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),error=>error.code==='42501');
   assert.deepEqual(await reader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'60.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'60.0000'}]);
   assert.deepEqual(await reader.getArControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'60.0000',control_balance:'60.0000',in_balance:true}]);
-  const closer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-period-closer',['GL.PERIOD.CLOSE'])});
-  await closer.closePeriod({...ids,expectedVersion:0,idempotencyKey:'aging-period-close'});
+  await adminPool.query("UPDATE accounting_period SET status='CLOSED',version=version+1,closed_by='fixture',closed_at=now() WHERE period_id=$1",[ids.periodId]);
   const augustPeriod=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
   const reversalMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-receipt-reversal-maker',['AR.RECEIPT.REVERSE'])});
   const reversal=await reversalMaker.createArReceiptReversal({...ids,sourceOccurrenceId:receipt.payment_occurrence_id,periodId:augustPeriod,journalNumber:'REC-AGING-40-REV',journalDate:'2026-08-02',reason:'Receipt reversal',idempotencyKey:'aging-receipt-reversal-create'});
@@ -3633,8 +3627,7 @@ pgTest('AP payment and reversal keep aging and the 291001 control balance in loc
   assert.equal(julySnapshot.scope.detail_count,1);assert.equal(julySnapshot.scope.counterparty_count,1);assert.match(julySnapshot.scope.snapshot_hash,/^sha256:[0-9a-f]{64}$/);
   const julyDetail=await reader.getAgingSnapshotDetail({tenantId:ids.tenantId,entityId:ids.entityId,documentKind:'AP_BILL',periodId:ids.periodId,asOfDate:'2026-07-31',counterpartyRef:'VENDOR-1',counterpartyName:'Vendor',currency:'USD',limit:25,offset:0});
   assert.equal(julyDetail.rows.length,1);assert.equal(julyDetail.rows[0].business_document_id,billId);assert.equal(julyDetail.rows[0].open_balance,'60.0000');assert.equal(julyDetail.scope.snapshot_id,julySnapshot.scope.snapshot_id);assert.equal(julyDetail.scope.snapshot_hash,julySnapshot.scope.snapshot_hash);
-  const closer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ap-aging-period-closer',['GL.PERIOD.CLOSE'])});
-  await closer.closePeriod({...ids,expectedVersion:0,idempotencyKey:'ap-aging-period-close'});
+  await adminPool.query("UPDATE accounting_period SET status='CLOSED',version=version+1,closed_by='fixture',closed_at=now() WHERE period_id=$1",[ids.periodId]);
   const augustPeriod=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
   const reversalMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-payment-reversal-maker',['AP.PAYMENT.REVERSE'])});
   const reversal=await reversalMaker.createApPaymentReversal({...ids,sourceOccurrenceId:payment.payment_occurrence_id,periodId:augustPeriod,journalNumber:'PAY-AGING-40-REV',journalDate:'2026-08-02',reason:'Payment reversal',idempotencyKey:'aging-payment-reversal-create'});
