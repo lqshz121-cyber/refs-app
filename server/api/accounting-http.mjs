@@ -1181,8 +1181,10 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.listAiPropertyRentRevenueReviews!=='function')throw new AccountingApiError(503,'AI_PROPERTY_RENT_REVENUE_REVIEW_UNAVAILABLE','AI Property Rent revenue review is unavailable');
         result=await kernel.listAiPropertyRentRevenueReviews({tenantId:principal.tenantId,entityId,periodId,limit});
         if(!Array.isArray(result))throw new AccountingApiError(503,'AI_PROPERTY_RENT_REVENUE_REVIEW_UNAVAILABLE','AI Property Rent revenue review returned an invalid population');
+        if(!safeAiEvidenceTree(result,{maxArrayLength:500}))throw new AccountingApiError(502,'AI_PROPERTY_RENT_REVENUE_RESPONSE_INVALID','AI Property Rent revenue review returned unsafe evidence');
         if(result.length>=limit)throw new AccountingApiError(503,'AI_PROPERTY_RENT_REVENUE_POPULATION_INCOMPLETE','AI Property Rent revenue review reached its bounded population limit; a complete result cannot be asserted');
-        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result.map(aiPropertyRentRevenueReviewDto)}};
+        const data=result.map(aiPropertyRentRevenueReviewDto);if(!safeAiEvidenceTree(data,{maxArrayLength:500}))throw new AccountingApiError(502,'AI_PROPERTY_RENT_REVENUE_RESPONSE_INVALID','AI Property Rent revenue review projection is unsafe');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data}};
       }
       if(method==='GET'&&parts.length===7&&parts[4]==='ai'&&parts[5]==='security-deposits'&&parts[6]==='liability-review'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','AI security-deposit liability review reads do not accept command headers');
@@ -1225,7 +1227,9 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.getAiApAgingRiskSource!=='function'||typeof kernel.getAiApAgingRiskPolicy!=='function')throw new AccountingApiError(503,'AI_AP_AGING_RISK_UNAVAILABLE','Authoritative AP aging risk evidence is unavailable');
         const rows=await kernel.getAiApAgingRiskSource({tenantId:principal.tenantId,entityId,asOfDate}),policy=await kernel.getAiApAgingRiskPolicy({tenantId:principal.tenantId,entityId,asOfDate});
         if(!policy)throw new AccountingApiError(409,'AI_AP_AGING_RISK_POLICY_REQUIRED','An approved entity-date AP aging risk policy is required');
-        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:detectApAgingRisks(rows,{asOfDate,policy,tenantId:principal.tenantId,entityId,limit})}};
+        if(!safeAiEvidenceTree(rows,{maxArrayLength:5000})||!safeAiEvidenceTree(policy,{maxArrayLength:20}))throw new AccountingApiError(502,'AI_AP_AGING_RISK_RESPONSE_INVALID','AI AP aging risk source or policy evidence is unsafe');
+        const data=detectApAgingRisks(rows,{asOfDate,policy,tenantId:principal.tenantId,entityId,limit});if(!safeAiEvidenceTree(data,{maxArrayLength:500}))throw new AccountingApiError(502,'AI_AP_AGING_RISK_RESPONSE_INVALID','AI AP aging risk response is unsafe');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data}};
       }
       if(method==='GET'&&parts.length===7&&parts[4]==='ai'&&parts[5]==='reports'&&parts[6]==='intercompany-close-review'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','AI intercompany close review reads do not accept command headers');
