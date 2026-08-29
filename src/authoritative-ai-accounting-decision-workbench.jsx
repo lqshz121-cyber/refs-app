@@ -1,25 +1,45 @@
-import React,{useEffect,useMemo,useState} from 'react';
-import {aiAccountingDecisionCommandIdempotencyKey,aiAccountingPostedOutcomeIdempotencyKey,createAuthoritativeAiAccountingDecisionDraft,decideAuthoritativeAiAccountingDecision,refreshAuthoritativeAiAccountingDecisionQueue,refreshAuthoritativeAiAccountingPostedOutcomeHistory,retainAuthoritativeAiAccountingPostedOutcomeReview} from './accounting-api.js';
+import React,{useEffect,useMemo,useRef,useState} from 'react';
+import {aiAccountingDecisionCommandIdempotencyKey,aiAccountingDecisionRunIdempotencyKey,aiAccountingPostedOutcomeIdempotencyKey,createAuthoritativeAiAccountingDecisionDraft,decideAuthoritativeAiAccountingDecision,refreshAuthoritativeAiAccountingDecisionQueue,refreshAuthoritativeAiAccountingPostedOutcomeHistory,retainAuthoritativeAiAccountingDecisionRun,retainAuthoritativeAiAccountingPostedOutcomeReview} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 
 const PAGE_SIZE=25;
+const RUN_LIMIT=100;
 const initialQueue={phase:'LOADING',data:null,error:null};
 const initialCommand={phase:'IDLE',data:null,error:null};
 const initialHistory={phase:'IDLE',data:null,error:null};
+const initialRun={phase:'IDLE',data:null,error:null,runNonce:null};
 const shortHash=value=>typeof value==='string'&&value.length>26?`${value.slice(0,20)}...${value.slice(-4)}`:value||'Unavailable';
+const createRunNonce=cryptoApi=>{try{const bytes=new Uint8Array(32);cryptoApi?.getRandomValues?.(bytes);return bytes.some(value=>value!==0)?[...bytes].map(value=>value.toString(16).padStart(2,'0')).join(''):null;}catch{return null;}};
 
-export function AuthoritativeAiAccountingDecisionWorkbench({config,fetcher=globalThis.fetch,onAccountingRefresh,onOpenJournalWorkflow}){
-  const [offset,setOffset]=useState(0),[queue,setQueue]=useState(initialQueue),[selection,setSelection]=useState(''),[outcome,setOutcome]=useState(''),[reason,setReason]=useState(''),[command,setCommand]=useState(initialCommand),[history,setHistory]=useState(initialHistory);
+export function AuthoritativeAiAccountingDecisionWorkbench({config,fetcher=globalThis.fetch,cryptoApi=globalThis.crypto,onAccountingRefresh,onOpenJournalWorkflow}){
+  const [offset,setOffset]=useState(0),[queue,setQueue]=useState(initialQueue),[selection,setSelection]=useState(''),[outcome,setOutcome]=useState(''),[reason,setReason]=useState(''),[command,setCommand]=useState(initialCommand),[history,setHistory]=useState(initialHistory),[run,setRun]=useState(initialRun);
+  const scopeToken=useMemo(()=>Object.freeze({entityId:config?.entityId,periodId:config?.periodId}),[config?.entityId,config?.periodId]),latestScopeToken=useRef(scopeToken),runGuard=useRef({scopeToken,pending:false,runNonce:null});latestScopeToken.current=scopeToken;
   const load=async requestedOffset=>{
     const pageOffset=Number.isSafeInteger(requestedOffset)?requestedOffset:offset;
     setQueue(current=>({...current,phase:'LOADING',error:null}));
     const result=await refreshAuthoritativeAiAccountingDecisionQueue({config,limit:PAGE_SIZE,offset:pageOffset,fetcher});
+    if(latestScopeToken.current!==scopeToken)return;
     setQueue(result.ok?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:null,error:result});
   };
-  useEffect(()=>{setOffset(0);setSelection('');setOutcome('');setReason('');setCommand(initialCommand);setHistory(initialHistory);void load(0);},[config?.entityId,config?.periodId]);
+  useEffect(()=>{setOffset(0);setSelection('');setOutcome('');setReason('');setCommand(initialCommand);setHistory(initialHistory);setRun(initialRun);void load(0);},[scopeToken]);
   const rows=queue.data?.rows||[];
   const selected=useMemo(()=>rows.find(row=>row.ai_accounting_decision_id===selection)||null,[rows,selection]);
   const changePage=next=>{setOffset(next);setSelection('');setOutcome('');setReason('');setCommand(initialCommand);setHistory(initialHistory);void load(next);};
+  const runAndRetain=async()=>{
+    if(runGuard.current.scopeToken===scopeToken&&runGuard.current.pending)return;
+    const runNonce=(runGuard.current.scopeToken===scopeToken&&runGuard.current.runNonce)||run.runNonce||createRunNonce(cryptoApi);
+    if(!runNonce){setRun({phase:'BLOCKED',data:null,error:{code:'AI_ACCOUNTING_DECISION_RUN_COMMAND_INVALID',message:'Run and retain requires browser cryptography and one authoritative company and period.'},runNonce:null});return;}
+    runGuard.current={scopeToken,pending:true,runNonce};
+    setRun({phase:'LOADING',data:null,error:null,runNonce});
+    const idempotencyKey=await aiAccountingDecisionRunIdempotencyKey({config,limit:RUN_LIMIT,runNonce,cryptoApi});
+    if(latestScopeToken.current!==scopeToken)return;
+    if(!idempotencyKey){runGuard.current={scopeToken,pending:false,runNonce};setRun({phase:'BLOCKED',data:null,error:{code:'AI_ACCOUNTING_DECISION_RUN_COMMAND_INVALID',message:'Run and retain requires browser cryptography and one authoritative company and period.'},runNonce});return;}
+    const result=await retainAuthoritativeAiAccountingDecisionRun({config,limit:RUN_LIMIT,runNonce,idempotencyKey,fetcher,cryptoApi});
+    if(latestScopeToken.current!==scopeToken)return;
+    runGuard.current={scopeToken,pending:false,runNonce:result.ok?null:runNonce};
+    setRun(result.ok?{phase:'READY',data:result.data,error:null,runNonce:null}:{phase:'BLOCKED',data:null,error:result,runNonce});
+    if(result.ok){setOffset(0);setSelection('');setOutcome('');setReason('');setCommand(initialCommand);setHistory(initialHistory);await load(0);}
+  };
   const decide=async()=>{
     const idempotencyKey=await aiAccountingDecisionCommandIdempotencyKey({config,decision:selected,action:outcome,reason});
     if(!idempotencyKey){setCommand({phase:'BLOCKED',data:null,error:{code:'AI_ACCOUNTING_DECISION_COMMAND_INVALID',message:'Choose an available decision, outcome, and an 8-2000 character human reason.'}});return;}
@@ -51,10 +71,13 @@ export function AuthoritativeAiAccountingDecisionWorkbench({config,fetcher=globa
   };
   const total=queue.data?.total_count||0,from=total===0?0:offset+1,to=Math.min(offset+rows.length,total);
   return <section className="card" aria-label="Retained AI accounting decision workflow">
-    <div className="card-head"><div><h2>Accounting decision queue</h2><p className="muted sm">Resume immutable settings-bound decisions after a refresh. A human maker records Accept or Reject before a separate Draft is possible; standard Journal submit, review, approve, and post remain outside this queue.</p></div><button type="button" className="btn" onClick={()=>load(offset)} disabled={queue.phase==='LOADING'}>{queue.phase==='LOADING'?'Refreshing...':'Refresh queue'}</button></div>
+    <div className="card-head"><div><h2>Accounting decision queue</h2><p className="muted sm">Resume immutable settings-bound decisions after a refresh. A human maker records Accept or Reject before a separate Draft is possible; standard Journal submit, review, approve, and post remain outside this queue.</p></div><div><button type="button" className="btn" onClick={runAndRetain} disabled={run.phase==='LOADING'||queue.phase==='LOADING'}>{run.phase==='LOADING'?'Running complete analysis...':run.phase==='BLOCKED'?'Retry run and retain':'Run and retain'}</button> <button type="button" className="btn" onClick={()=>load(offset)} disabled={queue.phase==='LOADING'||run.phase==='LOADING'}>{queue.phase==='LOADING'?'Refreshing...':'Refresh queue'}</button></div></div>
     <p className="muted sm" aria-label="AI accounting decision authority boundary">PERSISTED EVIDENCE | HUMAN ACCEPT OR REJECT | HUMAN DRAFT ONLY | NO SUBMIT | NO REVIEW | NO APPROVE | NO POST</p>
+    <p className="muted sm">Run and retain asks the server to recompute the complete authoritative population and retain immutable decision evidence. It does not Accept, Reject, create a Draft, or perform a Journal action.</p>
+    {run.phase==='BLOCKED'?<StateBlock tone="blocked" title={run.error?.code||'AI_ACCOUNTING_DECISION_RUN_BLOCKED'}>{run.error?.message} The same command identity is retained for retry; no cached or demonstration decisions are substituted.</StateBlock>:null}
+    {run.phase==='READY'?<StateBlock tone="ok" title="Accounting decisions retained">The server retained {run.data.row_count} decision {run.data.row_count===1?'packet':'packets'} for this period and the queue was refreshed. No human decision or Journal action was performed.</StateBlock>:null}
     {queue.phase==='BLOCKED'?<StateBlock tone="blocked" title={queue.error?.code||'AI_ACCOUNTING_DECISION_QUEUE_BLOCKED'}>{queue.error?.message} No cached, local, or demonstration decision is substituted.</StateBlock>:null}
-    {queue.phase==='READY'&&rows.length===0?<StateBlock tone="empty" title="No retained accounting decisions">Run and retain a complete accounting decision batch from the AI Audit Center. An empty page does not prove that source accounting is complete.</StateBlock>:null}
+    {queue.phase==='READY'&&rows.length===0?<StateBlock tone="empty" title="No retained accounting decisions">Use Run and retain to ask the server for a complete accounting decision batch. An empty page does not prove that source accounting is complete.</StateBlock>:null}
     {rows.length>0?<>
       <div className="table-wrap" role="region" tabIndex={0} aria-label="Retained AI accounting decisions; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Workflow</th><th>Decision</th><th>Suggested journal</th><th>Retained evidence</th><th>Authority</th></tr></thead><tbody>{rows.map(row=><tr key={row.ai_accounting_decision_id}><td><button type="button" className="report-open-link" onClick={()=>{setSelection(row.ai_accounting_decision_id);setOutcome('');setReason('');setCommand(initialCommand);setHistory(initialHistory);}} aria-pressed={selection===row.ai_accounting_decision_id}><span>{row.workflow_state.replaceAll('_',' ')}</span></button><div className="muted sm">{row.packet_status.replaceAll('_',' ')}</div></td><td><b>{row.packet.classification}</b><div className="muted sm">{row.packet.reason}</div><div className="muted sm">Confidence {(row.packet.confidence*100).toFixed(2)}%</div></td><td>{row.packet.proposed_journal.lines.length===0?<span className="muted sm">No journal suggested</span>:row.packet.proposed_journal.lines.map(line=><div key={line.line_number}><b>{line.side==='DEBIT'?'Dr':'Cr'} {line.account_code}</b> {line.amount} {line.currency}</div>)}</td><td><details><summary>Immutable trace</summary><dl className="muted sm"><dt>Decision ID</dt><dd>{row.ai_accounting_decision_id}</dd><dt>Decision hash</dt><dd title={row.decision_hash}>{shortHash(row.decision_hash)}</dd><dt>Settings snapshot</dt><dd>{row.packet.settings_snapshot_id}</dd><dt>Settings hash</dt><dd title={row.packet.settings_snapshot_hash}>{shortHash(row.packet.settings_snapshot_hash)}</dd><dt>Source document</dt><dd>{row.packet.source.source_document_id}</dd>{row.human_decision?<><dt>Human outcome</dt><dd>{row.human_decision.outcome} by {row.human_decision.decided_by}</dd><dt>Acceptance evidence</dt><dd title={row.human_decision.evidence_hash}>{shortHash(row.human_decision.evidence_hash)}</dd></>:null}{row.draft_evidence?<><dt>Journal Entry</dt><dd>{row.draft_evidence.journal_entry_id}</dd><dt>Journal state</dt><dd>{row.draft_evidence.journal_status} / revision {row.draft_evidence.journal_revision}</dd></>:null}{row.latest_posted_outcome_review?<><dt>Latest Posted review</dt><dd>{row.latest_posted_outcome_review.status} / revision {row.latest_posted_outcome_review.review_revision}</dd></>:null}</dl></details></td><td><span className="badge badge-muted">HUMAN WORKFLOW</span><div className="muted sm">Submit / review / approve / post disabled here</div></td></tr>)}</tbody></table></div>
       <div className="pager" aria-label="Accounting decision queue pagination"><span>{from}-{to} of {total}</span><button type="button" className="btn" disabled={offset===0||queue.phase==='LOADING'} onClick={()=>changePage(Math.max(0,offset-PAGE_SIZE))}>Previous</button><button type="button" className="btn" disabled={queue.data?.population_complete===true||queue.phase==='LOADING'} onClick={()=>changePage(offset+PAGE_SIZE)}>Next</button></div>
