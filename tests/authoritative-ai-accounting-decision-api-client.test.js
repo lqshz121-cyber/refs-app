@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {aiAccountingDecisionCommandIdempotencyKey,aiAccountingPostedOutcomeIdempotencyKey,createAuthoritativeAiAccountingDecisionDraft,decideAuthoritativeAiAccountingDecision,refreshAuthoritativeAiAccountingDecisionQueue,refreshAuthoritativeAiAccountingPostedOutcomeHistory,retainAuthoritativeAiAccountingPostedOutcomeReview} from '../src/accounting-api.js';
+import {aiAccountingDecisionCommandIdempotencyKey,aiAccountingDecisionRunIdempotencyKey,aiAccountingPostedOutcomeIdempotencyKey,createAuthoritativeAiAccountingDecisionDraft,decideAuthoritativeAiAccountingDecision,refreshAuthoritativeAiAccountingDecisionQueue,refreshAuthoritativeAiAccountingPostedOutcomeHistory,retainAuthoritativeAiAccountingDecisionRun,retainAuthoritativeAiAccountingPostedOutcomeReview} from '../src/accounting-api.js';
 
 const id=n=>`${String(n).padStart(8,'0')}-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const entityId=id(1),periodId=id(2),decisionId=id(3),humanId=id(4),hash=`sha256:${'a'.repeat(64)}`;
@@ -16,6 +16,19 @@ test('browser reads an empty retained decision page with no-store and exact scop
   const result=await refreshAuthoritativeAiAccountingDecisionQueue({config,fetcher:async(url,init)=>(request={url,init},{ok:true,json:async()=>({ok:true,data})})});
   assert.equal(result.ok,true);assert.match(request.url,/accounting-decision-queue/);assert.equal(request.init.method,'GET');assert.equal(request.init.cache,'no-store');assert.equal(result.data.rows.length,0);
   for(const unsafe of [{...data,population_complete:false},{...data,read_count:1},{...data,debug:true}]){const rejected=await refreshAuthoritativeAiAccountingDecisionQueue({config,fetcher:async()=>({ok:true,json:async()=>({ok:true,data:unsafe})})});assert.equal(rejected.code,'AI_ACCOUNTING_DECISION_QUEUE_PROTOCOL');}
+});
+
+test('Run and retain uses a nonce-bound stable identity and accepts only a closed no-action receipt',async()=>{
+  const runNonce='1'.repeat(64),first=await aiAccountingDecisionRunIdempotencyKey({config,limit:100,runNonce}),second=await aiAccountingDecisionRunIdempotencyKey({config,limit:100,runNonce});assert.equal(first,second);assert.match(first,/^ai-accounting-decision-run:[0-9a-f]{64}$/);
+  const retained={schema_version:'AI_ACCOUNTING_DECISION_RETAINED_V1',ai_accounting_decision_id:decisionId,decision_hash:hash,packet_status:'READY_FOR_HUMAN_REVIEW',source_document_id:id(10),can_create_draft:false,can_review:false,can_approve:false,can_post:false,idempotent:false};
+  const receipt={schema_version:'AI_ACCOUNTING_DECISION_RUN_RECEIPT_V1',accounting_period_id:periodId,row_count:1,receipts:[retained],can_create_draft:false,can_review:false,can_approve:false,can_post:false,idempotent:false};let request;
+  const result=await retainAuthoritativeAiAccountingDecisionRun({config,limit:100,runNonce,idempotencyKey:first,fetcher:async(url,init)=>(request={url,init},{ok:true,status:201,json:async()=>({ok:true,data:receipt})})});
+  assert.equal(result.ok,true,JSON.stringify(result));assert.match(request.url,/\/ai\/accounting-decision-runs$/);assert.equal(request.init.method,'POST');assert.equal(request.init.cache,'no-store');assert.equal(request.init.headers['idempotency-key'],first);assert.deepEqual(JSON.parse(request.init.body),{accounting_period_id:periodId,limit:100});assert.equal(result.data.can_create_draft,false);assert.equal(result.data.can_post,false);
+  const wrongNonce=await retainAuthoritativeAiAccountingDecisionRun({config,limit:100,runNonce:'2'.repeat(64),idempotencyKey:first,fetcher:async()=>{throw new Error('must not call network')}});assert.equal(wrongNonce.code,'AI_ACCOUNTING_DECISION_RUN_COMMAND_INVALID');
+  const absentIdentity=await retainAuthoritativeAiAccountingDecisionRun({config,limit:100,runNonce:'invalid',idempotencyKey:null,fetcher:async()=>{throw new Error('must not call network')}});assert.equal(absentIdentity.code,'AI_ACCOUNTING_DECISION_RUN_COMMAND_INVALID');
+  const distinct={...retained,ai_accounting_decision_id:id(11),decision_hash:`sha256:${'b'.repeat(64)}`,source_document_id:id(12)};
+  for(const unsafe of [{...receipt,can_create_draft:true},{...receipt,debug:true},{...receipt,row_count:2,receipts:[retained,retained]},{...receipt,row_count:2,receipts:[retained,{...distinct,decision_hash:retained.decision_hash}]},{...receipt,row_count:2,receipts:[retained,{...distinct,source_document_id:retained.source_document_id}]}]){const rejected=await retainAuthoritativeAiAccountingDecisionRun({config,limit:100,runNonce,idempotencyKey:first,fetcher:async()=>({ok:true,status:201,json:async()=>({ok:true,data:unsafe})})});assert.equal(rejected.code,'AI_ACCOUNTING_DECISION_RUN_PROTOCOL');}
+  const replay={...receipt,idempotent:true,receipts:[{...retained,idempotent:true}]},replayed=await retainAuthoritativeAiAccountingDecisionRun({config,limit:100,runNonce,idempotencyKey:first,fetcher:async()=>({ok:true,status:200,json:async()=>({ok:true,data:replay})})});assert.equal(replayed.ok,true);assert.equal(replayed.data.idempotent,true);
 });
 
 test('human decision command uses stable hash-bound idempotency and validates its receipt',async()=>{
