@@ -93,7 +93,7 @@ export function classifyRetainedInvoice(invoice,{capitalizationPolicy=null}={}){
 }
 
 export function classifyRetainedInvoiceBatch(rows,{capitalizationPolicy=null}={}){
-  if(!Array.isArray(rows)||rows.length>500)throw Object.assign(new Error('Invoice classification requires an array of at most 500 retained rows.'),{code:'AI_INVOICE_CLASSIFICATION_SCOPE_INVALID'});
+  if(!Array.isArray(rows)||rows.length>10000)throw Object.assign(new Error('Invoice classification requires an array of at most 10000 retained rows.'),{code:'AI_INVOICE_CLASSIFICATION_SCOPE_INVALID'});
   const results=rows.map(row=>classifyRetainedInvoice(row,{capitalizationPolicy}));
   return Object.freeze({
     schema_version:'AI_INVOICE_ACCOUNTING_CLASSIFICATION_BATCH_V1',
