@@ -13,7 +13,7 @@
     "test:expenses-readonly-shell": "node verify-expenses-readonly-shell.mjs",
     "test:ai-security-deposit": "node tests/authoritative-ai-security-deposit-api-client.test.js && node --test server/tests/ai-security-deposit-liability-review.test.mjs server/tests/ai-security-deposit-liability-review-contract.test.mjs server/tests/ai-security-deposit-liability-review-http-contract.test.mjs",
     "test:coa-readonly-shell": "node verify-coa-readonly-shell.mjs",
-    "test:api-client": "esbuild ./tests/accounting-api-client.test.js --bundle --platform=node --format=cjs --outfile=tests/accounting-api-client.test.cjs && node tests/accounting-api-client.test.cjs",
+    "test:api-client": "esbuild ./tests/accounting-api-client.test.js --bundle --platform=node --format=cjs --outfile=tests/accounting-api-client.test.cjs && node tests/accounting-api-client.test.cjs && node --test tests/authoritative-setting-history-api-client.test.js",
     "test:shared-table-layout": "esbuild ./tests/shared-table-layout.test.jsx --bundle --platform=node --format=cjs --jsx=automatic --loader:.js=jsx --loader:.jsx=jsx --outfile=tests/shared-table-layout.test.cjs && node tests/shared-table-layout.test.cjs",
     "test:authoritative-bank": "esbuild ./tests/authoritative-bank-workspace.test.jsx --bundle --platform=node --format=cjs --jsx=automatic --loader:.js=jsx --loader:.jsx=jsx --outfile=tests/authoritative-bank-workspace.test.cjs && node tests/authoritative-bank-workspace.test.cjs",
     "test:authoritative-bank-responsive": "node tests/authoritative-bank-responsive.test.js",

@@ -2511,6 +2511,13 @@ export class PostgresAccountingKernel{
     ),'AUDIT_LOG_READ_FAILED','The authoritative audit log was not produced').result);
   }
 
+  async readAuthoritativeSettingHistory({tenantId,entityId,family,limit=25,cursorVersion=null,cursorId=null}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_authoritative_setting_history($1,$2,$3,$4,$5::bigint,$6::uuid) AS result',
+      [tenantId,entityId,family,limit,cursorVersion,cursorId]
+    ),'SETTING_HISTORY_READ_FAILED','The authoritative setting history was not produced').result);
+  }
+
   async retainWbsH1AccountingControlPopulation({tenantId,entityId,runId,idempotencyKey,population,linePageFactory=null}){
     return this.inSession(async client=>{
       const arrayMode=Array.isArray(population?.lines),streamMode=typeof linePageFactory==='function';

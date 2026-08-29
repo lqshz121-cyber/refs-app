@@ -99,6 +99,21 @@ pgTest('authoritative Audit Log is permissioned, entity scoped, redacted and key
   const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'report-only',['GL.REPORT.VIEW'])});await assert.rejects(denied.readAuthoritativeAuditLog({tenantId:ids.tenantId,entityId:ids.entityId,limit:10}),error=>error.code==='42501');
 });
 
+pgTest('authoritative setting history is immutable, redacted, reference-counted and keyset paged',async()=>{
+  const ids=await seed({status:'DRAFT'}),family='AI_ACCOUNTING_PERIOD_CLOSE_POLICY_V1',retiredId=randomUUID(),approvedId=randomUUID();
+  const retiredSnapshot={schema_version:family,policy_version:1,cutoff_date:'2026-06-30'},approvedSnapshot={schema_version:family,policy_version:2,cutoff_date:'2026-07-31'};
+  const retiredHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[JSON.stringify(retiredSnapshot)])).rows[0].hash,approvedHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[JSON.stringify(approvedSnapshot)])).rows[0].hash;
+  await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at,retired_by,retired_at,retire_reason,lifecycle_revision) VALUES
+    ($1,$3,$4,$5,'ENTITY',$4::uuid::text,1,'2026-01-01','2026-07-01','RETIRED',$6::jsonb,$7,'settings-maker-v1','settings-approver-v1','2026-01-02','settings-retirer','2026-07-01','Superseded by approved period-close policy version 2.',2),
+    ($2,$3,$4,$5,'ENTITY',$4::uuid::text,2,'2026-07-01',NULL,'APPROVED',$8::jsonb,$9,'sk-abcdefgh12345678','Bearer top-secret','2026-07-02',NULL,NULL,NULL,1)`,[retiredId,approvedId,ids.tenantId,ids.entityId,family,JSON.stringify(retiredSnapshot),retiredHash,JSON.stringify(approvedSnapshot),approvedHash]);
+  const binding={period_close_policy:{setting_snapshot_id:approvedId,setting_snapshot_hash:approvedHash}},bindingHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[JSON.stringify(binding)])).rows[0].hash;
+  await adminPool.query(`INSERT INTO setting_snapshot(tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at) VALUES($1,$2,'AI_ACCOUNTING_ENTITY_PERIOD_SETTINGS_V1','ENTITY',$2::uuid::text,991,'2026-07-01','APPROVED',$3::jsonb,$4,'binding-maker','binding-approver','2026-07-02')`,[ids.tenantId,ids.entityId,JSON.stringify(binding),bindingHash]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'settings-history-reader',['AI.ACCOUNTING.SETTINGS.VIEW'])}),first=await reader.readAuthoritativeSettingHistory({tenantId:ids.tenantId,entityId:ids.entityId,family,limit:1});
+  assert.equal(first.schema_version,'AUTHORITATIVE_SETTING_HISTORY_PAGE_V1');assert.equal(first.total_count,2);assert.equal(first.read_count,1);assert.equal(first.has_more,true);assert.equal(first.items[0].setting_snapshot_id,approvedId);assert.equal(first.items[0].created_by,'[REDACTED]');assert.equal(first.items[0].approved_by,'[REDACTED]');assert.equal(first.items[0].reference_counts.entity_period_bindings,1);assert.equal(first.items[0].reference_counts.total,1);assert.equal(Object.hasOwn(first.items[0],'snapshot'),false);assert.deepEqual(first.action_flags,{can_post:false,can_review:false,can_approve:false,can_create_draft:false});
+  const second=await reader.readAuthoritativeSettingHistory({tenantId:ids.tenantId,entityId:ids.entityId,family,limit:1,cursorVersion:first.next_cursor.version,cursorId:first.next_cursor.setting_snapshot_id});assert.equal(second.items[0].setting_snapshot_id,retiredId);assert.equal(second.items[0].status,'RETIRED');assert.match(second.items[0].retirement.reason_hash,/^sha256:[0-9a-f]{64}$/);assert.equal(second.has_more,false);
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'settings-history-denied',['GL.REPORT.VIEW'])});await assert.rejects(denied.readAuthoritativeSettingHistory({tenantId:ids.tenantId,entityId:ids.entityId,family,limit:10}),error=>error.code==='42501');
+});
+
 after(async()=>{
   if(adminPool)await adminPool.query('TRUNCATE tenant CASCADE').catch(()=>{});
   if(runtimePool)await runtimePool.end();
