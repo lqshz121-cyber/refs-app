@@ -1,3 +1,4 @@
+import {safeAiEvidenceTree} from './ai-secret-safety.mjs';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256=/^sha256:[0-9a-f]{64}$/;
 const MONEY4=/^-([1-9]\d*)\.\d{4}$/;
@@ -5,7 +6,7 @@ const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve:false,can_post:false});
 const text=(value,max)=>typeof value==='string'&&value.trim().length>0&&value.trim().length<=max&&!/[\u0000-\u001f\u007f]/.test(value);
 const validDate=value=>{if(typeof value!=='string'||!DATE.test(value))return false;const parsed=new Date(`${value}T00:00:00.000Z`);return !Number.isNaN(parsed.valueOf())&&parsed.toISOString().slice(0,10)===value;};
-const validRow=row=>row&&typeof row==='object'&&!Array.isArray(row)&&UUID.test(row.bank_source_id||'')&&UUID.test(row.source_document_id||'')&&SHA256.test(row.source_payload_hash||'')&&UUID.test(row.entity_id||'')&&UUID.test(row.accounting_period_id||'')&&text(row.bank_account_ref,128)&&text(row.external_bank_line_id,256)&&validDate(row.transaction_date)&&/^[A-Z]{3}$/.test(row.currency||'')&&MONEY4.test(row.amount||'')&&row.source_admission_status==='ADMITTED'&&row.signature_verified===true;
+const validRow=row=>row&&typeof row==='object'&&!Array.isArray(row)&&safeAiEvidenceTree(row,{maxArrayLength:100})&&UUID.test(row.bank_source_id||'')&&UUID.test(row.source_document_id||'')&&SHA256.test(row.source_payload_hash||'')&&UUID.test(row.entity_id||'')&&UUID.test(row.accounting_period_id||'')&&text(row.bank_account_ref,128)&&text(row.external_bank_line_id,256)&&validDate(row.transaction_date)&&/^[A-Z]{3}$/.test(row.currency||'')&&MONEY4.test(row.amount||'')&&row.source_admission_status==='ADMITTED'&&row.signature_verified===true;
 const key=row=>[row.entity_id,row.bank_account_ref.trim().toUpperCase(),row.transaction_date,row.currency,row.amount].join('|');
 
 export function detectDuplicateBankPayments(rows,{entityId,currentAccountingPeriodId}={}){

@@ -33,3 +33,4 @@ test('rejects impossible calendar dates instead of accepting JavaScript normaliz
   for(const transaction_date of ['2026-02-29','2026-02-30','2026-04-31','2026-13-01'])assert.throws(()=>detectDuplicateBankPayments([row(1,{transaction_date})],scope),error=>error.code==='AI_BANK_DUPLICATE_PAYMENT_SOURCE_INVALID');
   assert.equal(detectDuplicateBankPayments([row(1,{transaction_date:'2028-02-29'}),row(2,{transaction_date:'2028-02-29'})],scope).finding_count,1);
 });
+test('rejects credential-shaped values inside allowed bank trace fields',()=>{const credential=['Be','arer ','bank-payment-secret'].join('');assert.throws(()=>detectDuplicateBankPayments([row(1,{external_bank_line_id:credential})],scope),error=>error.code==='AI_BANK_DUPLICATE_PAYMENT_SOURCE_INVALID');});
