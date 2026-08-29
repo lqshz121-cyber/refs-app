@@ -155,6 +155,60 @@ services:
         sync: false
       - key: REFS_HTTP_ALLOWED_ORIGINS
         sync: false
+  # Dedicated transactional-outbox dispatcher for the authoritative API above.
+  # It has no listener. Database credentials are inherited from that API, its
+  # tenant scope is pinned to the same Stage 1 tenant, and the service actor must
+  # receive only OUTBOX.DISPATCH for that tenant.
+  - type: worker
+    name: refs-outbox-dispatch-staging
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: npm run start:outbox-dispatch
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: REFS_PG_REQUIRED
+        value: "1"
+      - key: DATABASE_URL
+        fromService:
+          type: web
+          name: refs-accounting-api-staging
+          envVarKey: DATABASE_URL
+      - key: MIGRATION_DATABASE_URL
+        fromService:
+          type: web
+          name: refs-accounting-api-staging
+          envVarKey: MIGRATION_DATABASE_URL
+      - key: CONTEXT_ISSUER_DATABASE_URL
+        fromService:
+          type: web
+          name: refs-accounting-api-staging
+          envVarKey: CONTEXT_ISSUER_DATABASE_URL
+      - key: GRANT_SYNC_DATABASE_URL
+        fromService:
+          type: web
+          name: refs-accounting-api-staging
+          envVarKey: GRANT_SYNC_DATABASE_URL
+      - key: OUTBOX_DISPATCH_ACTOR_ID
+        sync: false
+      - key: OUTBOX_DISPATCH_SCOPES
+        value: '[{"tenantId":"6fb25daf-0799-4805-bede-be54230da33c"}]'
+      - key: OUTBOX_PUBLISH_URL
+        sync: false
+      - key: OUTBOX_PUBLISH_TOKEN
+        sync: false
+      - key: OUTBOX_DISPATCH_BATCH
+        value: "100"
+      - key: OUTBOX_DISPATCH_INTERVAL_MS
+        value: "5000"
+      - key: OUTBOX_DISPATCH_LEASE_SECONDS
+        value: "300"
+      - key: OUTBOX_DISPATCH_MAX_ATTEMPTS
+        value: "8"
+      - key: OUTBOX_DISPATCH_RETRY_BASE_SECONDS
+        value: "5"
   - type: web
     name: refs-app
     runtime: static
