@@ -214,6 +214,21 @@ export async function grantStage1ReadAccess(pool,config,{principalProvider=async
   return {idempotent:result.idempotent===true,version:result.version,permissionCount:returned.length};
 }
 
+export async function grantStage1SelfReadAccess(pool,config,{principalProvider=async()=>({trusted:true,serviceId:'platform-iam-sync'}),clock=()=>Date.now(),syncFactory=(targetPool,options)=>new PostgresGrantSync(targetPool,options)}={}){
+  if(config.permissions.length!==STAGE1_READ_PERMISSIONS.length||config.permissions.some((value,index)=>value!==STAGE1_READ_PERMISSIONS[index])){
+    throw new KernelError('STAGE1_GRANT_SCOPE_DENIED','Stage 1 grant must contain exactly the approved read permissions');
+  }
+  const now=Number(clock());
+  if(!Number.isFinite(now))throw new KernelError('STAGE1_GRANT_CLOCK_INVALID','Stage 1 self-service grant clock is invalid');
+  const sync=syncFactory(pool,{principalProvider});
+  const expectedVersion=await sync.currentVersion({tenantId:config.tenantId,actorId:config.actorId,entityId:config.entityId});
+  const validUntil=new Date(now+23*60*60*1000).toISOString();
+  const result=await sync.reconcile({...config,expectedVersion,validUntil});
+  const returned=[...(result.permissions||[])].sort();
+  if(returned.length!==STAGE1_READ_PERMISSIONS.length||returned.some((value,index)=>value!==STAGE1_READ_PERMISSIONS[index]))throw new KernelError('STAGE1_GRANT_RESULT_INVALID','Grant sync returned an unexpected permission set');
+  return {idempotent:result.idempotent===true,version:result.version,permissionCount:returned.length};
+}
+
 export async function upgradeStage1WbsReadAccess(pool,config,{principalProvider=async()=>({trusted:true,serviceId:'platform-iam-sync'})}={}){
   if(config.expectedVersion!==1||config.authorityClass!=='ANALYSIS'||!UTC_TIMESTAMP.test(config.validUntil||'')||config.permissions.length!==STAGE1_WBS_READ_PERMISSIONS.length||config.permissions.some((value,index)=>value!==STAGE1_WBS_READ_PERMISSIONS[index])){
     throw new KernelError('STAGE1_WBS_READ_UPGRADE_SCOPE_DENIED','Stage 1 WBS upgrade must contain exactly the approved evidence-only read permissions');

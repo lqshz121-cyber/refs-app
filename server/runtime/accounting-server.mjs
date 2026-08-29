@@ -3,7 +3,7 @@ import {PostgresContextIssuer} from './context-issuer.mjs';
 import {PostgresAccountingKernel} from './kernel-repository.mjs';
 import {AttachmentEvidenceService} from './attachment-storage.mjs';
 import {createWbsInboundAutoRecHttpReadService} from './wbs-inbound-autorec-http-read-service.mjs';
-import {grantStage1ReadAccess,upgradeStage1ControlledTestWorkflowAccess,upgradeStage1WbsOperatorAccess,upgradeStage1WbsReadAccess} from './stage1-bootstrap.mjs';
+import {grantStage1SelfReadAccess,upgradeStage1ControlledTestWorkflowAccess,upgradeStage1WbsOperatorAccess,upgradeStage1WbsReadAccess} from './stage1-bootstrap.mjs';
 import {createWbsLivePilotReadService} from './wbs-live-pilot-read-service.mjs';
 import {createWbsOperatorAttestedPayableService} from './wbs-operator-attested-payable.mjs';
 import {createWbsAdmittedPayableIngestion} from './wbs-admitted-payable-ingestion.mjs';
@@ -328,7 +328,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
         if(principal.tenantId!==stage1SelfGrant.tenantId||entityId!==stage1SelfGrant.entityId){
           const error=new Error('This signed-in identity is not configured for the Stage 1 read scope');error.code='42501';throw error;
         }
-        return grantStage1ReadAccess(grantSyncPool,{...stage1SelfGrant,actorId:principal.actorId,idempotencyKey});
+        return grantStage1SelfReadAccess(grantSyncPool,{...stage1SelfGrant,actorId:principal.actorId,idempotencyKey});
       }
     }):undefined,
     stage1SelfWbsReadUpgradeServiceFactory:stage1SelfWbsReadUpgrade?principal=>({

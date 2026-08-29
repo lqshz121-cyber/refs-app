@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS,STAGE1_READ_PERMISSIONS,STAGE1_WBS_OPERATOR_PERMISSIONS,STAGE1_WBS_READ_PERMISSIONS,grantStage1AuthenticatedReadAccess,grantStage1ReadAccess,stage1AuthenticatedGrantConfig,stage1GrantConfig,stage1ProvisionConfig,stage1SelfControlledTestWorkflowUpgradeConfig,stage1SelfGrantConfig,stage1SelfWbsOperatorUpgradeConfig,stage1SelfWbsReadUpgradeConfig,upgradeStage1ControlledTestWorkflowAccess,upgradeStage1WbsOperatorAccess,upgradeStage1WbsReadAccess} from '../runtime/stage1-bootstrap.mjs';
+import {STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS,STAGE1_READ_PERMISSIONS,STAGE1_WBS_OPERATOR_PERMISSIONS,STAGE1_WBS_READ_PERMISSIONS,grantStage1AuthenticatedReadAccess,grantStage1ReadAccess,grantStage1SelfReadAccess,stage1AuthenticatedGrantConfig,stage1GrantConfig,stage1ProvisionConfig,stage1SelfControlledTestWorkflowUpgradeConfig,stage1SelfGrantConfig,stage1SelfWbsOperatorUpgradeConfig,stage1SelfWbsReadUpgradeConfig,upgradeStage1ControlledTestWorkflowAccess,upgradeStage1WbsOperatorAccess,upgradeStage1WbsReadAccess} from '../runtime/stage1-bootstrap.mjs';
 
 const serverRoot=fileURLToPath(new URL('..',import.meta.url));
 
@@ -83,6 +83,21 @@ test('controlled test workflow wrapper refuses altered versions and permissions 
   await assert.rejects(upgradeStage1ControlledTestWorkflowAccess({}, {...config,expectedVersion:2}),error=>error.code==='STAGE1_CONTROLLED_TEST_UPGRADE_SCOPE_DENIED');
   await assert.rejects(upgradeStage1ControlledTestWorkflowAccess({}, {...config,permissions:[...STAGE1_WBS_OPERATOR_PERMISSIONS,'WBS.TEST.IMPORT']}),error=>error.code==='STAGE1_CONTROLLED_TEST_UPGRADE_SCOPE_DENIED');
   await assert.rejects(upgradeStage1ControlledTestWorkflowAccess({},config),error=>error.code==='STAGE1_CONTROLLED_TEST_UPGRADE_RETIRED');
+});
+
+test('self-service read activation derives a rolling expiry and current grant revision on the server',async()=>{
+  const calls=[];
+  const sync={
+    currentVersion:async input=>(calls.push(['version',input]),7),
+    reconcile:async input=>(calls.push(['reconcile',input]),{idempotent:false,version:8,permissions:[...STAGE1_READ_PERMISSIONS]}),
+  };
+  const now=Date.parse('2026-08-29T12:00:00.000Z');
+  const result=await grantStage1SelfReadAccess({}, {tenantId:base.REFS_STAGE1_TENANT_ID,entityId:base.REFS_STAGE1_ENTITY_ID,actorId:'auth0|reader',authorityClass:'ANALYSIS',permissions:[...STAGE1_READ_PERMISSIONS],idempotencyKey:'reader-activation-0001',expectedVersion:0,validUntil:'2026-08-24T00:00:00.000Z'}, {clock:()=>now,syncFactory:()=>sync});
+  assert.deepEqual(result,{idempotent:false,version:8,permissionCount:5});
+  assert.deepEqual(calls[0],['version',{tenantId:base.REFS_STAGE1_TENANT_ID,actorId:'auth0|reader',entityId:base.REFS_STAGE1_ENTITY_ID}]);
+  assert.equal(calls[1][1].expectedVersion,7);
+  assert.equal(calls[1][1].validUntil,'2026-08-30T11:00:00.000Z');
+  assert.notEqual(calls[1][1].validUntil,base.REFS_STAGE1_GRANT_VALID_UNTIL);
 });
 
 test('Stage 1 runtime no longer calls legacy grant hashes or self-upgrade SQL wrappers',async()=>{
