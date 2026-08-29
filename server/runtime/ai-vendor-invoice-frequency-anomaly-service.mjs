@@ -1,4 +1,5 @@
 import {detectVendorInvoiceFrequencyAnomalies} from './ai-vendor-invoice-frequency-anomaly.mjs';
+import {safeAiEvidenceTree} from './ai-secret-safety.mjs';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const money4=value=>{const raw=String(value??'');if(!/^(0|[1-9]\d*)(\.\d{1,4})?$/.test(raw))return null;const [whole,fraction='']=raw.split('.');return `${whole}.${fraction.padEnd(4,'0')}`;};
 const retainedPayableLines=detail=>(Array.isArray(detail?.lines)?detail.lines:[]).filter(line=>line?.provider_trace?.trace_version==='WBS_PROVIDER_SOURCE_TRACE_V1'&&line.provider_trace.domain==='PAYABLES'&&line.provider_trace.disposition==='RETAINED');
@@ -7,11 +8,13 @@ export function createAiVendorInvoiceFrequencyAnomalyService({sourceReader,detai
   if(typeof sourceReader!=='function'||typeof detailReader!=='function'||typeof evidenceReader!=='function'||typeof policyReader!=='function')throw new Error('Vendor frequency anomaly service requires authoritative source, detail, signed evidence, and approved policy readers');
   const analyze=async({tenantId,entityId,currentAccountingPeriodId,limit=500})=>{
     if(!UUID.test(tenantId||'')||!UUID.test(entityId||'')||!UUID.test(currentAccountingPeriodId||'')||!Number.isInteger(limit)||limit<1||limit>500)throw Object.assign(new Error('Vendor frequency anomaly service scope is invalid'),{code:'AI_VENDOR_FREQUENCY_SCOPE_INVALID'});
-    const [documents,policy]=await Promise.all([sourceReader({tenantId,entityId,limit}),policyReader({tenantId,entityId,currentAccountingPeriodId})]),rows=[],wbsDocuments=(Array.isArray(documents)?documents:[]).filter(row=>row.source_system==='WBS');
+    const [documents,policy]=await Promise.all([sourceReader({tenantId,entityId,limit}),policyReader({tenantId,entityId,currentAccountingPeriodId})]);
+    if(!Array.isArray(documents)||!safeAiEvidenceTree(documents,{maxArrayLength:500})||!safeAiEvidenceTree(policy,{maxArrayLength:20}))throw Object.assign(new Error('Vendor frequency source or policy evidence is unsafe.'),{code:'AI_VENDOR_FREQUENCY_SOURCE_INVALID'});
+    const rows=[],wbsDocuments=documents.filter(row=>row.source_system==='WBS');
     if(wbsDocuments.length>=limit)throw Object.assign(new Error('The bounded vendor frequency source read cannot prove population completeness.'),{code:'AI_VENDOR_FREQUENCY_POPULATION_INCOMPLETE'});
     for(const document of wbsDocuments){
       const details=await detailReader({tenantId,entityId,sourceDocumentId:document.source_document_id});let evidence;try{evidence=await evidenceReader({tenantId,entityId,sourceDocumentId:document.source_document_id});}catch(error){if(error?.code==='WBS_PROVIDER_SIGNED_SOURCE_EVIDENCE_NOT_AVAILABLE')continue;throw error;}
-      const detail=Array.isArray(details)?details[0]:details;if(evidence?.signature_verified!==true||evidence?.admission_status!=='ADMITTED'||!UUID.test(evidence?.accounting_period_id||''))continue;
+      const detail=Array.isArray(details)?details[0]:details;if(!safeAiEvidenceTree(details,{maxArrayLength:500})||!safeAiEvidenceTree(evidence,{maxArrayLength:100}))throw Object.assign(new Error('Vendor frequency retained evidence is unsafe.'),{code:'AI_VENDOR_FREQUENCY_SOURCE_INVALID'});if(evidence?.signature_verified!==true||evidence?.admission_status!=='ADMITTED'||!UUID.test(evidence?.accounting_period_id||''))continue;
       for(const line of retainedPayableLines(detail)){const trace=line.provider_trace,amount=money4(line.amount??detail.gross_amount),vendorRef=line.party_ref;rows.push({source_document_id:detail.source_document_id,source_document_line_id:line.source_document_line_id,source_payload_hash:detail.payload_hash,source_line_hash:evidence.source_row_hash,entity_id:entityId,accounting_period_id:evidence.accounting_period_id,vendor_ref:vendorRef,vendor_name:vendorRef,currency:String(detail.currency||''),amount,invoice_date:trace.invoice_date,project_ref:line.project_ref??null,property_ref:line.property_ref??null,cost_category_ref:trace.accrual?.charge_code??null,source_admission_status:evidence.admission_status,signature_verified:evidence.signature_verified});}
     }
     return detectVendorInvoiceFrequencyAnomalies(rows,{policy,currentAccountingPeriodId});
