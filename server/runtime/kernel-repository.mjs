@@ -2504,6 +2504,13 @@ export class PostgresAccountingKernel{
     ),'PERIOD_CLOSE_READINESS_FAILED','Period close readiness was not produced').result);
   }
 
+  async readPeriodCloseHistory({tenantId,entityId,periodId,limit=25,cursorAt=null,cursorId=null}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_period_close_history($1,$2,$3,$4,$5::timestamptz,$6::uuid) AS result',
+      [tenantId,entityId,periodId,limit,cursorAt,cursorId]
+    ),'PERIOD_CLOSE_HISTORY_FAILED','Period close history was not produced').result);
+  }
+
   async readAuthoritativeAuditLog({tenantId,entityId,limit=50,cursorAt=null,cursorId=null,eventType=null,actorId=null,objectType=null,from=null,to=null}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_authoritative_audit_log($1,$2,$3,$4::timestamptz,$5::uuid,$6,$7,$8,$9::timestamptz,$10::timestamptz) AS result',

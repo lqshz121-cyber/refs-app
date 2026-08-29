@@ -2262,6 +2262,11 @@ pgTest('period close requires current approved settings and statement evidence, 
   await assert.rejects(kernel.closePeriod({...args,idempotencyKey:'close-key-0002'}),error=>error.code==='55000');
   assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM audit_event WHERE event_type='PERIOD_CLOSED_V2'")).rows[0].n,1);
   assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM outbox_event WHERE event_type='PERIOD_CLOSED_V2'")).rows[0].n,1);
+  const history=await kernel.readPeriodCloseHistory({...ids,limit:25});assert.equal(history.schema_version,'PERIOD_CLOSE_HISTORY_PAGE_V1');assert.equal(history.total_count,1);assert.equal(history.read_count,1);assert.equal(history.items[0].period_id,ids.periodId);assert.equal(history.items[0].readiness_hash,readiness.readiness_hash);assert.equal(history.items[0].integrity_verified,true);assert.equal(Object.hasOwn(history.items[0],'reason'),false);assert.equal(Object.hasOwn(history.items[0],'idempotency_key'),false);assert.match(history.items[0].reason_hash,/^sha256:[0-9a-f]{64}$/);assert.deepEqual(history.action_flags,{can_post:false,can_review:false,can_approve:false,can_create_draft:false});
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'close-history-denied',['GL.JE.POST'])});await assert.rejects(denied.readPeriodCloseHistory({...ids,limit:25}),error=>error.code==='42501');
+  await adminPool.query(`INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash,reason,metadata)
+    SELECT tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id||'-drift',correlation_id||'-drift',idempotency_key||'-drift',after_hash,reason,metadata||jsonb_build_object('reason','drifted reason') FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='PERIOD_CLOSED_V2'`,[ids.tenantId,ids.entityId]);
+  await assert.rejects(kernel.readPeriodCloseHistory({...ids,limit:25}),error=>error.code==='23514');
 });
 
 pgTest('CAS edit rejects stale revision and forged body actor is not an input surface',async()=>{
