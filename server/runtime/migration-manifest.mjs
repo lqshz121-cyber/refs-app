@@ -298,4 +298,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"290_authoritative_audit_log_read.sql",up:"1dae44c89b16fd107aa1d3d82205669c06a9b238a15dd3fcfc290d83a0aee110",down:"e1701b432e755c6558b0d79ce3516818a7afc097657db4761abe9defa4f7da54"}),
   Object.freeze({name:"291_authoritative_setting_history_read.sql",up:"af55ecfe29e6b620f71e185b9feb6ee37bd250b55743033bfab8397f41803357",down:"ecb7ecde36b47514e601f7a93323f3b0a516bb144488d3addc7634b4e31c2ff5"}),
   Object.freeze({name:"292_period_close_history_read.sql",up:"5448346bcd935044c6f1464e4a43e056166f830a68c76616bc179eae45c4a0d0",down:"5ffd3159cc7db0aa6552bd6aa50babfece719cf1d64a3b6489860c62337e6f94"}),
+  Object.freeze({name:"293_period_reopen_control.sql",up:"1c3176b9ff40f55f333bc0914fc32d901fb8538606fdc4689950797e7e5125ad",down:"3aeb8cd0cc6861b708f39024e724789d177d799ac7481de88acaffa536c2bbb6"}),
 ]);

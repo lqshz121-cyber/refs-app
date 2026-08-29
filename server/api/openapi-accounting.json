@@ -1898,10 +1898,20 @@
       "post": {
         "operationId": "closeAccountingPeriod",
         "summary": "Close an evidence-complete accounting period",
-        "description": "Requires GL.PERIOD.CLOSE, a strong period-version If-Match, an idempotency key, a human reason, and the exact latest readiness hash. The server locks the period and recomputes all readiness evidence atomically; any blocker or evidence drift rejects the close. This command never creates or posts a journal and has no reopen path.",
+        "description": "Requires GL.PERIOD.CLOSE, a strong period-version If-Match, an idempotency key, a human reason, and the exact latest readiness hash. The server locks the period and recomputes all readiness evidence atomically; any blocker or evidence drift rejects the close. This command never creates or posts a journal.",
         "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"periodId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/IfMatch"}],
         "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["expectedReadinessHash","reason"],"properties":{"expectedReadinessHash":{"$ref":"#/components/schemas/Sha256"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
         "responses":{"200":{"$ref":"#/components/responses/PeriodCloseOk"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/periods/{periodId}/reopen": {
+      "post": {
+        "operationId": "reopenAccountingPeriod",
+        "summary": "Reopen a closed accounting period under independent authority",
+        "description": "Requires GL.PERIOD.REOPEN, a strong CLOSED period-version If-Match, an idempotency key, a human reason, and the exact latest retained PERIOD_CLOSED_V2 audit/readiness evidence. The closer cannot reopen the same close. Existing close, journal, ledger, audit, and outbox evidence remains immutable; this command only returns the period to OPEN and never creates or posts a journal.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"periodId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/IfMatch"}],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["expectedCloseAuditEventId","expectedReadinessHash","reason"],"properties":{"expectedCloseAuditEventId":{"$ref":"#/components/schemas/Uuid"},"expectedReadinessHash":{"$ref":"#/components/schemas/Sha256"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses":{"200":{"$ref":"#/components/responses/PeriodReopenOk"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
     "/entities/{entityId}/reports/financial-statement-snapshot-proposals": {
@@ -4632,6 +4642,8 @@
       "PeriodCloseHistoryEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/PeriodCloseHistoryPage"}}},
       "PeriodCloseReceipt":{"type":"object","additionalProperties":false,"required":["schema_version","period_id","version","status","readiness_hash","closed_by","idempotent"],"properties":{"schema_version":{"const":"PERIOD_CLOSE_RECEIPT_V2"},"period_id":{"$ref":"#/components/schemas/Uuid"},"version":{"type":"string","pattern":"^[1-9][0-9]*$"},"status":{"const":"CLOSED"},"readiness_hash":{"$ref":"#/components/schemas/Sha256"},"closed_by":{"type":"string","minLength":1,"maxLength":300},"idempotent":{"type":"boolean"}}},
       "PeriodCloseEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/PeriodCloseReceipt"}}},
+      "PeriodReopenReceipt":{"type":"object","additionalProperties":false,"required":["schema_version","period_id","version","status","prior_close_audit_event_id","prior_readiness_hash","reopened_by","idempotent"],"properties":{"schema_version":{"const":"PERIOD_REOPEN_RECEIPT_V1"},"period_id":{"$ref":"#/components/schemas/Uuid"},"version":{"type":"string","pattern":"^[1-9][0-9]*$"},"status":{"const":"OPEN"},"prior_close_audit_event_id":{"$ref":"#/components/schemas/Uuid"},"prior_readiness_hash":{"$ref":"#/components/schemas/Sha256"},"reopened_by":{"type":"string","minLength":1,"maxLength":300},"idempotent":{"type":"boolean"}}},
+      "PeriodReopenEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/PeriodReopenReceipt"}}},
       "FinancialStatementPeriodComparisonReadRow": {
         "type": "object",
         "additionalProperties": false,
@@ -6852,6 +6864,7 @@
       "PeriodCloseReadinessOk":{"description":"Authoritative fail-closed period-close readiness","headers":{"Cache-Control":{"schema":{"const":"no-store"}},"ETag":{"schema":{"type":"string"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/PeriodCloseReadinessEnvelope"}}}},
       "PeriodCloseHistoryOk":{"description":"Retained audit/outbox-verified period-close history","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/PeriodCloseHistoryEnvelope"}}}},
       "PeriodCloseOk":{"description":"Evidence-bound immutable period-close receipt","headers":{"Cache-Control":{"schema":{"const":"no-store"}},"ETag":{"schema":{"type":"string"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/PeriodCloseEnvelope"}}}},
+      "PeriodReopenOk":{"description":"Evidence-bound independently authorized period-reopen receipt","headers":{"Cache-Control":{"schema":{"const":"no-store"}},"ETag":{"schema":{"type":"string"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/PeriodReopenEnvelope"}}}},
       "FinancialStatementPeriodComparisonReadOk": {
         "description": "Scoped two-period POSTED financial-statement comparison evidence",
         "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},

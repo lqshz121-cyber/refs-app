@@ -27,7 +27,8 @@ test('workflow roles are frozen single-authority exact replacements and exclude 
   assert.deepEqual(permissions('BANK_MATCH_UNMATCHER').slice(-1),['BANK.MATCH.UNMATCH']);
   assert.equal(permissions('BANK_MATCH_REVIEWER').includes('BANK.MATCH.UNMATCH'),false);
   assert.equal(permissions('BANK_MATCH_UNMATCHER').includes('BANK.MATCH.REVIEW'),false);
-  for(const role of ['AI_FINDING_ASSIGNER','AI_FINDING_RESOLVER','AR_INVOICE_MAKER','AR_RECEIPT_MAKER','AR_RECEIPT_REVERSAL_MAKER','AP_PAYMENT_MAKER','GL_REPORT_SNAPSHOT_PREPARER','GL_REPORT_SNAPSHOT_APPROVER','GL_PERIOD_CLOSER'])assert.ok(AUTHORITATIVE_WORKFLOW_ROLES[role]);
+  for(const role of ['AI_FINDING_ASSIGNER','AI_FINDING_RESOLVER','AR_INVOICE_MAKER','AR_RECEIPT_MAKER','AR_RECEIPT_REVERSAL_MAKER','AP_PAYMENT_MAKER','GL_REPORT_SNAPSHOT_PREPARER','GL_REPORT_SNAPSHOT_APPROVER','GL_PERIOD_CLOSER','GL_PERIOD_REOPENER'])assert.ok(AUTHORITATIVE_WORKFLOW_ROLES[role]);
+  assert.deepEqual(permissions('GL_PERIOD_REOPENER'),['AP.VIEW','AR.VIEW','BANK.VIEW','GL.JE.VIEW','GL.REPORT.VIEW','WBS.AUTOREC.VIEW','GL.PERIOD.REOPEN']);
   assert.deepEqual(Object.fromEntries(['AP_PAYMENT_MAKER','AP_PAYMENT_REVERSAL_MAKER','AP_VENDOR_CREDIT_MAKER','AP_VENDOR_CREDIT_ALLOCATOR','AR_RECEIPT_MAKER','AR_RECEIPT_REVERSAL_MAKER','AR_CREDIT_MEMO_MAKER','AR_CREDIT_MEMO_ALLOCATOR','AR_REFUND_MAKER','WBS_H1_ACCOUNTING_RECONCILER'].map(name=>[name,AUTHORITATIVE_WORKFLOW_ROLES[name].authorityClass])),{
     AP_PAYMENT_MAKER:'PAYMENT',AP_PAYMENT_REVERSAL_MAKER:'REVERSAL',AP_VENDOR_CREDIT_MAKER:'ADJUSTMENT',AP_VENDOR_CREDIT_ALLOCATOR:'ALLOCATION',AR_RECEIPT_MAKER:'RECEIPT',AR_RECEIPT_REVERSAL_MAKER:'REVERSAL',AR_CREDIT_MEMO_MAKER:'ADJUSTMENT',AR_CREDIT_MEMO_ALLOCATOR:'ALLOCATION',AR_REFUND_MAKER:'REFUND',WBS_H1_ACCOUNTING_RECONCILER:'RECONCILE'
   });
@@ -38,6 +39,7 @@ test('unified matrix rejects mixed lifecycle stages and service-only human scope
   assert.throws(()=>assertWorkflowRoleSafety({authorityClass:'DRAFT',principalKind:'HUMAN',permissions:['GL.JE.CREATE','GL.JE.SUBMIT']}),error=>error.code==='WORKFLOW_ROLE_SCOPE_DENIED');
   assert.throws(()=>assertWorkflowRoleSafety({authorityClass:'REVIEW',principalKind:'HUMAN',permissions:['BANK.MATCH.REVIEW','BANK.MATCH.UNMATCH']}),error=>error.code==='WORKFLOW_ROLE_SCOPE_DENIED');
   assert.throws(()=>assertWorkflowRoleSafety({authorityClass:'DRAFT',principalKind:'HUMAN',permissions:['AP.VIEW','WBS.SNAPSHOT.IMPORT']}),error=>error.code==='WORKFLOW_ROLE_SCOPE_DENIED');
+  assert.throws(()=>assertWorkflowRoleSafety({authorityClass:'CLOSE',principalKind:'HUMAN',permissions:['GL.PERIOD.CLOSE','GL.PERIOD.REOPEN']}),error=>error.code==='WORKFLOW_ROLE_SCOPE_DENIED');
   assert.throws(()=>assertWorkflowRoleSafety({authorityClass:'SERVICE',principalKind:'SERVICE',permissions:['WBS.SNAPSHOT.IMPORT','AP.VIEW']}),error=>error.code==='WORKFLOW_ROLE_SCOPE_DENIED');
 });
 

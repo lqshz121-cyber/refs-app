@@ -54,6 +54,7 @@ export const AUTHORITATIVE_WORKFLOW_ROLES=Object.freeze({
   GL_REPORT_SNAPSHOT_PREPARER:role('PREPARE',[...READ,'GL.REPORT.SNAPSHOT.PREPARE']),
   GL_REPORT_SNAPSHOT_APPROVER:role('APPROVE',[...READ,'GL.REPORT.SNAPSHOT.APPROVE']),
   GL_PERIOD_CLOSER:role('CLOSE',[...READ,'AI.ACCOUNTING.SETTINGS.VIEW','GL.PERIOD.CLOSE']),
+  GL_PERIOD_REOPENER:role('REOPEN',[...READ,'GL.PERIOD.REOPEN']),
 });
 
 // Migration 274 installs the equivalent pairwise database matrix.
@@ -64,6 +65,8 @@ export const WORKFLOW_SOD_GROUPS=Object.freeze([
   Object.freeze(['GL.JE.APPROVE','BANK.RECONCILIATION.SIGN_OFF','GL.REPORT.SNAPSHOT.APPROVE']),
   Object.freeze(['GL.JE.POST']),
   Object.freeze(['BANK.MATCH.UNMATCH']),
+  Object.freeze(['GL.PERIOD.CLOSE']),
+  Object.freeze(['BANK.RECONCILIATION.REOPEN','GL.PERIOD.REOPEN']),
 ]);
 const stageByPermission=new Map(WORKFLOW_SOD_GROUPS.flatMap((group,index)=>group.map(permission=>[permission,index])));
 
