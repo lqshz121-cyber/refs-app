@@ -1,9 +1,11 @@
+import {safeAiEvidenceTree} from './ai-secret-safety.mjs';
+
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256=/^sha256:[0-9a-f]{64}$/;
 const CLASSES=Object.freeze(['EXPENSE','PREPAID_AMORTIZATION','ACCRUAL_REVIEW','CAPITALIZATION_REVIEW']);
 const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve:false,can_post:false});
 const text=(v,n)=>typeof v==='string'&&v.trim().length>0&&v.trim().length<=n;
-const valid=row=>row&&typeof row==='object'&&!Array.isArray(row)&&UUID.test(row.entity_id||'')&&UUID.test(row.accounting_period_id||'')&&UUID.test(row.classification_evidence_id||'')&&UUID.test(row.source_document_id||'')&&UUID.test(row.source_document_line_id||'')&&SHA256.test(row.source_payload_hash||'')&&SHA256.test(row.source_line_hash||'')&&SHA256.test(row.classification_hash||'')&&text(row.vendor_ref,200)&&text(row.vendor_name,300)&&CLASSES.includes(row.classification)&&typeof row.is_current_period==='boolean';
+const valid=row=>row&&typeof row==='object'&&!Array.isArray(row)&&safeAiEvidenceTree(row,{maxArrayLength:1000})&&UUID.test(row.entity_id||'')&&UUID.test(row.accounting_period_id||'')&&UUID.test(row.classification_evidence_id||'')&&UUID.test(row.source_document_id||'')&&UUID.test(row.source_document_line_id||'')&&SHA256.test(row.source_payload_hash||'')&&SHA256.test(row.source_line_hash||'')&&SHA256.test(row.classification_hash||'')&&text(row.vendor_ref,200)&&text(row.vendor_name,300)&&CLASSES.includes(row.classification)&&typeof row.is_current_period==='boolean';
 
 export function detectVendorAccountingTreatmentDrift(rows,{currentAccountingPeriodId,minHistoryPeriods=3,minDominanceBasisPoints=8000}={}){
   if(!Array.isArray(rows)||rows.length>1000||!UUID.test(currentAccountingPeriodId||'')||!Number.isSafeInteger(minHistoryPeriods)||minHistoryPeriods<3||minHistoryPeriods>24||!Number.isSafeInteger(minDominanceBasisPoints)||minDominanceBasisPoints<5000||minDominanceBasisPoints>10000)throw Object.assign(new Error('Vendor treatment drift analysis scope is invalid.'),{code:'AI_VENDOR_TREATMENT_DRIFT_SCOPE_INVALID'});
