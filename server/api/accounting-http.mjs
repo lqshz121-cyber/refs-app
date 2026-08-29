@@ -31,6 +31,7 @@ import {projectAuthoritativeAccountingSettings} from '../runtime/authoritative-a
 import {projectAuthoritativeReportMappings} from '../runtime/authoritative-report-mappings.mjs';
 import {projectAuthoritativeDimensionMappings} from '../runtime/authoritative-dimension-mappings.mjs';
 import {projectAuthoritativeVendorTreatmentMappings} from '../runtime/authoritative-vendor-treatment-mappings.mjs';
+import {projectAuthoritativeTaxMappings} from '../runtime/authoritative-tax-mappings.mjs';
 import {assertWbsH1PayableAccountingProposal,assertWbsH1PayableReclassDraftReceipt} from '../runtime/wbs-h1-payable-accounting-proposal.mjs';
 import {assertWbsH1AccountingControlPopulation,assertWbsH1AccountingControlPopulationList} from '../runtime/wbs-h1-accounting-control-read.mjs';
 import {assertWbsH1AccountingControlReconciliation,assertWbsH1AccountingControlReconciliationList,assertWbsH1AccountingControlReconciliationReceipt} from '../runtime/wbs-h1-accounting-control-reconciliation.mjs';
@@ -844,6 +845,15 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         requireExactQuery(parsedUrl.searchParams,['periodId']);const periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId');
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readApprovedWbsAiEntityPeriodSettings!=='function')throw new AccountingApiError(503,'VENDOR_TREATMENT_MAPPING_READ_UNAVAILABLE','Approved vendor treatment mappings are unavailable');
         result=projectAuthoritativeVendorTreatmentMappings(await kernel.readApprovedWbsAiEntityPeriodSettings({tenantId:principal.tenantId,entityId,periodId,readOnly:true}),{tenantId:principal.tenantId,entityId,periodId});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===5&&parts[4]==='tax-mappings'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','If-Match is not used by mapping reads');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId']);const periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readApprovedWbsAiEntityPeriodSettings!=='function')throw new AccountingApiError(503,'TAX_MAPPING_READ_UNAVAILABLE','Approved tax mappings are unavailable');
+        result=projectAuthoritativeTaxMappings(await kernel.readApprovedWbsAiEntityPeriodSettings({tenantId:principal.tenantId,entityId,periodId,readOnly:true}),{tenantId:principal.tenantId,entityId,periodId});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===5&&parts[4]==='audit-events'){
