@@ -27,3 +27,4 @@ test('rejects duplicate retained lines and extra policy fields before secrets or
   assert.throws(()=>detectVendorInvoiceNearDuplicates([row(1),duplicate],{policy,currentAccountingPeriodId:id(7)}),error=>error.code==='AI_VENDOR_NEAR_DUPLICATE_SOURCE_DUPLICATE');
   for(const extra of [{authorization:'Bearer secret'},{api_key:'sk-secret'},{can_create_draft:true},{internal_rule_payload:{secret:'value'}}])assert.throws(()=>detectVendorInvoiceNearDuplicates([],{policy:{...policy,...extra},currentAccountingPeriodId:id(7)}),error=>error.code==='AI_VENDOR_NEAR_DUPLICATE_POLICY_REQUIRED');
 });
+test('rejects credential-shaped values embedded in invoice identity evidence',()=>{const opaque=['rk','duplicatecredential123'].join('-');assert.throws(()=>detectVendorInvoiceNearDuplicates([row(1,{invoice_number:`INV-${opaque}`})],{policy,currentAccountingPeriodId:id(7)}),error=>error.code==='AI_VENDOR_NEAR_DUPLICATE_SOURCE_INVALID');});
