@@ -165,10 +165,11 @@ services:
           type: web
           name: refs-accounting-api-integrations-staging
           envVarKey: S3_SESSION_TOKEN
-  # Dedicated transactional-outbox dispatcher. It has no API listener and must
-  # receive only the SERVICE-scoped OUTBOX.DISPATCH grant for each listed tenant.
+  # Dedicated dispatcher for the separately promoted integrations API. Keeping
+  # a distinct service name prevents either blueprint from silently sharing a
+  # database, tenant scope, actor, or delivery credential with the other.
   - type: worker
-    name: refs-outbox-dispatch-staging
+    name: refs-outbox-dispatch-integrations-staging
     runtime: node
     rootDir: server
     buildCommand: npm ci

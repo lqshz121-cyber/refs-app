@@ -13,13 +13,29 @@ const serviceSection=(manifest,name)=>{
 const hasSecret=(section,key)=>new RegExp(`- key: ${key}\\r?\\n\\s+sync: false`).test(section);
 const hasFixed=(section,key,value)=>new RegExp(`- key: ${key}\\r?\\n\\s+value: ${value}`).test(section);
 const hasServiceReference=(section,key,name,envVarKey=key)=>new RegExp(`- key: ${key}\\r?\\n\\s+fromService:\\r?\\n\\s+type: web\\r?\\n\\s+name: ${name}\\r?\\n\\s+envVarKey: ${envVarKey}`).test(section);
+const assertOutboxCoverage=(manifest,{apiName,workerName,fixedTenant=false})=>{
+  const api=serviceSection(manifest,apiName);
+  const outboxWorker=serviceSection(manifest,workerName);
+  assert.equal(outboxWorker.type,'worker','the authoritative outbox producer must have a worker consumer in the same blueprint');
+  assert.match(outboxWorker.body,/rootDir: server/);assert.match(outboxWorker.body,/buildCommand: npm ci/);assert.match(outboxWorker.body,/startCommand: npm run start:outbox-dispatch/);assert.ok(hasFixed(outboxWorker.body,'REFS_PG_REQUIRED','"1"'));
+  for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL'])assert.ok(hasServiceReference(outboxWorker.body,key,apiName),`outbox worker must inherit ${key} from its own API producer`);
+  for(const key of ['OUTBOX_DISPATCH_ACTOR_ID','OUTBOX_PUBLISH_URL','OUTBOX_PUBLISH_TOKEN'])assert.ok(hasSecret(outboxWorker.body,key),`outbox worker is missing ${key}`);
+  if(fixedTenant){
+    const tenant=/^[ \t]*- key: REFS_STAGE1_TENANT_ID\r?\n[ \t]+value: ([0-9a-f-]{36})$/im.exec(api.body)?.[1];
+    assert.ok(tenant,'authoritative API must declare its exact Stage 1 tenant');
+    assert.ok(outboxWorker.body.includes(`- key: OUTBOX_DISPATCH_SCOPES\n        value: '[{"tenantId":"${tenant}"}]'`)||outboxWorker.body.includes(`- key: OUTBOX_DISPATCH_SCOPES\r\n        value: '[{"tenantId":"${tenant}"}]'`),'outbox worker scope must be pinned to its authoritative API tenant');
+  }else assert.ok(hasSecret(outboxWorker.body,'OUTBOX_DISPATCH_SCOPES'),'separately promoted API worker must receive its own tenant scopes as a secret');
+  for(const [key,value] of [['OUTBOX_DISPATCH_BATCH','"100"'],['OUTBOX_DISPATCH_INTERVAL_MS','"5000"'],['OUTBOX_DISPATCH_LEASE_SECONDS','"300"'],['OUTBOX_DISPATCH_MAX_ATTEMPTS','"8"'],['OUTBOX_DISPATCH_RETRY_BASE_SECONDS','"5"']])assert.ok(hasFixed(outboxWorker.body,key,value),`outbox worker is missing ${key}=${value}`);
+  return outboxWorker;
+};
 
 test('Render staging manifest declares every production startup secret and uses locked frontend installs',async()=>{
   const manifest=await readFile(resolve(root,'render.yaml'),'utf8');
   const integrations=await readFile(resolve(root,'render.integrations.yaml'),'utf8');
-  const api=serviceSection(manifest,'refs-accounting-api-staging'),integrationApi=serviceSection(integrations,'refs-accounting-api-integrations-staging'),worker=serviceSection(integrations,'refs-attachment-cleanup-staging'),outboxWorker=serviceSection(integrations,'refs-outbox-dispatch-staging'),web=serviceSection(manifest,'refs-app');
-  assert.equal(api.type,'web');assert.equal(integrationApi.type,'web');assert.equal(worker.type,'worker');assert.equal(outboxWorker.type,'worker');assert.equal(web.type,'web');
-  for(const section of [api.body,integrationApi.body,worker.body,outboxWorker.body,web.body])assert.doesNotMatch(section,/buildCommand: npm install/);
+  const api=serviceSection(manifest,'refs-accounting-api-staging'),integrationApi=serviceSection(integrations,'refs-accounting-api-integrations-staging'),worker=serviceSection(integrations,'refs-attachment-cleanup-staging'),outboxWorker=assertOutboxCoverage(manifest,{apiName:'refs-accounting-api-staging',workerName:'refs-outbox-dispatch-staging',fixedTenant:true}),integrationOutboxWorker=assertOutboxCoverage(integrations,{apiName:'refs-accounting-api-integrations-staging',workerName:'refs-outbox-dispatch-integrations-staging'}),web=serviceSection(manifest,'refs-app');
+  assert.doesNotMatch(integrations,/name: refs-outbox-dispatch-staging/,'the authoritative dispatcher name must not be duplicated in the integrations blueprint');
+  assert.equal(api.type,'web');assert.equal(integrationApi.type,'web');assert.equal(worker.type,'worker');assert.equal(outboxWorker.type,'worker');assert.equal(integrationOutboxWorker.type,'worker');assert.equal(web.type,'web');
+  for(const section of [api.body,integrationApi.body,worker.body,outboxWorker.body,integrationOutboxWorker.body,web.body])assert.doesNotMatch(section,/buildCommand: npm install/);
   assert.match(api.body,/rootDir: server/);assert.match(api.body,/buildCommand: npm ci/);assert.match(api.body,/preDeployCommand: npm run db:up/);assert.match(api.body,/startCommand: npm start/);assert.match(api.body,/healthCheckPath: \/health\/ready/);assert.ok(hasFixed(api.body,'REFS_PG_REQUIRED','"1"'));assert.ok(hasFixed(api.body,'REFS_HTTP_MAX_BODY_BYTES','"10485760"'));
   for(const [key,value] of [
     ['REFS_DEPLOYMENT_ENV','staging'],
@@ -48,15 +64,11 @@ test('Render staging manifest declares every production startup secret and uses 
   assert.doesNotMatch(integrationApi.body,/REFS_PUBLIC_/,'browser configuration must remain on the static service');
   for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL','S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','S3_SESSION_TOKEN'])assert.ok(hasServiceReference(worker.body,key,'refs-accounting-api-integrations-staging'),`cleanup worker must inherit ${key} from the integrations API`);
   for(const key of ['ATTACHMENT_CLEANUP_ACTOR_ID','ATTACHMENT_CLEANUP_SCOPES'])assert.ok(hasSecret(worker.body,key),`cleanup worker is missing ${key}`);
-  assert.match(outboxWorker.body,/rootDir: server/);assert.match(outboxWorker.body,/buildCommand: npm ci/);assert.match(outboxWorker.body,/startCommand: npm run start:outbox-dispatch/);assert.ok(hasFixed(outboxWorker.body,'REFS_PG_REQUIRED','"1"'));
-  for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL'])assert.ok(hasServiceReference(outboxWorker.body,key,'refs-accounting-api-integrations-staging'),`outbox worker must inherit ${key} from the integrations API`);
-  for(const key of ['OUTBOX_DISPATCH_ACTOR_ID','OUTBOX_DISPATCH_SCOPES','OUTBOX_PUBLISH_URL','OUTBOX_PUBLISH_TOKEN'])assert.ok(hasSecret(outboxWorker.body,key),`outbox worker is missing ${key}`);
-  assert.ok(hasFixed(outboxWorker.body,'OUTBOX_DISPATCH_LEASE_SECONDS','"300"'));assert.ok(hasFixed(outboxWorker.body,'OUTBOX_DISPATCH_MAX_ATTEMPTS','"8"'));
   const publicKeys=['REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE','REFS_PUBLIC_OIDC_ISSUER','REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT','REFS_PUBLIC_OIDC_TOKEN_ENDPOINT','REFS_PUBLIC_OIDC_REDIRECT_URI','REFS_PUBLIC_OIDC_CLIENT_ID','REFS_PUBLIC_OIDC_AUDIENCE'];
   for(const key of publicKeys)assert.ok(hasSecret(web.body,key),`static service is missing ${key}`);
   assert.ok(hasFixed(web.body,'REFS_WBS_TEST_IMPORT_MODE','ENABLED'),'static runtime config must expose the staging test-import switch');
   assert.doesNotMatch(api.body,/REFS_PUBLIC_/);assert.doesNotMatch(worker.body,/REFS_PUBLIC_/);assert.doesNotMatch(web.body,/REFS_PUBLIC_RUNTIME_MODE/,'authoritative static builds must not opt into LOCAL_MOCK');
-  assert.equal((manifest.match(/autoDeployTrigger: off/g)||[]).length,2,'Stage 1 coordinates only API and static client');
+  assert.equal((manifest.match(/autoDeployTrigger: off/g)||[]).length,3,'Stage 1 coordinates API, its outbox consumer, and static client');
   assert.equal((integrations.match(/autoDeployTrigger: off/g)||[]).length,3,'signed-ingest API and both isolated workers require explicit coordinated releases');
   const pages=await readFile(resolve(root,'.github','workflows','deploy.yml'),'utf8');
   assert.match(pages,/run: npm ci/);assert.doesNotMatch(pages,/run: npm install/);
@@ -70,4 +82,16 @@ test('Render staging manifest declares every production startup secret and uses 
     assert.match(web.body,new RegExp(`path: ${escaped}\\r?\\n\\s+name: Cache-Control\\r?\\n\\s+value: no-store`));
   }
   assert.match(pages,/REFS_PUBLIC_RUNTIME_MODE: LOCAL_MOCK/);assert.doesNotMatch(pages,/REFS_PUBLIC_ACCOUNTING_API_BASE_URL/);
+});
+
+test('Render authoritative outbox producer fails closed when its consumer is absent',async()=>{
+  const manifest=await readFile(resolve(root,'render.yaml'),'utf8');
+  const withoutConsumer=manifest.replace(/^  # Dedicated transactional-outbox dispatcher[\s\S]*?(?=^  - type: web\r?\n    name: refs-app)/m,'');
+  assert.throws(()=>assertOutboxCoverage(withoutConsumer,{apiName:'refs-accounting-api-staging',workerName:'refs-outbox-dispatch-staging',fixedTenant:true}),/Render manifest is missing refs-outbox-dispatch-staging/);
+});
+
+test('Render integrations outbox producer fails closed when its isolated consumer is absent',async()=>{
+  const integrations=await readFile(resolve(root,'render.integrations.yaml'),'utf8');
+  const withoutConsumer=integrations.replace(/^  # Dedicated dispatcher for the separately promoted integrations API[\s\S]*$/m,'');
+  assert.throws(()=>assertOutboxCoverage(withoutConsumer,{apiName:'refs-accounting-api-integrations-staging',workerName:'refs-outbox-dispatch-integrations-staging'}),/Render manifest is missing refs-outbox-dispatch-integrations-staging/);
 });
