@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createAiFullControllerScanService,AiFullControllerScanError} from '../runtime/ai-full-controller-scan-service.mjs';
+import {AI_FULL_CONTROLLER_REQUIRED_SECTIONS,AI_FULL_CONTROLLER_ANALYZED_SECTIONS,AI_FULL_CONTROLLER_UNAVAILABLE_SECTIONS} from '../runtime/ai-full-controller-required-sections.mjs';
 import {readFileSync} from 'node:fs';
 
 const tenant='tenant-1',entity='entity-1',period='period-1';
@@ -69,4 +70,68 @@ test('production wiring includes vendor, bank, source, cutoff, accrual, rent, lo
   assert.match(source,/createAiCwipPostCompletionReviewService/);assert.match(source,/readAiCwipPostCompletionSource/);
   assert.match(source,/AI_INVOICE_ACCOUNTING_CLASSIFICATION_CONTROLLER_SCAN_BATCH_V1/);assert.match(source,/listAiDuplicatePayableFindingsForPeriod/);
   assert.match(source,/includeControllerEvidence:true/);assert.match(source,/posted_treatment_consistency/);assert.match(source,/consistency\.status==='MISMATCH'/);
+});
+
+const registry=(analyzed,unavailable={})=>({analyzed,unavailable});
+
+test('a frozen registry keeps the denominator when an expected analyzer disappears from the wiring',async()=>{
+  // Without the registry this drops to required_section_count 1 and reports a
+  // confident COMPLETE with the BANK population silently missing.
+  const service=createAiFullControllerScanService({
+    analyzers:{VENDOR:analyzer(batch('AI_VENDOR_BATCH_V1',[]))},
+    requiredSections:registry(['BANK','VENDOR'])
+  });
+  const result=await service.analyze({tenantId:tenant,entityId:entity,currentAccountingPeriodId:period});
+  assert.equal(result.required_section_count,2);
+  assert.equal(result.complete_section_count,1);
+  assert.equal(result.status,'INCOMPLETE');
+  assert.equal(result.finding_count,0);
+  assert.deepEqual(result.coverage_summary.unavailable_sections,[{category:'BANK',error_code:'AI_FULL_SCAN_SECTION_NOT_WIRED'}]);
+  assert.deepEqual(result.sections.map(section=>section.category),['BANK','VENDOR']);
+  assert.deepEqual(result.sections[0],{category:'BANK',status:'UNAVAILABLE',error_code:'AI_FULL_SCAN_SECTION_NOT_WIRED',finding_count:null,findings:[],action_flags:actions});
+});
+
+test('a registered but unprovable section is always UNAVAILABLE and can never be answered by an analyzer',async()=>{
+  const service=createAiFullControllerScanService({
+    analyzers:{VENDOR:analyzer(batch('AI_VENDOR_BATCH_V1',[]))},
+    requiredSections:registry(['VENDOR'],{PROPERTY_TAX:'AI_PROPERTY_TAX_STATEMENT_SOURCE_UNAVAILABLE'})
+  });
+  const result=await service.analyze({tenantId:tenant,entityId:entity,currentAccountingPeriodId:period});
+  assert.equal(result.required_section_count,2);
+  assert.equal(result.complete_section_count,1);
+  assert.equal(result.status,'INCOMPLETE');
+  assert.equal(result.finding_count,0);
+  assert.deepEqual(result.sections.find(section=>section.category==='PROPERTY_TAX'),{category:'PROPERTY_TAX',status:'UNAVAILABLE',error_code:'AI_PROPERTY_TAX_STATEMENT_SOURCE_UNAVAILABLE',finding_count:null,findings:[],action_flags:actions});
+  assert.throws(()=>createAiFullControllerScanService({analyzers:{PROPERTY_TAX:analyzer(batch('AI_PROPERTY_TAX_BATCH_V1',[])),VENDOR:analyzer(batch('AI_VENDOR_BATCH_V1',[]))},requiredSections:registry(['VENDOR'],{PROPERTY_TAX:'AI_PROPERTY_TAX_STATEMENT_SOURCE_UNAVAILABLE'})}),error=>error.code==='AI_FULL_SCAN_REGISTRY_DRIFT');
+});
+
+test('rejects analyzers outside the frozen registry and malformed registries',()=>{
+  assert.throws(()=>createAiFullControllerScanService({analyzers:{VENDOR:analyzer(batch('X')),SURPRISE:analyzer(batch('X'))},requiredSections:registry(['VENDOR'])}),error=>error.code==='AI_FULL_SCAN_REGISTRY_DRIFT');
+  for(const bad of [registry([]),registry(['vendor']),registry(['VENDOR','VENDOR']),registry(['VENDOR'],{PROPERTY_TAX:'lowercase'}),registry(['VENDOR'],{VENDOR:'AI_X_UNAVAILABLE'}),{analyzed:'VENDOR'},{analyzed:['VENDOR'],unavailable:['PROPERTY_TAX']}])
+    assert.throws(()=>createAiFullControllerScanService({analyzers:{VENDOR:analyzer(batch('X'))},requiredSections:bad}),error=>error.code==='AI_FULL_SCAN_REGISTRY_INVALID'||error.code==='AI_FULL_SCAN_REGISTRY_DRIFT',JSON.stringify(bad));
+});
+
+test('the production registry covers the production wiring exactly and keeps PROPERTY_TAX unprovable',()=>{
+  const source=readFileSync(new URL('../runtime/accounting-server.mjs',import.meta.url),'utf8');
+  const block=source.slice(source.indexOf('return createAiFullControllerScanService({analyzers:{'));
+  const wired=[...block.slice(0,block.indexOf('},requiredSections:')).matchAll(/^ {6}([A-Z][A-Z0-9_]{2,63}):/gm)].map(match=>match[1]).sort();
+  assert.deepEqual(wired,[...AI_FULL_CONTROLLER_ANALYZED_SECTIONS],'the frozen registry and the production analyzer wiring must agree exactly');
+  assert.deepEqual(AI_FULL_CONTROLLER_UNAVAILABLE_SECTIONS,{PROPERTY_TAX:'AI_PROPERTY_TAX_STATEMENT_SOURCE_UNAVAILABLE'});
+  assert.equal(AI_FULL_CONTROLLER_REQUIRED_SECTIONS.analyzed.length,AI_FULL_CONTROLLER_ANALYZED_SECTIONS.length);
+  assert.match(source,/requiredSections:AI_FULL_CONTROLLER_REQUIRED_SECTIONS/);
+  assert.match(source,/import \{AI_FULL_CONTROLLER_REQUIRED_SECTIONS\} from '\.\/ai-full-controller-required-sections\.mjs';/);
+  assert.throws(()=>Object.assign(AI_FULL_CONTROLLER_UNAVAILABLE_SECTIONS,{PROPERTY_TAX:'AI_OPEN'}),TypeError);
+  assert.throws(()=>AI_FULL_CONTROLLER_ANALYZED_SECTIONS.push('NEW_SECTION'),TypeError);
+});
+
+test('a full production-shaped scan can never report COMPLETE while PROPERTY_TAX has no source reader',async()=>{
+  const analyzers=Object.fromEntries(AI_FULL_CONTROLLER_ANALYZED_SECTIONS.map(category=>[category,analyzer(batch('AI_SECTION_BATCH_V1',[]))]));
+  const result=await createAiFullControllerScanService({analyzers,requiredSections:AI_FULL_CONTROLLER_REQUIRED_SECTIONS}).analyze({tenantId:tenant,entityId:entity,currentAccountingPeriodId:period});
+  assert.equal(result.complete_section_count,AI_FULL_CONTROLLER_ANALYZED_SECTIONS.length);
+  assert.equal(result.required_section_count,AI_FULL_CONTROLLER_ANALYZED_SECTIONS.length+1);
+  assert.equal(result.status,'INCOMPLETE');
+  assert.equal(result.finding_count,0);
+  assert.deepEqual(result.coverage_summary.unavailable_sections,[{category:'PROPERTY_TAX',error_code:'AI_PROPERTY_TAX_STATEMENT_SOURCE_UNAVAILABLE'}]);
+  assert.deepEqual(result.sections.map(section=>section.category),[...result.sections.map(section=>section.category)].sort());
+  assert.deepEqual(result.action_flags,actions);
 });

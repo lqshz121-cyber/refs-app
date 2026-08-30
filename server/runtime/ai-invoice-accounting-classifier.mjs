@@ -18,12 +18,36 @@ const monthsSpanned=(start,end)=>{
 };
 const PREPAID_INDICATORS=Object.freeze([
   Object.freeze({category:'INSURANCE',pattern:/\b(?:insurance|premium|policy)\b/i}),
-  Object.freeze({category:'PROPERTY_TAX',pattern:/\b(?:property\s+tax|real\s+estate\s+tax)\b/i}),
   Object.freeze({category:'SOFTWARE_SUBSCRIPTION',pattern:/\b(?:annual\s+software|software\s+subscription|saas\s+subscription)\b/i}),
   Object.freeze({category:'LICENSE',pattern:/\b(?:annual\s+licen[cs]e|licen[cs]e\s+renewal)\b/i}),
   Object.freeze({category:'LOAN_FEE',pattern:/\b(?:loan\s+fee|financing\s+fee|origination\s+fee)\b/i}),
   Object.freeze({category:'WARRANTY_OR_MAINTENANCE',pattern:/\b(?:extended\s+warranty|annual\s+maintenance|maintenance\s+contract)\b/i})
 ]);
+// A property or real-estate tax assessment is a statutory obligation of the
+// owner, not a vendor-supplied good or service purchased over a coverage
+// window. It therefore cannot be proven from a PAYABLES description alone: the
+// taxing jurisdiction, statement identity, assessed obligation basis and
+// coverage dates only exist on a signed tax statement source that this runtime
+// cannot yet read. Until that server-derived reader exists, any tax indicator
+// fails closed so the generic multi-month coverage rule below can never present
+// a statutory tax obligation as an ordinary prepaid asset.
+const tokenSet=value=>new Set((typeof value==='string'?value.toLowerCase().match(/[a-z0-9]+/g):[])??[]);
+const hasAny=(tokens,values)=>values.some(value=>tokens.has(value));
+const hasAll=(tokens,values)=>values.every(value=>tokens.has(value));
+const PROPERTY_TAX_SOURCE_TERMS=Object.freeze(['tax','taxes','levy','assessment','assessor','valuation','valorem','assessed','appraisal','appraisals','appraised','taxable','delinquent','certificate','millage','mill']);
+const STRONG_PROPERTY_DOCUMENT_TERMS=Object.freeze(['notice','certificate','statement','bill','assessment','levy']);
+const taxObligationIndicated=invoice=>{
+  const descriptionTokens=tokenSet(invoice.description);
+  // Without an authoritative document-type reader, text cannot safely decide
+  // whether a property-tax-shaped source is the liability or a related service.
+  // The description must carry the risk feature: a vendor name alone is never
+  // sufficient, even when it contains "Property Tax" or "Tax Assessor".
+  const ambiguousPropertyTaxSource=hasAny(descriptionTokens,PROPERTY_TAX_SOURCE_TERMS)||(descriptionTokens.has('value')&&hasAny(descriptionTokens,STRONG_PROPERTY_DOCUMENT_TERMS));
+  const retainedPropertyRef=typeof invoice.property_ref==='string'&&invoice.property_ref.trim().length>0;
+  const propertyContext=retainedPropertyRef||descriptionTokens.has('parcel')||descriptionTokens.has('property')||hasAll(descriptionTokens,['real','estate'])||hasAll(descriptionTokens,['ad','valorem'])||hasAll(descriptionTokens,['appraisal','district']);
+  return ambiguousPropertyTaxSource&&propertyContext;
+};
+
 const prepaidIndicator=invoice=>{const haystack=[invoice.vendor_name,invoice.description,invoice.charge_code].filter(value=>typeof value==='string').join(' ');return PREPAID_INDICATORS.find(item=>item.pattern.test(haystack))?.category??null;};
 
 function baseResult(invoice,classification,reason,confidence,requiredHumanFields=[],ruleId='AI_INVOICE_CLASSIFICATION_FAIL_CLOSED_V1',policyEvidence=null){
@@ -65,6 +89,12 @@ export function classifyRetainedInvoice(invoice,{capitalizationPolicy=null}={}){
   if(invoice.duplicate_status!=='NONE')return baseResult(invoice,'BLOCKED','Possible or confirmed duplicate invoice requires AP review before accounting classification.',1,['duplicate_resolution'],'AI_DUPLICATE_INVOICE_BLOCK_V1');
   if((invoice.service_period_start===null)!==(invoice.service_period_end===null))return baseResult(invoice,'BLOCKED','A service period must include both start and end dates.',1,['service_period_start','service_period_end']);
   if(invoice.service_period_start&&invoice.service_period_end&&invoice.service_period_start>invoice.service_period_end)return baseResult(invoice,'BLOCKED','The retained service period is reversed.',1,['service_period_correction']);
+
+  // Ordering matters. This gate is evaluated before the approved capitalization
+  // policy and before the generic multi-month coverage rule so that neither can
+  // assign an accounting treatment, an account, or a suggested journal line to a
+  // tax obligation that no retained source proves.
+  if(taxObligationIndicated(invoice))return baseResult(invoice,'BLOCKED','The retained source contains property-tax, assessment, valuation, levy, assessed-value, or appraised-value evidence, but no authoritative document type proves whether it is a statutory obligation or a related service. Accounting treatment is blocked until a server-derived signed tax document identifies the source type, jurisdiction, obligation basis, and coverage.',1,['tax_statement_source_document','taxing_jurisdiction','tax_statement_identifier','tax_coverage_period','tax_obligation_basis'],'TAX_OBLIGATION_REQUIRES_TAX_STATEMENT_SOURCE');
 
   // Capital-nature project costs are governed by the approved capitalization
   // policy even when the vendor describes a multi-month work interval. A
