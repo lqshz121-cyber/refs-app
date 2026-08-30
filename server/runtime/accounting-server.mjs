@@ -32,6 +32,7 @@ import {createAiNewVendorMaterialInvoiceReviewService} from './ai-new-vendor-mat
 import {createAiVendorMonthlySpendAnomalyService} from './ai-vendor-monthly-spend-anomaly-service.mjs';
 import {createAiAdmittedSourceUnbookedAnalysisService} from './ai-admitted-source-unbooked-service.mjs';
 import {createAiFullControllerScanService} from './ai-full-controller-scan-service.mjs';
+import {AI_FULL_CONTROLLER_REQUIRED_SECTIONS} from './ai-full-controller-required-sections.mjs';
 import {createAiFullControllerModelOrchestrator} from './ai-full-controller-model-orchestrator.mjs';
 import {createAiCwipPostCompletionReviewService} from './ai-cwip-post-completion-review-service.mjs';
 import {createAiConstructionLoanControllerScanService} from './ai-construction-loan-controller-scan-service.mjs';
@@ -316,7 +317,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
       VENDOR_MONTHLY_SPEND:adapt(aiVendorMonthlySpendAnomalyServiceFactory),
       VENDOR_PAYMENT_TERMS_DRIFT:adapt(aiVendorPaymentTermsDriftServiceFactory,'accountingPeriodId'),
       VENDOR_SINGLE_INVOICE_SPIKE:adapt(aiVendorInvoiceAnomalyServiceFactory)
-    }});
+    },requiredSections:AI_FULL_CONTROLLER_REQUIRED_SECTIONS});
   };
   const aiFullControllerModelServiceFactory=aiGateway?principal=>createAiFullControllerModelOrchestrator({scanService:aiFullControllerScanServiceFactory(principal),gateway:aiGateway,kernel:kernelFor(principal),releaseSha}):undefined;
   const server=createAccountingHttpServer({
