@@ -147,6 +147,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
   });};
   const aiAccountingSettingsAdapterFactory=createProductionAiAccountingSettingsAdapterFactory({kernelFor});
   const aiAccountingDecisionPacketServiceFactory=principal=>{const kernel=kernelFor(principal);return createAiAccountingApprovedDecisionService({
+    populationReader:scope=>kernel.readAiAccountingDecisionPopulation(scope),
     sourceReader:scope=>kernel.readAiInvoiceClassificationSource(scope),
     loanSourceReader:scope=>kernel.readAiConstructionLoanDecisionSource(scope),
     classificationService:aiInvoiceAccountingClassificationServiceFactory(principal),

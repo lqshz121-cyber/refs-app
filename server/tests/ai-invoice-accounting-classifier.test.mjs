@@ -100,5 +100,5 @@ test('known one-month coverage may follow policy while multi-month coverage rema
 });
 
 test('rejects oversized scans before processing',()=>{
-  assert.throws(()=>classifyRetainedInvoiceBatch(Array.from({length:501},()=>invoice())),error=>error.code==='AI_INVOICE_CLASSIFICATION_SCOPE_INVALID');
+  assert.throws(()=>classifyRetainedInvoiceBatch(Array.from({length:10001},()=>invoice())),error=>error.code==='AI_INVOICE_CLASSIFICATION_SCOPE_INVALID');
 });

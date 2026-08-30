@@ -196,10 +196,11 @@ export class PostgresAccountingKernel{
     });
   }
 
-  async retainAiAccountingDecisionBatch({tenantId,entityId,accountingPeriodId,packets,idempotencyKey}){
+  async retainAiAccountingDecisionBatch({tenantId,entityId,accountingPeriodId,packets,populationCount,populationHash,idempotencyKey}){
+    if(!Number.isSafeInteger(populationCount)||populationCount<0||populationCount>10000||!/^sha256:[0-9a-f]{64}$/.test(populationHash||''))throw new KernelError('AI_ACCOUNTING_DECISION_POPULATION_INCOMPLETE','Decision retention requires one complete canonical population attestation');
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query("SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',$1::uuid,'entity_id',$2::uuid,'period_id',$3::uuid,'packets',$4::jsonb)) AS request_hash",[tenantId,entityId,accountingPeriodId,JSON.stringify(packets)]),'AI_DECISION_BATCH_HASH_FAILED','AI accounting decision batch retention hash was not produced').request_hash;
-      return requireRow(await client.query('SELECT refs_retain_ai_accounting_decision_batch($1,$2,$3,$4::jsonb,$5,$6) AS result',[tenantId,entityId,accountingPeriodId,JSON.stringify(packets),idempotencyKey,requestHash]),'AI_DECISION_BATCH_RETAIN_FAILED','AI accounting decision batch was not retained').result;
+      return requireRow(await client.query('SELECT refs_retain_ai_accounting_decision_batch($1,$2,$3,$4::jsonb,$5,$6,$7,$8) AS result',[tenantId,entityId,accountingPeriodId,JSON.stringify(packets),populationCount,populationHash,idempotencyKey,requestHash]),'AI_DECISION_BATCH_RETAIN_FAILED','AI accounting decision batch was not retained').result;
     });
   }
 
@@ -795,6 +796,39 @@ export class PostgresAccountingKernel{
   async listAiLoanReferenceFindingsForPeriod({tenantId,entityId,periodId,limit=50}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_loan_reference_findings_for_period($1,$2,$3,$4)',[tenantId,entityId,periodId,limit])).rows);}
   async readAiCwipPostCompletionSource({tenantId,entityId,accountingPeriodId,limit=500}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_cwip_post_completion_source($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows);}
   async readAiInvoiceClassificationSource({tenantId,entityId,accountingPeriodId,limit=100}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_invoice_classification_source_v2($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date),invoice_date:publicDate(row.invoice_date),service_period_start:publicDate(row.service_period_start),service_period_end:publicDate(row.service_period_end)})));}
+
+  async readAiAccountingDecisionPopulation({tenantId,entityId,accountingPeriodId,pageSize=250,maxRows=10000}){
+    if(!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>500||!Number.isSafeInteger(maxRows)||maxRows<1||maxRows>10000)throw new KernelError('AI_ACCOUNTING_DECISION_SCOPE_INVALID','Decision population paging requires pageSize 1-500 and maxRows 1-10000');
+    return this.inSession(async client=>{
+      const scan=async({kind,functionName,dateFields})=>{
+        const rows=[];let cursor=[null,null,null,null],previous=null;
+        while(true){
+          const page=(await client.query(`SELECT * FROM ${functionName}($1,$2,$3,$4,$5,$6,$7,$8)`,[tenantId,entityId,accountingPeriodId,...cursor,pageSize])).rows;
+          if(page.length>pageSize)throw new KernelError('AI_ACCOUNTING_DECISION_POPULATION_INCOMPLETE','Decision population page exceeded its closed bound');
+          for(const raw of page){
+            const key=[publicDate(raw.accounting_date),raw.source_document_id,Number(raw.line_no),raw.source_document_line_id];
+            const ordered=!previous||key[0]>previous[0]||key[0]===previous[0]&&(key[1]>previous[1]||key[1]===previous[1]&&(key[2]>previous[2]||key[2]===previous[2]&&key[3]>previous[3]));
+            if(raw.tenant_id!==tenantId||raw.entity_id!==entityId||raw.accounting_period_id!==accountingPeriodId||!Number.isSafeInteger(key[2])||key[2]<1||!ordered)throw new KernelError('AI_ACCOUNTING_DECISION_POPULATION_DRIFT','Decision population scope or keyset order drifted');
+            previous=key;const row={...raw,line_no:Number(raw.line_no)};for(const field of dateFields)row[field]=publicDate(row[field]);rows.push(row);
+            if(rows.length>maxRows)throw new KernelError('AI_ACCOUNTING_DECISION_POPULATION_INCOMPLETE',`Complete ${kind} decision population exceeds the safe 10000-row bound`);
+          }
+          if(page.length<pageSize)break;
+          cursor=previous;
+        }
+        if(new Set(rows.map(row=>`${row.source_document_id}|${row.source_document_line_id}`)).size!==rows.length||new Set(rows.map(row=>row.source_line_hash)).size!==rows.length)throw new KernelError('AI_ACCOUNTING_DECISION_POPULATION_DUPLICATE',`Complete ${kind} decision population contains duplicate retained identities`);
+        return rows;
+      };
+      const invoiceRows=await scan({kind:'invoice',functionName:'refs_read_ai_invoice_decision_population_page',dateFields:['accounting_date','invoice_date','service_period_start','service_period_end']});
+      const loanRows=await scan({kind:'loan',functionName:'refs_read_ai_loan_decision_population_page',dateFields:['business_date','accounting_date']});
+      const identity=(source_kind,row)=>({tenant_id:row.tenant_id,entity_id:row.entity_id,accounting_period_id:row.accounting_period_id,source_kind,accounting_date:row.accounting_date,source_document_id:row.source_document_id,line_no:row.line_no,source_document_line_id:row.source_document_line_id,source_payload_hash:row.source_payload_hash,source_line_hash:row.source_line_hash,retained_outcome:source_kind==='INVOICE'?row.retained_outcome:null,retained_exception_codes:source_kind==='INVOICE'?row.retained_exception_codes:[],source_status:row.source_status});
+      const identities=[...invoiceRows.map(row=>identity('INVOICE',row)),...loanRows.map(row=>identity('LOAN_TRANSACTION',row))];
+      if(identities.length>maxRows)throw new KernelError('AI_ACCOUNTING_DECISION_POPULATION_INCOMPLETE','Complete decision population exceeds the safe 10000-row bound');
+      if(new Set(identities.map(row=>`${row.source_document_id}|${row.source_document_line_id}`)).size!==identities.length||new Set(identities.map(row=>row.source_document_id)).size!==identities.length)throw new KernelError('AI_ACCOUNTING_DECISION_POPULATION_DUPLICATE','Decision population contains a duplicate retained source identity');
+      const populationHash=(await client.query('SELECT refs_jsonb_hash($1::jsonb) AS population_hash',[JSON.stringify(identities)])).rows[0]?.population_hash;
+      if(!/^sha256:[0-9a-f]{64}$/.test(populationHash||''))throw new KernelError('AI_ACCOUNTING_DECISION_POPULATION_INCOMPLETE','Authoritative decision population attestation hash is unavailable');
+      return Object.freeze({schema_version:'AI_ACCOUNTING_DECISION_POPULATION_V1',scope:Object.freeze({tenant_id:tenantId,entity_id:entityId,accounting_period_id:accountingPeriodId}),total_count:identities.length,invoice_count:invoiceRows.length,loan_count:loanRows.length,population_complete:true,population_hash:populationHash,population_validation_hash:canonicalRequestHash(identities),invoice_rows:Object.freeze(invoiceRows),loan_rows:Object.freeze(loanRows)});
+    });
+  }
 
   async listAiAdmittedSourceBookingEvidence({tenantId,entityId,accountingPeriodId,limit=500}){
     return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_admitted_source_booking_evidence($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit+1])).rows.map(row=>({...row,business_date:publicDate(row.business_date),accounting_date:publicDate(row.accounting_date)})));
