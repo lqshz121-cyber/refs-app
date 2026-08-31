@@ -38,6 +38,7 @@ import {readAuthoritativeSourceDocumentDetail,refreshAuthoritativeDocuments,refr
 import {buildWbsH1AccountingControlPopulation} from '../runtime/wbs-h1-accounting-control-population.mjs';
 import {detectManualJournalRisks} from '../runtime/ai-manual-journal-risk.mjs';
 import {detectCrossEntityPaymentInvoiceReviews} from '../runtime/ai-cross-entity-payment-invoice-review.mjs';
+import {analyzeAttestedConstructionLoanDrawCwip} from '../runtime/ai-construction-loan-cwip-population-attestation.mjs';
 import {AUTHORITATIVE_WORKFLOW_ROLES} from '../runtime/workflow-role-grant.mjs';
 
 const config=runtimeConfig();
@@ -4480,6 +4481,124 @@ pgTest('construction-loan rollforward admits a credit-normal liability only thro
   await assert.rejects(aiReader.getAiConstructionLoanGlBalances({tenantId:ids.tenantId,entityId:randomUUID(),periodId:ids.periodId}),error=>error.code==='42501');await assert.rejects(aiReader.getAiConstructionLoanGlBalances({tenantId:ids.tenantId,entityId:ids.entityId,periodId:randomUUID()}),error=>error.code==='22023');
   const acl=(await adminPool.query("SELECT has_function_privilege('refs_app','refs_read_ai_construction_loan_gl_balances(uuid,uuid,uuid)','EXECUTE') app_gl,has_function_privilege('refs_app','refs_read_ai_construction_loan_lender_balance_population(uuid,uuid,uuid)','EXECUTE') app_lender,EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='refs_read_ai_construction_loan_gl_balances(uuid,uuid,uuid)'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE') public_gl,EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='refs_read_ai_construction_loan_lender_balance_population(uuid,uuid,uuid)'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE') public_lender")).rows[0];assert.deepEqual(acl,{app_gl:true,app_lender:true,public_gl:false,public_lender:false});
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'construction-loan-reader'}),kernelFactory:async()=>reader});const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/construction-loan-rollforward?periodId=${ids.periodId}`,body:null,headers:{}});assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data[0].mapping_status,'MAPPED_CONSTRUCTION_LOAN_ACCOUNT');
+});
+
+pgTest('construction-loan/CWIP population attestation is atomic, scope-bound, and fail-closed for ambiguity',async()=>{
+  const ordinary=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN'}),ordinaryTrace=await attachAutoSource(ordinary);
+  const ordinaryPoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ordinary,'loan-cwip-ordinary-poster',['GL.JE.POST'])});
+  await ordinaryPoster.postJournal({...ordinary,journalEntryId:ordinary.journalId,periodId:ordinary.periodId,expectedRevision:0,idempotencyKey:'loan-cwip-ordinary-post-001'});
+  const ordinaryReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ordinary,'loan-cwip-ordinary-reader',['AI.ANALYSIS.EXPLAIN','GL.REPORT.VIEW'])});
+  const unmapped=await ordinaryReader.getAiConstructionLoanCwipPopulationAttestation({tenantId:ordinary.tenantId,entityId:ordinary.entityId,accountingPeriodId:ordinary.periodId});
+  assert.deepEqual({status:unmapped.status,applicable:unmapped.applicable,eligible:unmapped.counts.eligible_count,mapped:unmapped.counts.mapped_count,missing:unmapped.counts.missing_count,unclassified:unmapped.counts.unclassified_count},{status:'INCOMPLETE',applicable:true,eligible:2,mapped:0,missing:4,unclassified:2});
+  assert.deepEqual(unmapped.unclassified_rows.map(row=>row.account_code),['111000','291001']);
+  const insertMapping=async(ids,family,accountCode,classification,label,priority=0)=>{
+    const inputKeys={account_code:accountCode},snapshotHash=(await adminPool.query("SELECT refs_jsonb_hash(jsonb_build_object('input_keys',$1::jsonb,'output_rules',jsonb_build_object('classification',$2::text))) AS snapshot_hash",[JSON.stringify(inputKeys),classification])).rows[0].snapshot_hash;
+    await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+      VALUES($1,$2,$3,$4,'ENTITY',$9,$5,1,$8,'2026-01-01','APPROVED',$6::jsonb,jsonb_build_object('classification',$7::text),$10,$11,$12,now())`,[randomUUID(),ids.tenantId,ids.entityId,family,hash(`${label}-key`),JSON.stringify(inputKeys),classification,priority,ids.entityId,snapshotHash,`${label}-maker`,`${label}-approver`]);
+  };
+  for(const accountCode of ['111000','291001']){
+    await insertMapping(ordinary,'CONSTRUCTION_LOAN_ACCOUNT_CLASSIFICATION',accountCode,'NOT_CONSTRUCTION_LOAN',`ordinary-${accountCode}-not-loan`);
+    await insertMapping(ordinary,'CWIP_ACCOUNT_CLASSIFICATION',accountCode,'NOT_CWIP',`ordinary-${accountCode}-not-cwip`);
+  }
+  const excluded=await ordinaryReader.getAiConstructionLoanCwipPopulationAttestation({tenantId:ordinary.tenantId,entityId:ordinary.entityId,accountingPeriodId:ordinary.periodId});
+  assert.deepEqual({status:excluded.status,applicable:excluded.applicable,eligible:excluded.counts.eligible_count,nonTarget:excluded.counts.non_target_count,population:excluded.counts.population_count,ambiguous:excluded.counts.ambiguous_count,watermark:excluded.population_watermark},{status:'COMPLETE',applicable:false,eligible:0,nonTarget:2,population:2,ambiguous:0,watermark:null});
+  assert.deepEqual(excluded.non_target_rows.map(row=>row.account_code),['111000','291001']);assert.deepEqual(excluded.non_target_rows.flatMap(row=>row.source_document_ids),[ordinaryTrace.documentId,ordinaryTrace.documentId]);
+
+  await insertMapping(ordinary,'CWIP_ACCOUNT_CLASSIFICATION','111000',null,'ordinary-null-cwip',1);
+  const nullClassification=await ordinaryReader.getAiConstructionLoanCwipPopulationAttestation({tenantId:ordinary.tenantId,entityId:ordinary.entityId,accountingPeriodId:ordinary.periodId});
+  assert.deepEqual({status:nullClassification.status,eligible:nullClassification.counts.eligible_count,missing:nullClassification.counts.missing_count,ambiguous:nullClassification.counts.ambiguous_count,unclassified:nullClassification.counts.unclassified_count,population:nullClassification.counts.population_count},{status:'INCOMPLETE',eligible:1,missing:3,ambiguous:0,unclassified:1,population:2});
+  assert.deepEqual(nullClassification.unclassified_rows.map(row=>({account:row.account_code,status:row.mapping_status})),[{account:'111000',status:'BLOCKED_MAPPING_REQUIRED'}]);
+  assert.throws(()=>analyzeAttestedConstructionLoanDrawCwip(nullClassification,{tenantId:ordinary.tenantId,entityId:ordinary.entityId,accountingPeriodId:ordinary.periodId}),error=>error.code==='AI_LOAN_DRAW_CWIP_POPULATION_INCOMPLETE');
+
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN',tenantId:ordinary.tenantId,extraAccounts:[{accountCode:'164100',accountName:'Construction work in progress'},{accountCode:'251500',accountName:'Construction loan payable'}],journalLines:[{lineNo:1,accountCode:'164100',debit:100,credit:0},{lineNo:2,accountCode:'251500',debit:0,credit:100}]}),trace=await attachAutoSource(ids);
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'loan-cwip-target-poster',['GL.JE.POST'])});await poster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'loan-cwip-target-post-001'});
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'loan-cwip-target-reader',['AI.ANALYSIS.EXPLAIN','GL.REPORT.VIEW'])});
+  assert.equal((await reader.getAiConstructionLoanCwipPopulationAttestation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId})).status,'INCOMPLETE');
+  await insertMapping(ids,'CWIP_ACCOUNT_CLASSIFICATION','164100','CWIP','target-cwip');
+  await insertMapping(ids,'CONSTRUCTION_LOAN_ACCOUNT_CLASSIFICATION','164100','NOT_CONSTRUCTION_LOAN','target-cwip-not-loan');
+  await insertMapping(ids,'CONSTRUCTION_LOAN_ACCOUNT_CLASSIFICATION','251500','CONSTRUCTION_LOAN','target-loan');
+  await insertMapping(ids,'CWIP_ACCOUNT_CLASSIFICATION','251500','NOT_CWIP','target-loan-not-cwip');
+  const complete=await reader.getAiConstructionLoanCwipPopulationAttestation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId});
+  assert.deepEqual({status:complete.status,applicable:complete.applicable,eligible:complete.counts.eligible_count,mapped:complete.counts.mapped_count,missing:complete.counts.missing_count,ambiguous:complete.counts.ambiguous_count,invalid:complete.counts.invalid_lineage_count,loan:complete.counts.loan_row_count,cwip:complete.counts.cwip_row_count},{status:'COMPLETE',applicable:true,eligible:2,mapped:2,missing:0,ambiguous:0,invalid:0,loan:1,cwip:1});
+  assert.equal(complete.currency,'USD');assert.ok(complete.loan_rows.every(row=>row.currency==='USD'&&row.period_id===ids.periodId));assert.ok(complete.cwip_rows.every(row=>row.currency==='USD'&&row.period_id===ids.periodId));
+  assert.deepEqual(complete.loan_rows[0].source_document_ids,[trace.documentId]);assert.deepEqual(complete.cwip_rows[0].source_document_ids,[trace.documentId]);assert.match(complete.population_watermark,/Z$/);assert.equal(complete.population_hash,(await adminPool.query("SELECT refs_jsonb_hash($1::jsonb) hash",[JSON.stringify(Object.fromEntries(Object.entries(complete).filter(([key])=>key!=='population_hash')))])).rows[0].hash);
+  assert.equal(complete.loan_rows[0].account_code,'251500');assert.equal(complete.cwip_rows[0].account_code,'164100');
+
+  // An internally consistent posting in a distinct PRIMARY period is not current-period evidence merely because its date overlaps.
+  const overlappingPeriodId=randomUUID();
+  await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,ledger_code,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'PRIMARY','2026-06','2026-06-01','2026-07-31','OPEN')",[overlappingPeriodId,ids.tenantId,ids.entityId]);
+  const postedScope=(await adminPool.query(`SELECT count(*)::int lines,bool_and(j.status='POSTED' AND j.period_id=l.period_id AND l.period_id=b.period_id AND j.period_id=$4
+    AND own_period.ledger_code='PRIMARY' AND requested.ledger_code='PRIMARY' AND own_period.period_id<>requested.period_id
+    AND j.journal_date BETWEEN own_period.starts_on AND own_period.ends_on AND j.journal_date BETWEEN requested.starts_on AND requested.ends_on) consistent
+    FROM journal_entry j JOIN ledger_line l ON l.tenant_id=j.tenant_id AND l.entity_id=j.entity_id AND l.journal_entry_id=j.journal_entry_id
+    JOIN posting_batch b ON b.tenant_id=l.tenant_id AND b.entity_id=l.entity_id AND b.posting_batch_id=l.posting_batch_id
+    JOIN accounting_period own_period ON own_period.tenant_id=j.tenant_id AND own_period.entity_id=j.entity_id AND own_period.period_id=j.period_id
+    JOIN accounting_period requested ON requested.tenant_id=j.tenant_id AND requested.entity_id=j.entity_id AND requested.period_id=$5
+    WHERE j.tenant_id=$1 AND j.entity_id=$2 AND j.journal_entry_id=$3`,[ids.tenantId,ids.entityId,ids.journalId,ids.periodId,overlappingPeriodId])).rows[0];
+  assert.deepEqual(postedScope,{lines:2,consistent:true});
+  const overlapping=await reader.getAiConstructionLoanCwipPopulationAttestation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:overlappingPeriodId});
+  assert.deepEqual({status:overlapping.status,invalid:overlapping.counts.invalid_lineage_count,current:overlapping.counts.current_activity_line_count,watermark:overlapping.population_watermark},{status:'INCOMPLETE',invalid:2,current:0,watermark:null});
+  assert.equal(overlapping.loan_rows[0].period_draws,'0.0000');assert.equal(overlapping.loan_rows[0].closing_balance,'0.0000');
+  assert.equal(overlapping.cwip_rows[0].period_debit,'0.0000');assert.equal(overlapping.cwip_rows[0].closing_balance,'0.0000');
+  for(const row of [...overlapping.loan_rows,...overlapping.cwip_rows]){
+    assert.equal(row.period_id,overlappingPeriodId);assert.equal(row.lineage_complete,false);assert.equal(row.activity_status,'ZERO_CURRENT_PERIOD_ACTIVITY');
+    assert.deepEqual(row.journal_entry_ids,[]);assert.deepEqual(row.ledger_line_ids,[]);assert.deepEqual(row.source_document_ids,[]);
+  }
+  assert.throws(()=>analyzeAttestedConstructionLoanDrawCwip(overlapping,{tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:overlappingPeriodId}),error=>error.code==='AI_LOAN_DRAW_CWIP_POPULATION_INCOMPLETE');
+
+  // A mapped CWIP account with no posted activity must still participate in draw-versus-additions review.
+  const draw=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'164100',accountName:'Construction work in progress'},{accountCode:'251500',accountName:'Construction loan payable'}],journalLines:[{lineNo:1,accountCode:'111000',debit:100,credit:0,memberRef:'BANK-1'},{lineNo:2,accountCode:'251500',debit:0,credit:100}]}),drawTrace=await attachAutoSource(draw);
+  const drawPoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(draw,'loan-cwip-zero-poster',['GL.JE.POST'])});
+  await drawPoster.postJournal({...draw,journalEntryId:draw.journalId,periodId:draw.periodId,expectedRevision:0,idempotencyKey:'loan-cwip-zero-post-001'});
+  for(const [accountCode,loanClassification,cwipClassification] of [['111000','NOT_CONSTRUCTION_LOAN','NOT_CWIP'],['164100','NOT_CONSTRUCTION_LOAN','CWIP'],['251500','CONSTRUCTION_LOAN','NOT_CWIP']]){
+    await insertMapping(draw,'CONSTRUCTION_LOAN_ACCOUNT_CLASSIFICATION',accountCode,loanClassification,`zero-${accountCode}-loan`);
+    await insertMapping(draw,'CWIP_ACCOUNT_CLASSIFICATION',accountCode,cwipClassification,`zero-${accountCode}-cwip`);
+  }
+  const policySnapshot={schema_version:'AI_CONSTRUCTION_LOAN_DRAW_CWIP_POLICY_SNAPSHOT_V1',rule_id:'AI_CONSTRUCTION_LOAN_DRAW_TO_CWIP_PERIOD_REVIEW_V1',policy_version:1,minimum_excess_draw:'50.0000'};
+  const policyHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[JSON.stringify(policySnapshot)])).rows[0].hash;
+  await adminPool.query(`INSERT INTO setting_snapshot(tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,'AI_CONSTRUCTION_LOAN_DRAW_CWIP_POLICY','ENTITY',$2::uuid::text,1,'2026-01-01','APPROVED',$3::jsonb,$4,'loan-cwip-policy-maker','loan-cwip-policy-approver',now())`,[draw.tenantId,draw.entityId,JSON.stringify(policySnapshot),policyHash]);
+  const drawReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(draw,'loan-cwip-zero-reader',['AI.ANALYSIS.EXPLAIN'])});
+  const approvedPolicy=await drawReader.getAiConstructionLoanDrawCwipPolicy({tenantId:draw.tenantId,entityId:draw.entityId,accountingPeriodId:draw.periodId});
+  assert.equal(approvedPolicy.setting_snapshot_hash,policyHash);
+  const drawCounts=()=>adminPool.query(`SELECT
+    (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM journal_line WHERE tenant_id=$1) journal_lines,
+    (SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM posting_batch WHERE tenant_id=$1) posting_batches,
+    (SELECT count(*)::int FROM source_document WHERE tenant_id=$1) sources,(SELECT count(*)::int FROM source_link WHERE tenant_id=$1) links,
+    (SELECT count(*)::int FROM mapping_snapshot WHERE tenant_id=$1) mappings,(SELECT count(*)::int FROM setting_snapshot WHERE tenant_id=$1) settings,
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') accounting_audit,
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='RUNTIME_CONTEXT_ISSUED') context_audit,
+    (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox`,[draw.tenantId]).then(result=>result.rows[0]);
+  const beforeDrawRead=await drawCounts(),zeroCwip=await drawReader.getAiConstructionLoanCwipPopulationAttestation({tenantId:draw.tenantId,entityId:draw.entityId,accountingPeriodId:draw.periodId}),afterDrawRead=await drawCounts();
+  assert.deepEqual({...afterDrawRead,context_audit:beforeDrawRead.context_audit},beforeDrawRead);assert.equal(afterDrawRead.context_audit,beforeDrawRead.context_audit+1);
+  assert.deepEqual({status:zeroCwip.status,eligible:zeroCwip.counts.eligible_count,mapped:zeroCwip.counts.mapped_count,missing:zeroCwip.counts.missing_count,invalid:zeroCwip.counts.invalid_lineage_count,current:zeroCwip.counts.current_activity_line_count,zero:zeroCwip.counts.zero_activity_count,population:zeroCwip.counts.population_count},{status:'COMPLETE',eligible:2,mapped:2,missing:0,invalid:0,current:1,zero:1,population:3});
+  assert.deepEqual(zeroCwip.non_target_rows.map(row=>row.account_code),['111000']);assert.equal(zeroCwip.loan_rows.length,1);assert.equal(zeroCwip.cwip_rows.length,1);
+  assert.equal(zeroCwip.loan_rows[0].period_draws,'100.0000');assert.deepEqual(zeroCwip.loan_rows[0].source_document_ids,[drawTrace.documentId]);
+  const zeroRow=zeroCwip.cwip_rows[0];
+  assert.deepEqual({account:zeroRow.account_code,activity:zeroRow.activity_status,current:zeroRow.current_activity_line_count,opening:zeroRow.opening_balance,debit:zeroRow.period_debit,credit:zeroRow.period_credit,closing:zeroRow.closing_balance,lineage:zeroRow.lineage_complete},{account:'164100',activity:'ZERO_CURRENT_PERIOD_ACTIVITY',current:0,opening:'0.0000',debit:'0.0000',credit:'0.0000',closing:'0.0000',lineage:true});
+  for(const key of ['journal_entry_ids','journal_line_ids','ledger_line_ids','posting_batch_ids','source_document_ids'])assert.deepEqual(zeroRow[key],[]);
+  const drawReview=analyzeAttestedConstructionLoanDrawCwip(zeroCwip,{tenantId:draw.tenantId,entityId:draw.entityId,accountingPeriodId:draw.periodId,policy:approvedPolicy});
+  assert.equal(drawReview.finding_count,1);assert.equal(drawReview.scanned_loan_account_count,1);assert.equal(drawReview.scanned_cwip_account_count,1);
+  assert.deepEqual({type:drawReview.findings[0].finding_type,draws:drawReview.findings[0].period_draws,additions:drawReview.findings[0].period_cwip_net_additions,excess:drawReview.findings[0].unexplained_excess_draw},{type:'LOAN_DRAW_EXCEEDS_CURRENT_PERIOD_CWIP_ADDITIONS',draws:'100.0000',additions:'0.0000',excess:'100.0000'});
+  assert.deepEqual(drawReview.findings[0].cwip_account_codes,['164100']);assert.deepEqual(drawReview.findings[0].journal_entry_ids,[draw.journalId]);assert.deepEqual(drawReview.findings[0].source_document_ids,[drawTrace.documentId]);
+  assert.deepEqual(drawReview.action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});assert.deepEqual(drawReview.findings[0].action_flags,drawReview.action_flags);
+  assert.deepEqual(await drawCounts(),afterDrawRead);
+
+  await insertMapping(ids,'CONSTRUCTION_LOAN_ACCOUNT_CLASSIFICATION','251500','NOT_CONSTRUCTION_LOAN','target-loan-lower-negative',-1);
+  assert.equal((await reader.getAiConstructionLoanCwipPopulationAttestation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId})).status,'COMPLETE');
+  await adminPool.query('ALTER TABLE source_link DISABLE TRIGGER source_link_append_only');
+  const deletedLineage=(await adminPool.query("DELETE FROM source_link WHERE tenant_id=$1 AND entity_id=$2 AND link_type='JE_LINE_TO_LEDGER' AND ledger_line_id=(SELECT ledger_line_id FROM ledger_line WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3 ORDER BY ledger_line_id LIMIT 1) RETURNING journal_entry_id,journal_line_id,posting_batch_id,ledger_line_id",[ids.tenantId,ids.entityId,ids.journalId])).rows[0];
+  await adminPool.query('ALTER TABLE source_link ENABLE TRIGGER source_link_append_only');assert.ok(deletedLineage);
+  const brokenLineage=await reader.getAiConstructionLoanCwipPopulationAttestation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId});assert.equal(brokenLineage.status,'INCOMPLETE');assert.ok(brokenLineage.counts.invalid_lineage_count>=1);
+  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,journal_entry_id,journal_line_id,posting_batch_id,ledger_line_id,created_by) VALUES($1,$2,'JE_LINE_TO_LEDGER',$3,$4,$5,$6,'loan-cwip-lineage-restore')",[ids.tenantId,ids.entityId,deletedLineage.journal_entry_id,deletedLineage.journal_line_id,deletedLineage.posting_batch_id,deletedLineage.ledger_line_id]);
+  assert.equal((await reader.getAiConstructionLoanCwipPopulationAttestation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId})).status,'COMPLETE');
+  await insertMapping(ids,'CONSTRUCTION_LOAN_ACCOUNT_CLASSIFICATION','251500','NOT_CONSTRUCTION_LOAN','target-loan-conflict-negative',0);
+  const ambiguous=await reader.getAiConstructionLoanCwipPopulationAttestation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId});
+  assert.equal(ambiguous.status,'INCOMPLETE');assert.equal(ambiguous.applicable,true);assert.equal(ambiguous.counts.ambiguous_count,1);assert.ok(ambiguous.counts.missing_count>=1);assert.deepEqual({draft:ambiguous.can_create_draft,post:ambiguous.can_post},{draft:undefined,post:undefined});
+  assert.equal(ambiguous.counts.missing_count,1);assert.deepEqual(ambiguous.unclassified_rows.map(row=>({account:row.account_code,status:row.mapping_status})),[{account:'251500',status:'BLOCKED_MAPPING_AMBIGUOUS'}]);
+  assert.throws(()=>analyzeAttestedConstructionLoanDrawCwip(ambiguous,{tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId}),error=>error.code==='AI_LOAN_DRAW_CWIP_POPULATION_INCOMPLETE');
+  await assert.rejects(reader.getAiConstructionLoanCwipPopulationAttestation({tenantId:ids.tenantId,entityId:randomUUID(),accountingPeriodId:ids.periodId}),error=>error.code==='42501');
+  const acl=(await adminPool.query("SELECT has_function_privilege('refs_app','refs_read_ai_construction_loan_cwip_population_attestation(uuid,uuid,uuid)','EXECUTE') app,EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='refs_read_ai_construction_loan_cwip_population_attestation(uuid,uuid,uuid)'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE') public")).rows[0];assert.deepEqual(acl,{app:true,public:false});
 });
 
 pgTest('prepaid rollforward admits a debit-normal asset only through one exact immutable mapping snapshot and retains posted ledger evidence',async()=>{
