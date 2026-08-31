@@ -2,9 +2,18 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve:false,can_post:false});
 const units=value=>BigInt(value.replace('.','')),money=value=>`${value<0n?'-':''}${(value<0n?-value:value)/10000n}.${String((value<0n?-value:value)%10000n).padStart(4,'0')}`;
 const ids=value=>Array.isArray(value)&&value.length>0&&value.length<=500&&value.every(item=>UUID.test(item||''))&&new Set(value).size===value.length;
+const postedEvidence=row=>{
+  const evidence=[row.journal_entry_ids,row.ledger_line_ids,row.source_document_ids];
+  if(row.activity_status==='ZERO_CURRENT_PERIOD_ACTIVITY'&&row.current_activity_line_count===0){
+    const empty=evidence.every(value=>Array.isArray(value)&&value.length===0);
+    const historical=ids(row.journal_entry_ids)&&ids(row.ledger_line_ids)&&Array.isArray(row.source_document_ids)&&row.source_document_ids.length>0;
+    return empty||historical;
+  }
+  return ids(row.journal_entry_ids)&&ids(row.ledger_line_ids)&&Array.isArray(row.source_document_ids)&&row.source_document_ids.length>0;
+};
 const policy=value=>value&&Object.keys(value).sort().join('|')==='minimum_excess_draw|policy_version|setting_snapshot_hash|setting_snapshot_id'&&UUID.test(value.setting_snapshot_id||'')&&SHA.test(value.setting_snapshot_hash||'')&&Number.isSafeInteger(value.policy_version)&&value.policy_version>=1&&MONEY.test(value.minimum_excess_draw||'')&&units(value.minimum_excess_draw)>0n;
-const loan=row=>row&&row.mapping_status==='MAPPED_CONSTRUCTION_LOAN_ACCOUNT'&&row.classification_basis==='APPROVED_CONSTRUCTION_LOAN_ACCOUNT_MAPPING_SNAPSHOT_EXACT'&&UUID.test(row.period_id||'')&&MONEY.test(row.period_draws||'')&&MONEY.test(row.period_repayments||'')&&UUID.test(row.mapping_snapshot_id||'')&&SHA.test(row.mapping_snapshot_hash||'')&&ids(row.journal_entry_ids)&&ids(row.ledger_line_ids)&&Array.isArray(row.source_document_ids);
-const cwip=row=>row&&row.mapping_status==='MAPPED_CWIP_ACCOUNT'&&row.classification_basis==='APPROVED_CWIP_ACCOUNT_MAPPING_SNAPSHOT_EXACT'&&UUID.test(row.period_id||'')&&MONEY.test(row.period_debit||'')&&MONEY.test(row.period_credit||'')&&UUID.test(row.mapping_snapshot_id||'')&&SHA.test(row.mapping_snapshot_hash||'')&&ids(row.journal_entry_ids)&&ids(row.ledger_line_ids)&&Array.isArray(row.source_document_ids);
+const loan=row=>row&&row.mapping_status==='MAPPED_CONSTRUCTION_LOAN_ACCOUNT'&&row.classification_basis==='APPROVED_CONSTRUCTION_LOAN_ACCOUNT_MAPPING_SNAPSHOT_EXACT'&&UUID.test(row.period_id||'')&&MONEY.test(row.period_draws||'')&&MONEY.test(row.period_repayments||'')&&UUID.test(row.mapping_snapshot_id||'')&&SHA.test(row.mapping_snapshot_hash||'')&&postedEvidence(row);
+const cwip=row=>row&&row.mapping_status==='MAPPED_CWIP_ACCOUNT'&&row.classification_basis==='APPROVED_CWIP_ACCOUNT_MAPPING_SNAPSHOT_EXACT'&&UUID.test(row.period_id||'')&&MONEY.test(row.period_debit||'')&&MONEY.test(row.period_credit||'')&&UUID.test(row.mapping_snapshot_id||'')&&SHA.test(row.mapping_snapshot_hash||'')&&postedEvidence(row);
 const unique=values=>Object.freeze([...new Set(values)].sort());
 export function detectConstructionLoanDrawCwipReviews(loanRows,cwipRows,{entityId,accountingPeriodId,policy:approvedPolicy}={}){
   if(!Array.isArray(loanRows)||!Array.isArray(cwipRows)||loanRows.length>500||cwipRows.length>500||!UUID.test(entityId||'')||!UUID.test(accountingPeriodId||'')||!policy(approvedPolicy))throw Object.assign(new Error('Construction-loan draw to CWIP review requires exact scope, approved policy, and bounded evidence.'),{code:'AI_LOAN_DRAW_CWIP_SCOPE_INVALID'});

@@ -2359,6 +2359,13 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getAiConstructionLoanCwipPopulationAttestation({tenantId,entityId,accountingPeriodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_ai_construction_loan_cwip_population_attestation($1,$2,$3) AS result',
+      [tenantId,entityId,accountingPeriodId]
+    ),'AI_LOAN_DRAW_CWIP_POPULATION_READ_FAILED','AI construction-loan/CWIP population attestation did not return a row').result);
+  }
+
   async getAiConstructionLoanDrawCwipPolicy({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_ai_construction_loan_draw_cwip_policy($1,$2,$3) AS result',[tenantId,entityId,accountingPeriodId]),'AI_LOAN_DRAW_CWIP_POLICY_READ_FAILED','AI loan draw to CWIP policy read did not return a row').result);}
   async getAiConstructionLoanProjectCostSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_construction_loan_project_cost_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
 
