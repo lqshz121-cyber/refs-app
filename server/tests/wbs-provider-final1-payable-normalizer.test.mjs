@@ -9,14 +9,14 @@ const canonical=value=>Buffer.from(canonicalRequestBody(value),'utf8');
 const hash=value=>`sha256:${createHash('sha256').update(value).digest('hex')}`;
 const controls=rows=>{const units=rows.reduce((sum,row)=>{const [whole,fraction='']=row.amount.replace(/^-/,'').split('.');return sum+BigInt(whole)*10000n+BigInt((fraction+'0000').slice(0,4));},0n),control_totals={row_count:rows.length,currency_totals:[{currency:'USD',row_count:rows.length,amount_total:`${units/10000n}.${String(units%10000n).padStart(4,'0')}`}]};return {control_totals,control_totals_hash:hash(canonical(control_totals))};};
 
-function fixture({currency='USD',credentials=false}={}){
+function fixture({currency='USD',credentials=false,rowExtra={}}={}){
   const {privateKey,publicKey}=generateKeyPairSync('ed25519'),kid='wbs-final1-normalize-test';
   const row={
     ap_guid:'11111111-1111-4111-8111-111111111111',ap_long_id:'AP-LONG-1',ap_type:'AUTOC',company_code:'WBPA',
     ...(currency==null?{}:{currency}),amount:'10.0000',invoice_no:'INV-1',invoice_date:'2026-01-14',business_id:'BUS-1',incurred_date:'2026-01-15',posting_date:'2026-01-16',
     vendor_no:'V-1',vendor_name:'Vendor',project_guid:'P-1',pj_code:'PROJECT-1',pj_name:'Project',description:'Invoice',
     service_period_start:null,service_period_end:null,recurring_obligation_id:null,contract_id:null,charge_code:null,service_frequency:null,obligation_status:null,
-    provider_metadata:{control:{state:'ORIGINAL'}}
+    provider_metadata:{control:{state:'ORIGINAL'}},...rowExtra
   };
   const signedControls=controls([row]),view={scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-06-30']},row_count:1,...signedControls,content_hash:hash(canonical([row])).slice(7),rows:[row]};
   const unsigned={schema_version:'WBS_READONLY_SNAPSHOT_V2',snapshot_id:'22222222-2222-4222-8222-222222222222',captured_at:'2026-08-15T00:00:00Z',environment:'PRODUCTION',source_system:'WBS',domain:'PAYABLES',company_key:'WBPA',date_from:'2026-01-01',date_to:'2026-06-30',views:{list_payables:view}};
@@ -54,6 +54,11 @@ test('normalizes Provider-signed USD rows into immutable staging only',()=>{
   assert.equal(output.can_create_draft,false);
   assert.equal(plan.can_post,false);
   assert.deepEqual(plan.exception_rows,[]);
+});
+
+test('normalizes complete typed tax-statement identity without creating accounting authority',()=>{
+  const typed={document_evidence_schema_version:'WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_V1',document_kind:'TAX_STATEMENT',taxing_jurisdiction:'Cook County',tax_statement_identifier:'PIN-2026-42',tax_coverage_period_start:'2026-01-01',tax_coverage_period_end:'2026-12-31',tax_obligation_basis:'MILLAGE_RATE',controlled_property_ref:'PROPERTY-1',parcel_identifier:'17-09-123-045'},output=normalizeVerifiedWbsProviderFinal1Payables({verified:fixture({rowExtra:typed}).verified,expectedCurrency:'USD'}).staging_rows[0];
+  assert.equal(output.normalized.documentEvidenceStatus,'COMPLETE');assert.equal(output.normalized.documentKind,'TAX_STATEMENT');assert.equal(output.normalized.taxingJurisdiction,'Cook County');assert.equal(output.normalized.taxStatementIdentifier,'PIN-2026-42');assert.equal(output.normalized.controlledPropertyRef,'PROPERTY-1');assert.equal(output.normalized.parcelIdentifier,'17-09-123-045');assert.equal(output.can_create_draft,false);assert.equal(output.can_post,false);
 });
 
 test('retains missing invoice or vendor facts as signed exceptions without confirming duplicates or creating accounting actions',()=>{

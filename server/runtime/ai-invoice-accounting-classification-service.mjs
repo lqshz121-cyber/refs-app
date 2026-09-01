@@ -61,6 +61,8 @@ export function createAiInvoiceAccountingClassificationService({classificationIn
           currency:String(detail.currency||''),amount:money4(line.amount??detail.gross_amount),service_period_start:trace.accrual?.service_period_start??null,
           service_period_end:trace.accrual?.service_period_end??null,description:trace.invoice_description??line.description??null,project_ref:line.project_ref??null,property_ref:line.property_ref??null,member_ref:line.member_ref??null,
           charge_code:trace.accrual?.charge_code??null,contract_id:trace.accrual?.contract_id??null,service_frequency:trace.accrual?.service_frequency??null,
+          document_evidence_status:evidence.document_evidence_status??'MISSING',document_evidence_schema_version:evidence.document_evidence_schema_version??null,document_evidence_hash:evidence.document_evidence_hash??null,document_kind:evidence.document_kind??null,
+          taxing_jurisdiction:evidence.taxing_jurisdiction??null,tax_statement_identifier:evidence.tax_statement_identifier??null,tax_coverage_period_start:evidence.tax_coverage_period_start??null,tax_coverage_period_end:evidence.tax_coverage_period_end??null,tax_obligation_basis:evidence.tax_obligation_basis??null,controlled_property_ref:evidence.controlled_property_ref??null,parcel_identifier:evidence.parcel_identifier??null,
           duplicate_status:duplicates.has(detail.source_document_id)?'POSSIBLE':'NONE',accounting_status:Array.isArray(detail.posted_journal_entry_ids)&&detail.posted_journal_entry_ids.length>0?'POSTED':'NOT_RECORDED',
           // A project reference does not prove construction status or
           // capitalization eligibility. Those policy facts must arrive as

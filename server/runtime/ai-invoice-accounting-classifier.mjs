@@ -23,29 +23,14 @@ const PREPAID_INDICATORS=Object.freeze([
   Object.freeze({category:'LOAN_FEE',pattern:/\b(?:loan\s+fee|financing\s+fee|origination\s+fee)\b/i}),
   Object.freeze({category:'WARRANTY_OR_MAINTENANCE',pattern:/\b(?:extended\s+warranty|annual\s+maintenance|maintenance\s+contract)\b/i})
 ]);
-// A property or real-estate tax assessment is a statutory obligation of the
-// owner, not a vendor-supplied good or service purchased over a coverage
-// window. It therefore cannot be proven from a PAYABLES description alone: the
-// taxing jurisdiction, statement identity, assessed obligation basis and
-// coverage dates only exist on a signed tax statement source that this runtime
-// cannot yet read. Until that server-derived reader exists, any tax indicator
-// fails closed so the generic multi-month coverage rule below can never present
-// a statutory tax obligation as an ordinary prepaid asset.
-const tokenSet=value=>new Set((typeof value==='string'?value.toLowerCase().match(/[a-z0-9]+/g):[])??[]);
-const hasAny=(tokens,values)=>values.some(value=>tokens.has(value));
-const hasAll=(tokens,values)=>values.every(value=>tokens.has(value));
-const PROPERTY_TAX_SOURCE_TERMS=Object.freeze(['tax','taxes','levy','assessment','assessor','valuation','valorem','assessed','appraisal','appraisals','appraised','taxable','delinquent','certificate','millage','mill']);
-const STRONG_PROPERTY_DOCUMENT_TERMS=Object.freeze(['notice','certificate','statement','bill','assessment','levy']);
-const taxObligationIndicated=invoice=>{
-  const descriptionTokens=tokenSet(invoice.description);
-  // Without an authoritative document-type reader, text cannot safely decide
-  // whether a property-tax-shaped source is the liability or a related service.
-  // The description must carry the risk feature: a vendor name alone is never
-  // sufficient, even when it contains "Property Tax" or "Tax Assessor".
-  const ambiguousPropertyTaxSource=hasAny(descriptionTokens,PROPERTY_TAX_SOURCE_TERMS)||(descriptionTokens.has('value')&&hasAny(descriptionTokens,STRONG_PROPERTY_DOCUMENT_TERMS));
-  const retainedPropertyRef=typeof invoice.property_ref==='string'&&invoice.property_ref.trim().length>0;
-  const propertyContext=retainedPropertyRef||descriptionTokens.has('parcel')||descriptionTokens.has('property')||hasAll(descriptionTokens,['real','estate'])||hasAll(descriptionTokens,['ad','valorem'])||hasAll(descriptionTokens,['appraisal','district']);
-  return ambiguousPropertyTaxSource&&propertyContext;
+// A statutory tax obligation cannot be proven from PAYABLES description text.
+// Only the closed, signed document evidence retained by migration 297 may
+// distinguish an INVOICE from a TAX_STATEMENT.
+const typedDocumentEvidenceStatus=invoice=>{
+  if(invoice.document_evidence_status!=='COMPLETE'||invoice.document_evidence_schema_version!=='WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_V1'||!SHA256.test(invoice.document_evidence_hash||''))return 'MISSING';
+  if(invoice.document_kind==='INVOICE')return [invoice.taxing_jurisdiction,invoice.tax_statement_identifier,invoice.tax_coverage_period_start,invoice.tax_coverage_period_end,invoice.tax_obligation_basis,invoice.controlled_property_ref,invoice.parcel_identifier].every(value=>value===null)?'INVOICE':'CONTRADICTORY';
+  if(invoice.document_kind!=='TAX_STATEMENT')return 'UNKNOWN';
+  return text(invoice.taxing_jurisdiction,200)&&text(invoice.tax_statement_identifier,200)&&date(invoice.tax_coverage_period_start)&&date(invoice.tax_coverage_period_end)&&invoice.tax_coverage_period_start<=invoice.tax_coverage_period_end&&['ASSESSED_VALUE','MILLAGE_RATE','FIXED_STATUTORY_AMOUNT'].includes(invoice.tax_obligation_basis)&&text(invoice.controlled_property_ref,128)&&text(invoice.parcel_identifier,128)?'TAX_STATEMENT':'CONTRADICTORY';
 };
 
 const prepaidIndicator=invoice=>{const haystack=[invoice.vendor_name,invoice.description,invoice.charge_code].filter(value=>typeof value==='string').join(' ');return PREPAID_INDICATORS.find(item=>item.pattern.test(haystack))?.category??null;};
@@ -90,11 +75,15 @@ export function classifyRetainedInvoice(invoice,{capitalizationPolicy=null}={}){
   if((invoice.service_period_start===null)!==(invoice.service_period_end===null))return baseResult(invoice,'BLOCKED','A service period must include both start and end dates.',1,['service_period_start','service_period_end']);
   if(invoice.service_period_start&&invoice.service_period_end&&invoice.service_period_start>invoice.service_period_end)return baseResult(invoice,'BLOCKED','The retained service period is reversed.',1,['service_period_correction']);
 
-  // Ordering matters. This gate is evaluated before the approved capitalization
-  // policy and before the generic multi-month coverage rule so that neither can
-  // assign an accounting treatment, an account, or a suggested journal line to a
-  // tax obligation that no retained source proves.
-  if(taxObligationIndicated(invoice))return baseResult(invoice,'BLOCKED','The retained source contains property-tax, assessment, valuation, levy, assessed-value, or appraised-value evidence, but no authoritative document type proves whether it is a statutory obligation or a related service. Accounting treatment is blocked until a server-derived signed tax document identifies the source type, jurisdiction, obligation basis, and coverage.',1,['tax_statement_source_document','taxing_jurisdiction','tax_statement_identifier','tax_coverage_period','tax_obligation_basis'],'TAX_OBLIGATION_REQUIRES_TAX_STATEMENT_SOURCE');
+  // The Provider-signed typed evidence is the only document-kind authority.
+  // Description, vendor, property_ref and ap_type are intentionally ignored:
+  // they cannot distinguish a statutory tax statement from a professional
+  // service invoice. Missing, unknown, or contradictory typed evidence blocks
+  // before capitalization, prepaid, accrual, or ordinary-expense treatment.
+  const documentEvidence=typedDocumentEvidenceStatus(invoice);
+  if(documentEvidence==='MISSING')return baseResult(invoice,'BLOCKED','Provider-signed payable document-kind evidence is missing. No invoice or tax treatment may be inferred from text or dimensions.',1,['signed_document_kind_evidence'],'AI_PAYABLE_DOCUMENT_KIND_EVIDENCE_REQUIRED_V1');
+  if(['UNKNOWN','CONTRADICTORY'].includes(documentEvidence))return baseResult(invoice,'BLOCKED','Provider-signed payable document-kind evidence is unknown, incomplete, or internally contradictory.',1,['signed_document_kind_evidence_correction'],'AI_PAYABLE_DOCUMENT_KIND_EVIDENCE_INVALID_V1');
+  if(documentEvidence==='TAX_STATEMENT')return baseResult(invoice,'BLOCKED','A complete provider-signed statutory tax statement is retained and identity-bound. Property-tax accounting policy and independent human treatment review are required before any accounting proposal.',1,['property_tax_policy_snapshot','tax_treatment_review'],'AI_PROPERTY_TAX_TYPED_SOURCE_REVIEW_V1');
 
   // Capital-nature project costs are governed by the approved capitalization
   // policy even when the vendor describes a multi-month work interval. A
