@@ -26,7 +26,10 @@ const hash=value=>`sha256:${createHash('sha256').update(value).digest('hex')}`;
 const bare=value=>typeof value==='string'&&value.startsWith('sha256:')?value.slice(7):value;
 const fail=(code,message)=>{throw new WbsSignedDeliveryAdmissionError(code,message);};
 const text=value=>typeof value==='string'?value.trim():'';
-const exactDate=value=>DATE.test(value||'')&&new Date(`${value}T00:00:00.000Z`).toISOString().slice(0,10)===value;
+const exactDate=value=>{
+  if(!DATE.test(value||''))return false;
+  try{return new Date(`${value}T00:00:00.000Z`).toISOString().slice(0,10)===value;}catch{return false;}
+};
 const optionalText=value=>text(value)||null;
 const optionalDate=value=>value==null||value===''?null:(DATE.test(value)?value:fail('WBS_FINAL1_NORMALIZATION_ROW_INVALID','A supplied payable date must be ISO date or UTC timestamp.'));
 const requiredUuid=(value,label)=>{if(!UUID.test(value||''))fail('WBS_FINAL1_NORMALIZATION_ROW_INVALID',`${label} must be a UUID.`);return value;};

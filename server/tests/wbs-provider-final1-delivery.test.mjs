@@ -84,7 +84,7 @@ test('Final-1 accepts only complete closed typed invoice or tax-statement eviden
   assert.equal(verifyWbsProviderFinal1Delivery(await fixture({rowExtra:invoice})).row_count,1);
   const tax={...invoice,document_kind:'TAX_STATEMENT',taxing_jurisdiction:'Cook County',tax_statement_identifier:'PIN-2026-42',tax_coverage_period_start:'2026-01-01',tax_coverage_period_end:'2026-12-31',tax_obligation_basis:'ASSESSED_VALUE',controlled_property_ref:'PROPERTY-1',parcel_identifier:'17-09-123-045'};
   assert.equal(verifyWbsProviderFinal1Delivery(await fixture({rowExtra:tax})).row_count,1);
-  for(const bad of [{...invoice,taxing_jurisdiction:'Cook County'},{...tax,document_kind:'UNKNOWN'},{...tax,tax_coverage_period_start:'2026-02-30'},{...tax,tax_obligation_basis:'VENDOR_DESCRIPTION'}]){
+  for(const bad of [{...invoice,taxing_jurisdiction:'Cook County'},{...tax,document_kind:'UNKNOWN'},{...tax,tax_coverage_period_start:'2026-02-30'},{...tax,tax_coverage_period_start:'9999-99-99'},{...tax,tax_obligation_basis:'VENDOR_DESCRIPTION'}]){
     const input=await fixture({rowExtra:bad});assert.throws(()=>verifyWbsProviderFinal1Delivery(input),error=>['WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_INVALID','WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_CONTRADICTORY'].includes(error.code));
   }
 });

@@ -41,7 +41,10 @@ const signatureValue=value=>object(value)&&value.algorithm==='Ed25519'&&typeof v
 const verified=(publicKey,payload,value)=>{
   try{return verify(null,payload,publicKey,Buffer.from(value,'base64'))===true;}catch{return false;}
 };
-const exactDate=value=>DATE.test(value||'')&&new Date(`${value}T00:00:00.000Z`).toISOString().slice(0,10)===value;
+const exactDate=value=>{
+  if(!DATE.test(value||''))return false;
+  try{return new Date(`${value}T00:00:00.000Z`).toISOString().slice(0,10)===value;}catch{return false;}
+};
 const validatePayableDocumentEvidence=row=>{
   const present=TYPED_DOCUMENT_KEYS.filter(key=>Object.hasOwn(row,key));
   if(present.length===0)return;
