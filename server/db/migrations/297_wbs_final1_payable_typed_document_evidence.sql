@@ -81,9 +81,19 @@ DECLARE
   v_status text; v_kind text; v_jurisdiction text; v_statement text; v_start_text text; v_end_text text; v_start date; v_end date; v_basis text; v_property text; v_parcel text;
   v_hash text; v_evidence_id uuid; v_payload jsonb; v_typed_keys text[]:=ARRAY['document_evidence_schema_version','document_kind','taxing_jurisdiction','tax_statement_identifier','tax_coverage_period_start','tax_coverage_period_end','tax_obligation_basis','controlled_property_ref','parcel_identifier'];
 BEGIN
+  IF p_delivery->>'domain'='PAYABLES' THEN
+    IF jsonb_typeof(p_plan->'staging_rows') IS DISTINCT FROM 'array' THEN
+      RAISE EXCEPTION 'Typed payable evidence requires the exact retained row population' USING ERRCODE='22023';
+    END IF;
+    IF EXISTS(
+      SELECT 1 FROM jsonb_array_elements(p_plan->'staging_rows') x
+       WHERE jsonb_typeof(x->'raw_row') IS DISTINCT FROM 'object'
+    ) THEN
+      RAISE EXCEPTION 'Signed payable raw_row must be a closed JSON object' USING ERRCODE='23514';
+    END IF;
+  END IF;
   v_result:=refs_retain_wbs_final1_source_evidence_with_signed_controls_v167(p_tenant,p_entity,p_delivery,p_artifacts,p_plan,p_idempotency_key,p_request_hash);
   IF p_delivery->>'domain'<>'PAYABLES' THEN RETURN v_result; END IF;
-  IF jsonb_typeof(p_plan->'staging_rows')<>'array' THEN RAISE EXCEPTION 'Typed payable evidence requires the exact retained row population' USING ERRCODE='22023'; END IF;
   IF EXISTS(
     SELECT 1 FROM jsonb_array_elements(p_plan->'staging_rows') x
      WHERE x->'raw_row' ? 'document_kind' AND x#>>'{raw_row,document_kind}'='TAX_STATEMENT'
