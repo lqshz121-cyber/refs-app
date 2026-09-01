@@ -34,7 +34,11 @@ test('migration 297 retains immutable typed payable evidence and versioned reade
   assert.match(sql,/document_evidence_schema_version' IS DISTINCT FROM 'WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_V1'/);
   assert.match(sql,/document_kind' IS NULL/);
   assert.match(sql,/jsonb_typeof\(v_raw\) IS DISTINCT FROM 'object'/);
+  assert.match(sql,/EXCEPTION WHEN datetime_field_overflow OR invalid_datetime_format/);
   assert.match(sql,/duplicate tax-statement identity/);
+  assert.match(sql,/fail-closed for corrections/);
+  assert.match(sql,/REVOKE ALL ON wbs_final1_payable_document_evidence FROM PUBLIC,refs_app/);
+  assert.doesNotMatch(sql,/GRANT SELECT ON wbs_final1_payable_document_evidence TO refs_app/);
 });
 
 test('migration 297 down restores the exact predecessor functions only when evidence is empty',async()=>{

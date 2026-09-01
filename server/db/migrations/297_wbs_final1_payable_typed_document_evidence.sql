@@ -50,6 +50,8 @@ CREATE POLICY wbs_final1_payable_document_evidence_scope ON wbs_final1_payable_d
   USING(tenant_id=refs_current_tenant() AND refs_entity_allowed(entity_id))
   WITH CHECK(tenant_id=refs_current_tenant() AND refs_entity_allowed(entity_id));
 CREATE TRIGGER wbs_final1_payable_document_evidence_append_only BEFORE UPDATE OR DELETE ON wbs_final1_payable_document_evidence FOR EACH ROW EXECUTE FUNCTION reject_mutation();
+-- V1 is deliberately fail-closed for corrections: a provider revision that reuses this
+-- statutory identity requires a future signed revision/supersession contract, never overwrite.
 CREATE UNIQUE INDEX wbs_final1_payable_tax_statement_identity_uniq ON wbs_final1_payable_document_evidence(
   tenant_id,entity_id,taxing_jurisdiction,tax_statement_identifier,controlled_property_ref,parcel_identifier,tax_coverage_period_start,tax_coverage_period_end
 ) WHERE document_kind='TAX_STATEMENT';
@@ -109,7 +111,11 @@ BEGIN
       v_jurisdiction:=NULLIF(btrim(v_raw->>'taxing_jurisdiction'),'');v_statement:=NULLIF(btrim(v_raw->>'tax_statement_identifier'),'');
       v_start_text:=NULLIF(v_raw->>'tax_coverage_period_start','');v_end_text:=NULLIF(v_raw->>'tax_coverage_period_end','');
       IF v_kind='TAX_STATEMENT' AND (v_start_text IS NULL OR v_start_text!~'^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$' OR v_end_text IS NULL OR v_end_text!~'^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$') THEN RAISE EXCEPTION 'Signed tax coverage dates must be canonical YYYY-MM-DD values' USING ERRCODE='23514'; END IF;
-      v_start:=v_start_text::date;v_end:=v_end_text::date;
+      BEGIN
+        v_start:=v_start_text::date;v_end:=v_end_text::date;
+      EXCEPTION WHEN datetime_field_overflow OR invalid_datetime_format THEN
+        RAISE EXCEPTION 'Signed tax coverage dates are not Gregorian calendar dates' USING ERRCODE='23514';
+      END;
       IF v_kind='TAX_STATEMENT' AND (to_char(v_start,'YYYY-MM-DD')<>v_start_text OR to_char(v_end,'YYYY-MM-DD')<>v_end_text) THEN RAISE EXCEPTION 'Signed tax coverage dates are not Gregorian calendar dates' USING ERRCODE='23514'; END IF;
       v_basis:=NULLIF(v_raw->>'tax_obligation_basis','');v_property:=NULLIF(btrim(v_raw->>'controlled_property_ref'),'');v_parcel:=NULLIF(btrim(v_raw->>'parcel_identifier'),'');
       IF v_kind='INVOICE' AND EXISTS(SELECT 1 FROM unnest(v_typed_keys[3:9]) k WHERE v_raw->k<>'null'::jsonb)
@@ -152,7 +158,6 @@ LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 $$;
 
 REVOKE ALL ON wbs_final1_payable_document_evidence FROM PUBLIC,refs_app;
-GRANT SELECT ON wbs_final1_payable_document_evidence TO refs_app;
 REVOKE ALL ON FUNCTION refs_wbs_final1_payable_document_evidence_hash(uuid,uuid,uuid,uuid,uuid,text,text,text,text,text,text,date,date,text,text,text),refs_retain_wbs_final1_source_evidence_with_signed_controls(uuid,uuid,jsonb,jsonb,jsonb,text,text),refs_read_ai_invoice_classification_source_v3(uuid,uuid,uuid,integer),refs_read_ai_invoice_decision_population_page(uuid,uuid,uuid,date,uuid,integer,uuid,integer) FROM PUBLIC;
 REVOKE ALL ON FUNCTION refs_wbs_final1_payable_document_evidence_hash(uuid,uuid,uuid,uuid,uuid,text,text,text,text,text,text,date,date,text,text,text) FROM refs_app;
 GRANT EXECUTE ON FUNCTION refs_retain_wbs_final1_source_evidence_with_signed_controls(uuid,uuid,jsonb,jsonb,jsonb,text,text),refs_read_ai_invoice_classification_source_v3(uuid,uuid,uuid,integer),refs_read_ai_invoice_decision_population_page(uuid,uuid,uuid,date,uuid,integer,uuid,integer) TO refs_app;

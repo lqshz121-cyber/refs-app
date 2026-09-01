@@ -7,6 +7,8 @@ const up=read('../db/migrations/231_ai_invoice_classification_period_source_read
 const down=read('../db/migrations/down/231_ai_invoice_classification_period_source_read.sql');
 const upV2=read('../db/migrations/257_ai_invoice_classification_dimension_source_read.sql');
 const downV2=read('../db/migrations/down/257_ai_invoice_classification_dimension_source_read.sql');
+const upV3=read('../db/migrations/297_wbs_final1_payable_typed_document_evidence.sql');
+const downV3=read('../db/migrations/down/297_wbs_final1_payable_typed_document_evidence.sql');
 const repository=read('../runtime/kernel-repository.mjs');
 const server=read('../runtime/accounting-server.mjs');
 
@@ -23,10 +25,11 @@ test('invoice population reader is exact-period, analysis-only, retained-payable
 });
 
 test('production classification uses the dedicated reader and rollback removes only that function',()=>{
-  assert.match(repository,/readAiInvoiceClassificationSource/);assert.match(repository,/refs_read_ai_invoice_classification_source_v2\(\$1,\$2,\$3,\$4\)/);
+  assert.match(repository,/readAiInvoiceClassificationSource/);assert.match(repository,/refs_read_ai_invoice_classification_source_v3\(\$1,\$2,\$3,\$4\)/);
   assert.match(server,/classificationInputReader:scope=>kernel\.readAiInvoiceClassificationSource\(scope\)/);
   assert.doesNotMatch(server,/aiInvoiceAccountingClassificationServiceFactory[\s\S]{0,250}listSourceDocuments/);
   assert.match(down,/DROP FUNCTION refs_read_ai_invoice_classification_source\(uuid,uuid,uuid,integer\)/);assert.match(downV2,/DROP FUNCTION refs_read_ai_invoice_classification_source_v2\(uuid,uuid,uuid,integer\)/);
+  assert.match(downV3,/DROP FUNCTION IF EXISTS refs_read_ai_invoice_classification_source_v3\(uuid,uuid,uuid,integer\)/);
 });
 
 test('v2 binds dimensions, vendor/member, complete attachment set, account controls, and booking presence',()=>{
@@ -38,4 +41,11 @@ test('v2 binds dimensions, vendor/member, complete attachment set, account contr
   assert.match(upV2,/jsonb_build_object\('attachment_id',a\.attachment_id,'content_hash',a\.content_hash,'finalization_status',a\.finalization_status,'scan_status',a\.scan_status,'storage_version',a\.storage_version\)/);
   assert.match(upV2,/refs_read_ai_account_master_bindings/);assert.match(upV2,/a\.account_code=ANY\(p_account_codes\)/);
   assert.match(repository,/readAiAccountMasterBindings/);assert.match(repository,/refs_read_ai_account_master_bindings\(\$1,\$2,\$3::text\[\]\)/);
+});
+
+test('v3 extends the v2 population with retained typed-document evidence and preserves the v2 rollback boundary',()=>{
+  assert.match(upV3,/CREATE FUNCTION refs_read_ai_invoice_classification_source_v3/);
+  assert.match(upV3,/refs_read_ai_invoice_classification_source_v2\(p_tenant,p_entity,p_period,p_limit\)/);
+  for(const field of ['document_evidence_status','document_kind','taxing_jurisdiction','tax_statement_identifier','tax_coverage_period_start','tax_coverage_period_end','tax_obligation_basis','controlled_property_ref','parcel_identifier'])assert.match(upV3,new RegExp(field));
+  assert.doesNotMatch(downV3,/DROP FUNCTION refs_read_ai_invoice_classification_source_v2/);
 });
