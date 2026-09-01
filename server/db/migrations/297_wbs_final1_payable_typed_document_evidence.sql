@@ -27,11 +27,11 @@ CREATE TABLE wbs_final1_payable_document_evidence (
   FOREIGN KEY(tenant_id,entity_id,wbs_final1_retained_source_row_id) REFERENCES wbs_final1_retained_source_row(tenant_id,entity_id,wbs_final1_retained_source_row_id),
   FOREIGN KEY(tenant_id,entity_id,source_document_id) REFERENCES source_document(tenant_id,entity_id,source_document_id),
   FOREIGN KEY(tenant_id,entity_id,source_document_line_id) REFERENCES source_document_line(tenant_id,entity_id,source_document_line_id),
-  CHECK(
+  CHECK((
     evidence_status='MISSING' AND document_kind IS NULL AND taxing_jurisdiction IS NULL AND tax_statement_identifier IS NULL
       AND tax_coverage_period_start IS NULL AND tax_coverage_period_end IS NULL AND tax_obligation_basis IS NULL
       AND controlled_property_ref IS NULL AND parcel_identifier IS NULL
-    OR evidence_status='COMPLETE' AND (
+    OR evidence_status='COMPLETE' AND document_kind IS NOT NULL AND (
       document_kind='INVOICE' AND taxing_jurisdiction IS NULL AND tax_statement_identifier IS NULL
         AND tax_coverage_period_start IS NULL AND tax_coverage_period_end IS NULL AND tax_obligation_basis IS NULL
         AND controlled_property_ref IS NULL AND parcel_identifier IS NULL
@@ -43,11 +43,12 @@ CREATE TABLE wbs_final1_payable_document_evidence (
         AND length(btrim(controlled_property_ref)) BETWEEN 1 AND 128
         AND length(btrim(parcel_identifier)) BETWEEN 1 AND 128
     )
-  )
+  ) IS TRUE)
 );
 ALTER TABLE wbs_final1_payable_document_evidence ENABLE ROW LEVEL SECURITY;
 CREATE POLICY wbs_final1_payable_document_evidence_scope ON wbs_final1_payable_document_evidence
-  USING(refs_rls_scope(tenant_id,entity_id)) WITH CHECK(refs_rls_scope(tenant_id,entity_id));
+  USING(tenant_id=refs_current_tenant() AND refs_entity_allowed(entity_id))
+  WITH CHECK(tenant_id=refs_current_tenant() AND refs_entity_allowed(entity_id));
 CREATE TRIGGER wbs_final1_payable_document_evidence_append_only BEFORE UPDATE OR DELETE ON wbs_final1_payable_document_evidence FOR EACH ROW EXECUTE FUNCTION reject_mutation();
 CREATE UNIQUE INDEX wbs_final1_payable_tax_statement_identity_uniq ON wbs_final1_payable_document_evidence(
   tenant_id,entity_id,taxing_jurisdiction,tax_statement_identifier,controlled_property_ref,parcel_identifier,tax_coverage_period_start,tax_coverage_period_end
@@ -88,6 +89,9 @@ BEGIN
   ) THEN RAISE EXCEPTION 'Typed payable population contains a duplicate tax-statement identity' USING ERRCODE='23514'; END IF;
   FOR v_row IN SELECT value FROM jsonb_array_elements(p_plan->'staging_rows') LOOP
     v_raw:=v_row->'raw_row';
+    IF jsonb_typeof(v_raw) IS DISTINCT FROM 'object' THEN
+      RAISE EXCEPTION 'Signed payable raw_row must be a closed JSON object' USING ERRCODE='23514';
+    END IF;
     SELECT * INTO STRICT v_retained FROM wbs_final1_retained_source_row r
      WHERE r.tenant_id=p_tenant AND r.entity_id=p_entity AND r.wbs_final1_retained_evidence_admission_id=(v_result->>'admission_id')::uuid
        AND r.domain='PAYABLES' AND r.source_row_ordinal=(v_row->>'source_row_ordinal')::integer
@@ -95,7 +99,12 @@ BEGIN
     IF NOT (v_raw ? 'document_kind') AND NOT (v_raw ?| v_typed_keys) THEN
       v_status:='MISSING';v_kind:=NULL;v_jurisdiction:=NULL;v_statement:=NULL;v_start:=NULL;v_end:=NULL;v_basis:=NULL;v_property:=NULL;v_parcel:=NULL;
     ELSE
-      IF NOT (v_raw ?& v_typed_keys) OR v_raw->>'document_evidence_schema_version'<>'WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_V1' OR v_raw->>'document_kind' NOT IN('INVOICE','TAX_STATEMENT') THEN RAISE EXCEPTION 'Signed payable document evidence is missing, unversioned, or unknown' USING ERRCODE='23514'; END IF;
+      IF NOT (v_raw ?& v_typed_keys)
+         OR v_raw->>'document_evidence_schema_version' IS DISTINCT FROM 'WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_V1'
+         OR v_raw->>'document_kind' IS NULL
+         OR v_raw->>'document_kind' NOT IN('INVOICE','TAX_STATEMENT') THEN
+        RAISE EXCEPTION 'Signed payable document evidence is missing, unversioned, or unknown' USING ERRCODE='23514';
+      END IF;
       v_status:='COMPLETE';v_kind:=v_raw->>'document_kind';
       v_jurisdiction:=NULLIF(btrim(v_raw->>'taxing_jurisdiction'),'');v_statement:=NULLIF(btrim(v_raw->>'tax_statement_identifier'),'');
       v_start_text:=NULLIF(v_raw->>'tax_coverage_period_start','');v_end_text:=NULLIF(v_raw->>'tax_coverage_period_end','');

@@ -12,7 +12,8 @@ test('migration 297 retains immutable typed payable evidence and versioned reade
   for(const token of [
     'CREATE TABLE wbs_final1_payable_document_evidence',
     'ENABLE ROW LEVEL SECURITY',
-    'refs_rls_scope(tenant_id,entity_id)',
+    'USING(tenant_id=refs_current_tenant() AND refs_entity_allowed(entity_id))',
+    'WITH CHECK(tenant_id=refs_current_tenant() AND refs_entity_allowed(entity_id))',
     'reject_mutation()',
     'CREATE UNIQUE INDEX wbs_final1_payable_tax_statement_identity_uniq',
     "document_kind text CHECK(document_kind IN('INVOICE','TAX_STATEMENT'))",
@@ -28,6 +29,11 @@ test('migration 297 retains immutable typed payable evidence and versioned reade
   ])assert.match(sql,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
   assert.doesNotMatch(sql,/UPDATE\s+wbs_final1_payable_document_evidence|DELETE\s+FROM\s+wbs_final1_payable_document_evidence/i);
   assert.match(sql,/document_kind='INVOICE'[\s\S]+taxing_jurisdiction IS NULL[\s\S]+document_kind='TAX_STATEMENT'/);
+  assert.match(sql,/CHECK\(\([\s\S]+\) IS TRUE\)/);
+  assert.match(sql,/document_kind IS NOT NULL/);
+  assert.match(sql,/document_evidence_schema_version' IS DISTINCT FROM 'WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_V1'/);
+  assert.match(sql,/document_kind' IS NULL/);
+  assert.match(sql,/jsonb_typeof\(v_raw\) IS DISTINCT FROM 'object'/);
   assert.match(sql,/duplicate tax-statement identity/);
 });
 
