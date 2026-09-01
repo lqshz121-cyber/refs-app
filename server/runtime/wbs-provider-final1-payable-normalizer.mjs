@@ -8,6 +8,10 @@ const HASH=/^sha256:[0-9a-f]{64}$/;
 const CURRENCY=/^[A-Z]{3}$/;
 const DATE=/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z)?$/;
 const FIXED_AMOUNT=/^-?(?:0|[1-9]\d{0,17})(?:\.\d{1,4})?$/;
+const DOCUMENT_EVIDENCE_SCHEMA='WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_V1';
+const DOCUMENT_KINDS=Object.freeze(['INVOICE','TAX_STATEMENT']);
+const TAX_OBLIGATION_BASES=Object.freeze(['ASSESSED_VALUE','MILLAGE_RATE','FIXED_STATUTORY_AMOUNT']);
+const TYPED_DOCUMENT_KEYS=Object.freeze(['document_evidence_schema_version','document_kind','taxing_jurisdiction','tax_statement_identifier','tax_coverage_period_start','tax_coverage_period_end','tax_obligation_basis','controlled_property_ref','parcel_identifier']);
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.getPrototypeOf(value)===Object.prototype;
 const freeze=value=>Object.freeze(value);
 const deepFreeze=value=>{
@@ -22,9 +26,23 @@ const hash=value=>`sha256:${createHash('sha256').update(value).digest('hex')}`;
 const bare=value=>typeof value==='string'&&value.startsWith('sha256:')?value.slice(7):value;
 const fail=(code,message)=>{throw new WbsSignedDeliveryAdmissionError(code,message);};
 const text=value=>typeof value==='string'?value.trim():'';
+const exactDate=value=>DATE.test(value||'')&&new Date(`${value}T00:00:00.000Z`).toISOString().slice(0,10)===value;
 const optionalText=value=>text(value)||null;
 const optionalDate=value=>value==null||value===''?null:(DATE.test(value)?value:fail('WBS_FINAL1_NORMALIZATION_ROW_INVALID','A supplied payable date must be ISO date or UTC timestamp.'));
 const requiredUuid=(value,label)=>{if(!UUID.test(value||''))fail('WBS_FINAL1_NORMALIZATION_ROW_INVALID',`${label} must be a UUID.`);return value;};
+
+function typedDocumentEvidence(row){
+  const present=TYPED_DOCUMENT_KEYS.filter(key=>Object.hasOwn(row,key));
+  if(present.length===0)return freeze({status:'MISSING',schemaVersion:null,documentKind:null,taxingJurisdiction:null,taxStatementIdentifier:null,taxCoveragePeriodStart:null,taxCoveragePeriodEnd:null,taxObligationBasis:null,controlledPropertyRef:null,parcelIdentifier:null});
+  if(present.length!==TYPED_DOCUMENT_KEYS.length||row.document_evidence_schema_version!==DOCUMENT_EVIDENCE_SCHEMA||!DOCUMENT_KINDS.includes(row.document_kind))fail('WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_INVALID','Signed payable document evidence is incomplete, unversioned, or has an unknown document kind.');
+  const taxValues=TYPED_DOCUMENT_KEYS.slice(2).map(key=>row[key]);
+  if(row.document_kind==='INVOICE'){
+    if(taxValues.some(value=>value!==null))fail('WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_CONTRADICTORY','An INVOICE must carry explicit nulls for every tax-statement field.');
+  }else{
+    if(!taxValues.every(value=>typeof value==='string'&&value.trim().length>0)||!exactDate(row.tax_coverage_period_start)||!exactDate(row.tax_coverage_period_end)||row.tax_coverage_period_start>row.tax_coverage_period_end||!TAX_OBLIGATION_BASES.includes(row.tax_obligation_basis))fail('WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_INVALID','A TAX_STATEMENT requires exact jurisdiction, statement, coverage, obligation-basis, controlled-property, and parcel evidence.');
+  }
+  return freeze({status:'COMPLETE',schemaVersion:row.document_evidence_schema_version,documentKind:row.document_kind,taxingJurisdiction:row.taxing_jurisdiction,taxStatementIdentifier:row.tax_statement_identifier,taxCoveragePeriodStart:row.tax_coverage_period_start,taxCoveragePeriodEnd:row.tax_coverage_period_end,taxObligationBasis:row.tax_obligation_basis,controlledPropertyRef:row.controlled_property_ref,parcelIdentifier:row.parcel_identifier});
+}
 
 function requireExpectedCurrency(expectedCurrency){
   if(!CURRENCY.test(expectedCurrency||''))fail('WBS_FINAL1_NORMALIZATION_CURRENCY_AUTHORITY_REQUIRED','An independently supplied exact ISO currency is required.');
@@ -43,7 +61,7 @@ function normalizedRow(row,{verified,expectedCurrency,currencyAuthority,sourceRo
   if(!object(row)||row.company_code!==verified.company_code||(row.currency!=null&&row.currency!==''&&row.currency!==expectedCurrency))fail('WBS_FINAL1_NORMALIZATION_SCOPE_OR_CURRENCY_MISMATCH','Every payable row must retain the verified company scope; any Provider-supplied currency must match the independently approved accounting currency.');
   const signedAccrualNulls=['service_period_start','service_period_end','recurring_obligation_id','contract_id','charge_code','service_frequency','obligation_status'];
   if(['invoice_no','invoice_date','business_id'].some(key=>!Object.hasOwn(row,key))||signedAccrualNulls.some(key=>!Object.hasOwn(row,key)||row[key]!==null))fail('WBS_FINAL1_NORMALIZATION_SIGNED_ROW_REQUIRED','Payable signed row fields are missing or an accrual field was inferred instead of explicit null.');
-  const apGuId=requiredUuid(row.ap_guid,'ap_guid'),rawRow=deepFreeze(structuredClone(row)),rawRowHash=hash(canonical(rawRow));
+  const documentEvidence=typedDocumentEvidence(row),apGuId=requiredUuid(row.ap_guid,'ap_guid'),rawRow=deepFreeze(structuredClone(row)),rawRowHash=hash(canonical(rawRow));
   const invoiceNo=optionalText(row.invoice_no),vendorRef=optionalText(row.vendor_no),vendorName=optionalText(row.vendor_name);
   const amount=optionalText(row.amount);
   if(!FIXED_AMOUNT.test(amount))fail('WBS_FINAL1_NORMALIZATION_ROW_INVALID','A payable amount must be an exact fixed-point value with at most four decimals.');
@@ -69,7 +87,10 @@ function normalizedRow(row,{verified,expectedCurrency,currencyAuthority,sourceRo
       servicePeriodStart:optionalDate(row.service_period_start),servicePeriodEnd:optionalDate(row.service_period_end),
       recurringObligationId:optionalText(row.recurring_obligation_id),contractId:optionalText(row.contract_id),chargeCode:optionalText(row.charge_code),
       serviceFrequency:optionalText(row.service_frequency),obligationStatus:optionalText(row.obligation_status),
-      businessId:optionalText(row.business_id),journalNo:optionalText(row.journal_no),payStatus:optionalText(row.pay_status),reviewStatus:optionalText(row.review_status),description:optionalText(row.description),currency:expectedCurrency
+      businessId:optionalText(row.business_id),journalNo:optionalText(row.journal_no),payStatus:optionalText(row.pay_status),reviewStatus:optionalText(row.review_status),description:optionalText(row.description),currency:expectedCurrency,
+      documentEvidenceStatus:documentEvidence.status,documentEvidenceSchemaVersion:documentEvidence.schemaVersion,documentKind:documentEvidence.documentKind,
+      taxingJurisdiction:documentEvidence.taxingJurisdiction,taxStatementIdentifier:documentEvidence.taxStatementIdentifier,taxCoveragePeriodStart:documentEvidence.taxCoveragePeriodStart,
+      taxCoveragePeriodEnd:documentEvidence.taxCoveragePeriodEnd,taxObligationBasis:documentEvidence.taxObligationBasis,controlledPropertyRef:documentEvidence.controlledPropertyRef,parcelIdentifier:documentEvidence.parcelIdentifier
     }),
     outcome:!invoiceNo||!vendorRef&&!vendorName||!invoiceDate&&!incurredDate&&!postingDate?'EXCEPTION_REVIEW_REQUIRED':'STAGING_REVIEW_REQUIRED',exception_codes:freeze(exceptionCodes),
     can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false

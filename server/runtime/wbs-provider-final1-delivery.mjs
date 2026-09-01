@@ -10,6 +10,10 @@ const UTC=/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{3}))?Z$/;
 const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const MAX_RAW_BYTES=32*1024*1024;
 const FINAL1_SIGNED_POPULATION_MAX=500;
+const DOCUMENT_EVIDENCE_SCHEMA='WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_V1';
+const DOCUMENT_KINDS=Object.freeze(['INVOICE','TAX_STATEMENT']);
+const TAX_OBLIGATION_BASES=Object.freeze(['ASSESSED_VALUE','MILLAGE_RATE','FIXED_STATUTORY_AMOUNT']);
+const TYPED_DOCUMENT_KEYS=Object.freeze(['document_evidence_schema_version','document_kind','taxing_jurisdiction','tax_statement_identifier','tax_coverage_period_start','tax_coverage_period_end','tax_obligation_basis','controlled_property_ref','parcel_identifier']);
 const SENSITIVE_RAW=/(?:^|\r?\n)(?:authorization|proxy-authorization|cookie|set-cookie|cf-access-client-secret|x-refs-auth|x-api-key)\s*:/i;
 const SENSITIVE_JSON=/"(?:authorization|proxy_authorization|cookie|set_cookie|cf_access_client_secret|x_refs_auth|password|access[_-]?token|refresh[_-]?token|client[_-]?secret|api[_-]?key)"\s*:/i;
 const SENSITIVE_QUERY=/[?&](?:access[_-]?token|api[_-]?key)=/i;
@@ -38,6 +42,17 @@ const verified=(publicKey,payload,value)=>{
   try{return verify(null,payload,publicKey,Buffer.from(value,'base64'))===true;}catch{return false;}
 };
 const exactDate=value=>DATE.test(value||'')&&new Date(`${value}T00:00:00.000Z`).toISOString().slice(0,10)===value;
+const validatePayableDocumentEvidence=row=>{
+  const present=TYPED_DOCUMENT_KEYS.filter(key=>Object.hasOwn(row,key));
+  if(present.length===0)return;
+  if(present.length!==TYPED_DOCUMENT_KEYS.length||row.document_evidence_schema_version!==DOCUMENT_EVIDENCE_SCHEMA||!DOCUMENT_KINDS.includes(row.document_kind))fail('WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_INVALID','Final-1 Payables typed document evidence is incomplete, unversioned, or unknown.');
+  const taxValues=TYPED_DOCUMENT_KEYS.slice(2).map(key=>row[key]);
+  if(row.document_kind==='INVOICE'){
+    if(taxValues.some(value=>value!==null))fail('WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_CONTRADICTORY','Final-1 INVOICE rows require explicit null tax-statement fields.');
+    return;
+  }
+  if(!taxValues.every(value=>typeof value==='string'&&value.trim().length>0)||!exactDate(row.tax_coverage_period_start)||!exactDate(row.tax_coverage_period_end)||row.tax_coverage_period_start>row.tax_coverage_period_end||!TAX_OBLIGATION_BASES.includes(row.tax_obligation_basis))fail('WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_INVALID','Final-1 TAX_STATEMENT rows require exact typed statutory evidence.');
+};
 const deepFreeze=value=>{
   if(value&&typeof value==='object'&&!Object.isFrozen(value)){
     for(const child of Object.values(value))deepFreeze(child);
@@ -88,7 +103,7 @@ export function verifyWbsProviderFinal1Delivery({providerTrust,receipt,requestRa
   for(const row of rows){
     const signedAccrualNulls=['service_period_start','service_period_end','recurring_obligation_id','contract_id','charge_code','service_frequency','obligation_status'];
     if(!object(row)||!UUID.test(row.ap_guid||'')||ids.has(row.ap_guid.toLowerCase())||row.company_code!==expectedScope.company_code||['invoice_no','invoice_date','business_id'].some(key=>!Object.hasOwn(row,key))||signedAccrualNulls.some(key=>!Object.hasOwn(row,key)||row[key]!==null))fail('WBS_FINAL1_ROW_INVALID','Final-1 Payables rows require unique ap_guid, exact scope, signed invoice_no/invoice_date/business_id keys, and seven explicit null accrual fields.');
-    ids.add(row.ap_guid.toLowerCase());
+    validatePayableDocumentEvidence(row);ids.add(row.ap_guid.toLowerCase());
   }
   const rawContainsCredentials=containsWbsProviderFinal1Credential(bytes(receipt))||containsWbsProviderFinal1Credential(requestRaw)||containsWbsProviderFinal1Credential(responseRaw)||containsWbsProviderFinal1Credential(packageRaw);
   const currencySigned=rows.length>0&&rows.every(row=>/^[A-Z]{3}$/.test(row.currency||''))&&new Set(rows.map(row=>row.currency)).size===1;

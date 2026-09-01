@@ -10,7 +10,10 @@ const invoice=(overrides={})=>({
   entity_id:id(3),accounting_period_id:id(4),accounting_date:'2026-06-30',vendor_name:'Example vendor',invoice_no:'INV-100',invoice_date:'2026-06-30',
   currency:'USD',amount:'1200.0000',service_period_start:null,service_period_end:null,description:'Operating services',
   project_ref:null,property_ref:null,member_ref:null,charge_code:'OPERATING',duplicate_status:'NONE',accounting_status:'NOT_RECORDED',project_status:'OPERATING',
-  cost_class:'OPERATING_EXPENSE',asset_useful_life_months:null,capitalization_threshold:'5000.0000',...overrides
+  cost_class:'OPERATING_EXPENSE',asset_useful_life_months:null,capitalization_threshold:'5000.0000',
+  document_evidence_status:'COMPLETE',document_evidence_schema_version:'WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_V1',document_evidence_hash:hash('d'),document_kind:'INVOICE',
+  taxing_jurisdiction:null,tax_statement_identifier:null,tax_coverage_period_start:null,tax_coverage_period_end:null,tax_obligation_basis:null,controlled_property_ref:null,parcel_identifier:null,
+  ...overrides
 });
 
 test('classifies multi-month coverage as prepaid amortization with source trace and zero actions',()=>{
@@ -103,118 +106,33 @@ test('rejects oversized scans before processing',()=>{
   assert.throws(()=>classifyRetainedInvoiceBatch(Array.from({length:10001},()=>invoice())),error=>error.code==='AI_INVOICE_CLASSIFICATION_SCOPE_INVALID');
 });
 
-test('never treats a property tax obligation as a generic multi-period prepaid asset',()=>{
-  // The counterexample the generic multi-month rule used to swallow: a real
-  // annual property tax bill with a proven twelve-month coverage window.
-  const annualTaxBill=invoice({
-    vendor_name:'Harris County Tax Assessor-Collector',
-    description:'2026 property tax statement, account 0412-88-3301',
-    charge_code:'OPERATING',property_ref:'PROPERTY-1',amount:'48250.0000',
-    service_period_start:'2026-01-01',service_period_end:'2026-12-31'
-  });
-  const result=classifyRetainedInvoice(annualTaxBill,{capitalizationPolicy:policy});
+test('recognizes only complete signed TAX_STATEMENT evidence and never proposes accounting',()=>{
+  const result=classifyRetainedInvoice(invoice({document_kind:'TAX_STATEMENT',taxing_jurisdiction:'Example County',tax_statement_identifier:'STATEMENT-2026-01',tax_coverage_period_start:'2026-01-01',tax_coverage_period_end:'2026-12-31',tax_obligation_basis:'ASSESSED_VALUE',controlled_property_ref:'PROPERTY-1',parcel_identifier:'PARCEL-1',description:'Annual services',property_ref:null}),{capitalizationPolicy:policy});
   assert.equal(result.classification,'BLOCKED');
-  assert.notEqual(result.classification,'PREPAID_AMORTIZATION');
-  assert.equal(result.rule_id,'TAX_OBLIGATION_REQUIRES_TAX_STATEMENT_SOURCE');
-  assert.equal(result.confidence,1);
-  assert.equal(result.policy_evidence,null);
-  assert.deepEqual(result.required_human_fields,['tax_statement_source_document','taxing_jurisdiction','tax_statement_identifier','tax_coverage_period','tax_obligation_basis']);
+  assert.equal(result.rule_id,'AI_PROPERTY_TAX_TYPED_SOURCE_REVIEW_V1');
+  assert.deepEqual(result.required_human_fields,['property_tax_policy_snapshot','tax_treatment_review']);
   assert.deepEqual(result.action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
 });
 
-test('the tax gate outranks the coverage rule and the approved capitalization policy in either order',()=>{
+test('service INVOICE text never becomes tax authority, with or without property dimensions',()=>{
+  for(const description of ['Phase I Environmental Site Assessment','County tax certificate consulting services','Lender appraisal fee','Mill Creek clubhouse repair','School District Tax Levy 2026'])for(const property_ref of [null,'PROPERTY-1']){
+    const result=classifyRetainedInvoice(invoice({description,property_ref}),{capitalizationPolicy:policy});
+    assert.equal(result.classification,'EXPENSE',`${description} / ${property_ref}`);
+    assert.equal(result.rule_id,'AI_CAPITALIZATION_POLICY_V1');
+  }
+});
+
+test('missing, unknown, and contradictory signed document evidence fail closed',()=>{
   for(const overrides of [
-    {description:'Real estate taxes 2026',service_period_start:'2026-01-01',service_period_end:'2026-12-31'},
-    {description:'Ad valorem tax levy',service_period_start:'2026-01-01',service_period_end:'2026-06-30'},
-    {vendor_name:'County Tax Assessor',description:'Assessor statement for the land parcel',service_period_start:null,service_period_end:null},
-    {description:'Property tax on parcel under construction',amount:'25000.0000',charge_code:'BUILD-HARD',project_ref:'PROJECT-1',project_status:'UNDER_CONSTRUCTION',cost_class:'HARD_COST'},
-    {description:'Property taxes',service_period_start:'2026-06-01',service_period_end:'2026-06-30'},
-    {description:'Annual property appraisal notice',service_period_start:'2026-01-01',service_period_end:'2026-12-31'},
-    {description:'Notice of taxable value for parcel 0412',amount:'25000.0000',charge_code:'BUILD-HARD',project_ref:'PROJECT-1',project_status:'UNDER_CONSTRUCTION',cost_class:'HARD_COST'},
-    {description:'Ad valorem charge',property_ref:'PROPERTY-1',service_period_start:'2026-01-01',service_period_end:'2026-12-31'},
-    {description:'Annual millage bill',property_ref:'PROPERTY-1',amount:'25000.0000',charge_code:'BUILD-HARD',project_ref:'PROJECT-1',project_status:'UNDER_CONSTRUCTION',cost_class:'HARD_COST'},
-    {description:'2026 mill rate statement',property_ref:'PROPERTY-1',service_period_start:'2026-01-01',service_period_end:'2026-12-31'}
+    {document_evidence_status:'MISSING',document_evidence_schema_version:null,document_evidence_hash:null,document_kind:null},
+    {document_kind:'UNKNOWN'},
+    {document_kind:'INVOICE',taxing_jurisdiction:'County'},
+    {document_kind:'TAX_STATEMENT',taxing_jurisdiction:'County',tax_statement_identifier:'STATEMENT-1',tax_coverage_period_start:'2026-12-31',tax_coverage_period_end:'2026-01-01',tax_obligation_basis:'ASSESSED_VALUE',controlled_property_ref:'PROPERTY-1',parcel_identifier:'PARCEL-1'},
+    {document_kind:'TAX_STATEMENT',taxing_jurisdiction:'County',tax_statement_identifier:'STATEMENT-1',tax_coverage_period_start:'2026-01-01',tax_coverage_period_end:'2026-12-31',tax_obligation_basis:'UNKNOWN',controlled_property_ref:'PROPERTY-1',parcel_identifier:'PARCEL-1'}
   ]){
     const result=classifyRetainedInvoice(invoice(overrides),{capitalizationPolicy:policy});
     assert.equal(result.classification,'BLOCKED',JSON.stringify(overrides));
-    assert.equal(result.rule_id,'TAX_OBLIGATION_REQUIRES_TAX_STATEMENT_SOURCE',JSON.stringify(overrides));
-  }
-});
-
-test('recognizes statutory property-tax documents without requiring the words property tax',()=>{
-  for(const overrides of [
-    {vendor_name:'Harris County Appraisal District',description:'2026 tax statement for parcel 0412-88-3301'},
-    {vendor_name:'Harris County',description:'County tax bill parcel 0412-88-3301'},
-    {vendor_name:'Harris County Appraisal District',description:'Notice of Appraised Value for parcel 0412-88-3301'},
-    {vendor_name:'Harris County',description:'County Taxes Due, parcel 0412-88-3301'},
-    {vendor_name:'Spring Independent School District',description:'School District Levy, property account 0412-88-3301'},
-    {vendor_name:'Municipal Utility District',description:'Special assessment for parcel 0412-88-3301'},
-    {vendor_name:'Harris County',description:'Tax invoice for parcel 0412-88-3301'},
-    {vendor_name:'Harris County',description:'Notice of delinquent taxes for parcel 0412-88-3301'},
-    {vendor_name:'Spring Independent School District',description:'School district taxes for property account 0412-88-3301'},
-    {vendor_name:'Municipal Utility District',description:'Municipal property levy for parcel 0412-88-3301'},
-    {vendor_name:'Harris County',description:'Tax certificate for parcel 0412-88-3301'},
-    {vendor_name:'Harris County Appraisal District',description:'Annual property assessment notice'},
-    {vendor_name:'Harris County',description:'Real property levy'},
-    {vendor_name:'Harris County',description:'Real estate assessment'},
-    {vendor_name:'Harris County Appraisal District',description:'Notice of appraised value, property ID 0412-88-3301'},
-    {vendor_name:'Harris County Appraisal District',description:'Assessed value notice',property_ref:'PROPERTY-1'},
-    {vendor_name:'Independent Valuation Office',description:'Property valuation notice'},
-    {vendor_name:'Harris County Appraisal District',description:'Annual property appraisal notice'},
-    {vendor_name:'Harris County Appraisal District',description:'Notice of taxable value for parcel 0412-88-3301'},
-    {vendor_name:'Harris County Appraisal District',description:'Property value notice'},
-    {vendor_name:'Independent Appraiser',description:'Annual appraisal notice',property_ref:'PROPERTY-1'},
-    {vendor_name:'Harris County',description:'Ad valorem charge',property_ref:'PROPERTY-1'},
-    {vendor_name:'Harris County',description:'Annual millage bill',property_ref:'PROPERTY-1'},
-    {vendor_name:'Harris County',description:'2026 mill rate statement',property_ref:'PROPERTY-1'}
-  ]){
-    const result=classifyRetainedInvoice(invoice({...overrides,service_period_start:'2026-01-01',service_period_end:'2026-12-31'}),{capitalizationPolicy:policy});
-    assert.equal(result.classification,'BLOCKED',JSON.stringify(overrides));
-    assert.equal(result.rule_id,'TAX_OBLIGATION_REQUIRES_TAX_STATEMENT_SOURCE',JSON.stringify(overrides));
-    assert.deepEqual(result.action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
-  }
-});
-
-test('ordinary non-property tax and assessment text plus vendor names alone do not trigger the property-tax gate',()=>{
-  for(const [description,vendor_name] of [
-    ['Landscaping services, sales tax included','Example vendor'],
-    ['Sales tax bill preparation and filing','Example vendor'],
-    ['Tax preparation advisory retainer','Example vendor'],
-    ['Taxi reimbursement for site visit','Example vendor'],
-    ['Annual retainer for consulting','Property Tax Advisors LLC'],
-    ['Professional services for appeal','Property Tax Advisors LLC'],
-    ['Valuation consulting engagement','Property Tax Advisors LLC'],
-    ['Consulting engagement','Tax Assessor Consulting'],
-    ['Security assessment for access controls','Security Consultants LLC'],
-    ['Annual equipment appraisal services','Equipment Appraisers LLC'],
-    ['Business value appraisal engagement','Valuation Advisors LLC'],
-    ['Annual sales tax advisory','Sales Tax Advisors LLC'],
-    ['Payroll tax filing services','Payroll Services LLC'],
-    ['Income tax preparation','Tax Preparation LLC']
-  ]){
-    const result=classifyRetainedInvoice(invoice({description,vendor_name}),{capitalizationPolicy:policy});
-    assert.notEqual(result.rule_id,'TAX_OBLIGATION_REQUIRES_TAX_STATEMENT_SOURCE',description);
-  }
-});
-
-test('ambiguous property-tax-related services block until an authoritative document type is retained',()=>{
-  for(const overrides of [
-    {description:'Property tax appeal consulting services',vendor_name:'Property Tax Advisors LLC',property_ref:'PROPERTY-1'},
-    {description:'Property assessment consulting for parcel 0412',vendor_name:'Property Consultants LLC'},
-    {description:'Property valuation consulting engagement',vendor_name:'Valuation Advisors LLC'},
-    {description:'Property tax advisory retainer',vendor_name:'Property Tax Advisors LLC',property_ref:'PROPERTY-1'},
-    {description:'Property tax software services invoice for parcel tracking',vendor_name:'Property Tax Software LLC'},
-    {description:'Assessment software configuration',vendor_name:'Software LLC',property_ref:'PROPERTY-1'},
-    {description:'Assessed value appeal service',vendor_name:'Appeal Advisors LLC',property_ref:'PROPERTY-1'},
-    {description:'Appraised value consulting',vendor_name:'Appraisal Advisors LLC',property_ref:'PROPERTY-1'},
-    {description:'Municipal property levy advisory',vendor_name:'Municipal Advisors LLC'},
-    {description:'Real estate assessment review service',vendor_name:'Assessment Review LLC'},
-    {description:'Tax certificate consulting for property account',vendor_name:'Tax Consultants LLC'},
-    {description:'County property tax legal filing for parcel',vendor_name:'Property Tax Attorneys LLC'}
-  ]){
-    const result=classifyRetainedInvoice(invoice(overrides),{capitalizationPolicy:policy});
-    assert.equal(result.classification,'BLOCKED',JSON.stringify(overrides));
-    assert.equal(result.rule_id,'TAX_OBLIGATION_REQUIRES_TAX_STATEMENT_SOURCE',JSON.stringify(overrides));
+    assert.match(result.rule_id,/AI_PAYABLE_DOCUMENT_KIND_EVIDENCE_(?:REQUIRED|INVALID)_V1/);
     assert.deepEqual(result.action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
   }
 });

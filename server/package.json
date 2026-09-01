@@ -52,7 +52,7 @@
     "test:ai-accrual-repository": "node --test tests/ai-accrual-repository-read-contract.test.mjs",
     "test:ai-analysis-explanation": "node --test tests/ai-analysis-explanation-service.test.mjs",
     "test:ai-analysis-explanation-http": "node --test tests/ai-analysis-explanation-http-contract.test.mjs",
-    "test:ai-invoice-classification": "node --test tests/ai-capitalization-policy.test.mjs tests/ai-invoice-accounting-classifier.test.mjs tests/ai-invoice-accounting-classification-service.test.mjs tests/ai-invoice-accounting-classification-http-contract.test.mjs tests/ai-invoice-accounting-classification-evidence-contract.test.mjs",
+    "test:ai-invoice-classification": "node --test tests/ai-capitalization-policy.test.mjs tests/ai-invoice-accounting-classifier.test.mjs tests/ai-invoice-accounting-classification-service.test.mjs tests/ai-invoice-accounting-classification-http-contract.test.mjs tests/ai-invoice-accounting-classification-evidence-contract.test.mjs tests/wbs-final1-payable-typed-document-evidence-contract.test.mjs",
     "test:controlled-demo-tenant": "node --test tests/controlled-demo-tenant-contract.test.mjs",
     "test:no-synthetic-provisioning": "node --test tests/controlled-demo-bootstrap.test.mjs",
     "test:authoritative-scope": "node --test tests/authoritative-scope-read-contract.test.mjs",
