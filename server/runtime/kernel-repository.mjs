@@ -2684,4 +2684,21 @@ export class PostgresAccountingKernel{
       [tenantId,eventId,success,retryable,errorCode,maxAttempts,retryBaseSeconds]
     ),'OUTBOX_DISPATCH_COMPLETION_FAILED','Outbox dispatch completion did not return a receipt').result);
   }
+
+  async readOutboxDispatchBacklog({tenantId,entityId}){
+    return this.inSession(async client=>{
+      const row=requireRow(await client.query(`
+        SELECT $1::uuid AS tenant_id,$2::uuid AS entity_id,
+          count(*) FILTER (WHERE status='PENDING')::integer AS pending_count,
+          count(*) FILTER (WHERE status='FAILED')::integer AS failed_count,
+          min(created_at) FILTER (WHERE status='PENDING') AS oldest_pending_at
+        FROM outbox_event
+        WHERE tenant_id=$1 AND entity_id=$2
+          AND refs_entity_has_permission($2,'OUTBOX.DISPATCH') IS TRUE
+      `,[tenantId,entityId]),'OUTBOX_DISPATCH_BACKLOG_UNAVAILABLE','Outbox backlog evidence is unavailable');
+      const pendingCount=Number(row.pending_count),failedCount=Number(row.failed_count);
+      if(!Number.isSafeInteger(pendingCount)||pendingCount<0||!Number.isSafeInteger(failedCount)||failedCount<0)throw new KernelError('OUTBOX_DISPATCH_BACKLOG_INVALID','Outbox backlog evidence is invalid');
+      return {tenant_id:row.tenant_id,entity_id:row.entity_id,pending_count:pendingCount,failed_count:failedCount,oldest_pending_at:row.oldest_pending_at};
+    });
+  }
 }

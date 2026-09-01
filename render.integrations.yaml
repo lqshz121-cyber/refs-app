@@ -218,3 +218,5 @@ services:
         value: "8"
       - key: OUTBOX_DISPATCH_RETRY_BASE_SECONDS
         value: "5"
+      - key: OUTBOX_DISPATCH_HEALTH_PORT
+        value: "10002"

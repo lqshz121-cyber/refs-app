@@ -157,8 +157,9 @@ services:
         sync: false
   # Dedicated transactional-outbox dispatcher for the authoritative API above.
   # It has no listener. Database credentials are inherited from that API, its
-  # tenant scope is pinned to the same Stage 1 tenant, and the service actor must
-  # receive only OUTBOX.DISPATCH for that tenant.
+  # tenant/entity scope is pinned to the same Stage 1 company, and the service
+  # actor must receive exactly OUTBOX.DISPATCH for that entity. Startup verifies
+  # the effective grant and backlog before the first claim.
   - type: worker
     name: refs-outbox-dispatch-staging
     runtime: node
@@ -194,7 +195,7 @@ services:
       - key: OUTBOX_DISPATCH_ACTOR_ID
         sync: false
       - key: OUTBOX_DISPATCH_SCOPES
-        value: '[{"tenantId":"6fb25daf-0799-4805-bede-be54230da33c"}]'
+        value: '[{"tenantId":"6fb25daf-0799-4805-bede-be54230da33c","entityId":"ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3"}]'
       - key: OUTBOX_PUBLISH_URL
         sync: false
       - key: OUTBOX_PUBLISH_TOKEN
@@ -209,6 +210,8 @@ services:
         value: "8"
       - key: OUTBOX_DISPATCH_RETRY_BASE_SECONDS
         value: "5"
+      - key: OUTBOX_DISPATCH_HEALTH_PORT
+        value: "10002"
   - type: web
     name: refs-app
     runtime: static
