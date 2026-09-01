@@ -63,6 +63,10 @@ export function createAiInvoiceAccountingClassificationService({classificationIn
           charge_code:trace.accrual?.charge_code??null,contract_id:trace.accrual?.contract_id??null,service_frequency:trace.accrual?.service_frequency??null,
           document_evidence_status:evidence.document_evidence_status??'MISSING',document_evidence_schema_version:evidence.document_evidence_schema_version??null,document_evidence_hash:evidence.document_evidence_hash??null,document_kind:evidence.document_kind??null,
           taxing_jurisdiction:evidence.taxing_jurisdiction??null,tax_statement_identifier:evidence.tax_statement_identifier??null,tax_coverage_period_start:evidence.tax_coverage_period_start??null,tax_coverage_period_end:evidence.tax_coverage_period_end??null,tax_obligation_basis:evidence.tax_obligation_basis??null,controlled_property_ref:evidence.controlled_property_ref??null,parcel_identifier:evidence.parcel_identifier??null,
+          document_revision_schema_version:evidence.document_revision_schema_version??null,document_revision_kind:evidence.document_revision_kind??null,document_revision:evidence.document_revision??null,
+          predecessor_document_evidence_hash:evidence.predecessor_document_evidence_hash??null,predecessor_document_revision_hash:evidence.predecessor_document_revision_hash??null,
+          predecessor_document_revision:evidence.predecessor_document_revision??null,predecessor_source_record_id:evidence.predecessor_source_record_id??null,
+          document_revision_hash:evidence.document_revision_hash??null,document_lifecycle_status:evidence.document_lifecycle_status??(evidence.document_kind==='INVOICE'?'NOT_APPLICABLE':null),
           duplicate_status:duplicates.has(detail.source_document_id)?'POSSIBLE':'NONE',accounting_status:Array.isArray(detail.posted_journal_entry_ids)&&detail.posted_journal_entry_ids.length>0?'POSTED':'NOT_RECORDED',
           // A project reference does not prove construction status or
           // capitalization eligibility. Those policy facts must arrive as

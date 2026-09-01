@@ -616,6 +616,9 @@ export class PostgresAccountingKernel{
       return result;
     });
   }
+  async readWbsFinal1PayableDocumentRevisions({tenantId,entityId,statutoryIdentityHash=null,limit=100}){
+    return this.inSession(async client=>(await client.query('SELECT refs_read_wbs_final1_payable_document_revisions($1,$2,$3,$4) AS result',[tenantId,entityId,statutoryIdentityHash,limit])).rows[0].result);
+  }
 
   async listAiWbsExceptionFindings({tenantId,entityId,limit=50}){
     return this.inSession(async client=>(await client.query(
@@ -795,7 +798,7 @@ export class PostgresAccountingKernel{
   async listAiCostDimensionFindingsForPeriod({tenantId,entityId,periodId,limit=50}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_cost_dimension_findings_for_period($1,$2,$3,$4)',[tenantId,entityId,periodId,limit])).rows);}
   async listAiLoanReferenceFindingsForPeriod({tenantId,entityId,periodId,limit=50}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_loan_reference_findings_for_period($1,$2,$3,$4)',[tenantId,entityId,periodId,limit])).rows);}
   async readAiCwipPostCompletionSource({tenantId,entityId,accountingPeriodId,limit=500}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_cwip_post_completion_source($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows);}
-  async readAiInvoiceClassificationSource({tenantId,entityId,accountingPeriodId,limit=100}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_invoice_classification_source_v3($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date),invoice_date:publicDate(row.invoice_date),service_period_start:publicDate(row.service_period_start),service_period_end:publicDate(row.service_period_end),tax_coverage_period_start:publicDate(row.tax_coverage_period_start),tax_coverage_period_end:publicDate(row.tax_coverage_period_end)})));}
+  async readAiInvoiceClassificationSource({tenantId,entityId,accountingPeriodId,limit=100}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_invoice_classification_source_v4($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date),invoice_date:publicDate(row.invoice_date),service_period_start:publicDate(row.service_period_start),service_period_end:publicDate(row.service_period_end),tax_coverage_period_start:publicDate(row.tax_coverage_period_start),tax_coverage_period_end:publicDate(row.tax_coverage_period_end)})));}
 
   async readAiAccountingDecisionPopulation({tenantId,entityId,accountingPeriodId,pageSize=250,maxRows=10000}){
     if(!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>500||!Number.isSafeInteger(maxRows)||maxRows<1||maxRows>10000)throw new KernelError('AI_ACCOUNTING_DECISION_SCOPE_INVALID','Decision population paging requires pageSize 1-500 and maxRows 1-10000');

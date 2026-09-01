@@ -9,6 +9,8 @@ const upV2=read('../db/migrations/257_ai_invoice_classification_dimension_source
 const downV2=read('../db/migrations/down/257_ai_invoice_classification_dimension_source_read.sql');
 const upV3=read('../db/migrations/297_wbs_final1_payable_typed_document_evidence.sql');
 const downV3=read('../db/migrations/down/297_wbs_final1_payable_typed_document_evidence.sql');
+const upV4=read('../db/migrations/298_wbs_final1_payable_document_revision_lifecycle.sql');
+const downV4=read('../db/migrations/down/298_wbs_final1_payable_document_revision_lifecycle.sql');
 const repository=read('../runtime/kernel-repository.mjs');
 const server=read('../runtime/accounting-server.mjs');
 
@@ -25,11 +27,19 @@ test('invoice population reader is exact-period, analysis-only, retained-payable
 });
 
 test('production classification uses the dedicated reader and rollback removes only that function',()=>{
-  assert.match(repository,/readAiInvoiceClassificationSource/);assert.match(repository,/refs_read_ai_invoice_classification_source_v3\(\$1,\$2,\$3,\$4\)/);
+  assert.match(repository,/readAiInvoiceClassificationSource/);assert.match(repository,/refs_read_ai_invoice_classification_source_v4\(\$1,\$2,\$3,\$4\)/);
   assert.match(server,/classificationInputReader:scope=>kernel\.readAiInvoiceClassificationSource\(scope\)/);
   assert.doesNotMatch(server,/aiInvoiceAccountingClassificationServiceFactory[\s\S]{0,250}listSourceDocuments/);
   assert.match(down,/DROP FUNCTION refs_read_ai_invoice_classification_source\(uuid,uuid,uuid,integer\)/);assert.match(downV2,/DROP FUNCTION refs_read_ai_invoice_classification_source_v2\(uuid,uuid,uuid,integer\)/);
   assert.match(downV3,/DROP FUNCTION IF EXISTS refs_read_ai_invoice_classification_source_v3\(uuid,uuid,uuid,integer\)/);
+  assert.match(downV4,/DROP FUNCTION IF EXISTS refs_read_ai_invoice_classification_source_v4\(uuid,uuid,uuid,integer\)/);
+});
+
+test('v4 reads only the current immutable tax-statement revision',()=>{
+  assert.match(upV4,/CREATE FUNCTION refs_read_ai_invoice_classification_source_v4/);
+  assert.match(upV4,/wbs_final1_payable_document_revision_current/);
+  assert.match(upV4,/document_lifecycle_status text/);
+  assert.match(upV4,/e\.document_kind IS DISTINCT FROM 'TAX_STATEMENT' OR c\.wbs_final1_payable_document_revision_id IS NOT NULL/);
 });
 
 test('v2 binds dimensions, vendor/member, complete attachment set, account controls, and booking presence',()=>{

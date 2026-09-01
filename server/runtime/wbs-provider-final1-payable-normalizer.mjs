@@ -12,6 +12,8 @@ const DOCUMENT_EVIDENCE_SCHEMA='WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_V1';
 const DOCUMENT_KINDS=Object.freeze(['INVOICE','TAX_STATEMENT']);
 const TAX_OBLIGATION_BASES=Object.freeze(['ASSESSED_VALUE','MILLAGE_RATE','FIXED_STATUTORY_AMOUNT']);
 const TYPED_DOCUMENT_KEYS=Object.freeze(['document_evidence_schema_version','document_kind','taxing_jurisdiction','tax_statement_identifier','tax_coverage_period_start','tax_coverage_period_end','tax_obligation_basis','controlled_property_ref','parcel_identifier']);
+const DOCUMENT_REVISION_SCHEMA='WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_V1';
+const DOCUMENT_REVISION_KEYS=Object.freeze(['document_revision_schema_version','document_revision_kind','document_revision','predecessor_document_evidence_hash','predecessor_document_revision_hash','predecessor_document_revision','predecessor_source_record_id']);
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.getPrototypeOf(value)===Object.prototype;
 const freeze=value=>Object.freeze(value);
 const deepFreeze=value=>{
@@ -36,15 +38,26 @@ const requiredUuid=(value,label)=>{if(!UUID.test(value||''))fail('WBS_FINAL1_NOR
 
 function typedDocumentEvidence(row){
   const present=TYPED_DOCUMENT_KEYS.filter(key=>Object.hasOwn(row,key));
-  if(present.length===0)return freeze({status:'MISSING',schemaVersion:null,documentKind:null,taxingJurisdiction:null,taxStatementIdentifier:null,taxCoveragePeriodStart:null,taxCoveragePeriodEnd:null,taxObligationBasis:null,controlledPropertyRef:null,parcelIdentifier:null});
+  const revisionPresent=DOCUMENT_REVISION_KEYS.filter(key=>Object.hasOwn(row,key));
+  const emptyRevision={revisionSchemaVersion:null,revisionKind:null,documentRevision:null,predecessorDocumentEvidenceHash:null,predecessorDocumentRevisionHash:null,predecessorDocumentRevision:null,predecessorSourceRecordId:null};
+  if(present.length===0){
+    if(revisionPresent.length!==0)fail('WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_INVALID','Revision evidence cannot exist without typed payable-document evidence.');
+    return freeze({status:'MISSING',schemaVersion:null,documentKind:null,taxingJurisdiction:null,taxStatementIdentifier:null,taxCoveragePeriodStart:null,taxCoveragePeriodEnd:null,taxObligationBasis:null,controlledPropertyRef:null,parcelIdentifier:null,...emptyRevision});
+  }
   if(present.length!==TYPED_DOCUMENT_KEYS.length||row.document_evidence_schema_version!==DOCUMENT_EVIDENCE_SCHEMA||!DOCUMENT_KINDS.includes(row.document_kind))fail('WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_INVALID','Signed payable document evidence is incomplete, unversioned, or has an unknown document kind.');
   const taxValues=TYPED_DOCUMENT_KEYS.slice(2).map(key=>row[key]);
   if(row.document_kind==='INVOICE'){
     if(taxValues.some(value=>value!==null))fail('WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_CONTRADICTORY','An INVOICE must carry explicit nulls for every tax-statement field.');
+    if(revisionPresent.length!==0)fail('WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_CONTRADICTORY','An INVOICE cannot carry tax-statement revision evidence.');
   }else{
     if(!taxValues.every(value=>typeof value==='string'&&value.trim().length>0)||!exactDate(row.tax_coverage_period_start)||!exactDate(row.tax_coverage_period_end)||row.tax_coverage_period_start>row.tax_coverage_period_end||!TAX_OBLIGATION_BASES.includes(row.tax_obligation_basis))fail('WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_INVALID','A TAX_STATEMENT requires exact jurisdiction, statement, coverage, obligation-basis, controlled-property, and parcel evidence.');
+    if(revisionPresent.length!==DOCUMENT_REVISION_KEYS.length||row.document_revision_schema_version!==DOCUMENT_REVISION_SCHEMA||!['ORIGINAL','CORRECTION','WITHDRAWN'].includes(row.document_revision_kind)||!Number.isSafeInteger(row.document_revision)||row.document_revision<1||row.document_revision>999999999)fail('WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_INVALID','A TAX_STATEMENT requires exact signed revision evidence.');
+    if(row.document_revision_kind==='WITHDRAWN')fail('WBS_FINAL1_PAYABLE_DOCUMENT_WITHDRAWN','A withdrawn tax statement cannot be retained as accounting evidence.');
+    const predecessorValues=DOCUMENT_REVISION_KEYS.slice(3).map(key=>row[key]);
+    if(row.document_revision_kind==='ORIGINAL'&&(row.document_revision!==1||predecessorValues.some(value=>value!==null)))fail('WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_INVALID','An ORIGINAL tax statement must be revision 1 with explicit null predecessor evidence.');
+    if(row.document_revision_kind==='CORRECTION'&&(row.document_revision<2||!HASH.test(row.predecessor_document_evidence_hash||'')||!HASH.test(row.predecessor_document_revision_hash||'')||!Number.isSafeInteger(row.predecessor_document_revision)||row.predecessor_document_revision!==row.document_revision-1||!text(row.predecessor_source_record_id)||row.predecessor_source_record_id.trim().length>512))fail('WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_INVALID','A CORRECTION must bind the exact immediately preceding signed revision.');
   }
-  return freeze({status:'COMPLETE',schemaVersion:row.document_evidence_schema_version,documentKind:row.document_kind,taxingJurisdiction:row.taxing_jurisdiction,taxStatementIdentifier:row.tax_statement_identifier,taxCoveragePeriodStart:row.tax_coverage_period_start,taxCoveragePeriodEnd:row.tax_coverage_period_end,taxObligationBasis:row.tax_obligation_basis,controlledPropertyRef:row.controlled_property_ref,parcelIdentifier:row.parcel_identifier});
+  return freeze({status:'COMPLETE',schemaVersion:row.document_evidence_schema_version,documentKind:row.document_kind,taxingJurisdiction:row.taxing_jurisdiction,taxStatementIdentifier:row.tax_statement_identifier,taxCoveragePeriodStart:row.tax_coverage_period_start,taxCoveragePeriodEnd:row.tax_coverage_period_end,taxObligationBasis:row.tax_obligation_basis,controlledPropertyRef:row.controlled_property_ref,parcelIdentifier:row.parcel_identifier,...(row.document_kind==='TAX_STATEMENT'?{revisionSchemaVersion:row.document_revision_schema_version,revisionKind:row.document_revision_kind,documentRevision:row.document_revision,predecessorDocumentEvidenceHash:row.predecessor_document_evidence_hash,predecessorDocumentRevisionHash:row.predecessor_document_revision_hash,predecessorDocumentRevision:row.predecessor_document_revision,predecessorSourceRecordId:row.predecessor_source_record_id}:emptyRevision)});
 }
 
 function requireExpectedCurrency(expectedCurrency){
@@ -93,7 +106,10 @@ function normalizedRow(row,{verified,expectedCurrency,currencyAuthority,sourceRo
       businessId:optionalText(row.business_id),journalNo:optionalText(row.journal_no),payStatus:optionalText(row.pay_status),reviewStatus:optionalText(row.review_status),description:optionalText(row.description),currency:expectedCurrency,
       documentEvidenceStatus:documentEvidence.status,documentEvidenceSchemaVersion:documentEvidence.schemaVersion,documentKind:documentEvidence.documentKind,
       taxingJurisdiction:documentEvidence.taxingJurisdiction,taxStatementIdentifier:documentEvidence.taxStatementIdentifier,taxCoveragePeriodStart:documentEvidence.taxCoveragePeriodStart,
-      taxCoveragePeriodEnd:documentEvidence.taxCoveragePeriodEnd,taxObligationBasis:documentEvidence.taxObligationBasis,controlledPropertyRef:documentEvidence.controlledPropertyRef,parcelIdentifier:documentEvidence.parcelIdentifier
+      taxCoveragePeriodEnd:documentEvidence.taxCoveragePeriodEnd,taxObligationBasis:documentEvidence.taxObligationBasis,controlledPropertyRef:documentEvidence.controlledPropertyRef,parcelIdentifier:documentEvidence.parcelIdentifier,
+      documentRevisionSchemaVersion:documentEvidence.revisionSchemaVersion,documentRevisionKind:documentEvidence.revisionKind,documentRevision:documentEvidence.documentRevision,
+      predecessorDocumentEvidenceHash:documentEvidence.predecessorDocumentEvidenceHash,predecessorDocumentRevisionHash:documentEvidence.predecessorDocumentRevisionHash,
+      predecessorDocumentRevision:documentEvidence.predecessorDocumentRevision,predecessorSourceRecordId:documentEvidence.predecessorSourceRecordId
     }),
     outcome:!invoiceNo||!vendorRef&&!vendorName||!invoiceDate&&!incurredDate&&!postingDate?'EXCEPTION_REVIEW_REQUIRED':'STAGING_REVIEW_REQUIRED',exception_codes:freeze(exceptionCodes),
     can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false
