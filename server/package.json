@@ -31,6 +31,8 @@
     "test:stage3:reporting-authoritative-e2e": "node runtime/verify-stage3-reporting-authoritative-e2e.mjs",
     "test:stage3:signed-evidence-authoritative-e2e": "node --test tests/stage3-signed-evidence-authoritative-e2e.test.mjs",
     "test:stage4:authoritative-e2e": "node runtime/verify-stage4-authoritative-e2e.mjs",
+    "test:production-ai-accounting-e2e": "node runtime/run-production-ai-accounting-e2e.mjs",
+    "test:production-ai-accounting-e2e-contract": "node --test tests/production-ai-accounting-e2e-runner.test.mjs",
     "test:wbs-payable-review": "node --test tests/wbs-payable-review-contract.test.mjs",
     "test:wbs-payable-draft": "node --test tests/wbs-payable-draft-contract.test.mjs",
     "test:wbs-payable-evidence-read": "node --test tests/wbs-payable-evidence-read-contract.test.mjs",
