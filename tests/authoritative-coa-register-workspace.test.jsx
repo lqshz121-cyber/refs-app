@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {AuthoritativeChartOfAccountsWorkspace,authoritativeCoaScopeText,authoritativeRangeLabel,restoreAuthoritativeCoaReturnContext} from '../src/authoritative-coa-register-workspace.jsx';
+import {AuthoritativeChartOfAccountsWorkspace,authoritativeCoaScopeText,authoritativeRangeLabel,filterAuthoritativeRegisterRows,restoreAuthoritativeCoaReturnContext} from '../src/authoritative-coa-register-workspace.jsx';
 import {AuthoritativeAccountRegisterView,AuthoritativeChartOfAccountsView} from '../src/authoritative-coa-view.jsx';
 
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222',baseUrl:'https://api.example',getAccessToken:async()=> 'a'.repeat(48)};
@@ -42,15 +42,36 @@ const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
 assert.match(styles,/\.authoritative-register-scope/);assert.match(styles,/\.authoritative-coa-filter/);assert.match(styles,/\.authoritative-coa-presentation \.authoritative-coa-filter\{padding:10px 0;border:0;border-radius:0;background:transparent;box-shadow:none;\}/);assert.match(styles,/\.authoritative-coa-pagination/);assert.match(styles,/\.authoritative-status\.is-active/);assert.match(styles,/@media \(max-width:600px\)/);
 assert.match(styles,/\.authoritative-register-scope\{display:flex;gap:0;overflow-x:auto;margin:0 0 14px;border:var\(--qb-hair\) solid var\(--qb-divider\);border-radius:var\(--qb-r-card\);background:var\(--qb-surface\);box-shadow:none;scrollbar-width:thin;\}/,'Register scope must use one compact, keyboard-scrollable fact strip at every width');
 assert.match(styles,/\.authoritative-register-scope>span\{flex:1 0 150px;min-height:0;padding:9px 12px;border:0;border-right:var\(--qb-hair\) solid var\(--qb-divider\);border-radius:0;background:transparent;box-shadow:none;\}/,'Register scope facts must use compact dividers rather than four tall cards');
-assert.match(styles,/\.authoritative-register-filter-panel\{display:grid;grid-template-columns:minmax\(220px,1fr\) auto;/,'expanded Register filters must keep Find and its actions in one contained desktop row');
+assert.match(styles,/\.authoritative-register-filter-panel\{display:grid;grid-template-columns:minmax\(220px,1fr\) repeat\(2,minmax\(150px,auto\)\);/,'expanded Register filters must keep Find and bounded dates in one contained desktop row');
 assert.match(styles,/@media \(max-width:600px\)\{[\s\S]*?\.authoritative-register-filter-panel\{grid-template-columns:minmax\(0,1fr\);\}/,'phone-width Register filters must stack inside their own disclosure without widening the page');
 assert.match(styles,/\.authoritative-register-scope>span:first-child,[^\n]+\{border-top:0;\}/,'Register scope must remove the unrelated four-color card accents');
 assert.match(styles,/\.authoritative-register-table,\.authoritative-coa-table,\.authoritative-journal-table,\.authoritative-journal-line-table,\.authoritative-general-ledger-table,\.authoritative-document-table,\.authoritative-adjustment-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'long accounting and document tables must remain contained on mobile after the generic table override');
 assert.match(source,/AuthoritativeChartOfAccountsView/);assert.match(source,/AuthoritativeAccountRegisterView/);assert.doesNotMatch(source,/Chart of Accounts reading path/,'QBO-style COA must not add a reading rail above a simple list');assert.doesNotMatch(source,/Account register reading path/,'Account Register must not repeat its scope and table structure as a reading rail');
 assert.match(source,/authoritative-register-filter[\s\S]*aria-live="polite"[\s\S]*disabled=\{state\.phase==='LOADING'\}[\s\S]*'Loading…':'Refresh'/,'Register must announce result changes and prevent duplicate refresh reads while loading');
-assert.match(source,/className="authoritative-list-more-filters authoritative-register-filter-disclosure"[\s\S]*?<summary aria-label=\{query\?'Filter, 1 active filter':undefined\}>Filter<\/summary>/,'Register must keep its observed QBO Filter entry compact and expose active state only to assistive technology');
-assert.match(source,/<span>Find<\/span><input value=\{filterDraft\}[\s\S]*?>Reset<\/button>[\s\S]*?>Apply<\/button>[\s\S]*?>Close<\/button>/,'Register Find must remain staged until Apply and retain the observed Reset / Apply contract');
+assert.match(source,/className="authoritative-list-more-filters authoritative-register-filter-disclosure"[\s\S]*?<summary aria-label=\{query\|\|dateFilterCount\?`Filter, \$\{Number\(Boolean\(query\)\)\+dateFilterCount\} active filters`:undefined\}>Filter<\/summary>/,'Register must keep its observed QBO Filter entry compact and expose every active filter only to assistive technology');
+assert.match(source,/<span>Find<\/span><input[^>]*value=\{filterDraft\.query\}[\s\S]*?<span>From<\/span><input type="date"[\s\S]*?<span>To<\/span><input type="date"[\s\S]*?>Reset<\/button>[\s\S]*?disabled=\{invalidFilter\}[\s\S]*?>Apply<\/button>[\s\S]*?>Close<\/button>/,'Register Find and dates must remain staged until a valid Apply');
+assert.match(source,/From must be on or before To\.[\s\S]*Dates must stay within the selected period\./,'invalid and out-of-period dates must fail closed before changing visible results');
+assert.match(source,/setQuery\(filterDraft\.query\);setDateRange\(\{from:filterDraft\.from,through:filterDraft\.through\}\);setPage\(0\);if\(filterDetailsRef\.current\)filterDetailsRef\.current\.open=false/,'Apply must atomically publish staged Find and dates, reset paging, and close the disclosure');
 assert.doesNotMatch(source,/<label><span>Search<\/span><input value=\{query\}/,'Register must not keep an always-open immediate Search field beside the observed Filter entry');
+assert.doesNotMatch(source,/Reconcile Status|Transaction Type|<span>Payee<\/span>|payeeFilter/,'Register must not expose QBO filters whose authoritative row fields are absent');
+const registerRows=[
+  {ledger_line_id:'1',journal_date:'2026-08-01',journal_number:'JE-1',member_ref:'CUSTOMER-1',description:'Opening',currency:'USD',debit_amount:'25.0000',credit_amount:'0.0000'},
+  {ledger_line_id:'2',journal_date:'2026-08-15',journal_number:'JE-2',member_ref:'CUSTOMER-2',description:'Middle',currency:'USD',debit_amount:'0.0000',credit_amount:'100.1250'},
+  {ledger_line_id:'3',journal_date:'2026-08-31',journal_number:'JE-3',member_ref:null,description:'Closing',currency:'EUR',debit_amount:'50.0000',credit_amount:'0.0000'},
+];
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{from:'2026-08-15'}).map(row=>row.ledger_line_id),['2','3']);
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{through:'2026-08-15'}).map(row=>row.ledger_line_id),['1','2']);
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{from:'2026-08-02',through:'2026-08-30'}).map(row=>row.ledger_line_id),['2']);
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{from:'2026-08-31',through:'2026-08-01'}),[],'invalid date ranges must fail closed');
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{from:'not-a-date'}),[],'malformed date filters must fail closed');
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{from:'2026-02-30'}),[],'impossible calendar dates must fail closed');
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{from:'2026-13-01'}),[],'unparseable calendar dates must fail closed without throwing');
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'25'}).map(row=>row.ledger_line_id),['1']);
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'>50'}).map(row=>row.ledger_line_id),['2']);
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'<50'}).map(row=>row.ledger_line_id),['1']);
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'$50'}),[],'dollar-prefixed amounts must not match non-USD rows');
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'JE-2'}).map(row=>row.ledger_line_id),['2'],'plain text must retain Journal/member/description search');
+assert.match(source,/money4Minor[\s\S]*BigInt[\s\S]*registerAmountQuery[\s\S]*amountQuery\.usd&&row\.currency!=='USD'/,'amount Find must use exact four-decimal integer comparison and keep dollar syntax USD-only');
 assert.match(source,/AuthoritativeLineageDrill/,'Register rows must open the shared authoritative Journal, GL, and Source evidence drill');
 assert.match(source,/initial=\{\{kind:'GL',row:detail,context:\{entityId:config\.entityId,periodId:config\.periodId,journalEntryId:detail\.journal_entry_id,journalLineId:detail\.journal_line_id,ledgerLineId:detail\.ledger_line_id\}\}\}/,'Register drill must bind exact entity, period, Journal, journal-line, and ledger-line identity');
 assert.match(source,/registerTableRef\.current\?\.scrollTo[\s\S]*detailOpener\.current\)\?\.focus[\s\S]*scrollTo\?\.\(\{top:detailScrollY\.current/,'Back from Register evidence must restore table scroll, opener focus, and page scroll');
