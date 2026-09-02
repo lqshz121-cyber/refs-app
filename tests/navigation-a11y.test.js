@@ -194,6 +194,8 @@ assert.match(authoritativeShell,/'source-documents':'document', receipts:'inbox'
   'Accounting receipt and integration destinations must use explicit semantic glyph mappings');
 assert.match(authoritativeShell,/'recurring-transactions':'cycle', 'revenue-recognition':'calendar', 'fixed-assets':'layers', amortization:'cycle', 'intuit-experts':'users'/,
   'Accounting schedule destinations must use explicit semantic glyph mappings');
+assert.match(authoritativeShell,/reports:'bars', 'custom-reports':'bars', 'management-reports':'bars', 'kpi-scorecard':'bars', 'analytics-dashboards':'bars'/,
+  'Reports and Analytics children must retain explicit bars glyph mappings instead of silently falling back to a document icon');
 assert.match(authoritativeShell,/'bank-accounts':'bank', 'my-accountant':'users', 'audit-log':'shield'/,
   'the retained My accountant destination must use the shared people glyph rather than a document fallback');
 assert.doesNotMatch(authoritativeShell,/compactLabel|authoritative-nav-status|API_READ|Unavailable/,
