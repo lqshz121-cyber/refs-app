@@ -83,7 +83,7 @@ assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'$-0'}),[],
 assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'JE-2'}).map(row=>row.ledger_line_id),['2'],'plain text must retain Journal/member/description search');
 const parserCases=[
   ['50',{operator:'',usd:false,minor:500000n,negativeZero:false,amountOnly:false}],['+50',{operator:'',usd:false,minor:500000n,negativeZero:false,amountOnly:false}],['-50',{operator:'',usd:false,minor:-500000n,negativeZero:false,amountOnly:false}],
-  ['$50',{operator:'',usd:true,minor:500000n,negativeZero:false,amountOnly:true}],['$-50',{operator:'',usd:true,minor:-500000n,negativeZero:false,amountOnly:true}],['-$50',{operator:'',usd:true,minor:-500000n,negativeZero:false,amountOnly:true}],['+$50',{operator:'',usd:true,minor:500000n,negativeZero:false,amountOnly:true}],
+  ['$50',{operator:'',usd:true,minor:500000n,negativeZero:false,amountOnly:true}],['$-50',{operator:'',usd:true,minor:-500000n,negativeZero:false,amountOnly:true}],['-$50',{operator:'',usd:true,minor:-500000n,negativeZero:false,amountOnly:true}],['+$50',{operator:'',usd:true,minor:500000n,negativeZero:false,amountOnly:true}],['$+50',{operator:'',usd:true,minor:500000n,negativeZero:false,amountOnly:true}],
   ['>50',{operator:'>',usd:false,minor:500000n,negativeZero:false,amountOnly:true}],['<$-50',{operator:'<',usd:true,minor:-500000n,negativeZero:false,amountOnly:true}],['$-0',{operator:'',usd:true,minor:0n,negativeZero:true,amountOnly:true}],['-0',{operator:'',usd:false,minor:0n,negativeZero:true,amountOnly:false}],
 ];
 for(const [input,expected] of parserCases)assert.deepEqual(parseAuthoritativeRegisterFind(input),expected,`closed amount parser: ${input}`);
