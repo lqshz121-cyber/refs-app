@@ -34,7 +34,9 @@ test('migration 298 retains an append-only, scoped, current-only signed tax revi
     'pg_advisory_xact_lock',
     'Correction predecessor is no longer the current revision',
     'v_predecessor.tax_year<>v_tax_year',
-    'A booked tax statement cannot be superseded by source retention',
+    'ACCOUNTING_ADJUSTMENT_REQUIRED',
+    'v_accounting_adjustment_required:=EXISTS',
+    "'accounting_disposition'",
     'refs_create_ai_accounting_decision_draft_v298_prior',
     'Tax-statement decision source was superseded before Draft creation',
     "'gross_amount',d.gross_amount::text",
@@ -50,6 +52,7 @@ test('migration 298 retains an append-only, scoped, current-only signed tax revi
     "'can_post',false"
   ])assert.match(sql,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
   assert.doesNotMatch(sql,/UPDATE\s+wbs_final1_payable_document_revision|DELETE\s+FROM\s+wbs_final1_payable_document_revision/i);
+  assert.doesNotMatch(sql,/A booked tax statement cannot be superseded by source retention/);
   assert.doesNotMatch(sql,/'accounting_period_id',p_period,\s*'controlled_property_ref'/);
   assert.match(sql,/LEFT JOIN wbs_final1_payable_document_revision_current c[\s\S]+e\.document_kind IS DISTINCT FROM 'TAX_STATEMENT'/);
   assert.doesNotMatch(sql,/FOR SHARE OF e,r/);

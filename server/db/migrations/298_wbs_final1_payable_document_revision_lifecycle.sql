@@ -168,7 +168,7 @@ DECLARE
   v_predecessor_revision_hash text; v_predecessor_source_record text; v_identity_hash text; v_revision_hash text;
   v_revision_id uuid; v_currency text; v_issuer text; v_key_id text; v_tax_year integer;
   v_canonical_jurisdiction text; v_canonical_statement text;
-  v_amount numeric; v_predecessor_amount numeric; v_payload jsonb;
+  v_amount numeric; v_predecessor_amount numeric; v_payload jsonb; v_accounting_adjustment_required boolean;
   v_revision_keys text[]:=ARRAY['document_revision_schema_version','document_revision_kind','document_revision','predecessor_document_evidence_hash','predecessor_document_revision_hash','predecessor_document_revision','predecessor_source_record_id'];
 BEGIN
   IF p_delivery->>'domain'='PAYABLES' THEN
@@ -227,6 +227,7 @@ BEGIN
     END IF;
 
     v_kind:=v_raw->>'document_revision_kind';v_revision:=(v_raw->>'document_revision')::integer;v_tax_year:=(v_raw->>'tax_year')::integer;
+    v_accounting_adjustment_required:=false;
     v_predecessor_evidence_hash:=NULLIF(v_raw->>'predecessor_document_evidence_hash','');
     v_predecessor_revision_hash:=NULLIF(v_raw->>'predecessor_document_revision_hash','');
     v_predecessor_revision:=NULLIF(v_raw->>'predecessor_document_revision','')::integer;
@@ -266,10 +267,11 @@ BEGIN
           AND rr.source_record_id=v_predecessor.source_record_id AND rr.source_version=v_predecessor.source_version AND re.is_current) THEN
         RAISE EXCEPTION 'Correction predecessor source record is no longer current' USING ERRCODE='40001';
       END IF;
-      IF EXISTS(SELECT 1 FROM business_document b WHERE b.tenant_id=p_tenant AND b.entity_id=p_entity AND b.source_document_id=v_predecessor.source_document_id)
-        OR EXISTS(SELECT 1 FROM source_link sl WHERE sl.tenant_id=p_tenant AND sl.entity_id=p_entity AND sl.source_document_id=v_predecessor.source_document_id AND sl.journal_entry_id IS NOT NULL) THEN
-        RAISE EXCEPTION 'A booked tax statement cannot be superseded by source retention' USING ERRCODE='40001';
-      END IF;
+      -- A later signed correction is retained even after the predecessor was
+      -- booked.  Retention never rewrites that accounting; it produces an
+      -- explicit, read-only adjustment-required disposition instead.
+      v_accounting_adjustment_required:=EXISTS(SELECT 1 FROM business_document b WHERE b.tenant_id=p_tenant AND b.entity_id=p_entity AND b.source_document_id=v_predecessor.source_document_id)
+        OR EXISTS(SELECT 1 FROM source_link sl WHERE sl.tenant_id=p_tenant AND sl.entity_id=p_entity AND sl.source_document_id=v_predecessor.source_document_id AND sl.journal_entry_id IS NOT NULL);
       IF v_predecessor_evidence.tax_coverage_period_start IS NOT DISTINCT FROM v_evidence.tax_coverage_period_start
         AND v_predecessor_evidence.tax_coverage_period_end IS NOT DISTINCT FROM v_evidence.tax_coverage_period_end
         AND v_predecessor_evidence.tax_obligation_basis IS NOT DISTINCT FROM v_evidence.tax_obligation_basis
@@ -291,7 +293,7 @@ BEGIN
     INSERT INTO wbs_final1_payable_document_revision(tenant_id,entity_id,wbs_final1_payable_document_evidence_id,wbs_final1_retained_source_row_id,source_document_id,source_document_line_id,accounting_period_id,source_record_id,source_version,source_line_hash,currency,provider_issuer,provider_key_id,tax_year,tax_year_provenance,canonical_taxing_jurisdiction,canonical_tax_statement_identifier,revision_schema_version,revision_kind,document_revision,statutory_identity_hash,document_evidence_hash,predecessor_document_revision_id,predecessor_document_evidence_hash,predecessor_document_revision_hash,predecessor_document_revision,predecessor_source_record_id,revision_hash,retention_origin,created_by)
       VALUES(p_tenant,p_entity,v_evidence.wbs_final1_payable_document_evidence_id,v_retained.wbs_final1_retained_source_row_id,v_retained.source_document_id,v_retained.source_document_line_id,v_retained.accounting_period_id,v_retained.source_record_id,v_retained.source_version,v_retained.raw_row_hash,v_currency,v_issuer,v_key_id,v_tax_year,'EXPLICIT_SIGNED',v_canonical_jurisdiction,v_canonical_statement,'WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_V1',v_kind,v_revision,v_identity_hash,v_evidence.evidence_hash,v_predecessor.wbs_final1_payable_document_revision_id,v_predecessor_evidence_hash,v_predecessor_revision_hash,v_predecessor_revision,v_predecessor_source_record,v_revision_hash,'SIGNED_FINAL1_298',v_actor)
       RETURNING wbs_final1_payable_document_revision_id INTO v_revision_id;
-    v_payload:=jsonb_build_object('schema_version','WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_V1','document_revision_id',v_revision_id,'document_evidence_id',v_evidence.wbs_final1_payable_document_evidence_id,'tax_year',v_tax_year,'tax_year_provenance','EXPLICIT_SIGNED','statutory_identity_hash',v_identity_hash,'revision_kind',v_kind,'document_revision',v_revision,'revision_hash',v_revision_hash,'provider_issuer',v_issuer,'provider_key_id',v_key_id,'predecessor_document_revision_id',v_predecessor.wbs_final1_payable_document_revision_id,'lifecycle_status','CURRENT','can_create_draft',false,'can_review',false,'can_approve',false,'can_post',false);
+    v_payload:=jsonb_build_object('schema_version','WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_V1','document_revision_id',v_revision_id,'document_evidence_id',v_evidence.wbs_final1_payable_document_evidence_id,'tax_year',v_tax_year,'tax_year_provenance','EXPLICIT_SIGNED','statutory_identity_hash',v_identity_hash,'revision_kind',v_kind,'document_revision',v_revision,'revision_hash',v_revision_hash,'provider_issuer',v_issuer,'provider_key_id',v_key_id,'predecessor_document_revision_id',v_predecessor.wbs_final1_payable_document_revision_id,'lifecycle_status','CURRENT','accounting_disposition',CASE WHEN v_accounting_adjustment_required THEN 'ACCOUNTING_ADJUSTMENT_REQUIRED' ELSE 'SOURCE_RETENTION_ONLY' END,'can_create_draft',false,'can_review',false,'can_approve',false,'can_post',false);
     INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash,reason,metadata)
       VALUES(p_tenant,p_entity,'WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_RETAINED','WBS_FINAL1_PAYABLE_DOCUMENT_REVISION',v_revision_id,'RETAIN',v_actor,'SERVICE_ACCOUNT','WBS.SNAPSHOT.IMPORT',p_idempotency_key,p_idempotency_key,p_idempotency_key,v_revision_hash,'Provider-signed tax-statement revision retained without accounting action',v_payload);
     INSERT INTO outbox_event(tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash)
@@ -359,6 +361,10 @@ BEGIN
         'predecessor_document_evidence_hash',r.predecessor_document_evidence_hash,'predecessor_document_revision_hash',r.predecessor_document_revision_hash,
         'predecessor_document_revision',r.predecessor_document_revision,'predecessor_source_record_id',r.predecessor_source_record_id,
         'lifecycle_status',CASE WHEN successor.wbs_final1_payable_document_revision_id IS NULL THEN 'CURRENT' ELSE 'SUPERSEDED' END,
+        'accounting_disposition',CASE WHEN r.revision_kind='CORRECTION' AND (
+          EXISTS(SELECT 1 FROM business_document b WHERE b.tenant_id=r.tenant_id AND b.entity_id=r.entity_id AND b.source_document_id=predecessor.source_document_id)
+          OR EXISTS(SELECT 1 FROM source_link sl WHERE sl.tenant_id=r.tenant_id AND sl.entity_id=r.entity_id AND sl.source_document_id=predecessor.source_document_id AND sl.journal_entry_id IS NOT NULL)
+        ) THEN 'ACCOUNTING_ADJUSTMENT_REQUIRED' ELSE 'SOURCE_RETENTION_ONLY' END,
         'gross_amount',d.gross_amount::text,'taxing_jurisdiction',e.taxing_jurisdiction,'tax_statement_identifier',e.tax_statement_identifier,
         'tax_coverage_period_start',e.tax_coverage_period_start,'tax_coverage_period_end',e.tax_coverage_period_end,
         'tax_obligation_basis',e.tax_obligation_basis,'controlled_property_ref',e.controlled_property_ref,'parcel_identifier',e.parcel_identifier,
@@ -367,6 +373,7 @@ BEGIN
     JOIN wbs_final1_payable_document_evidence e ON e.tenant_id=r.tenant_id AND e.entity_id=r.entity_id AND e.wbs_final1_payable_document_evidence_id=r.wbs_final1_payable_document_evidence_id
     JOIN source_document d ON d.tenant_id=r.tenant_id AND d.entity_id=r.entity_id AND d.source_document_id=r.source_document_id
     LEFT JOIN wbs_final1_payable_document_revision successor ON successor.tenant_id=r.tenant_id AND successor.entity_id=r.entity_id AND successor.predecessor_document_revision_id=r.wbs_final1_payable_document_revision_id
+    LEFT JOIN wbs_final1_payable_document_revision predecessor ON predecessor.tenant_id=r.tenant_id AND predecessor.entity_id=r.entity_id AND predecessor.wbs_final1_payable_document_revision_id=r.predecessor_document_revision_id
     WHERE r.tenant_id=p_tenant AND r.entity_id=p_entity AND (p_identity_hash IS NULL OR r.statutory_identity_hash=p_identity_hash)
     ORDER BY r.document_revision DESC,r.wbs_final1_payable_document_revision_id DESC LIMIT p_limit) rows;
   RETURN result;
