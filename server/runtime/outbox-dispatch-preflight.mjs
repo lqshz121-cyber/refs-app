@@ -7,7 +7,7 @@ const fail=(code,message)=>{const error=new Error(message);error.code=code;throw
 const canonicalTime=value=>{if(value===null)return null;const date=value instanceof Date?value:new Date(value);return Number.isFinite(date.valueOf())?date.toISOString():null;};
 
 export function validateOutboxDispatchScopes(scopes){
-  if(!Array.isArray(scopes)||scopes.length===0)fail('OUTBOX_DISPATCH_SCOPE_INVALID','Outbox dispatch requires at least one tenant/entity scope.');
+  if(!Array.isArray(scopes)||scopes.length===0||scopes.length>100)fail('OUTBOX_DISPATCH_SCOPE_INVALID','Outbox dispatch requires between one and 100 tenant/entity scopes.');
   const pairs=new Set();
   return Object.freeze(scopes.map(scope=>{
     if(!exactKeys(scope,['entityId','tenantId'])||!UUID.test(scope.tenantId||'')||!UUID.test(scope.entityId||''))fail('OUTBOX_DISPATCH_SCOPE_INVALID','Every outbox scope must contain only canonical tenantId and entityId UUIDs.');

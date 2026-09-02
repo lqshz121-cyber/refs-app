@@ -2672,9 +2672,12 @@ export class PostgresAccountingKernel{
     });
   }
 
-  async claimOutboxV2({tenantId,limit=100,leaseSeconds=300}){
+  async claimOutboxV3({tenantId,scopes,limit=100,leaseSeconds=300}){
+    const entityIds=Array.isArray(scopes)?scopes.map(scope=>scope.entityId):[];
+    const grantSetVersions=Array.isArray(scopes)?scopes.map(scope=>scope.grantSetVersion):[];
     return this.inSession(async client=>(await client.query(
-      'SELECT * FROM refs_claim_outbox_v2($1,refs_current_actor(),$2,$3)',[tenantId,limit,leaseSeconds]
+      'SELECT * FROM refs_claim_outbox_v3($1,refs_current_actor(),$2::uuid[],$3::bigint[],$4,$5)',
+      [tenantId,entityIds,grantSetVersions,limit,leaseSeconds]
     )).rows);
   }
 

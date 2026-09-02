@@ -173,6 +173,7 @@ services:
     runtime: node
     rootDir: server
     buildCommand: npm ci
+    preDeployCommand: npm run preflight:outbox-dispatch-release
     startCommand: npm run start:outbox-dispatch
     autoDeployTrigger: off
     envVars:
@@ -220,3 +221,7 @@ services:
         value: "5"
       - key: OUTBOX_DISPATCH_HEALTH_PORT
         value: "10002"
+      - key: OUTBOX_DISPATCH_HEALTH_FRESHNESS_MS
+        value: "30000"
+      - key: OUTBOX_DISPATCH_MAX_CONSECUTIVE_ERRORS
+        value: "6"
