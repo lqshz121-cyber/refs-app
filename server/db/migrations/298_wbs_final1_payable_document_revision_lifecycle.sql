@@ -20,6 +20,12 @@ CREATE TABLE wbs_final1_payable_document_revision (
   source_version text NOT NULL CHECK(length(btrim(source_version)) BETWEEN 1 AND 512),
   source_line_hash text NOT NULL CHECK(source_line_hash~'^sha256:[0-9a-f]{64}$'),
   currency char(3) NOT NULL CHECK(currency~'^[A-Z]{3}$'),
+  provider_issuer text NOT NULL CHECK(length(btrim(provider_issuer)) BETWEEN 1 AND 128),
+  provider_key_id text NOT NULL CHECK(length(btrim(provider_key_id)) BETWEEN 1 AND 128),
+  tax_year integer NOT NULL CHECK(tax_year BETWEEN 1900 AND 9999),
+  tax_year_provenance text NOT NULL CHECK(tax_year_provenance IN('EXPLICIT_SIGNED','SIGNED_COVERAGE_START_BACKFILL_297')),
+  canonical_taxing_jurisdiction text NOT NULL CHECK(length(canonical_taxing_jurisdiction) BETWEEN 1 AND 200),
+  canonical_tax_statement_identifier text NOT NULL CHECK(length(canonical_tax_statement_identifier) BETWEEN 1 AND 200),
   revision_schema_version text NOT NULL CHECK(revision_schema_version='WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_V1'),
   revision_kind text NOT NULL CHECK(revision_kind IN('ORIGINAL','CORRECTION')),
   document_revision integer NOT NULL CHECK(document_revision>=1),
@@ -59,19 +65,25 @@ CREATE POLICY wbs_final1_payable_document_revision_scope ON wbs_final1_payable_d
   WITH CHECK(tenant_id=refs_current_tenant() AND refs_entity_allowed(entity_id));
 CREATE TRIGGER wbs_final1_payable_document_revision_append_only BEFORE UPDATE OR DELETE ON wbs_final1_payable_document_revision FOR EACH ROW EXECUTE FUNCTION reject_mutation();
 
+CREATE FUNCTION refs_wbs_final1_payable_document_identity_component(p_value text)
+RETURNS text LANGUAGE sql IMMUTABLE STRICT AS $$
+  SELECT upper(regexp_replace(normalize(btrim(p_value),NFC),'[[:space:]]+',' ','g'))
+$$;
+
 CREATE FUNCTION refs_wbs_final1_payable_document_identity_hash(
-  p_tenant uuid,p_entity uuid,p_currency text,p_jurisdiction text,p_statement text,
-  p_coverage_start date,p_coverage_end date,p_property text,p_parcel text
+  p_tenant uuid,p_entity uuid,p_tax_year integer,p_property text,p_jurisdiction text,p_statement text
 ) RETURNS text LANGUAGE sql IMMUTABLE AS $$
   SELECT refs_jsonb_hash(jsonb_build_object('schema_version','WBS_FINAL1_PAYABLE_DOCUMENT_IDENTITY_V1',
-    'tenant_id',p_tenant,'entity_id',p_entity,'currency',p_currency,'taxing_jurisdiction',p_jurisdiction,
-    'tax_statement_identifier',p_statement,'tax_coverage_period_start',p_coverage_start,
-    'tax_coverage_period_end',p_coverage_end,'controlled_property_ref',p_property,'parcel_identifier',p_parcel))
+    'tenant_id',p_tenant,'entity_id',p_entity,'tax_year',p_tax_year,
+    'controlled_property_ref',btrim(p_property),
+    'canonical_taxing_jurisdiction',refs_wbs_final1_payable_document_identity_component(p_jurisdiction),
+    'canonical_tax_statement_identifier',refs_wbs_final1_payable_document_identity_component(p_statement)))
 $$;
 
 CREATE FUNCTION refs_wbs_final1_payable_document_revision_hash(
   p_tenant uuid,p_entity uuid,p_evidence uuid,p_retained_row uuid,p_source_document uuid,p_source_line uuid,
-  p_period uuid,p_source_record text,p_source_version text,p_source_line_hash text,p_currency text,
+  p_period uuid,p_source_record text,p_source_version text,p_source_line_hash text,p_currency text,p_issuer text,p_key_id text,
+  p_tax_year integer,p_tax_year_provenance text,p_canonical_jurisdiction text,p_canonical_statement text,
   p_identity_hash text,p_evidence_hash text,p_kind text,p_revision integer,p_predecessor_id uuid,
   p_predecessor_evidence_hash text,p_predecessor_revision_hash text,p_predecessor_revision integer,p_predecessor_source_record text
 ) RETURNS text LANGUAGE sql IMMUTABLE AS $$
@@ -79,29 +91,57 @@ CREATE FUNCTION refs_wbs_final1_payable_document_revision_hash(
     'tenant_id',p_tenant,'entity_id',p_entity,'document_evidence_id',p_evidence,'retained_source_row_id',p_retained_row,
     'source_document_id',p_source_document,'source_document_line_id',p_source_line,'accounting_period_id',p_period,
     'source_record_id',p_source_record,'source_version',p_source_version,'source_line_hash',p_source_line_hash,
-    'currency',p_currency,'statutory_identity_hash',p_identity_hash,'document_evidence_hash',p_evidence_hash,
+    'currency',p_currency,'provider_issuer',p_issuer,'provider_key_id',p_key_id,
+    'tax_year',p_tax_year,'tax_year_provenance',p_tax_year_provenance,
+    'canonical_taxing_jurisdiction',p_canonical_jurisdiction,'canonical_tax_statement_identifier',p_canonical_statement,
+    'statutory_identity_hash',p_identity_hash,'document_evidence_hash',p_evidence_hash,
     'revision_kind',p_kind,'document_revision',p_revision,'predecessor_document_revision_id',p_predecessor_id,
     'predecessor_document_evidence_hash',p_predecessor_evidence_hash,'predecessor_document_revision_hash',p_predecessor_revision_hash,
     'predecessor_document_revision',p_predecessor_revision,'predecessor_source_record_id',p_predecessor_source_record))
 $$;
 
+-- Do not let canonicalization silently merge already-retained 297 evidence.
+-- A controller must resolve any pre-existing ambiguous statutory identity first.
+DO $$ BEGIN
+  IF EXISTS(
+    SELECT 1
+    FROM wbs_final1_payable_document_evidence e
+    JOIN wbs_final1_retained_source_row r ON r.tenant_id=e.tenant_id AND r.entity_id=e.entity_id
+      AND r.wbs_final1_retained_source_row_id=e.wbs_final1_retained_source_row_id
+    WHERE e.document_kind='TAX_STATEMENT'
+    GROUP BY e.tenant_id,e.entity_id,extract(year FROM e.tax_coverage_period_start)::integer,e.controlled_property_ref,
+      refs_wbs_final1_payable_document_identity_component(e.taxing_jurisdiction),
+      refs_wbs_final1_payable_document_identity_component(e.tax_statement_identifier)
+    HAVING count(*)>1
+  ) THEN
+    RAISE EXCEPTION 'Existing tax-statement evidence collides under the canonical statutory identity'
+      USING ERRCODE='23505';
+  END IF;
+END $$;
+
 -- Every 297 TAX_STATEMENT is the immutable first revision of its chain.
 INSERT INTO wbs_final1_payable_document_revision(
   tenant_id,entity_id,wbs_final1_payable_document_evidence_id,wbs_final1_retained_source_row_id,
   source_document_id,source_document_line_id,accounting_period_id,source_record_id,source_version,source_line_hash,
-  currency,revision_schema_version,revision_kind,document_revision,statutory_identity_hash,document_evidence_hash,
+  currency,provider_issuer,provider_key_id,tax_year,tax_year_provenance,canonical_taxing_jurisdiction,canonical_tax_statement_identifier,
+  revision_schema_version,revision_kind,document_revision,statutory_identity_hash,document_evidence_hash,
   revision_hash,retention_origin,created_by,created_at
 )
 SELECT e.tenant_id,e.entity_id,e.wbs_final1_payable_document_evidence_id,e.wbs_final1_retained_source_row_id,
   e.source_document_id,e.source_document_line_id,r.accounting_period_id,r.source_record_id,r.source_version,e.source_line_hash,
-  d.currency,'WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_V1','ORIGINAL',1,
-  refs_wbs_final1_payable_document_identity_hash(e.tenant_id,e.entity_id,d.currency::text,e.taxing_jurisdiction,e.tax_statement_identifier,e.tax_coverage_period_start,e.tax_coverage_period_end,e.controlled_property_ref,e.parcel_identifier),
+  d.currency,a.issuer,a.key_id,extract(year FROM e.tax_coverage_period_start)::integer,'SIGNED_COVERAGE_START_BACKFILL_297',
+  refs_wbs_final1_payable_document_identity_component(e.taxing_jurisdiction),
+  refs_wbs_final1_payable_document_identity_component(e.tax_statement_identifier),
+  'WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_V1','ORIGINAL',1,
+  refs_wbs_final1_payable_document_identity_hash(e.tenant_id,e.entity_id,extract(year FROM e.tax_coverage_period_start)::integer,e.controlled_property_ref,e.taxing_jurisdiction,e.tax_statement_identifier),
   e.evidence_hash,
-  refs_wbs_final1_payable_document_revision_hash(e.tenant_id,e.entity_id,e.wbs_final1_payable_document_evidence_id,e.wbs_final1_retained_source_row_id,e.source_document_id,e.source_document_line_id,r.accounting_period_id,r.source_record_id,r.source_version,e.source_line_hash,d.currency::text,
-    refs_wbs_final1_payable_document_identity_hash(e.tenant_id,e.entity_id,d.currency::text,e.taxing_jurisdiction,e.tax_statement_identifier,e.tax_coverage_period_start,e.tax_coverage_period_end,e.controlled_property_ref,e.parcel_identifier),e.evidence_hash,'ORIGINAL',1,NULL,NULL,NULL,NULL,NULL),
+  refs_wbs_final1_payable_document_revision_hash(e.tenant_id,e.entity_id,e.wbs_final1_payable_document_evidence_id,e.wbs_final1_retained_source_row_id,e.source_document_id,e.source_document_line_id,r.accounting_period_id,r.source_record_id,r.source_version,e.source_line_hash,d.currency::text,a.issuer,a.key_id,
+    extract(year FROM e.tax_coverage_period_start)::integer,'SIGNED_COVERAGE_START_BACKFILL_297',refs_wbs_final1_payable_document_identity_component(e.taxing_jurisdiction),refs_wbs_final1_payable_document_identity_component(e.tax_statement_identifier),
+    refs_wbs_final1_payable_document_identity_hash(e.tenant_id,e.entity_id,extract(year FROM e.tax_coverage_period_start)::integer,e.controlled_property_ref,e.taxing_jurisdiction,e.tax_statement_identifier),e.evidence_hash,'ORIGINAL',1,NULL,NULL,NULL,NULL,NULL),
   'BACKFILL_297',e.created_by,e.created_at
 FROM wbs_final1_payable_document_evidence e
 JOIN wbs_final1_retained_source_row r ON r.tenant_id=e.tenant_id AND r.entity_id=e.entity_id AND r.wbs_final1_retained_source_row_id=e.wbs_final1_retained_source_row_id
+JOIN wbs_final1_retained_evidence_admission a ON a.tenant_id=r.tenant_id AND a.entity_id=r.entity_id AND a.wbs_final1_retained_evidence_admission_id=r.wbs_final1_retained_evidence_admission_id
 JOIN source_document d ON d.tenant_id=e.tenant_id AND d.entity_id=e.entity_id AND d.source_document_id=e.source_document_id
 WHERE e.document_kind='TAX_STATEMENT';
 
@@ -122,10 +162,13 @@ CREATE FUNCTION refs_retain_wbs_final1_source_evidence_with_signed_controls(
 DECLARE
   v_result jsonb; v_row jsonb; v_raw jsonb; v_actor text:=refs_current_actor();
   v_retained wbs_final1_retained_source_row; v_evidence wbs_final1_payable_document_evidence;
+  v_predecessor_evidence wbs_final1_payable_document_evidence;
   v_predecessor wbs_final1_payable_document_revision; v_existing wbs_final1_payable_document_revision;
   v_kind text; v_revision integer; v_predecessor_revision integer; v_predecessor_evidence_hash text;
   v_predecessor_revision_hash text; v_predecessor_source_record text; v_identity_hash text; v_revision_hash text;
-  v_revision_id uuid; v_currency text; v_payload jsonb;
+  v_revision_id uuid; v_currency text; v_issuer text; v_key_id text; v_tax_year integer;
+  v_canonical_jurisdiction text; v_canonical_statement text;
+  v_amount numeric; v_predecessor_amount numeric; v_payload jsonb;
   v_revision_keys text[]:=ARRAY['document_revision_schema_version','document_revision_kind','document_revision','predecessor_document_evidence_hash','predecessor_document_revision_hash','predecessor_document_revision','predecessor_source_record_id'];
 BEGIN
   IF p_delivery->>'domain'='PAYABLES' THEN
@@ -134,7 +177,11 @@ BEGIN
       v_raw:=v_row->'raw_row';
       IF jsonb_typeof(v_raw) IS DISTINCT FROM 'object' THEN RAISE EXCEPTION 'Signed payable raw_row must be a closed JSON object' USING ERRCODE='23514'; END IF;
       IF v_raw->>'document_kind'='TAX_STATEMENT' THEN
-        IF NOT (v_raw ?& v_revision_keys) OR v_raw->>'document_revision_schema_version' IS DISTINCT FROM 'WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_V1'
+        IF NOT (v_raw ?& v_revision_keys) OR jsonb_typeof(v_raw->'tax_year') IS DISTINCT FROM 'number'
+          OR COALESCE(v_raw->>'tax_year','')!~'^[1-9][0-9]{3}$' OR (v_raw->>'tax_year')::integer NOT BETWEEN 1900 AND 9999
+          OR left(COALESCE(v_raw->>'tax_coverage_period_start',''),4)<>v_raw->>'tax_year'
+          OR left(COALESCE(v_raw->>'tax_coverage_period_end',''),4)<>v_raw->>'tax_year'
+          OR v_raw->>'document_revision_schema_version' IS DISTINCT FROM 'WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_V1'
           OR v_raw->>'document_revision_kind' IS NULL OR v_raw->>'document_revision_kind' NOT IN('ORIGINAL','CORRECTION','WITHDRAWN')
           OR COALESCE(v_raw->>'document_revision','')!~'^[1-9][0-9]{0,8}$' THEN
           RAISE EXCEPTION 'Signed tax-statement revision evidence is incomplete, unversioned, or unknown' USING ERRCODE='23514';
@@ -168,19 +215,25 @@ BEGIN
     SELECT * INTO STRICT v_evidence FROM wbs_final1_payable_document_evidence e
       WHERE e.tenant_id=p_tenant AND e.entity_id=p_entity AND e.wbs_final1_retained_source_row_id=v_retained.wbs_final1_retained_source_row_id
         AND e.document_kind='TAX_STATEMENT';
-    SELECT d.currency::text INTO STRICT v_currency FROM source_document d
+    SELECT d.currency::text,d.gross_amount,a.issuer,a.key_id
+      INTO STRICT v_currency,v_amount,v_issuer,v_key_id
+      FROM source_document d
+      JOIN wbs_final1_retained_evidence_admission a ON a.tenant_id=p_tenant AND a.entity_id=p_entity
+        AND a.wbs_final1_retained_evidence_admission_id=v_retained.wbs_final1_retained_evidence_admission_id
       WHERE d.tenant_id=p_tenant AND d.entity_id=p_entity AND d.source_document_id=v_retained.source_document_id;
     IF NOT EXISTS(SELECT 1 FROM raw_event e WHERE e.tenant_id=p_tenant AND e.entity_id=p_entity AND e.raw_event_id=v_retained.raw_event_id
       AND e.source_record_id=v_retained.source_record_id AND e.source_version=v_retained.source_version AND e.is_current) THEN
       RAISE EXCEPTION 'New tax-statement source record is not the exact current retained event' USING ERRCODE='40001';
     END IF;
 
-    v_kind:=v_raw->>'document_revision_kind';v_revision:=(v_raw->>'document_revision')::integer;
+    v_kind:=v_raw->>'document_revision_kind';v_revision:=(v_raw->>'document_revision')::integer;v_tax_year:=(v_raw->>'tax_year')::integer;
     v_predecessor_evidence_hash:=NULLIF(v_raw->>'predecessor_document_evidence_hash','');
     v_predecessor_revision_hash:=NULLIF(v_raw->>'predecessor_document_revision_hash','');
     v_predecessor_revision:=NULLIF(v_raw->>'predecessor_document_revision','')::integer;
     v_predecessor_source_record:=NULLIF(btrim(v_raw->>'predecessor_source_record_id'),'');
-    v_identity_hash:=refs_wbs_final1_payable_document_identity_hash(p_tenant,p_entity,v_currency,v_evidence.taxing_jurisdiction,v_evidence.tax_statement_identifier,v_evidence.tax_coverage_period_start,v_evidence.tax_coverage_period_end,v_evidence.controlled_property_ref,v_evidence.parcel_identifier);
+    v_canonical_jurisdiction:=refs_wbs_final1_payable_document_identity_component(v_evidence.taxing_jurisdiction);
+    v_canonical_statement:=refs_wbs_final1_payable_document_identity_component(v_evidence.tax_statement_identifier);
+    v_identity_hash:=refs_wbs_final1_payable_document_identity_hash(p_tenant,p_entity,v_tax_year,v_evidence.controlled_property_ref,v_evidence.taxing_jurisdiction,v_evidence.tax_statement_identifier);
     PERFORM pg_advisory_xact_lock(hashtextextended(v_identity_hash,0));
 
     v_predecessor.wbs_final1_payable_document_revision_id:=NULL;
@@ -191,13 +244,22 @@ BEGIN
       END IF;
     ELSE
       SELECT * INTO v_predecessor FROM wbs_final1_payable_document_revision r WHERE r.revision_hash=v_predecessor_revision_hash FOR SHARE;
-      IF NOT FOUND OR v_predecessor.tenant_id<>p_tenant OR v_predecessor.entity_id<>p_entity OR v_predecessor.accounting_period_id<>v_retained.accounting_period_id OR v_predecessor.statutory_identity_hash<>v_identity_hash
+      IF NOT FOUND OR v_predecessor.tenant_id<>p_tenant OR v_predecessor.entity_id<>p_entity OR v_predecessor.tax_year<>v_tax_year OR v_predecessor.statutory_identity_hash<>v_identity_hash
         OR v_predecessor.document_revision<>v_predecessor_revision OR v_predecessor.document_evidence_hash<>v_predecessor_evidence_hash
         OR v_predecessor.source_record_id<>v_predecessor_source_record OR v_predecessor.source_record_id=v_retained.source_record_id THEN
         RAISE EXCEPTION 'Correction predecessor is missing, cross-scope, stale, or identity-mismatched' USING ERRCODE='23514';
       END IF;
-      IF EXISTS(SELECT 1 FROM wbs_final1_payable_document_revision successor WHERE successor.tenant_id=p_tenant AND successor.entity_id=p_entity AND successor.predecessor_document_revision_id=v_predecessor.wbs_final1_payable_document_revision_id) THEN
-        RAISE EXCEPTION 'Correction predecessor is no longer the current revision' USING ERRCODE='40001';
+      SELECT * INTO STRICT v_predecessor_evidence FROM wbs_final1_payable_document_evidence e
+        WHERE e.tenant_id=p_tenant AND e.entity_id=p_entity
+          AND e.wbs_final1_payable_document_evidence_id=v_predecessor.wbs_final1_payable_document_evidence_id;
+      SELECT d.gross_amount INTO STRICT v_predecessor_amount FROM source_document d
+        WHERE d.tenant_id=p_tenant AND d.entity_id=p_entity AND d.source_document_id=v_predecessor.source_document_id;
+      IF v_predecessor.currency::text<>v_currency
+        OR v_predecessor_evidence.controlled_property_ref<>v_evidence.controlled_property_ref THEN
+        RAISE EXCEPTION 'Correction predecessor crosses the immutable currency or controlled-property scope' USING ERRCODE='42501';
+      END IF;
+      IF v_predecessor.provider_issuer<>v_issuer OR v_predecessor.provider_key_id<>v_key_id THEN
+        RAISE EXCEPTION 'Correction signer does not match the predecessor signer' USING ERRCODE='42501';
       END IF;
       IF NOT EXISTS(SELECT 1 FROM wbs_final1_retained_source_row rr JOIN raw_event re ON re.tenant_id=rr.tenant_id AND re.entity_id=rr.entity_id AND re.raw_event_id=rr.raw_event_id
         WHERE rr.tenant_id=p_tenant AND rr.entity_id=p_entity AND rr.wbs_final1_retained_source_row_id=v_predecessor.wbs_final1_retained_source_row_id
@@ -208,24 +270,74 @@ BEGIN
         OR EXISTS(SELECT 1 FROM source_link sl WHERE sl.tenant_id=p_tenant AND sl.entity_id=p_entity AND sl.source_document_id=v_predecessor.source_document_id AND sl.journal_entry_id IS NOT NULL) THEN
         RAISE EXCEPTION 'A booked tax statement cannot be superseded by source retention' USING ERRCODE='40001';
       END IF;
+      IF v_predecessor_evidence.tax_coverage_period_start IS NOT DISTINCT FROM v_evidence.tax_coverage_period_start
+        AND v_predecessor_evidence.tax_coverage_period_end IS NOT DISTINCT FROM v_evidence.tax_coverage_period_end
+        AND v_predecessor_evidence.tax_obligation_basis IS NOT DISTINCT FROM v_evidence.tax_obligation_basis
+        AND v_predecessor_evidence.parcel_identifier IS NOT DISTINCT FROM v_evidence.parcel_identifier
+        AND v_predecessor_amount IS NOT DISTINCT FROM v_amount THEN
+        RAISE EXCEPTION 'A CORRECTION must change at least one signed statutory payload fact' USING ERRCODE='23514';
+      END IF;
     END IF;
 
-    v_revision_hash:=refs_wbs_final1_payable_document_revision_hash(p_tenant,p_entity,v_evidence.wbs_final1_payable_document_evidence_id,v_retained.wbs_final1_retained_source_row_id,v_retained.source_document_id,v_retained.source_document_line_id,v_retained.accounting_period_id,v_retained.source_record_id,v_retained.source_version,v_retained.raw_row_hash,v_currency,v_identity_hash,v_evidence.evidence_hash,v_kind,v_revision,v_predecessor.wbs_final1_payable_document_revision_id,v_predecessor_evidence_hash,v_predecessor_revision_hash,v_predecessor_revision,v_predecessor_source_record);
+    v_revision_hash:=refs_wbs_final1_payable_document_revision_hash(p_tenant,p_entity,v_evidence.wbs_final1_payable_document_evidence_id,v_retained.wbs_final1_retained_source_row_id,v_retained.source_document_id,v_retained.source_document_line_id,v_retained.accounting_period_id,v_retained.source_record_id,v_retained.source_version,v_retained.raw_row_hash,v_currency,v_issuer,v_key_id,v_tax_year,'EXPLICIT_SIGNED',v_canonical_jurisdiction,v_canonical_statement,v_identity_hash,v_evidence.evidence_hash,v_kind,v_revision,v_predecessor.wbs_final1_payable_document_revision_id,v_predecessor_evidence_hash,v_predecessor_revision_hash,v_predecessor_revision,v_predecessor_source_record);
     SELECT * INTO v_existing FROM wbs_final1_payable_document_revision r WHERE r.tenant_id=p_tenant AND r.entity_id=p_entity AND r.wbs_final1_payable_document_evidence_id=v_evidence.wbs_final1_payable_document_evidence_id;
     IF FOUND THEN
       IF v_existing.revision_hash<>v_revision_hash THEN RAISE EXCEPTION 'Signed document revision replay drifted' USING ERRCODE='23505'; END IF;
       CONTINUE;
     END IF;
-    INSERT INTO wbs_final1_payable_document_revision(tenant_id,entity_id,wbs_final1_payable_document_evidence_id,wbs_final1_retained_source_row_id,source_document_id,source_document_line_id,accounting_period_id,source_record_id,source_version,source_line_hash,currency,revision_schema_version,revision_kind,document_revision,statutory_identity_hash,document_evidence_hash,predecessor_document_revision_id,predecessor_document_evidence_hash,predecessor_document_revision_hash,predecessor_document_revision,predecessor_source_record_id,revision_hash,retention_origin,created_by)
-      VALUES(p_tenant,p_entity,v_evidence.wbs_final1_payable_document_evidence_id,v_retained.wbs_final1_retained_source_row_id,v_retained.source_document_id,v_retained.source_document_line_id,v_retained.accounting_period_id,v_retained.source_record_id,v_retained.source_version,v_retained.raw_row_hash,v_currency,'WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_V1',v_kind,v_revision,v_identity_hash,v_evidence.evidence_hash,v_predecessor.wbs_final1_payable_document_revision_id,v_predecessor_evidence_hash,v_predecessor_revision_hash,v_predecessor_revision,v_predecessor_source_record,v_revision_hash,'SIGNED_FINAL1_298',v_actor)
+    IF v_kind='CORRECTION' AND EXISTS(SELECT 1 FROM wbs_final1_payable_document_revision successor WHERE successor.tenant_id=p_tenant AND successor.entity_id=p_entity AND successor.predecessor_document_revision_id=v_predecessor.wbs_final1_payable_document_revision_id) THEN
+      RAISE EXCEPTION 'Correction predecessor is no longer the current revision' USING ERRCODE='40001';
+    END IF;
+    INSERT INTO wbs_final1_payable_document_revision(tenant_id,entity_id,wbs_final1_payable_document_evidence_id,wbs_final1_retained_source_row_id,source_document_id,source_document_line_id,accounting_period_id,source_record_id,source_version,source_line_hash,currency,provider_issuer,provider_key_id,tax_year,tax_year_provenance,canonical_taxing_jurisdiction,canonical_tax_statement_identifier,revision_schema_version,revision_kind,document_revision,statutory_identity_hash,document_evidence_hash,predecessor_document_revision_id,predecessor_document_evidence_hash,predecessor_document_revision_hash,predecessor_document_revision,predecessor_source_record_id,revision_hash,retention_origin,created_by)
+      VALUES(p_tenant,p_entity,v_evidence.wbs_final1_payable_document_evidence_id,v_retained.wbs_final1_retained_source_row_id,v_retained.source_document_id,v_retained.source_document_line_id,v_retained.accounting_period_id,v_retained.source_record_id,v_retained.source_version,v_retained.raw_row_hash,v_currency,v_issuer,v_key_id,v_tax_year,'EXPLICIT_SIGNED',v_canonical_jurisdiction,v_canonical_statement,'WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_V1',v_kind,v_revision,v_identity_hash,v_evidence.evidence_hash,v_predecessor.wbs_final1_payable_document_revision_id,v_predecessor_evidence_hash,v_predecessor_revision_hash,v_predecessor_revision,v_predecessor_source_record,v_revision_hash,'SIGNED_FINAL1_298',v_actor)
       RETURNING wbs_final1_payable_document_revision_id INTO v_revision_id;
-    v_payload:=jsonb_build_object('schema_version','WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_V1','document_revision_id',v_revision_id,'document_evidence_id',v_evidence.wbs_final1_payable_document_evidence_id,'statutory_identity_hash',v_identity_hash,'revision_kind',v_kind,'document_revision',v_revision,'revision_hash',v_revision_hash,'predecessor_document_revision_id',v_predecessor.wbs_final1_payable_document_revision_id,'lifecycle_status','CURRENT','can_create_draft',false,'can_review',false,'can_approve',false,'can_post',false);
+    v_payload:=jsonb_build_object('schema_version','WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_V1','document_revision_id',v_revision_id,'document_evidence_id',v_evidence.wbs_final1_payable_document_evidence_id,'tax_year',v_tax_year,'tax_year_provenance','EXPLICIT_SIGNED','statutory_identity_hash',v_identity_hash,'revision_kind',v_kind,'document_revision',v_revision,'revision_hash',v_revision_hash,'provider_issuer',v_issuer,'provider_key_id',v_key_id,'predecessor_document_revision_id',v_predecessor.wbs_final1_payable_document_revision_id,'lifecycle_status','CURRENT','can_create_draft',false,'can_review',false,'can_approve',false,'can_post',false);
     INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash,reason,metadata)
       VALUES(p_tenant,p_entity,'WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_RETAINED','WBS_FINAL1_PAYABLE_DOCUMENT_REVISION',v_revision_id,'RETAIN',v_actor,'SERVICE_ACCOUNT','WBS.SNAPSHOT.IMPORT',p_idempotency_key,p_idempotency_key,p_idempotency_key,v_revision_hash,'Provider-signed tax-statement revision retained without accounting action',v_payload);
     INSERT INTO outbox_event(tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash)
       VALUES(p_tenant,p_entity,'WBS_FINAL1_PAYABLE_DOCUMENT_REVISION',v_revision_id,'WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_RETAINED',v_payload,refs_jsonb_hash(v_payload));
   END LOOP;
   RETURN v_result;
+END $$;
+
+-- A retained/accepted AI decision must not create a Draft from a tax statement
+-- that was superseded after the decision.  The advisory identity lock makes
+-- this check atomic with the correction path above.
+ALTER FUNCTION refs_create_ai_accounting_decision_draft(uuid,uuid,uuid,text,text,text,text,text)
+  RENAME TO refs_create_ai_accounting_decision_draft_v298_prior;
+REVOKE ALL ON FUNCTION refs_create_ai_accounting_decision_draft_v298_prior(uuid,uuid,uuid,text,text,text,text,text) FROM PUBLIC,refs_app;
+
+CREATE FUNCTION refs_create_ai_accounting_decision_draft(p_tenant uuid,p_entity uuid,p_decision uuid,p_expected_decision_hash text,p_expected_acceptance_hash text,p_reason text,p_idempotency_key text,p_request_hash text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE d ai_accounting_decision; v_kind text; v_identity_hash text; v_revision_id uuid;
+BEGIN
+  PERFORM refs_assert_scope(p_tenant,p_entity,'GL.JE.CREATE');
+  SELECT * INTO d FROM ai_accounting_decision
+    WHERE tenant_id=p_tenant AND entity_id=p_entity AND ai_accounting_decision_id=p_decision FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Exact accepted decision evidence is required' USING ERRCODE='40001'; END IF;
+  IF d.packet#>>'{source,source_type}'='INVOICE' THEN
+    SELECT e.document_kind,r.statutory_identity_hash,r.wbs_final1_payable_document_revision_id
+      INTO v_kind,v_identity_hash,v_revision_id
+      FROM wbs_final1_payable_document_evidence e
+      LEFT JOIN wbs_final1_payable_document_revision r
+        ON r.tenant_id=e.tenant_id AND r.entity_id=e.entity_id
+       AND r.wbs_final1_payable_document_evidence_id=e.wbs_final1_payable_document_evidence_id
+      WHERE e.tenant_id=p_tenant AND e.entity_id=p_entity AND e.source_document_id=d.source_document_id
+        AND e.source_document_line_id=(d.packet#>>'{source,source_document_line_id}')::uuid
+      FOR SHARE OF e,r;
+    IF v_kind='TAX_STATEMENT' THEN
+      IF v_identity_hash IS NULL OR v_revision_id IS NULL THEN
+        RAISE EXCEPTION 'Tax-statement decision has no retained revision evidence' USING ERRCODE='40001';
+      END IF;
+      PERFORM pg_advisory_xact_lock(hashtextextended(v_identity_hash,0));
+      IF NOT EXISTS(SELECT 1 FROM wbs_final1_payable_document_revision_current c
+        WHERE c.tenant_id=p_tenant AND c.entity_id=p_entity
+          AND c.wbs_final1_payable_document_revision_id=v_revision_id) THEN
+        RAISE EXCEPTION 'Tax-statement decision source was superseded before Draft creation' USING ERRCODE='40001';
+      END IF;
+    END IF;
+  END IF;
+  RETURN refs_create_ai_accounting_decision_draft_v298_prior(p_tenant,p_entity,p_decision,p_expected_decision_hash,p_expected_acceptance_hash,p_reason,p_idempotency_key,p_request_hash);
 END $$;
 
 CREATE FUNCTION refs_read_wbs_final1_payable_document_revisions(p_tenant uuid,p_entity uuid,p_identity_hash text DEFAULT NULL,p_limit integer DEFAULT 100)
@@ -241,17 +353,19 @@ BEGIN
       jsonb_build_object('document_revision_id',r.wbs_final1_payable_document_revision_id,'document_evidence_id',r.wbs_final1_payable_document_evidence_id,
         'source_document_id',r.source_document_id,'source_document_line_id',r.source_document_line_id,'accounting_period_id',r.accounting_period_id,
         'source_record_id',r.source_record_id,'source_version',r.source_version,'source_line_hash',r.source_line_hash,'currency',r.currency,
-        'statutory_identity_hash',r.statutory_identity_hash,'revision_kind',r.revision_kind,'document_revision',r.document_revision,
+        'provider_issuer',r.provider_issuer,'provider_key_id',r.provider_key_id,
+        'statutory_identity_hash',r.statutory_identity_hash,'tax_year',r.tax_year,'tax_year_provenance',r.tax_year_provenance,'accounting_period_id',r.accounting_period_id,'revision_kind',r.revision_kind,'document_revision',r.document_revision,
         'document_evidence_hash',r.document_evidence_hash,'revision_hash',r.revision_hash,'predecessor_document_revision_id',r.predecessor_document_revision_id,
         'predecessor_document_evidence_hash',r.predecessor_document_evidence_hash,'predecessor_document_revision_hash',r.predecessor_document_revision_hash,
         'predecessor_document_revision',r.predecessor_document_revision,'predecessor_source_record_id',r.predecessor_source_record_id,
         'lifecycle_status',CASE WHEN successor.wbs_final1_payable_document_revision_id IS NULL THEN 'CURRENT' ELSE 'SUPERSEDED' END,
-        'taxing_jurisdiction',e.taxing_jurisdiction,'tax_statement_identifier',e.tax_statement_identifier,
+        'gross_amount',d.gross_amount::text,'taxing_jurisdiction',e.taxing_jurisdiction,'tax_statement_identifier',e.tax_statement_identifier,
         'tax_coverage_period_start',e.tax_coverage_period_start,'tax_coverage_period_end',e.tax_coverage_period_end,
         'tax_obligation_basis',e.tax_obligation_basis,'controlled_property_ref',e.controlled_property_ref,'parcel_identifier',e.parcel_identifier,
         'created_at',r.created_at,'can_create_draft',false,'can_review',false,'can_approve',false,'can_post',false) row_document
     FROM wbs_final1_payable_document_revision r
     JOIN wbs_final1_payable_document_evidence e ON e.tenant_id=r.tenant_id AND e.entity_id=r.entity_id AND e.wbs_final1_payable_document_evidence_id=r.wbs_final1_payable_document_evidence_id
+    JOIN source_document d ON d.tenant_id=r.tenant_id AND d.entity_id=r.entity_id AND d.source_document_id=r.source_document_id
     LEFT JOIN wbs_final1_payable_document_revision successor ON successor.tenant_id=r.tenant_id AND successor.entity_id=r.entity_id AND successor.predecessor_document_revision_id=r.wbs_final1_payable_document_revision_id
     WHERE r.tenant_id=p_tenant AND r.entity_id=p_entity AND (p_identity_hash IS NULL OR r.statutory_identity_hash=p_identity_hash)
     ORDER BY r.document_revision DESC,r.wbs_final1_payable_document_revision_id DESC LIMIT p_limit) rows;
@@ -261,7 +375,7 @@ END $$;
 -- Classification V4 is a complete current-only population.  It deliberately
 -- does not call V3 because V3's bound counts superseded source rows.
 CREATE FUNCTION refs_read_ai_invoice_classification_source_v4(p_tenant uuid,p_entity uuid,p_period uuid,p_limit integer DEFAULT 100)
-RETURNS TABLE(source_document_id uuid,source_document_line_id uuid,source_payload_hash text,source_line_hash text,entity_id uuid,accounting_period_id uuid,accounting_date date,vendor_ref text,vendor_member_ref text,invoice_no text,invoice_date date,currency text,amount text,service_period_start date,service_period_end date,description text,project_ref text,property_ref text,member_ref text,charge_code text,contract_id text,service_frequency text,source_attachment_count integer,source_attachment_ids uuid[],source_attachment_evidence jsonb,accounting_status text,posted_debit_account_classes text[],document_evidence_status text,document_evidence_schema_version text,document_evidence_hash text,document_kind text,taxing_jurisdiction text,tax_statement_identifier text,tax_coverage_period_start date,tax_coverage_period_end date,tax_obligation_basis text,controlled_property_ref text,parcel_identifier text,document_revision_schema_version text,document_revision_kind text,document_revision integer,predecessor_document_evidence_hash text,predecessor_document_revision_hash text,predecessor_document_revision integer,predecessor_source_record_id text,document_revision_hash text,document_lifecycle_status text)
+RETURNS TABLE(source_document_id uuid,source_document_line_id uuid,source_payload_hash text,source_line_hash text,entity_id uuid,accounting_period_id uuid,accounting_date date,vendor_ref text,vendor_member_ref text,invoice_no text,invoice_date date,currency text,amount text,service_period_start date,service_period_end date,description text,project_ref text,property_ref text,member_ref text,charge_code text,contract_id text,service_frequency text,source_attachment_count integer,source_attachment_ids uuid[],source_attachment_evidence jsonb,accounting_status text,posted_debit_account_classes text[],document_evidence_status text,document_evidence_schema_version text,document_evidence_hash text,document_kind text,tax_year integer,taxing_jurisdiction text,tax_statement_identifier text,tax_coverage_period_start date,tax_coverage_period_end date,tax_obligation_basis text,controlled_property_ref text,parcel_identifier text,document_revision_schema_version text,document_revision_kind text,document_revision integer,predecessor_document_evidence_hash text,predecessor_document_revision_hash text,predecessor_document_revision integer,predecessor_source_record_id text,document_revision_hash text,document_lifecycle_status text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 BEGIN
   PERFORM refs_assert_scope(p_tenant,p_entity,'AI.ANALYSIS.EXPLAIN');
@@ -277,7 +391,7 @@ BEGIN
     COALESCE((SELECT jsonb_agg(jsonb_build_object('attachment_id',a.attachment_id,'content_hash',a.content_hash,'finalization_status',a.finalization_status,'scan_status',a.scan_status,'storage_version',a.storage_version) ORDER BY a.attachment_id) FROM source_link sal JOIN attachment a ON a.tenant_id=sal.tenant_id AND a.entity_id=sal.entity_id AND a.attachment_id=sal.attachment_id WHERE sal.tenant_id=p_tenant AND sal.entity_id=p_entity AND sal.source_document_id=d.source_document_id AND sal.link_type='SOURCE_ATTACHMENT'),'[]'::jsonb),
     CASE WHEN EXISTS(SELECT 1 FROM source_link sl JOIN journal_entry j ON j.tenant_id=sl.tenant_id AND j.entity_id=sl.entity_id AND j.journal_entry_id=sl.journal_entry_id WHERE sl.tenant_id=p_tenant AND sl.entity_id=p_entity AND sl.source_document_id=d.source_document_id AND j.status='POSTED') THEN 'POSTED' WHEN EXISTS(SELECT 1 FROM source_link sl JOIN journal_entry j ON j.tenant_id=sl.tenant_id AND j.entity_id=sl.entity_id AND j.journal_entry_id=sl.journal_entry_id WHERE sl.tenant_id=p_tenant AND sl.entity_id=p_entity AND sl.source_document_id=d.source_document_id) THEN 'DRAFT' ELSE 'NOT_RECORDED' END,
     ARRAY(SELECT DISTINCT CASE WHEN jl.account_code LIKE '1%' THEN 'ASSET' WHEN jl.account_code LIKE '2%' THEN 'LIABILITY' WHEN jl.account_code LIKE '3%' THEN 'EQUITY' WHEN jl.account_code LIKE '4%' THEN 'REVENUE' WHEN jl.account_code~'^[5-9]' THEN 'EXPENSE' ELSE 'UNCLASSIFIED' END FROM source_link sl JOIN journal_entry j ON j.tenant_id=sl.tenant_id AND j.entity_id=sl.entity_id AND j.journal_entry_id=sl.journal_entry_id JOIN journal_line jl ON jl.tenant_id=j.tenant_id AND jl.entity_id=j.entity_id AND jl.journal_entry_id=sl.journal_entry_id AND (sl.journal_line_id IS NULL OR sl.journal_line_id=jl.journal_line_id) WHERE sl.tenant_id=p_tenant AND sl.entity_id=p_entity AND sl.source_document_id=d.source_document_id AND j.status='POSTED' AND jl.debit_amount>0 ORDER BY 1),
-    COALESCE(e.evidence_status,'MISSING'),e.schema_version,e.evidence_hash,e.document_kind,e.taxing_jurisdiction,e.tax_statement_identifier,e.tax_coverage_period_start,e.tax_coverage_period_end,e.tax_obligation_basis,e.controlled_property_ref,e.parcel_identifier,
+    COALESCE(e.evidence_status,'MISSING'),e.schema_version,e.evidence_hash,e.document_kind,c.tax_year,e.taxing_jurisdiction,e.tax_statement_identifier,e.tax_coverage_period_start,e.tax_coverage_period_end,e.tax_obligation_basis,e.controlled_property_ref,e.parcel_identifier,
     c.revision_schema_version,c.revision_kind,c.document_revision,c.predecessor_document_evidence_hash,c.predecessor_document_revision_hash,c.predecessor_document_revision,c.predecessor_source_record_id,c.revision_hash,CASE WHEN e.document_kind='TAX_STATEMENT' THEN c.lifecycle_status ELSE 'NOT_APPLICABLE' END
   FROM wbs_final1_retained_source_row r JOIN raw_event re ON re.tenant_id=r.tenant_id AND re.entity_id=r.entity_id AND re.raw_event_id=r.raw_event_id AND re.source_record_id=r.source_record_id AND re.source_version=r.source_version AND re.is_current
   JOIN source_document d ON d.tenant_id=r.tenant_id AND d.entity_id=r.entity_id AND d.source_document_id=r.source_document_id AND d.raw_event_id=re.raw_event_id
@@ -291,7 +405,7 @@ END $$;
 ALTER FUNCTION refs_read_ai_invoice_decision_population_page(uuid,uuid,uuid,date,uuid,integer,uuid,integer) RENAME TO refs_read_ai_invoice_decision_population_page_v297;
 REVOKE ALL ON FUNCTION refs_read_ai_invoice_decision_population_page_v297(uuid,uuid,uuid,date,uuid,integer,uuid,integer) FROM PUBLIC,refs_app;
 CREATE FUNCTION refs_read_ai_invoice_decision_population_page(p_tenant uuid,p_entity uuid,p_period uuid,p_after_date date DEFAULT NULL,p_after_document uuid DEFAULT NULL,p_after_line_no integer DEFAULT NULL,p_after_line uuid DEFAULT NULL,p_page_size integer DEFAULT 250)
-RETURNS TABLE(line_no integer,source_document_id uuid,source_document_line_id uuid,source_payload_hash text,source_line_hash text,tenant_id uuid,entity_id uuid,accounting_period_id uuid,accounting_date date,vendor_ref text,vendor_member_ref text,invoice_no text,invoice_date date,currency text,amount text,service_period_start date,service_period_end date,description text,project_ref text,property_ref text,member_ref text,charge_code text,contract_id text,service_frequency text,source_attachment_count integer,source_attachment_ids uuid[],source_attachment_evidence jsonb,accounting_status text,posted_debit_account_classes text[],duplicate_status text,retained_outcome text,retained_exception_codes jsonb,source_status text,document_evidence_status text,document_evidence_schema_version text,document_evidence_hash text,document_kind text,taxing_jurisdiction text,tax_statement_identifier text,tax_coverage_period_start date,tax_coverage_period_end date,tax_obligation_basis text,controlled_property_ref text,parcel_identifier text,document_revision_schema_version text,document_revision_kind text,document_revision integer,predecessor_document_evidence_hash text,predecessor_document_revision_hash text,predecessor_document_revision integer,predecessor_source_record_id text,document_revision_hash text,document_lifecycle_status text)
+RETURNS TABLE(line_no integer,source_document_id uuid,source_document_line_id uuid,source_payload_hash text,source_line_hash text,tenant_id uuid,entity_id uuid,accounting_period_id uuid,accounting_date date,vendor_ref text,vendor_member_ref text,invoice_no text,invoice_date date,currency text,amount text,service_period_start date,service_period_end date,description text,project_ref text,property_ref text,member_ref text,charge_code text,contract_id text,service_frequency text,source_attachment_count integer,source_attachment_ids uuid[],source_attachment_evidence jsonb,accounting_status text,posted_debit_account_classes text[],duplicate_status text,retained_outcome text,retained_exception_codes jsonb,source_status text,document_evidence_status text,document_evidence_schema_version text,document_evidence_hash text,document_kind text,tax_year integer,taxing_jurisdiction text,tax_statement_identifier text,tax_coverage_period_start date,tax_coverage_period_end date,tax_obligation_basis text,controlled_property_ref text,parcel_identifier text,document_revision_schema_version text,document_revision_kind text,document_revision integer,predecessor_document_evidence_hash text,predecessor_document_revision_hash text,predecessor_document_revision integer,predecessor_source_record_id text,document_revision_hash text,document_lifecycle_status text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 BEGIN
   PERFORM refs_assert_scope(p_tenant,p_entity,'AI.ANALYSIS.EXPLAIN');
@@ -308,7 +422,7 @@ BEGIN
     CASE WHEN EXISTS(SELECT 1 FROM source_link sl JOIN journal_entry j ON j.tenant_id=sl.tenant_id AND j.entity_id=sl.entity_id AND j.journal_entry_id=sl.journal_entry_id WHERE sl.tenant_id=p_tenant AND sl.entity_id=p_entity AND sl.source_document_id=d.source_document_id AND j.status='POSTED') THEN 'POSTED' WHEN EXISTS(SELECT 1 FROM source_link sl JOIN journal_entry j ON j.tenant_id=sl.tenant_id AND j.entity_id=sl.entity_id AND j.journal_entry_id=sl.journal_entry_id WHERE sl.tenant_id=p_tenant AND sl.entity_id=p_entity AND sl.source_document_id=d.source_document_id) THEN 'DRAFT' ELSE 'NOT_RECORDED' END,
     ARRAY(SELECT DISTINCT CASE WHEN jl.account_code LIKE '1%' THEN 'ASSET' WHEN jl.account_code LIKE '2%' THEN 'LIABILITY' WHEN jl.account_code LIKE '3%' THEN 'EQUITY' WHEN jl.account_code LIKE '4%' THEN 'REVENUE' WHEN jl.account_code~'^[5-9]' THEN 'EXPENSE' ELSE 'UNCLASSIFIED' END FROM source_link sl JOIN journal_entry j ON j.tenant_id=sl.tenant_id AND j.entity_id=sl.entity_id AND j.journal_entry_id=sl.journal_entry_id JOIN journal_line jl ON jl.tenant_id=j.tenant_id AND jl.entity_id=j.entity_id AND jl.journal_entry_id=sl.journal_entry_id AND (sl.journal_line_id IS NULL OR sl.journal_line_id=jl.journal_line_id) WHERE sl.tenant_id=p_tenant AND sl.entity_id=p_entity AND sl.source_document_id=d.source_document_id AND j.status='POSTED' AND jl.debit_amount>0 ORDER BY 1),
     CASE WHEN EXISTS(SELECT 1 FROM ai_duplicate_payable_finding f WHERE f.tenant_id=p_tenant AND f.entity_id=p_entity AND f.status='OPEN' AND d.source_document_id IN(f.source_document_id,f.candidate_source_document_id)) THEN 'POSSIBLE' ELSE 'NONE' END,r.outcome,r.exception_codes,d.status::text,
-    COALESCE(e.evidence_status,'MISSING'),e.schema_version,e.evidence_hash,e.document_kind,e.taxing_jurisdiction,e.tax_statement_identifier,e.tax_coverage_period_start,e.tax_coverage_period_end,e.tax_obligation_basis,e.controlled_property_ref,e.parcel_identifier,
+    COALESCE(e.evidence_status,'MISSING'),e.schema_version,e.evidence_hash,e.document_kind,c.tax_year,e.taxing_jurisdiction,e.tax_statement_identifier,e.tax_coverage_period_start,e.tax_coverage_period_end,e.tax_obligation_basis,e.controlled_property_ref,e.parcel_identifier,
     c.revision_schema_version,c.revision_kind,c.document_revision,c.predecessor_document_evidence_hash,c.predecessor_document_revision_hash,c.predecessor_document_revision,c.predecessor_source_record_id,c.revision_hash,CASE WHEN e.document_kind='TAX_STATEMENT' THEN c.lifecycle_status ELSE 'NOT_APPLICABLE' END
   FROM wbs_final1_retained_source_row r JOIN raw_event re ON re.tenant_id=r.tenant_id AND re.entity_id=r.entity_id AND re.raw_event_id=r.raw_event_id AND re.source_record_id=r.source_record_id AND re.source_version=r.source_version AND re.is_current
   JOIN source_document d ON d.tenant_id=r.tenant_id AND d.entity_id=r.entity_id AND d.source_document_id=r.source_document_id AND d.raw_event_id=re.raw_event_id
@@ -384,8 +498,8 @@ END $$;
 
 REVOKE ALL ON wbs_final1_payable_document_revision FROM PUBLIC,refs_app;
 REVOKE ALL ON wbs_final1_payable_document_revision_current FROM PUBLIC,refs_app;
-REVOKE ALL ON FUNCTION refs_wbs_final1_payable_document_identity_hash(uuid,uuid,text,text,text,date,date,text,text),refs_wbs_final1_payable_document_revision_hash(uuid,uuid,uuid,uuid,uuid,uuid,uuid,text,text,text,text,text,text,text,integer,uuid,text,text,integer,text),refs_retain_wbs_final1_source_evidence_with_signed_controls(uuid,uuid,jsonb,jsonb,jsonb,text,text),refs_read_wbs_final1_payable_document_revisions(uuid,uuid,text,integer),refs_read_ai_invoice_classification_source_v4(uuid,uuid,uuid,integer),refs_read_ai_invoice_decision_population_page(uuid,uuid,uuid,date,uuid,integer,uuid,integer),refs_retain_ai_accounting_decision_batch(uuid,uuid,uuid,jsonb,integer,text,text,text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION refs_wbs_final1_payable_document_identity_hash(uuid,uuid,text,text,text,date,date,text,text),refs_wbs_final1_payable_document_revision_hash(uuid,uuid,uuid,uuid,uuid,uuid,uuid,text,text,text,text,text,text,text,integer,uuid,text,text,integer,text) FROM refs_app;
-GRANT EXECUTE ON FUNCTION refs_retain_wbs_final1_source_evidence_with_signed_controls(uuid,uuid,jsonb,jsonb,jsonb,text,text),refs_read_wbs_final1_payable_document_revisions(uuid,uuid,text,integer),refs_read_ai_invoice_classification_source_v4(uuid,uuid,uuid,integer),refs_read_ai_invoice_decision_population_page(uuid,uuid,uuid,date,uuid,integer,uuid,integer),refs_retain_ai_accounting_decision_batch(uuid,uuid,uuid,jsonb,integer,text,text,text) TO refs_app;
+REVOKE ALL ON FUNCTION refs_wbs_final1_payable_document_identity_component(text),refs_wbs_final1_payable_document_identity_hash(uuid,uuid,integer,text,text,text),refs_wbs_final1_payable_document_revision_hash(uuid,uuid,uuid,uuid,uuid,uuid,uuid,text,text,text,text,text,text,integer,text,text,text,text,text,text,integer,uuid,text,text,integer,text),refs_retain_wbs_final1_source_evidence_with_signed_controls(uuid,uuid,jsonb,jsonb,jsonb,text,text),refs_create_ai_accounting_decision_draft(uuid,uuid,uuid,text,text,text,text,text),refs_read_wbs_final1_payable_document_revisions(uuid,uuid,text,integer),refs_read_ai_invoice_classification_source_v4(uuid,uuid,uuid,integer),refs_read_ai_invoice_decision_population_page(uuid,uuid,uuid,date,uuid,integer,uuid,integer),refs_retain_ai_accounting_decision_batch(uuid,uuid,uuid,jsonb,integer,text,text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION refs_wbs_final1_payable_document_identity_component(text),refs_wbs_final1_payable_document_identity_hash(uuid,uuid,integer,text,text,text),refs_wbs_final1_payable_document_revision_hash(uuid,uuid,uuid,uuid,uuid,uuid,uuid,text,text,text,text,text,text,integer,text,text,text,text,text,text,integer,uuid,text,text,integer,text) FROM refs_app;
+GRANT EXECUTE ON FUNCTION refs_retain_wbs_final1_source_evidence_with_signed_controls(uuid,uuid,jsonb,jsonb,jsonb,text,text),refs_create_ai_accounting_decision_draft(uuid,uuid,uuid,text,text,text,text,text),refs_read_wbs_final1_payable_document_revisions(uuid,uuid,text,integer),refs_read_ai_invoice_classification_source_v4(uuid,uuid,uuid,integer),refs_read_ai_invoice_decision_population_page(uuid,uuid,uuid,date,uuid,integer,uuid,integer),refs_retain_ai_accounting_decision_batch(uuid,uuid,uuid,jsonb,integer,text,text,text) TO refs_app;
 
 COMMIT;
