@@ -12,10 +12,11 @@ const canonical=value=>{if(value===null||typeof value!=='object')return JSON.str
 const canonicalHash=value=>`sha256:${createHash('sha256').update(canonical(value)).digest('hex')}`;
 
 test('browser reads an empty retained decision page with no-store and exact scope',async()=>{
-  let request;const data={schema_version:'AI_ACCOUNTING_DECISION_QUEUE_V1',scope:{tenant_id:id(9),entity_id:entityId,accounting_period_id:periodId},total_count:0,read_count:0,limit:50,offset:0,population_complete:true,rows:[]};
+  let request;const data={schema_version:'AI_ACCOUNTING_DECISION_QUEUE_SNAPSHOT_V1',scope:{tenant_id:id(9),entity_id:entityId,accounting_period_id:periodId},total_count:0,read_count:0,limit:50,offset:0,population_complete:true,population_hash:hash,snapshot_token:hash,rows:[]};
   const result=await refreshAuthoritativeAiAccountingDecisionQueue({config,fetcher:async(url,init)=>(request={url,init},{ok:true,json:async()=>({ok:true,data})})});
   assert.equal(result.ok,true);assert.match(request.url,/accounting-decision-queue/);assert.equal(request.init.method,'GET');assert.equal(request.init.cache,'no-store');assert.equal(result.data.rows.length,0);
   for(const unsafe of [{...data,population_complete:false},{...data,read_count:1},{...data,debug:true}]){const rejected=await refreshAuthoritativeAiAccountingDecisionQueue({config,fetcher:async()=>({ok:true,json:async()=>({ok:true,data:unsafe})})});assert.equal(rejected.code,'AI_ACCOUNTING_DECISION_QUEUE_PROTOCOL');}
+  const missingToken=await refreshAuthoritativeAiAccountingDecisionQueue({config,offset:50,fetcher:async()=>{throw new Error('must not call network')}});assert.equal(missingToken.code,'AI_ACCOUNTING_DECISION_QUEUE_SCOPE_INVALID');
 });
 
 test('Run and retain uses a nonce-bound stable identity and accepts only a closed no-action receipt',async()=>{

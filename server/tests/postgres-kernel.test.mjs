@@ -287,6 +287,35 @@ pgTest('WBS H1 control reconciliation binds six exact provider-signed Payables p
   assert.equal((await adminPool.query('SELECT count(*)::int count FROM wbs_h1_accounting_control_reconciliation WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].count,1);
 });
 
+pgTest('immutable queue and GL page tokens reject same-count insert-delete drift',async()=>{
+  const ids=await seed({status:'APPROVED'}),source=await attachAutoSource(ids,{linkJournal:false}),reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'snapshot-page-reader',['GL.JE.VIEW'])});
+  const insertDecision=async label=>{
+    const packet={schema_version:'AI_ACCOUNTING_DECISION_PACKET_V1',tenant_id:ids.tenantId,entity_id:ids.entityId,accounting_period_id:ids.periodId,company_code:ids.sourceEntityId,settings_snapshot_id:source.settingId,status:'EXCEPTION',rule_id:`SNAPSHOT_${label}`,source:{source_document_id:source.documentId},action_flags:{can_create_draft:false,can_review:false,can_approve:false,can_post:false}};
+    const decisionHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[JSON.stringify(packet)])).rows[0].hash,decisionId=randomUUID();
+    await adminPool.query("INSERT INTO ai_accounting_decision(ai_accounting_decision_id,tenant_id,entity_id,company_code,period_id,source_document_id,settings_snapshot_id,packet,decision_hash,packet_status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,'EXCEPTION','snapshot-fixture')",[decisionId,ids.tenantId,ids.entityId,ids.sourceEntityId,ids.periodId,source.documentId,source.settingId,JSON.stringify(packet),decisionHash]);
+    return decisionId;
+  };
+  await insertDecision('FIRST');const secondDecision=await insertDecision('SECOND'),queueFirst=await reader.readAiAccountingDecisionQueueSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:1,offset:0});
+  assert.equal(queueFirst.total_count,2);assert.equal(queueFirst.read_count,1);assert.match(queueFirst.snapshot_token,/^sha256:[0-9a-f]{64}$/);
+  await adminPool.query('ALTER TABLE ai_accounting_decision DISABLE TRIGGER USER');
+  try{await adminPool.query('DELETE FROM ai_accounting_decision WHERE ai_accounting_decision_id=$1',[secondDecision]);await insertDecision('REPLACEMENT');}
+  finally{await adminPool.query('ALTER TABLE ai_accounting_decision ENABLE TRIGGER USER');}
+  assert.equal((await adminPool.query('SELECT count(*)::int count FROM ai_accounting_decision WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3',[ids.tenantId,ids.entityId,ids.periodId])).rows[0].count,2);
+  await assert.rejects(reader.readAiAccountingDecisionQueueSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:1,offset:1,snapshotToken:queueFirst.snapshot_token}),error=>error.code==='40001');
+
+  const batchId=randomUUID();await adminPool.query("SET session_replication_role='replica'");
+  try{await adminPool.query("UPDATE journal_entry SET status='POSTED',posted_by='snapshot-poster',posted_at=clock_timestamp() WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3",[ids.tenantId,ids.entityId,ids.journalId]);}
+  finally{await adminPool.query("SET session_replication_role='origin'");}
+  await adminPool.query("INSERT INTO posting_batch(posting_batch_id,tenant_id,entity_id,period_id,idempotency_key,request_hash,posted_by) VALUES($1,$2,$3,$4,'snapshot-page-post',$5,'snapshot-poster')",[batchId,ids.tenantId,ids.entityId,ids.periodId,hash('snapshot-page-post')]);
+  const ledger=(await adminPool.query("INSERT INTO ledger_line(tenant_id,entity_id,period_id,posting_batch_id,journal_entry_id,journal_line_id,account_code,member_ref,currency,debit_amount,credit_amount,dimensions,posted_at) SELECT tenant_id,entity_id,period_id,$1,journal_entry_id,journal_line_id,account_code,member_ref,'USD',debit_amount,credit_amount,dimensions,clock_timestamp() FROM journal_line WHERE tenant_id=$2 AND entity_id=$3 AND journal_entry_id=$4 ORDER BY line_no RETURNING *",[batchId,ids.tenantId,ids.entityId,ids.journalId])).rows;
+  assert.equal(ledger.length,2);const glFirst=await reader.readGeneralLedgerSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,limit:1,offset:0});assert.equal(glFirst.total_count,2);assert.equal(glFirst.read_count,1);assert.match(glFirst.snapshot_token,/^sha256:[0-9a-f]{64}$/);
+  const replaced=ledger[1],replacementId=randomUUID();await adminPool.query('ALTER TABLE ledger_line DISABLE TRIGGER USER');
+  try{await adminPool.query('DELETE FROM ledger_line WHERE ledger_line_id=$1',[replaced.ledger_line_id]);await adminPool.query('INSERT INTO ledger_line(ledger_line_id,tenant_id,entity_id,period_id,posting_batch_id,journal_entry_id,journal_line_id,account_code,member_ref,currency,debit_amount,credit_amount,dimensions,posted_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',[replacementId,replaced.tenant_id,replaced.entity_id,replaced.period_id,replaced.posting_batch_id,replaced.journal_entry_id,replaced.journal_line_id,replaced.account_code,replaced.member_ref,replaced.currency,replaced.debit_amount,replaced.credit_amount,JSON.stringify(replaced.dimensions),replaced.posted_at]);}
+  finally{await adminPool.query('ALTER TABLE ledger_line ENABLE TRIGGER USER');}
+  assert.equal((await adminPool.query('SELECT count(*)::int count FROM ledger_line WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3',[ids.tenantId,ids.entityId,ids.periodId])).rows[0].count,2);
+  await assert.rejects(reader.readGeneralLedgerSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,limit:1,offset:1,snapshotToken:glFirst.snapshot_token}),error=>error.code==='40001');
+});
+
 async function migrateDownThrough(pool,targetMigration){
   for(;;){
     const row=(await pool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name DESC LIMIT 1')).rows[0];

@@ -1563,6 +1563,16 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async readAiAccountingDecisionQueueSnapshot({tenantId,entityId,accountingPeriodId,limit=50,offset=0,snapshotToken=null}){
+    return this.inSession(async client=>{
+      const row=requireRow(await client.query(
+        'SELECT refs_read_ai_accounting_decision_queue_snapshot($1,$2,$3,$4,$5,$6) AS result',
+        [tenantId,entityId,accountingPeriodId,limit,offset,snapshotToken]
+      ),'AI_ACCOUNTING_DECISION_QUEUE_SNAPSHOT_UNAVAILABLE','The retained AI accounting decision queue snapshot is unavailable');
+      return row.result;
+    });
+  }
+
   async createJournalAdjustment(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
@@ -1807,6 +1817,16 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_general_ledger($1,$2,$3,$4,$5,$6,$7)',[tenantId,entityId,periodId,accountCode,query,limit,offset]
     )).rows.map(row=>({...row,...(row.period_start===undefined?{}:{period_start:publicDate(row.period_start)}),...(row.period_end===undefined?{}:{period_end:publicDate(row.period_end)}),...(row.journal_date===undefined?{}:{journal_date:publicDate(row.journal_date)})})));
+  }
+
+  async readGeneralLedgerSnapshot({tenantId,entityId,periodId,accountCode=null,query=null,limit=50,offset=0,snapshotToken=null}){
+    return this.inSession(async client=>{
+      const row=requireRow(await client.query(
+        'SELECT refs_read_general_ledger_snapshot($1,$2,$3,$4,$5,$6,$7,$8) AS result',
+        [tenantId,entityId,periodId,accountCode,query,limit,offset,snapshotToken]
+      ),'GENERAL_LEDGER_SNAPSHOT_UNAVAILABLE','The General Ledger snapshot page is unavailable');
+      return row.result;
+    });
   }
 
   async listSourceDocuments({tenantId,entityId}){

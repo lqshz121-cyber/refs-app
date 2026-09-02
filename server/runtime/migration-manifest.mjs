@@ -305,4 +305,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"297_wbs_final1_payable_typed_document_evidence.sql",up:"c0a47e401b8010f7534f47393d07d5c75be0173c72031a1aceda7db9f6557960",down:"f04f9fa047994877d4ff63716c6ebc5348267614526b525bd9d388f8940bd94b"}),
   Object.freeze({name:"298_wbs_final1_payable_document_revision_lifecycle.sql",up:"5624db401a44516a8f4b6aebe64720853ae85d912f27c5d8198490c819799c5d",down:"87aa10d097bb7c1b51d2eebe7a69c60e9783190f4bf5d575d69d118b1ef80b8e"}),
   Object.freeze({name:"299_outbox_dispatch_entity_revision_claim.sql",up:"3d274c59f1337042b4457c605fd6bc80308f06922685b551ce9e7637b2f8c286",down:"e61a1cce52989ff628070bc5822490f3f2248392af49b73f8b71101adfb7f0a1"}),
+  Object.freeze({name:"300_authoritative_paged_read_snapshots.sql",up:"6c9ee7ae68e00dc3c8b3f6a6696da147153df3f5654ad179a5c6f4c36ea0cfd3",down:"d95062f355f7af2d5598881f2deef0f92b8297ea3b1e6cb0596c2f15312fe152"}),
 ]);
