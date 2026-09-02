@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {AuthoritativeChartOfAccountsWorkspace,authoritativeCoaScopeText,authoritativeRangeLabel,filterAuthoritativeRegisterRows,restoreAuthoritativeCoaReturnContext} from '../src/authoritative-coa-register-workspace.jsx';
+import {AuthoritativeChartOfAccountsWorkspace,authoritativeCoaScopeText,authoritativeRangeLabel,createAuthoritativeRegisterReadGuard,filterAuthoritativeRegisterRows,parseAuthoritativeRegisterFind,restoreAuthoritativeCoaReturnContext} from '../src/authoritative-coa-register-workspace.jsx';
 import {AuthoritativeAccountRegisterView,AuthoritativeChartOfAccountsView} from '../src/authoritative-coa-view.jsx';
 
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222',baseUrl:'https://api.example',getAccessToken:async()=> 'a'.repeat(48)};
@@ -58,20 +58,45 @@ const registerRows=[
   {ledger_line_id:'1',journal_date:'2026-08-01',journal_number:'JE-1',member_ref:'CUSTOMER-1',description:'Opening',currency:'USD',debit_amount:'25.0000',credit_amount:'0.0000'},
   {ledger_line_id:'2',journal_date:'2026-08-15',journal_number:'JE-2',member_ref:'CUSTOMER-2',description:'Middle',currency:'USD',debit_amount:'0.0000',credit_amount:'100.1250'},
   {ledger_line_id:'3',journal_date:'2026-08-31',journal_number:'JE-3',member_ref:null,description:'Closing',currency:'EUR',debit_amount:'50.0000',credit_amount:'0.0000'},
+  {ledger_line_id:'4',journal_date:'2026-08-20',journal_number:'50',member_ref:'NEGATIVE',description:'Signed amount',currency:'USD',debit_amount:'-50.0000',credit_amount:'0.0000'},
+  {ledger_line_id:'5',journal_date:'2026-08-21',journal_number:'JE-5',member_ref:null,description:'Positive amount',currency:'USD',debit_amount:'50.0000',credit_amount:'0.0000'},
+  {ledger_line_id:'6',journal_date:'2026-08-22',journal_number:'JE-6',member_ref:null,description:'Illegal two-sided row',currency:'USD',debit_amount:'25.0000',credit_amount:'25.0000'},
+  {ledger_line_id:'7',journal_date:'2026-08-23',journal_number:'JE-7',member_ref:null,description:'Negative zero',currency:'USD',debit_amount:'0.0000',credit_amount:'-0.0000'},
 ];
-assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{from:'2026-08-15'}).map(row=>row.ledger_line_id),['2','3']);
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{from:'2026-08-15'}).map(row=>row.ledger_line_id),['2','3','4','5','6','7']);
 assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{through:'2026-08-15'}).map(row=>row.ledger_line_id),['1','2']);
-assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{from:'2026-08-02',through:'2026-08-30'}).map(row=>row.ledger_line_id),['2']);
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{from:'2026-08-02',through:'2026-08-30'}).map(row=>row.ledger_line_id),['2','4','5','6','7']);
 assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{from:'2026-08-31',through:'2026-08-01'}),[],'invalid date ranges must fail closed');
 assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{from:'not-a-date'}),[],'malformed date filters must fail closed');
 assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{from:'2026-02-30'}),[],'impossible calendar dates must fail closed');
 assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{from:'2026-13-01'}),[],'unparseable calendar dates must fail closed without throwing');
-assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'25'}).map(row=>row.ledger_line_id),['1']);
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'25'}).map(row=>row.ledger_line_id),['1'],'a bare number must retain exact amount matching without becoming amount-only');
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'50'}).map(row=>row.ledger_line_id),['3','4','5'],'a bare number must retain Journal text matching and exact signed-field amount matching');
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'15'}).map(row=>row.ledger_line_id),['2'],'a bare number must retain date text matching');
 assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'>50'}).map(row=>row.ledger_line_id),['2']);
-assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'<50'}).map(row=>row.ledger_line_id),['1']);
-assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'$50'}),[],'dollar-prefixed amounts must not match non-USD rows');
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'<50'}).map(row=>row.ledger_line_id),['1','4'],'comparators must compare the single posted amount field without summing debit and credit');
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'$50'}).map(row=>row.ledger_line_id),['5'],'dollar-prefixed amounts must be amount-only and USD-only');
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'$-50'}).map(row=>row.ledger_line_id),['4']);
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'-$50'}).map(row=>row.ledger_line_id),['4']);
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'+$50'}).map(row=>row.ledger_line_id),['5']);
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'$-0'}),[],'negative zero must parse but cannot make an all-zero ledger row into a posted amount');
 assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'JE-2'}).map(row=>row.ledger_line_id),['2'],'plain text must retain Journal/member/description search');
-assert.match(source,/money4Minor[\s\S]*BigInt[\s\S]*registerAmountQuery[\s\S]*amountQuery\.usd&&row\.currency!=='USD'/,'amount Find must use exact four-decimal integer comparison and keep dollar syntax USD-only');
+const parserCases=[
+  ['50',{operator:'',usd:false,minor:500000n,negativeZero:false,amountOnly:false}],['+50',{operator:'',usd:false,minor:500000n,negativeZero:false,amountOnly:false}],['-50',{operator:'',usd:false,minor:-500000n,negativeZero:false,amountOnly:false}],
+  ['$50',{operator:'',usd:true,minor:500000n,negativeZero:false,amountOnly:true}],['$-50',{operator:'',usd:true,minor:-500000n,negativeZero:false,amountOnly:true}],['-$50',{operator:'',usd:true,minor:-500000n,negativeZero:false,amountOnly:true}],['+$50',{operator:'',usd:true,minor:500000n,negativeZero:false,amountOnly:true}],
+  ['>50',{operator:'>',usd:false,minor:500000n,negativeZero:false,amountOnly:true}],['<$-50',{operator:'<',usd:true,minor:-500000n,negativeZero:false,amountOnly:true}],['$-0',{operator:'',usd:true,minor:0n,negativeZero:true,amountOnly:true}],['-0',{operator:'',usd:false,minor:0n,negativeZero:true,amountOnly:false}],
+];
+for(const [input,expected] of parserCases)assert.deepEqual(parseAuthoritativeRegisterFind(input),expected,`closed amount parser: ${input}`);
+for(const invalid of ['','--50','-+50','$','<>50','1234567890123456789'])assert.equal(parseAuthoritativeRegisterFind(invalid),null,`invalid amount syntax must not acquire numeric semantics: ${invalid}`);
+assert.match(source,/money4Minor[\s\S]*registerRowAmount[\s\S]*debitActive===creditActive[\s\S]*amountQuery\.usd&&row\.currency!=='USD'/,'amount Find must compare one legal debit or credit field exactly and keep dollar syntax USD-only');
+assert.match(source,/amountOnly:Boolean\(match\[1\]\|\|match\[3\]\)/,'only explicit comparator or dollar syntax may suppress Journal, member, description, and date text matching');
+assert.match(source,/const periodStart=state\.scope\?\.periodStart\|\|'',periodEnd=state\.scope\?\.periodEnd\|\|''/,'date bounds must come from the validated authoritative response scope, never an arbitrary first row');
+assert.match(source,/<Register key=\{`\$\{config\.entityId\}:\$\{config\.periodId\}:\$\{selection\.accountCode\}:\$\{config\.scopePresentation\?\.periodStart\|\|''\}:\$\{config\.scopePresentation\?\.periodEnd\|\|''\}`\}/,'entity, period, account, or validated period-bound changes must synchronously remount and reset the register workspace');
+const guard=createAuthoritativeRegisterReadGuard(),scopeA='entity-a:period-a:account-a',scopeB='entity-b:period-b:account-b',requestA=guard.begin(scopeA);guard.reset(scopeB);const requestB=guard.begin(scopeB);
+assert.equal(guard.accepts(requestA,scopeB),false,'a deferred old-scope response must not overwrite a newly selected company, period, or account');assert.equal(guard.accepts(requestB,scopeB),true);const superseded=guard.begin(scopeB);const latest=guard.begin(scopeB);assert.equal(guard.accepts(superseded,scopeB),false,'a slower refresh in the same scope must not overwrite its newer response');assert.equal(guard.accepts(latest,scopeB),true);
+const deferred=()=>{let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};},deferredGuard=createAuthoritativeRegisterReadGuard(),oldRead=deferred(),newRead=deferred(),accepted=[];
+const oldRequest=deferredGuard.begin(scopeA),oldSettlement=oldRead.promise.then(value=>{if(deferredGuard.accepts(oldRequest,scopeA))accepted.push(value);});deferredGuard.reset(scopeB);const newRequest=deferredGuard.begin(scopeB),newSettlement=newRead.promise.then(value=>{if(deferredGuard.accepts(newRequest,scopeB))accepted.push(value);});newRead.resolve('new response');oldRead.resolve('stale response');
+Promise.all([oldSettlement,newSettlement]).then(()=>assert.deepEqual(accepted,['new response'],'a genuinely deferred old response must be discarded after a scope switch')).catch(error=>{console.error(error);process.exitCode=1;});
 assert.match(source,/AuthoritativeLineageDrill/,'Register rows must open the shared authoritative Journal, GL, and Source evidence drill');
 assert.match(source,/initial=\{\{kind:'GL',row:detail,context:\{entityId:config\.entityId,periodId:config\.periodId,journalEntryId:detail\.journal_entry_id,journalLineId:detail\.journal_line_id,ledgerLineId:detail\.ledger_line_id\}\}\}/,'Register drill must bind exact entity, period, Journal, journal-line, and ledger-line identity');
 assert.match(source,/registerTableRef\.current\?\.scrollTo[\s\S]*detailOpener\.current\)\?\.focus[\s\S]*scrollTo\?\.\(\{top:detailScrollY\.current/,'Back from Register evidence must restore table scroll, opener focus, and page scroll');
