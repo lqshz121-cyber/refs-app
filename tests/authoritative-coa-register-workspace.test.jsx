@@ -58,7 +58,7 @@ const registerRows=[
   {ledger_line_id:'1',journal_date:'2026-08-01',journal_number:'JE-1',member_ref:'CUSTOMER-1',description:'Opening',currency:'USD',debit_amount:'25.0000',credit_amount:'0.0000'},
   {ledger_line_id:'2',journal_date:'2026-08-15',journal_number:'JE-2',member_ref:'CUSTOMER-2',description:'Middle',currency:'USD',debit_amount:'0.0000',credit_amount:'100.1250'},
   {ledger_line_id:'3',journal_date:'2026-08-31',journal_number:'JE-3',member_ref:null,description:'Closing',currency:'EUR',debit_amount:'50.0000',credit_amount:'0.0000'},
-  {ledger_line_id:'4',journal_date:'2026-08-20',journal_number:'50',member_ref:'NEGATIVE',description:'Signed amount',currency:'USD',debit_amount:'-50.0000',credit_amount:'0.0000'},
+  {ledger_line_id:'4',journal_date:'2026-08-20',journal_number:'50',member_ref:'CREDIT',description:'Signed credit amount',currency:'USD',debit_amount:'0.0000',credit_amount:'100.0000'},
   {ledger_line_id:'5',journal_date:'2026-08-21',journal_number:'JE-5',member_ref:null,description:'Positive amount',currency:'USD',debit_amount:'50.0000',credit_amount:'0.0000'},
   {ledger_line_id:'6',journal_date:'2026-08-22',journal_number:'JE-6',member_ref:null,description:'Illegal two-sided row',currency:'USD',debit_amount:'25.0000',credit_amount:'25.0000'},
   {ledger_line_id:'7',journal_date:'2026-08-23',journal_number:'JE-7',member_ref:null,description:'Negative zero',currency:'USD',debit_amount:'0.0000',credit_amount:'-0.0000'},
@@ -73,11 +73,11 @@ assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{from:'2026-13-01'
 assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'25'}).map(row=>row.ledger_line_id),['1'],'a bare number must retain exact amount matching without becoming amount-only');
 assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'50'}).map(row=>row.ledger_line_id),['3','4','5'],'a bare number must retain Journal text matching and exact signed-field amount matching');
 assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'15'}).map(row=>row.ledger_line_id),['2'],'a bare number must retain date text matching');
-assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'>50'}).map(row=>row.ledger_line_id),['2']);
-assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'<50'}).map(row=>row.ledger_line_id),['1','4'],'comparators must compare the single posted amount field without summing debit and credit');
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'>0'}).map(row=>row.ledger_line_id),['1','3','5'],'legal debit rows must have positive signed amounts');
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'<0'}).map(row=>row.ledger_line_id),['2','4'],'legal credit rows must have negative signed amounts');
 assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'$50'}).map(row=>row.ledger_line_id),['5'],'dollar-prefixed amounts must be amount-only and USD-only');
-assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'$-50'}).map(row=>row.ledger_line_id),['4']);
-assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'-$50'}).map(row=>row.ledger_line_id),['4']);
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'$-100'}).map(row=>row.ledger_line_id),['4']);
+assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'-$100'}).map(row=>row.ledger_line_id),['4']);
 assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'+$50'}).map(row=>row.ledger_line_id),['5']);
 assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'$-0'}),[],'negative zero must parse but cannot make an all-zero ledger row into a posted amount');
 assert.deepEqual(filterAuthoritativeRegisterRows(registerRows,{query:'JE-2'}).map(row=>row.ledger_line_id),['2'],'plain text must retain Journal/member/description search');
@@ -88,7 +88,7 @@ const parserCases=[
 ];
 for(const [input,expected] of parserCases)assert.deepEqual(parseAuthoritativeRegisterFind(input),expected,`closed amount parser: ${input}`);
 for(const invalid of ['','--50','-+50','$','<>50','1234567890123456789'])assert.equal(parseAuthoritativeRegisterFind(invalid),null,`invalid amount syntax must not acquire numeric semantics: ${invalid}`);
-assert.match(source,/money4Minor[\s\S]*registerRowAmount[\s\S]*debitActive===creditActive[\s\S]*amountQuery\.usd&&row\.currency!=='USD'/,'amount Find must compare one legal debit or credit field exactly and keep dollar syntax USD-only');
+assert.match(source,/money4Minor[\s\S]*registerRowAmount[\s\S]*debit\.minor<0n\|\|credit\.minor<0n[\s\S]*minor:-credit\.minor[\s\S]*amountQuery\.usd&&row\.currency!=='USD'/,'amount Find must use debit minus credit for one legal nonnegative debit or credit field and keep dollar syntax USD-only');
 assert.match(source,/amountOnly:Boolean\(match\[1\]\|\|match\[3\]\)/,'only explicit comparator or dollar syntax may suppress Journal, member, description, and date text matching');
 assert.match(source,/const periodStart=state\.scope\?\.periodStart\|\|'',periodEnd=state\.scope\?\.periodEnd\|\|''/,'date bounds must come from the validated authoritative response scope, never an arbitrary first row');
 assert.match(source,/<Register key=\{`\$\{config\.entityId\}:\$\{config\.periodId\}:\$\{selection\.accountCode\}:\$\{config\.scopePresentation\?\.periodStart\|\|''\}:\$\{config\.scopePresentation\?\.periodEnd\|\|''\}`\}/,'entity, period, account, or validated period-bound changes must synchronously remount and reset the register workspace');
