@@ -3439,6 +3439,23 @@ pgTest('posted journal, ledger, audit and outbox payload are immutable; outbox c
   const beforeExact=(await adminPool.query('SELECT COALESCE(sum(attempt_count),0)::int attempts FROM outbox_event WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].attempts,mixed=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'worker-1',['OUTBOX.DISPATCH','ATTACHMENT.CLEANUP'])});await assert.rejects(mixed.claimOutboxV3({tenantId:ids.tenantId,scopes:[{entityId:ids.entityId,grantSetVersion:3}],limit:100,leaseSeconds:30}),error=>error.code==='42501');const afterExact=(await adminPool.query('SELECT COALESCE(sum(attempt_count),0)::int attempts FROM outbox_event WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].attempts;assert.equal(afterExact,beforeExact);assert.deepEqual((await adminPool.query('SELECT status,attempt_count,locked_by,locked_at,last_error,available_at FROM outbox_event WHERE outbox_event_id=$1',[eventB])).rows[0],untouched);
 });
 
+pgTest('migration 299 rollback disables both outbox claim entry points without touching events',async()=>{
+  const ids=await seed(),eventId=randomUUID(),aggregateId=randomUUID(),payload={schema_version:'OUTBOX_ROLLBACK_TEST_V1'},payloadHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[JSON.stringify(payload)])).rows[0].hash;
+  await adminPool.query("INSERT INTO outbox_event(outbox_event_id,tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash) VALUES($1,$2,$3,'OUTBOX_TEST',$4,'OUTBOX_ROLLBACK_TEST',$5::jsonb,$6)",[eventId,ids.tenantId,ids.entityId,aggregateId,JSON.stringify(payload),payloadHash]);
+  const client=await adminPool.connect();try{
+    await client.query('BEGIN');
+    const before=(await client.query('SELECT status,attempt_count,locked_by,locked_at,last_error,available_at FROM outbox_event WHERE outbox_event_id=$1',[eventId])).rows[0];
+    await client.query('REVOKE ALL ON FUNCTION refs_claim_outbox_v3(uuid,text,uuid[],bigint[],integer,integer) FROM PUBLIC,refs_app');
+    await client.query('REVOKE EXECUTE ON FUNCTION refs_claim_outbox_v2(uuid,text,integer,integer) FROM refs_app');
+    await client.query('SET LOCAL ROLE refs_app');
+    await client.query('SAVEPOINT denied_v2');await assert.rejects(client.query('SELECT * FROM refs_claim_outbox_v2($1,$2,1,30)',[ids.tenantId,'rollback-worker']),error=>error.code==='42501');await client.query('ROLLBACK TO SAVEPOINT denied_v2');
+    await client.query('SAVEPOINT denied_v3');await assert.rejects(client.query('SELECT * FROM refs_claim_outbox_v3($1,$2,$3::uuid[],$4::bigint[],1,30)',[ids.tenantId,'rollback-worker',[ids.entityId],[1]]),error=>error.code==='42501');await client.query('ROLLBACK TO SAVEPOINT denied_v3');
+    await client.query('RESET ROLE');
+    const afterRollback=(await client.query('SELECT status,attempt_count,locked_by,locked_at,last_error,available_at FROM outbox_event WHERE outbox_event_id=$1',[eventId])).rows[0];assert.deepEqual(afterRollback,before);
+    await client.query('ROLLBACK');
+  }finally{client.release();}
+});
+
 /* AP payment reversal integration is reserved for the AP/AR owner suite. */
 pgTest('AP payment partial occurrence posts and reversal restores bill balance atomically',async()=>{
   const ids=await seed({status:'APPROVED'});const billId=randomUUID();

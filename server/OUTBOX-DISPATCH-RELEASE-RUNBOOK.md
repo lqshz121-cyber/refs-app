@@ -20,4 +20,4 @@ The dispatcher is released only for an approved, explicit tenant/entity set. It 
 
 ## Rollback
 
-Stop the worker before applying the migration 299 down script. Restoring v2 is a formal rollback only; do not restore a tenant-only secret or broaden a grant. Record the exact release coordinates, grant-sync receipt, migration receipt, sanitized preflight receipt, and worker restart outcome.
+Stop the worker before applying the migration 299 down script. The down script is deliberately fail-closed: it leaves the v3 function installed but denies `refs_app` access to both v2 and v3, so dispatch cannot resume through the unsafe tenant-wide claim. Do not restore a tenant-only secret, broaden a grant, or manually re-grant either claim function. Resume dispatch only through a reviewed forward migration that preserves the entity and grant-revision boundary. Record the exact release coordinates, grant-sync receipt, migration receipt, sanitized preflight receipt, and worker stop outcome.
