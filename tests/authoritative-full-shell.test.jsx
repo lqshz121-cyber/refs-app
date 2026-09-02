@@ -35,6 +35,23 @@ assert.ok(AUTHORITATIVE_ROUTES.includes('fixed-assets'),'the observed Accounting
 assert.equal(navigationItemForRoute('fixed-assets')?.availability,'API_UNAVAILABLE','Fixed assets must fail closed until an immutable asset-register reader exists');
 assert.ok(AUTHORITATIVE_ROUTES.includes('rules'),'the observed Accounting navigation must keep Rules discoverable without granting rule or automation authority');
 assert.equal(navigationItemForRoute('rules')?.availability,'API_UNAVAILABLE','Rules must fail closed until an immutable rule reader exists');
+for (const [route, label] of [
+  ['intuit-experts', 'Intuit Experts'],
+  ['products-services', 'Products & services'],
+  ['custom-reports', 'Custom reports'],
+  ['management-reports', 'Management reports'],
+  ['kpi-scorecard', 'KPIs'],
+  ['analytics-dashboards', 'Dashboards'],
+  ['integration-transactions', 'Integration transactions'],
+]) {
+  assert.equal(navigationItemForRoute(route)?.label, label, `${label} must remain discoverable without granting unsupported authority`);
+  assert.equal(navigationItemForRoute(route)?.availability, 'API_UNAVAILABLE', `${label} must fail closed until its authoritative reader exists`);
+}
+assert.match(navigationItemForRoute('integration-transactions')?.requirements.join(' '), /immutable connector identity, connection revision, source key and version, receipt and payload hashes/);
+assert.match(navigationItemForRoute('custom-reports')?.requirements.join(' '), /immutable report identity, revision, creator, last modifier/);
+assert.match(navigationItemForRoute('management-reports')?.requirements.join(' '), /immutable report identity, revision, lifecycle state/);
+assert.match(navigationItemForRoute('kpi-scorecard')?.requirements.join(' '), /immutable KPI and scorecard identities/);
+assert.match(navigationItemForRoute('analytics-dashboards')?.requirements.join(' '), /immutable dashboard identity, revision, source and snapshot versions/);
 assert.ok(AUTHORITATIVE_ROUTES.includes('settings'),'the observed Settings navigation must keep Accounting settings discoverable without granting policy mutation authority');
 assert.equal(navigationItemForRoute('settings')?.availability,'API_READ','Accounting settings must expose only the immutable approved entity-period policy reader');
 assert.equal(navigationItemForRoute('month-end-close')?.availability,'API_COMMAND','Month-End Close must use the evidence-bound close command');
@@ -68,10 +85,11 @@ assert.match(collapsedNavMarkup, /aria-expanded="false" aria-controls="authorita
   'a collapsed secondary menu must not be announced as expanded by its active rail group');
 assert.doesNotMatch(reportNavMarkup, /authoritative-sidebar-direct/, 'the multi-page Reports workspace must expose its secondary navigation');
 assert.match(reportNavMarkup, /Standard reports/, 'the Reports workspace must expose its standard-reports page using the observed QBO catalog name');
+assert.match(reportNavMarkup, /Custom reports/);assert.match(reportNavMarkup, /Management reports/);assert.match(reportNavMarkup, />KPIs</);assert.match(reportNavMarkup, /Dashboards/);
 assert.doesNotMatch(reportNavMarkup, /Financial statements/, 'the report navigation must not use the narrower legacy label');
 assert.match(reportNavMarkup, /Accounting Analysis Report/, 'the Reports workspace must expose its AI analysis page');
-assert.match(payablesNavMarkup, /aria-label="Payables &amp; Receivables"/,'the compact QBO-like rail label must retain the complete accessible accounting scope');assert.match(payablesNavMarkup, />Expenses<\/span>/,'the primary rail must use the observed concise QBO Expenses label');assert.match(payablesNavMarkup, /Expense transactions/,'the first payable child must use the observed QBO page name');assert.doesNotMatch(payablesNavMarkup, /Bills &amp; expenses|>Payables<\/span>/,'the visible navigation must not retain the older ambiguous labels');assert.match(payablesNavMarkup, /Vendors/);assert.match(payablesNavMarkup, /Bill payments/);assert.match(payablesNavMarkup, /Contractors/);assert.match(payablesNavMarkup, />1099s</);assert.match(payablesNavMarkup, /Invoices &amp; receipts/);
-assert.match(receiptsNavMarkup,/Source Documents/);assert.match(receiptsNavMarkup,/>Receipts</);assert.match(receiptsNavMarkup,/WBS Data Import/);
+assert.match(payablesNavMarkup, /aria-label="Payables &amp; Receivables"/,'the compact QBO-like rail label must retain the complete accessible accounting scope');assert.match(payablesNavMarkup, />Expenses<\/span>/,'the primary rail must use the observed concise QBO Expenses label');assert.match(payablesNavMarkup, /Expense transactions/,'the first payable child must use the observed QBO page name');assert.doesNotMatch(payablesNavMarkup, /Bills &amp; expenses|>Payables<\/span>/,'the visible navigation must not retain the older ambiguous labels');assert.match(payablesNavMarkup, /Vendors/);assert.match(payablesNavMarkup, /Bill payments/);assert.match(payablesNavMarkup, /Contractors/);assert.match(payablesNavMarkup, />1099s</);assert.match(payablesNavMarkup, /Products &amp; services/);assert.match(payablesNavMarkup, /Invoices &amp; receipts/);
+assert.match(receiptsNavMarkup,/Source Documents/);assert.match(receiptsNavMarkup,/>Receipts</);assert.match(receiptsNavMarkup,/Integration transactions/);assert.match(receiptsNavMarkup,/WBS Data Import/);
 assert.doesNotMatch(receiptsNavMarkup,/Upload receipts|Export|Customize|Set it up|Compare rates/,'the Accounting receipt navigation must not import upload, export, customize, or payment-promotion actions');
 assert.match(recurringNavMarkup,/>Recurring transactions</);assert.match(recurringNavMarkup,/>Prepaid expenses</);assert.match(recurringNavMarkup,/>Fixed assets</);
 assert.doesNotMatch(recurringNavMarkup,/Reminder List|>New<|Manage recurring payments/,'the Accounting navigation must not import recurring template or payment commands');
@@ -81,7 +99,7 @@ assert.match(auditLogNavMarkup,/>Audit Log</);assert.match(auditLogNavMarkup,/>M
 assert.doesNotMatch(auditLogNavMarkup,/All Users|This Month|All events|Print Page|Export to CSV/,'the Administration navigation must not import audit filters or external-output actions');
 assert.match(myAccountantNavMarkup,/>My accountant</);assert.match(myAccountantNavMarkup,/>Audit Log</);assert.match(myAccountantNavMarkup,/>Users &amp; settings</);
 assert.doesNotMatch(myAccountantNavMarkup,/Invite|Change role|Subscribe|Find an expert|Intuit Experts/,'the Administration navigation must not import accountant invitations, access changes, subscriptions, or external-service actions');
-assert.match(fixedAssetsNavMarkup,/>Fixed assets</);assert.match(fixedAssetsNavMarkup,/>Revenue recognition</);assert.match(fixedAssetsNavMarkup,/>Prepaid expenses</);
+assert.match(fixedAssetsNavMarkup,/>Fixed assets</);assert.match(fixedAssetsNavMarkup,/>Revenue recognition</);assert.match(fixedAssetsNavMarkup,/>Prepaid expenses</);assert.match(fixedAssetsNavMarkup,/>Intuit Experts</);
 assert.doesNotMatch(fixedAssetsNavMarkup,/How it works|See reports|Add multiple assets|Add an asset/,'the Accounting navigation must not import asset onboarding or creation actions');
 assert.match(rulesNavMarkup,/>Rules</);assert.match(rulesNavMarkup,/>Bank transactions</);assert.match(rulesNavMarkup,/>Reconcile</);
 assert.doesNotMatch(rulesNavMarkup,/>Accounting settings</);assert.doesNotMatch(rulesNavMarkup,/>Mapping Center</);
@@ -216,6 +234,14 @@ assert.doesNotMatch(fixedAssetsUnavailableMarkup,/How it works|See reports|Add m
 const rulesUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('rules')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.match(rulesUnavailableMarkup,/Rules is not available yet/);assert.match(rulesUnavailableMarkup,/role="status"/);
 assert.doesNotMatch(rulesUnavailableMarkup,/New rule|Bank rules|Integration rules|Search by name or conditions|All rules|Priority|Conditions|Auto-post|Edit|reorder|categorise|categorize|match|post/,'the unavailable Rules route must not reproduce rule filters, rows, mutations, or automatic accounting actions');
+for (const route of ['intuit-experts','products-services','custom-reports','management-reports','kpi-scorecard','analytics-dashboards','integration-transactions']) {
+  const item = navigationItemForRoute(route);
+  const markup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={item} config={{entityId:'entity-1',periodId:'period-1'}}/>);
+  const renderedLabel = item.label.replaceAll('&', '&amp;');
+  assert.ok(markup.includes(`${renderedLabel} is not available yet`));
+  assert.match(markup, /role="status"/);
+  assert.doesNotMatch(markup, /Create|Edit|Schedule|Connect|Upload|Export|Post|Refresh/, `${item.label} must expose no unsupported command`);
+}
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
 const amortizationSource = fs.readFileSync('src/authoritative-amortization-workspace.jsx', 'utf8');
 for(const file of ['src/authoritative-aging-workspace.jsx','src/authoritative-amortization-workspace.jsx','src/authoritative-lineage-drill.jsx','src/authoritative-property-rent-workspace.jsx']){

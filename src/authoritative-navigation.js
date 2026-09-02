@@ -48,6 +48,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Entity-scoped receipt queue with immutable receipt, attachment object/version, content hash, creator, review status, and extracted accounting facts.',
       'Read-only For review and Reviewed list/detail endpoints; upload, OCR, review mutation, add-to-books, export, customize, and payment promotion remain unavailable.',
     ]),
+    item('integration-transactions', 'Integration transactions', 'API_UNAVAILABLE', [
+      'Permission-scoped connector definitions and imported-transaction rows with immutable connector identity, connection revision, source key and version, receipt and payload hashes, transaction status, read timestamp, and audit identifiers.',
+      'Read-only connection status, transaction filters, bounded paging, and detail evidence are required; connector setup, provider synchronisation, import, mapping, posting, and external actions remain unavailable.',
+    ]),
     item('integration-hub', 'WBS Data Import', 'API_READ', [
       'Read production WBS Payables, Bank, AutoRec and Journal evidence for one explicit company and date scope.',
       'The controlled H1 test import remains server-authorised, TEST ONLY, company-scoped and fully auditable.',
@@ -106,6 +110,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     // QBO calls this surface Prepaid expenses. REFS keeps its stronger
     // Amortization Center controls behind that familiar accounting label.
     item('amortization', 'Prepaid expenses', 'API_READ'),
+    item('intuit-experts', 'Intuit Experts', 'API_UNAVAILABLE', [
+      'Permission-scoped plan, expert-service entitlement, appointment, service-state, and audit evidence bound to the authenticated company and user role.',
+      'Read-only service and appointment state is required; scheduling, expert contact, service enablement, feedback, external promotion, and expert accounting actions remain unavailable.',
+    ]),
     item('accruals', 'Accrual Center'),
   ]),
   group('Close', [
@@ -130,9 +138,32 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Tax-permission-scoped filing-year snapshots with immutable recipient, W-9, form, filing, correction, and audit identifiers.',
       'Read-only recipient and completed-form endpoints; preparation, autofill, import, e-file, correction, download, print, mail, and export remain unavailable.',
     ]),
+    item('products-services', 'Products & services', 'API_UNAVAILABLE', [
+      'Entity-scoped product and service master rows with immutable item identity, revision, type, category, SKU, descriptions, quantity, price, cost, status, and audit identifiers.',
+      'Read-only search, filtering, bounded paging, and detail evidence are required; creation, editing, bulk changes, printing, exporting, inventory adjustment, and transaction application remain unavailable.',
+    ]),
     item('receivables', 'Invoices & receipts', 'API_READ'),
   ]),
-  group('Reports & Analytics', [item('reports', 'Standard reports', 'API_READ'),item('accounting-analysis-report', 'Accounting Analysis Report', 'API_READ')]),
+  group('Reports & Analytics', [
+    item('reports', 'Standard reports', 'API_READ'),
+    item('custom-reports', 'Custom reports', 'API_UNAVAILABLE', [
+      'Permission-scoped saved-report definitions with immutable report identity, revision, creator, last modifier, date-range, access, delivery state, and audit identifiers.',
+      'Read-only search, bounded paging, and detail evidence are required; creation, editing, sharing, email delivery, scheduling, and report actions remain unavailable.',
+    ]),
+    item('management-reports', 'Management reports', 'API_UNAVAILABLE', [
+      'Permission-scoped management-report definitions with immutable report identity, revision, lifecycle state, creator, last-modified time, reporting period, schedule state, and audit identifiers.',
+      'Read-only Drafts and Published views, search, filters, bounded paging, and detail evidence are required; creation, editing, publishing, scheduling, delivery, and report actions remain unavailable.',
+    ]),
+    item('kpi-scorecard', 'KPIs', 'API_UNAVAILABLE', [
+      'Permission-scoped KPI definitions with immutable KPI and scorecard identities, formula and source versions, category, comparison periods, value, variance, refresh snapshot, and audit identifiers.',
+      'Read-only filters, search, grouped scorecard rows, and detail evidence are required; KPI creation, scorecard management, formula changes, refresh commands, and report actions remain unavailable.',
+    ]),
+    item('analytics-dashboards', 'Dashboards', 'API_UNAVAILABLE', [
+      'Permission-scoped dashboard definitions with immutable dashboard identity, revision, source and snapshot versions, dashboard type, favorite presentation state, refresh evidence, and audit identifiers.',
+      'Read-only Favorites and All dashboards collections plus full-page detail evidence are required; dashboard creation, editing, favorite mutation, sharing, data-source connection, refresh commands, and dashboard actions remain unavailable.',
+    ]),
+    item('accounting-analysis-report', 'Accounting Analysis Report', 'API_READ'),
+  ]),
   group('Administration', [
     item('master-data', 'Master Data'), item('bank-accounts', 'Bank Accounts'),
     item('my-accountant', 'My accountant', 'API_UNAVAILABLE', [

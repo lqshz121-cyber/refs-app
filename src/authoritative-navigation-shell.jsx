@@ -38,12 +38,12 @@ const GROUP_ICONS = Object.freeze({
 const ITEM_ICONS = Object.freeze({
   overview:'gauge', approvals:'check', 'ai-audit':'shield', 'ai-je-workbench':'document', 'accounting-analysis-report':'bars',
   settings:'gear', rules:'check', mapping:'layers',
-  'wbs-payable-review':'document', staging:'layers', 'source-documents':'document', receipts:'inbox', 'integration-hub':'cycle', 'mapping-exceptions':'shield',
+  'wbs-payable-review':'document', staging:'layers', 'source-documents':'document', receipts:'inbox', 'integration-transactions':'cycle', 'integration-hub':'cycle', 'mapping-exceptions':'shield',
   'bank-batch-pipeline':'bank', 'wbs-autorec-evidence':'cycle', bank:'bank', reconciliation:'check', 'checks-payments':'wallet',
   journals:'document', 'general-ledger':'book', consolidation:'layers', 'account-inquiry':'lines', 'subsidiary-ledger':'book', 'chart-of-accounts':'lines',
   'project-cost-cwip':'bars', 'unit-cost-ledger':'bars', 'unit-transfer':'exchange', 'construction-loan':'bank', 'loan-register':'book',
-  'property-ops-pickup':'wallet', 'closing-accounting':'calendar', intercompany:'exchange', 'recurring-transactions':'cycle', 'revenue-recognition':'calendar', 'fixed-assets':'layers', amortization:'cycle', accruals:'document',
-  'month-end-close':'calendar', 'period-management':'calendar', payables:'wallet', vendors:'users', 'bill-payments':'wallet', contractors:'users', '1099s':'document', receivables:'inbox', reports:'bars',
+  'property-ops-pickup':'wallet', 'closing-accounting':'calendar', intercompany:'exchange', 'recurring-transactions':'cycle', 'revenue-recognition':'calendar', 'fixed-assets':'layers', amortization:'cycle', 'intuit-experts':'users', accruals:'document',
+  'month-end-close':'calendar', 'period-management':'calendar', payables:'wallet', vendors:'users', 'bill-payments':'wallet', contractors:'users', '1099s':'document', 'products-services':'layers', receivables:'inbox', reports:'bars', 'custom-reports':'bars', 'management-reports':'bars', 'kpi-scorecard':'bars', 'analytics-dashboards':'bars',
   'master-data':'layers', 'bank-accounts':'bank', 'my-accountant':'users', 'audit-log':'shield', 'users-settings':'gear',
 });
 
