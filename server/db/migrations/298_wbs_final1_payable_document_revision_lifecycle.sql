@@ -207,7 +207,7 @@ BEGIN
 
   FOR v_row IN SELECT value FROM jsonb_array_elements(p_plan->'staging_rows') LOOP
     v_raw:=v_row->'raw_row';
-    IF v_raw->>'document_kind'<>'TAX_STATEMENT' THEN CONTINUE; END IF;
+    IF v_raw->>'document_kind' IS DISTINCT FROM 'TAX_STATEMENT' THEN CONTINUE; END IF;
     SELECT * INTO STRICT v_retained FROM wbs_final1_retained_source_row r
       WHERE r.tenant_id=p_tenant AND r.entity_id=p_entity AND r.wbs_final1_retained_evidence_admission_id=(v_result->>'admission_id')::uuid
         AND r.domain='PAYABLES' AND r.source_row_ordinal=(v_row->>'source_row_ordinal')::integer
@@ -324,7 +324,7 @@ BEGIN
        AND r.wbs_final1_payable_document_evidence_id=e.wbs_final1_payable_document_evidence_id
       WHERE e.tenant_id=p_tenant AND e.entity_id=p_entity AND e.source_document_id=d.source_document_id
         AND e.source_document_line_id=(d.packet#>>'{source,source_document_line_id}')::uuid
-      FOR SHARE OF e,r;
+      FOR SHARE OF e;
     IF v_kind='TAX_STATEMENT' THEN
       IF v_identity_hash IS NULL OR v_revision_id IS NULL THEN
         RAISE EXCEPTION 'Tax-statement decision has no retained revision evidence' USING ERRCODE='40001';

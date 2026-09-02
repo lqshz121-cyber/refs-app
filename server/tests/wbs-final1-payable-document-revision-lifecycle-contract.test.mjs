@@ -43,6 +43,7 @@ test('migration 298 retains an append-only, scoped, current-only signed tax revi
     'refs_read_ai_invoice_classification_source_v4',
     'refs_read_ai_invoice_decision_population_page_v297',
     'refs_retain_ai_accounting_decision_batch_v297',
+    "v_raw->>'document_kind' IS DISTINCT FROM 'TAX_STATEMENT'",
     "'can_create_draft',false",
     "'can_review',false",
     "'can_approve',false",
@@ -51,6 +52,7 @@ test('migration 298 retains an append-only, scoped, current-only signed tax revi
   assert.doesNotMatch(sql,/UPDATE\s+wbs_final1_payable_document_revision|DELETE\s+FROM\s+wbs_final1_payable_document_revision/i);
   assert.doesNotMatch(sql,/'accounting_period_id',p_period,\s*'controlled_property_ref'/);
   assert.match(sql,/LEFT JOIN wbs_final1_payable_document_revision_current c[\s\S]+e\.document_kind IS DISTINCT FROM 'TAX_STATEMENT'/);
+  assert.doesNotMatch(sql,/FOR SHARE OF e,r/);
   assert.match(sql,/REVOKE ALL ON wbs_final1_payable_document_revision FROM PUBLIC,refs_app/);
   assert.doesNotMatch(sql,/GRANT SELECT ON wbs_final1_payable_document_revision TO refs_app/);
 });
