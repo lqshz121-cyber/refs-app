@@ -5,7 +5,10 @@ BEGIN;
 -- sibling entity before the application checked its release allowlist.  v3
 -- moves both the entity boundary and the grant-set revision check into the
 -- same transaction that takes the row lock.
-CREATE FUNCTION refs_claim_outbox_v3(
+-- CREATE FUNCTION refs_claim_outbox_v3 is intentionally expressed as
+-- CREATE OR REPLACE below because the fail-closed down migration retains the
+-- function while revoking every runtime execution path.
+CREATE OR REPLACE FUNCTION refs_claim_outbox_v3(
   p_tenant uuid,
   p_worker text,
   p_entity_ids uuid[],
