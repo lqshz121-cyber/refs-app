@@ -616,6 +616,9 @@ export class PostgresAccountingKernel{
       return result;
     });
   }
+  async readWbsFinal1PayableDocumentRevisions({tenantId,entityId,statutoryIdentityHash=null,limit=100}){
+    return this.inSession(async client=>(await client.query('SELECT refs_read_wbs_final1_payable_document_revisions($1,$2,$3,$4) AS result',[tenantId,entityId,statutoryIdentityHash,limit])).rows[0].result);
+  }
 
   async listAiWbsExceptionFindings({tenantId,entityId,limit=50}){
     return this.inSession(async client=>(await client.query(
@@ -795,7 +798,7 @@ export class PostgresAccountingKernel{
   async listAiCostDimensionFindingsForPeriod({tenantId,entityId,periodId,limit=50}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_cost_dimension_findings_for_period($1,$2,$3,$4)',[tenantId,entityId,periodId,limit])).rows);}
   async listAiLoanReferenceFindingsForPeriod({tenantId,entityId,periodId,limit=50}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_loan_reference_findings_for_period($1,$2,$3,$4)',[tenantId,entityId,periodId,limit])).rows);}
   async readAiCwipPostCompletionSource({tenantId,entityId,accountingPeriodId,limit=500}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_cwip_post_completion_source($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows);}
-  async readAiInvoiceClassificationSource({tenantId,entityId,accountingPeriodId,limit=100}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_invoice_classification_source_v3($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date),invoice_date:publicDate(row.invoice_date),service_period_start:publicDate(row.service_period_start),service_period_end:publicDate(row.service_period_end),tax_coverage_period_start:publicDate(row.tax_coverage_period_start),tax_coverage_period_end:publicDate(row.tax_coverage_period_end)})));}
+  async readAiInvoiceClassificationSource({tenantId,entityId,accountingPeriodId,limit=100}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_invoice_classification_source_v4($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date),invoice_date:publicDate(row.invoice_date),service_period_start:publicDate(row.service_period_start),service_period_end:publicDate(row.service_period_end),tax_coverage_period_start:publicDate(row.tax_coverage_period_start),tax_coverage_period_end:publicDate(row.tax_coverage_period_end)})));}
 
   async readAiAccountingDecisionPopulation({tenantId,entityId,accountingPeriodId,pageSize=250,maxRows=10000}){
     if(!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>500||!Number.isSafeInteger(maxRows)||maxRows<1||maxRows>10000)throw new KernelError('AI_ACCOUNTING_DECISION_SCOPE_INVALID','Decision population paging requires pageSize 1-500 and maxRows 1-10000');
@@ -1560,6 +1563,16 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async readAiAccountingDecisionQueueSnapshot({tenantId,entityId,accountingPeriodId,limit=50,offset=0,snapshotToken=null}){
+    return this.inSession(async client=>{
+      const row=requireRow(await client.query(
+        'SELECT refs_read_ai_accounting_decision_queue_snapshot($1,$2,$3,$4,$5,$6) AS result',
+        [tenantId,entityId,accountingPeriodId,limit,offset,snapshotToken]
+      ),'AI_ACCOUNTING_DECISION_QUEUE_SNAPSHOT_UNAVAILABLE','The retained AI accounting decision queue snapshot is unavailable');
+      return row.result;
+    });
+  }
+
   async createJournalAdjustment(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
@@ -1804,6 +1817,16 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_general_ledger($1,$2,$3,$4,$5,$6,$7)',[tenantId,entityId,periodId,accountCode,query,limit,offset]
     )).rows.map(row=>({...row,...(row.period_start===undefined?{}:{period_start:publicDate(row.period_start)}),...(row.period_end===undefined?{}:{period_end:publicDate(row.period_end)}),...(row.journal_date===undefined?{}:{journal_date:publicDate(row.journal_date)})})));
+  }
+
+  async readGeneralLedgerSnapshot({tenantId,entityId,periodId,accountCode=null,query=null,limit=50,offset=0,snapshotToken=null}){
+    return this.inSession(async client=>{
+      const row=requireRow(await client.query(
+        'SELECT refs_read_general_ledger_snapshot($1,$2,$3,$4,$5,$6,$7,$8) AS result',
+        [tenantId,entityId,periodId,accountCode,query,limit,offset,snapshotToken]
+      ),'GENERAL_LEDGER_SNAPSHOT_UNAVAILABLE','The General Ledger snapshot page is unavailable');
+      return row.result;
+    });
   }
 
   async listSourceDocuments({tenantId,entityId}){
@@ -2669,9 +2692,12 @@ export class PostgresAccountingKernel{
     });
   }
 
-  async claimOutboxV2({tenantId,limit=100,leaseSeconds=300}){
+  async claimOutboxV3({tenantId,scopes,limit=100,leaseSeconds=300}){
+    const entityIds=Array.isArray(scopes)?scopes.map(scope=>scope.entityId):[];
+    const grantSetVersions=Array.isArray(scopes)?scopes.map(scope=>scope.grantSetVersion):[];
     return this.inSession(async client=>(await client.query(
-      'SELECT * FROM refs_claim_outbox_v2($1,refs_current_actor(),$2,$3)',[tenantId,limit,leaseSeconds]
+      'SELECT * FROM refs_claim_outbox_v3($1,refs_current_actor(),$2::uuid[],$3::bigint[],$4,$5)',
+      [tenantId,entityIds,grantSetVersions,limit,leaseSeconds]
     )).rows);
   }
 
@@ -2680,5 +2706,22 @@ export class PostgresAccountingKernel{
       'SELECT refs_complete_outbox_v2($1,$2,refs_current_actor(),$3,$4,$5,$6,$7) AS result',
       [tenantId,eventId,success,retryable,errorCode,maxAttempts,retryBaseSeconds]
     ),'OUTBOX_DISPATCH_COMPLETION_FAILED','Outbox dispatch completion did not return a receipt').result);
+  }
+
+  async readOutboxDispatchBacklog({tenantId,entityId}){
+    return this.inSession(async client=>{
+      const row=requireRow(await client.query(`
+        SELECT $1::uuid AS tenant_id,$2::uuid AS entity_id,
+          count(*) FILTER (WHERE status='PENDING')::integer AS pending_count,
+          count(*) FILTER (WHERE status='FAILED')::integer AS failed_count,
+          min(created_at) FILTER (WHERE status='PENDING') AS oldest_pending_at
+        FROM outbox_event
+        WHERE tenant_id=$1 AND entity_id=$2
+          AND refs_entity_has_permission($2,'OUTBOX.DISPATCH') IS TRUE
+      `,[tenantId,entityId]),'OUTBOX_DISPATCH_BACKLOG_UNAVAILABLE','Outbox backlog evidence is unavailable');
+      const pendingCount=Number(row.pending_count),failedCount=Number(row.failed_count);
+      if(!Number.isSafeInteger(pendingCount)||pendingCount<0||!Number.isSafeInteger(failedCount)||failedCount<0)throw new KernelError('OUTBOX_DISPATCH_BACKLOG_INVALID','Outbox backlog evidence is invalid');
+      return {tenant_id:row.tenant_id,entity_id:row.entity_id,pending_count:pendingCount,failed_count:failedCount,oldest_pending_at:row.oldest_pending_at};
+    });
   }
 }

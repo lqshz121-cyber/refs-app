@@ -303,4 +303,7 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"295_ai_accounting_decision_population.sql",up:"a87411d147a02581821e9e5894ccbf1929c273c12856a349db3323609dbc906a",down:"76ef8f8c7e529501586fc375c014166440b929136799abb368efd2d611201533"}),
   Object.freeze({name:"296_ai_construction_loan_cwip_population_attestation.sql",up:"2996bf3e9a2170a1a8f956ee1cd5ccf794acc3f253afe8369b6d428d961871c8",down:"ddf1f803df6afe462ce035e67122cb31a7ca64a771d303cdc68e6e53fcd04cae"}),
   Object.freeze({name:"297_wbs_final1_payable_typed_document_evidence.sql",up:"c0a47e401b8010f7534f47393d07d5c75be0173c72031a1aceda7db9f6557960",down:"f04f9fa047994877d4ff63716c6ebc5348267614526b525bd9d388f8940bd94b"}),
+  Object.freeze({name:"298_wbs_final1_payable_document_revision_lifecycle.sql",up:"7b76fbf8ee2dc2ce975a6b3d4f6349228ebb89f438c4c2eb853b8205cbcc2957",down:"87aa10d097bb7c1b51d2eebe7a69c60e9783190f4bf5d575d69d118b1ef80b8e"}),
+  Object.freeze({name:"299_outbox_dispatch_entity_revision_claim.sql",up:"9d4b7cf04a67ff712492c67a8077a21920bf8771d91a68aa18db57b0742539de",down:"e61a1cce52989ff628070bc5822490f3f2248392af49b73f8b71101adfb7f0a1"}),
+  Object.freeze({name:"300_authoritative_paged_read_snapshots.sql",up:"6c9ee7ae68e00dc3c8b3f6a6696da147153df3f5654ad179a5c6f4c36ea0cfd3",down:"d95062f355f7af2d5598881f2deef0f92b8297ea3b1e6cb0596c2f15312fe152"}),
 ]);

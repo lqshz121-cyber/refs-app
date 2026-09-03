@@ -12,7 +12,8 @@ const invoice=(overrides={})=>({
   project_ref:null,property_ref:null,member_ref:null,charge_code:'OPERATING',duplicate_status:'NONE',accounting_status:'NOT_RECORDED',project_status:'OPERATING',
   cost_class:'OPERATING_EXPENSE',asset_useful_life_months:null,capitalization_threshold:'5000.0000',
   document_evidence_status:'COMPLETE',document_evidence_schema_version:'WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_V1',document_evidence_hash:hash('d'),document_kind:'INVOICE',
-  taxing_jurisdiction:null,tax_statement_identifier:null,tax_coverage_period_start:null,tax_coverage_period_end:null,tax_obligation_basis:null,controlled_property_ref:null,parcel_identifier:null,
+  tax_year:null,taxing_jurisdiction:null,tax_statement_identifier:null,tax_coverage_period_start:null,tax_coverage_period_end:null,tax_obligation_basis:null,controlled_property_ref:null,parcel_identifier:null,
+  document_revision_schema_version:null,document_revision_kind:null,document_revision:null,predecessor_document_evidence_hash:null,predecessor_document_revision_hash:null,predecessor_document_revision:null,predecessor_source_record_id:null,document_revision_hash:null,document_lifecycle_status:'NOT_APPLICABLE',
   ...overrides
 });
 
@@ -106,8 +107,8 @@ test('rejects oversized scans before processing',()=>{
   assert.throws(()=>classifyRetainedInvoiceBatch(Array.from({length:10001},()=>invoice())),error=>error.code==='AI_INVOICE_CLASSIFICATION_SCOPE_INVALID');
 });
 
-test('recognizes only complete signed TAX_STATEMENT evidence and never proposes accounting',()=>{
-  const result=classifyRetainedInvoice(invoice({document_kind:'TAX_STATEMENT',taxing_jurisdiction:'Example County',tax_statement_identifier:'STATEMENT-2026-01',tax_coverage_period_start:'2026-01-01',tax_coverage_period_end:'2026-12-31',tax_obligation_basis:'ASSESSED_VALUE',controlled_property_ref:'PROPERTY-1',parcel_identifier:'PARCEL-1',description:'Annual services',property_ref:null}),{capitalizationPolicy:policy});
+test('recognizes only the complete current signed TAX_STATEMENT revision and never proposes accounting',()=>{
+  const result=classifyRetainedInvoice(invoice({document_kind:'TAX_STATEMENT',tax_year:2026,taxing_jurisdiction:'Example County',tax_statement_identifier:'STATEMENT-2026-01',tax_coverage_period_start:'2026-01-01',tax_coverage_period_end:'2026-12-31',tax_obligation_basis:'ASSESSED_VALUE',controlled_property_ref:'PROPERTY-1',parcel_identifier:'PARCEL-1',document_revision_schema_version:'WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_V1',document_revision_kind:'ORIGINAL',document_revision:1,document_revision_hash:hash('e'),document_lifecycle_status:'CURRENT',description:'Annual services',property_ref:null}),{capitalizationPolicy:policy});
   assert.equal(result.classification,'BLOCKED');
   assert.equal(result.rule_id,'AI_PROPERTY_TAX_TYPED_SOURCE_REVIEW_V1');
   assert.deepEqual(result.required_human_fields,['property_tax_policy_snapshot','tax_treatment_review']);
@@ -133,6 +134,16 @@ test('missing, unknown, and contradictory signed document evidence fail closed',
     const result=classifyRetainedInvoice(invoice(overrides),{capitalizationPolicy:policy});
     assert.equal(result.classification,'BLOCKED',JSON.stringify(overrides));
     assert.match(result.rule_id,/AI_PAYABLE_DOCUMENT_KIND_EVIDENCE_(?:REQUIRED|INVALID)_V1/);
+    assert.deepEqual(result.action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+  }
+});
+
+test('superseded, withdrawn, stale, or predecessor-drifted property-tax revisions fail closed',()=>{
+  const current={document_kind:'TAX_STATEMENT',tax_year:2026,taxing_jurisdiction:'County',tax_statement_identifier:'STATEMENT-1',tax_coverage_period_start:'2026-01-01',tax_coverage_period_end:'2026-12-31',tax_obligation_basis:'ASSESSED_VALUE',controlled_property_ref:'PROPERTY-1',parcel_identifier:'PARCEL-1',document_revision_schema_version:'WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_V1',document_revision_kind:'CORRECTION',document_revision:2,predecessor_document_evidence_hash:hash('e'),predecessor_document_revision_hash:hash('f'),predecessor_document_revision:1,predecessor_source_record_id:id(20),document_revision_hash:hash('9'),document_lifecycle_status:'CURRENT'};
+  for(const drift of [{document_lifecycle_status:'SUPERSEDED'},{document_revision_kind:'WITHDRAWN'},{predecessor_document_revision:2},{document_revision_hash:'bad'}]){
+    const result=classifyRetainedInvoice(invoice({...current,...drift}),{capitalizationPolicy:policy});
+    assert.equal(result.classification,'BLOCKED');
+    assert.equal(result.rule_id,'AI_PAYABLE_DOCUMENT_KIND_EVIDENCE_INVALID_V1');
     assert.deepEqual(result.action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
   }
 });

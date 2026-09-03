@@ -23,9 +23,9 @@ const assertOutboxCoverage=(manifest,{apiName,workerName,fixedTenant=false})=>{
   if(fixedTenant){
     const tenant=/^[ \t]*- key: REFS_STAGE1_TENANT_ID\r?\n[ \t]+value: ([0-9a-f-]{36})$/im.exec(api.body)?.[1];
     assert.ok(tenant,'authoritative API must declare its exact Stage 1 tenant');
-    assert.ok(outboxWorker.body.includes(`- key: OUTBOX_DISPATCH_SCOPES\n        value: '[{"tenantId":"${tenant}"}]'`)||outboxWorker.body.includes(`- key: OUTBOX_DISPATCH_SCOPES\r\n        value: '[{"tenantId":"${tenant}"}]'`),'outbox worker scope must be pinned to its authoritative API tenant');
+    const entity='ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3';assert.ok(outboxWorker.body.includes(`- key: OUTBOX_DISPATCH_SCOPES\n        value: '[{"tenantId":"${tenant}","entityId":"${entity}"}]'`)||outboxWorker.body.includes(`- key: OUTBOX_DISPATCH_SCOPES\r\n        value: '[{"tenantId":"${tenant}","entityId":"${entity}"}]'`),'outbox worker scope must be pinned to its authoritative API tenant and entity');
   }else assert.ok(hasSecret(outboxWorker.body,'OUTBOX_DISPATCH_SCOPES'),'separately promoted API worker must receive its own tenant scopes as a secret');
-  for(const [key,value] of [['OUTBOX_DISPATCH_BATCH','"100"'],['OUTBOX_DISPATCH_INTERVAL_MS','"5000"'],['OUTBOX_DISPATCH_LEASE_SECONDS','"300"'],['OUTBOX_DISPATCH_MAX_ATTEMPTS','"8"'],['OUTBOX_DISPATCH_RETRY_BASE_SECONDS','"5"']])assert.ok(hasFixed(outboxWorker.body,key,value),`outbox worker is missing ${key}=${value}`);
+  for(const [key,value] of [['OUTBOX_DISPATCH_BATCH','"100"'],['OUTBOX_DISPATCH_INTERVAL_MS','"5000"'],['OUTBOX_DISPATCH_LEASE_SECONDS','"300"'],['OUTBOX_DISPATCH_MAX_ATTEMPTS','"8"'],['OUTBOX_DISPATCH_RETRY_BASE_SECONDS','"5"'],['OUTBOX_DISPATCH_HEALTH_PORT','"10002"']])assert.ok(hasFixed(outboxWorker.body,key,value),`outbox worker is missing ${key}=${value}`);
   return outboxWorker;
 };
 

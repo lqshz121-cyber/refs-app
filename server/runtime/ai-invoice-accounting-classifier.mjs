@@ -24,13 +24,19 @@ const PREPAID_INDICATORS=Object.freeze([
   Object.freeze({category:'WARRANTY_OR_MAINTENANCE',pattern:/\b(?:extended\s+warranty|annual\s+maintenance|maintenance\s+contract)\b/i})
 ]);
 // A statutory tax obligation cannot be proven from PAYABLES description text.
-// Only the closed, signed document evidence retained by migration 297 may
-// distinguish an INVOICE from a TAX_STATEMENT.
+// Only the closed, signed document evidence retained by migrations 297-298
+// may distinguish an INVOICE from the current revision of a TAX_STATEMENT.
 const typedDocumentEvidenceStatus=invoice=>{
   if(invoice.document_evidence_status!=='COMPLETE'||invoice.document_evidence_schema_version!=='WBS_FINAL1_PAYABLE_DOCUMENT_EVIDENCE_V1'||!SHA256.test(invoice.document_evidence_hash||''))return 'MISSING';
-  if(invoice.document_kind==='INVOICE')return [invoice.taxing_jurisdiction,invoice.tax_statement_identifier,invoice.tax_coverage_period_start,invoice.tax_coverage_period_end,invoice.tax_obligation_basis,invoice.controlled_property_ref,invoice.parcel_identifier].every(value=>value===null)?'INVOICE':'CONTRADICTORY';
+  const revisionValues=[invoice.document_revision_schema_version,invoice.document_revision_kind,invoice.document_revision,invoice.predecessor_document_evidence_hash,invoice.predecessor_document_revision_hash,invoice.predecessor_document_revision,invoice.predecessor_source_record_id,invoice.document_revision_hash];
+  if(invoice.document_kind==='INVOICE')return [invoice.tax_year,invoice.taxing_jurisdiction,invoice.tax_statement_identifier,invoice.tax_coverage_period_start,invoice.tax_coverage_period_end,invoice.tax_obligation_basis,invoice.controlled_property_ref,invoice.parcel_identifier,...revisionValues].every(value=>value===null)&&invoice.document_lifecycle_status==='NOT_APPLICABLE'?'INVOICE':'CONTRADICTORY';
   if(invoice.document_kind!=='TAX_STATEMENT')return 'UNKNOWN';
-  return text(invoice.taxing_jurisdiction,200)&&text(invoice.tax_statement_identifier,200)&&date(invoice.tax_coverage_period_start)&&date(invoice.tax_coverage_period_end)&&invoice.tax_coverage_period_start<=invoice.tax_coverage_period_end&&['ASSESSED_VALUE','MILLAGE_RATE','FIXED_STATUTORY_AMOUNT'].includes(invoice.tax_obligation_basis)&&text(invoice.controlled_property_ref,128)&&text(invoice.parcel_identifier,128)?'TAX_STATEMENT':'CONTRADICTORY';
+  const revisionValid=invoice.document_revision_schema_version==='WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_V1'&&['ORIGINAL','CORRECTION'].includes(invoice.document_revision_kind)&&Number.isInteger(invoice.document_revision)&&invoice.document_revision>=1&&SHA256.test(invoice.document_revision_hash||'')&&invoice.document_lifecycle_status==='CURRENT'&&(
+    invoice.document_revision_kind==='ORIGINAL'
+      ?invoice.document_revision===1&&[invoice.predecessor_document_evidence_hash,invoice.predecessor_document_revision_hash,invoice.predecessor_document_revision,invoice.predecessor_source_record_id].every(value=>value===null)
+      :invoice.document_revision>1&&SHA256.test(invoice.predecessor_document_evidence_hash||'')&&SHA256.test(invoice.predecessor_document_revision_hash||'')&&invoice.predecessor_document_revision===invoice.document_revision-1&&text(invoice.predecessor_source_record_id,512)
+  );
+  return revisionValid&&Number.isSafeInteger(invoice.tax_year)&&invoice.tax_year>=1900&&invoice.tax_year<=9999&&text(invoice.taxing_jurisdiction,200)&&text(invoice.tax_statement_identifier,200)&&date(invoice.tax_coverage_period_start)&&date(invoice.tax_coverage_period_end)&&invoice.tax_coverage_period_start<=invoice.tax_coverage_period_end&&Number(invoice.tax_coverage_period_start.slice(0,4))===invoice.tax_year&&Number(invoice.tax_coverage_period_end.slice(0,4))===invoice.tax_year&&['ASSESSED_VALUE','MILLAGE_RATE','FIXED_STATUTORY_AMOUNT'].includes(invoice.tax_obligation_basis)&&text(invoice.controlled_property_ref,128)&&text(invoice.parcel_identifier,128)?'TAX_STATEMENT':'CONTRADICTORY';
 };
 
 const prepaidIndicator=invoice=>{const haystack=[invoice.vendor_name,invoice.description,invoice.charge_code].filter(value=>typeof value==='string').join(' ');return PREPAID_INDICATORS.find(item=>item.pattern.test(haystack))?.category??null;};

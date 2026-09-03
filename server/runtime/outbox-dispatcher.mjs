@@ -47,12 +47,14 @@ export class OutboxDispatchService{
     if(typeof kernelFactory!=='function'||typeof publisher?.publish!=='function'||!Number.isSafeInteger(maxAttempts)||maxAttempts<1||maxAttempts>100||!Number.isSafeInteger(retryBaseSeconds)||retryBaseSeconds<1||retryBaseSeconds>3600||!Number.isSafeInteger(leaseSeconds)||leaseSeconds<5||leaseSeconds>3600)fail('OUTBOX_DISPATCH_CONFIG_INVALID','Outbox dispatch service configuration is invalid.');
     this.kernelFactory=kernelFactory;this.publisher=publisher;this.maxAttempts=maxAttempts;this.retryBaseSeconds=retryBaseSeconds;this.leaseSeconds=leaseSeconds;
   }
-  async runOnce(principal,{tenantId,limit=100}={}){
-    if(!principal?.trusted||typeof principal.actorId!=='string'||!principal.actorId||!UUID.test(tenantId)||!Number.isSafeInteger(limit)||limit<1||limit>500)fail('OUTBOX_DISPATCH_SCOPE_INVALID','Outbox dispatch requires a trusted service identity and exact tenant scope.');
-    const kernel=await this.kernelFactory(principal,{tenantId}),claimed=await kernel.claimOutboxV2({tenantId,limit,leaseSeconds:this.leaseSeconds});
+  async runOnce(principal,{tenantId,scopes,limit=100}={}){
+    if(!principal?.trusted||typeof principal.actorId!=='string'||!principal.actorId||!UUID.test(tenantId)||!Array.isArray(scopes)||scopes.length===0||scopes.length>100||scopes.some(scope=>!exactKeys(scope,['entityId','grantSetVersion'])||!UUID.test(scope.entityId)||!Number.isSafeInteger(scope.grantSetVersion)||scope.grantSetVersion<1)||new Set(scopes.map(scope=>scope.entityId)).size!==scopes.length||!Number.isSafeInteger(limit)||limit<1||limit>500)fail('OUTBOX_DISPATCH_SCOPE_INVALID','Outbox dispatch requires a trusted service identity and exact entity/grant-revision scopes.');
+    const allowedEntities=new Set(scopes.map(scope=>scope.entityId));
+    const kernel=await this.kernelFactory(principal,{tenantId}),claimed=await kernel.claimOutboxV3({tenantId,scopes,limit,leaseSeconds:this.leaseSeconds});
     if(!Array.isArray(claimed)||claimed.length>limit)fail('OUTBOX_CLAIM_CONTRACT_INVALID','Outbox claim result is invalid.');
     const results=[];
     for(const row of claimed){
+      if(!allowedEntities.has(row?.entity_id))fail('OUTBOX_EVENT_SCOPE_INVALID','Claimed outbox event entity is outside the configured release scope.');
       let event;
       try{event=validateClaimedOutboxEvent(row,{tenantId});}catch(error){
         if(!UUID.test(row?.outbox_event_id||'')||row?.tenant_id!==tenantId)throw error;
