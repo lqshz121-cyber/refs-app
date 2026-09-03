@@ -188,12 +188,14 @@ assert.match(authoritativeShell,/<Icon name=\{ITEM_ICONS\[item\.route\] \|\| 'do
   'the readable navigation row must render its icon at a compact, consistent size');
 assert.match(authoritativeShell,/payables:'wallet'[\s\S]*receivables:'inbox'/,
   'Payables and Receivables must use distinct glyphs from the same shared line-icon vocabulary');
-assert.match(authoritativeShell,/payables:'wallet', vendors:'users', 'bill-payments':'wallet', contractors:'users', '1099s':'document', receivables:'inbox'/,
+assert.match(authoritativeShell,/payables:'wallet', vendors:'users', 'bill-payments':'wallet', contractors:'users', '1099s':'document', 'products-services':'layers', receivables:'inbox'/,
   'Expenses children must use explicit semantic line-icon mappings instead of the shared document fallback');
-assert.match(authoritativeShell,/'source-documents':'document', receipts:'inbox', 'integration-hub':'cycle'/,
+assert.match(authoritativeShell,/'source-documents':'document', receipts:'inbox', 'integration-transactions':'cycle', 'integration-hub':'cycle'/,
   'Accounting receipt and integration destinations must use explicit semantic glyph mappings');
-assert.match(authoritativeShell,/'recurring-transactions':'cycle', 'revenue-recognition':'calendar', 'fixed-assets':'layers', amortization:'cycle'/,
+assert.match(authoritativeShell,/'recurring-transactions':'cycle', 'revenue-recognition':'calendar', 'fixed-assets':'layers', amortization:'cycle', 'intuit-experts':'users'/,
   'Accounting schedule destinations must use explicit semantic glyph mappings');
+assert.match(authoritativeShell,/reports:'bars', 'custom-reports':'bars', 'management-reports':'bars', 'kpi-scorecard':'bars', 'analytics-dashboards':'bars'/,
+  'Reports and Analytics children must retain explicit bars glyph mappings instead of silently falling back to a document icon');
 assert.match(authoritativeShell,/'bank-accounts':'bank', 'my-accountant':'users', 'audit-log':'shield'/,
   'the retained My accountant destination must use the shared people glyph rather than a document fallback');
 assert.doesNotMatch(authoritativeShell,/compactLabel|authoritative-nav-status|API_READ|Unavailable/,

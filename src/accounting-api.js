@@ -1028,15 +1028,20 @@ export async function refreshCurrentActorAccess({config,fetcher=globalThis.fetch
 
 export async function refreshAuthoritativeAccountRegister({config,accountCode:requestedAccountCode,fetcher=globalThis.fetch}={}){
   const code=accountCode(requestedAccountCode);if(!config||!code)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Account register requires one authoritative entity, period, and account code.'};
+  const presentedStart=config.scopePresentation?.periodStart??null,presentedEnd=config.scopePresentation?.periodEnd??null;
+  if((presentedStart===null)!==(presentedEnd===null)||presentedStart!==null&&(!validDate(presentedStart)||!validDate(presentedEnd)||presentedStart>presentedEnd||presentedStart.slice(0,7)!==presentedEnd.slice(0,7)))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Account register requires validated authoritative period bounds.'};
   const result=await readAuthoritativeRows({config,path:`/general-ledger/account-register?${new URLSearchParams({periodId:config.periodId,accountCode:code})}`,operation:'ACCOUNT_REGISTER',fetcher});
   if(!result.ok)return result;
-  const rows=[];const ids=new Set();
+  const rows=[];const ids=new Set();let periodBounds=null;
   for(const row of result.rows){
     const amounts=['debit_amount','credit_amount','opening_balance','running_balance'].map(field=>decimalText(row?.[field]));
-    if(!row||row.account_code!==code||!UUID.test(row.period_id||'')||row.period_id!==config.periodId||!exactMonthlyPeriod(row)||typeof row.account_name!=='string'||!row.account_name||!/^[A-Z]{3}$/.test(row.currency||'')||!registerTimestampDate(row.journal_date)||row.journal_date<row.period_start||row.journal_date>row.period_end||!UUID.test(row.journal_entry_id||'')||typeof row.journal_number!=='string'||!row.journal_number||!UUID.test(row.journal_line_id||'')||!UUID.test(row.ledger_line_id||'')||row.member_ref!==null&&row.member_ref!==undefined&&typeof row.member_ref!=='string'||row.description!==null&&row.description!==undefined&&typeof row.description!=='string'||amounts.some(value=>value===null)||!Array.isArray(row.source_document_ids)||row.source_document_ids.some(id=>!UUID.test(id||''))||ids.has(row.ledger_line_id))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Account Register row.'};
+    const rowBounds=row?`${row.period_code}|${row.period_start}|${row.period_end}`:null,debitActive=amounts[0]!==null&&!/^-?0+\.0000$/.test(amounts[0]),creditActive=amounts[1]!==null&&!/^-?0+\.0000$/.test(amounts[1]);
+    if(!row||row.account_code!==code||!UUID.test(row.period_id||'')||row.period_id!==config.periodId||!exactMonthlyPeriod(row)||periodBounds!==null&&rowBounds!==periodBounds||presentedStart!==null&&(row.period_start!==presentedStart||row.period_end!==presentedEnd)||typeof row.account_name!=='string'||!row.account_name||!/^[A-Z]{3}$/.test(row.currency||'')||!registerTimestampDate(row.journal_date)||row.journal_date<row.period_start||row.journal_date>row.period_end||!UUID.test(row.journal_entry_id||'')||typeof row.journal_number!=='string'||!row.journal_number||!UUID.test(row.journal_line_id||'')||!UUID.test(row.ledger_line_id||'')||row.member_ref!==null&&row.member_ref!==undefined&&typeof row.member_ref!=='string'||row.description!==null&&row.description!==undefined&&typeof row.description!=='string'||amounts.some(value=>value===null)||amounts[0].startsWith('-')||amounts[1].startsWith('-')||debitActive===creditActive||!Array.isArray(row.source_document_ids)||row.source_document_ids.some(id=>!UUID.test(id||''))||ids.has(row.ledger_line_id))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or cross-scope Account Register row.'};
+    periodBounds=rowBounds;
     ids.add(row.ledger_line_id);rows.push({...row,debit_amount:amounts[0],credit_amount:amounts[1],opening_balance:amounts[2],running_balance:amounts[3],source_document_ids:[...row.source_document_ids]});
   }
-  return {ok:true,rows,scope:{entityId:config.entityId,periodId:config.periodId,accountCode:code}};
+  const [periodCode,rowStart,rowEnd]=periodBounds?.split('|')||[null,null,null];
+  return {ok:true,rows,scope:{entityId:config.entityId,periodId:config.periodId,accountCode:code,periodCode,periodStart:presentedStart??rowStart,periodEnd:presentedEnd??rowEnd}};
 }
 
 export async function refreshAuthoritativeGeneralLedger({config,accountCode:requestedAccountCode=null,query=null,limit=50,offset=0,fetcher=globalThis.fetch}={}){
