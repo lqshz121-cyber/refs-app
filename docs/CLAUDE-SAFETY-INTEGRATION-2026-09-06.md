@@ -21,8 +21,8 @@ No code was run in the old dirty collaboration checkout; its locks and work were
   patterns without changing thresholds, proposed-line, risk or authority checks.
   Normalize Windows separators in the local manifest retain tool and assert both
   accepted names and rejected wrong-company/suffixed names.
-- Integration findings: execute the esbuild JavaScript entry through Node so the
-  audit mutation gate works on Windows. Add the full root aggregate to PR CI while
+- Integration findings: use esbuild's public buildSync API so the audit mutation
+  gate does not assume the installed CLI is JavaScript or a native binary. Add the full root aggregate to PR CI while
   preserving every existing CI step; previously it ran only after main succeeded.
 
 ## Rejected as-is: patch 4 / R19
@@ -41,6 +41,16 @@ failed reimport preserves the old committed metadata/data, and successful replay
 does not relabel evidence. No live WBS ingestion or production execution is authorized.
 
 ## Evidence boundaries
+
+PR #510's exact-69be Linux static job 101395273572 caught that npm can replace
+esbuild/bin/esbuild with an ELF executable; invoking that path through Node was
+invalid despite passing on Windows. The follow-up uses the public JavaScript API
+with identical bundle options and preserves every mutation assertion. A reachable
+pretest contract prohibits guessed CLI paths; the actual audit mutation harness
+also passes all 40 cases locally. Linux acceptance still requires the next CI run.
+Follow-up local exits are all 0: audit-mutations (40/40), root npm test (TAP
+1098 pass/0 fail/0 skip), server npm test (1508 pass/0 fail/162 PG skips), build
+and runtime-asset verification. The focused reachability/API contract is 6/6.
 
 The two new F1 getter tests were also run against an isolated copy of the exact
 main runner: both failed with AUTHORIZED_ACCOUNTING_WRITES_COMPLETED instead of

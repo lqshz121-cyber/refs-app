@@ -15,21 +15,18 @@
 //   node tools/analysis/audit-mutation-harness.mjs
 //   node tools/analysis/audit-mutation-harness.mjs loan-draw-as-cost
 // ---------------------------------------------------------------------------
-import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { buildSync } from 'esbuild';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const bundle = path.join(root, 'audit.cjs');
-const esbuild = path.join(root, 'node_modules', 'esbuild', 'bin', 'esbuild');
-
-if (!existsSync(esbuild)) {
-  console.error(`esbuild not found at ${esbuild}. Restore node_modules and retry.`);
-  process.exit(2);
-}
-execFileSync(process.execPath, [esbuild, './audit.js', '--bundle', '--platform=node', '--format=cjs', '--jsx=automatic',
-  '--loader:.js=jsx', '--loader:.jsx=jsx', `--outfile=${bundle}`], {cwd: root, stdio: 'pipe'});
+// npm may install the CLI entry as JavaScript or as a native executable.
+// The public API resolves the correct platform binary without guessing its format.
+buildSync({absWorkingDir: root, entryPoints: ['./audit.js'], bundle: true,
+  platform: 'node', format: 'cjs', jsx: 'automatic',
+  loader: {'.js': 'jsx', '.jsx': 'jsx'}, outfile: bundle});
 
 const run = (inject) => {
   const env = {...process.env};

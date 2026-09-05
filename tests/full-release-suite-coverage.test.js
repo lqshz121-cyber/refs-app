@@ -5,6 +5,14 @@ import {readFile} from 'node:fs/promises';
 const packageJson=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
 const serverPackageJson=JSON.parse(await readFile(new URL('../server/package.json',import.meta.url),'utf8'));
 
+test('the reachable audit mutation harness uses the cross-platform esbuild API, never a guessed CLI entry',async()=>{
+  const source=await readFile(new URL('../tools/analysis/audit-mutation-harness.mjs',import.meta.url),'utf8');
+  assert.match(source,/import\s*\{\s*buildSync\s*\}\s*from\s*'esbuild'/);
+  assert.match(source,/buildSync\(\{absWorkingDir: root, entryPoints: \['\.\/audit\.js'\], bundle: true/);
+  assert.doesNotMatch(source,/execFileSync|node_modules|\.bin/);
+  assert.equal(packageJson.scripts['test:audit-mutations'],'node tools/analysis/audit-mutation-harness.mjs');
+});
+
 // Server suites that cannot run inside `npm test`: they need a live staging/production
 // API, a Docker daemon, or a real Postgres container. Each is executed by a dedicated job
 // -- accounting-kernel-ci.yml (postgres:fresh, backup:restore, attachments:containers) or
