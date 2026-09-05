@@ -2,6 +2,8 @@
 
 This runner verifies the shortest authoritative chain from one retained provider-signed WBS source through an AI accounting decision, distinct human workflow actors, a POSTED Journal, an approved immutable financial-statement snapshot, and a server-derived Posted outcome review.
 
+It verifies the exact separately approved deployed target. The scenario origin binding prevents an accidental or substituted target from receiving tokens, but it does not by itself attest a production database environment. Production role issuance remains unavailable until that environment identity is proven by a server/DB-backed control; `workflow:grant` remains staging-only.
+
 It is **GET-only by default**. Do not enable writes until the exact release has passed CI and deployment gates, the business owner has approved this exact source and period, and IAM has issued the distinct frozen roles below. The runner never deploys, grants permissions, reads browser storage, or accesses the database directly.
 
 ## Non-secret scenario file
@@ -10,6 +12,8 @@ Keep tokens out of this file. Store only approved immutable identifiers and hash
 
 ```json
 {
+  "apiOrigin": "https://approved-api.example",
+  "webOrigin": "https://approved-web.example",
   "tenantId": "00000000-0000-4000-8000-000000000000",
   "entityId": "00000000-0000-4000-8000-000000000000",
   "periodId": "00000000-0000-4000-8000-000000000000",
@@ -24,6 +28,7 @@ Keep tokens out of this file. Store only approved immutable identifiers and hash
   "actors": {
     "producer": "approved-oidc-sub",
     "maker": "approved-oidc-sub",
+    "submitter": "approved-oidc-sub",
     "reviewer": "approved-oidc-sub",
     "approver": "approved-oidc-sub",
     "poster": "approved-oidc-sub",
@@ -39,12 +44,13 @@ Every actor value must be distinct. The source must already be provider-signed a
 
 ## Environment
 
-Required public configuration: `REFS_STAGING_API_BASE_URL`, `REFS_STAGING_WEB_ORIGIN`, exact 40-character `REFS_RELEASE_SHA`, and `REFS_PRODUCTION_AI_E2E_SCENARIO_PATH`.
+Required public configuration: `REFS_STAGING_API_BASE_URL`, `REFS_STAGING_WEB_ORIGIN`, exact 40-character `REFS_RELEASE_SHA`, and `REFS_PRODUCTION_AI_E2E_SCENARIO_PATH`. The two configured origins must exactly match `apiOrigin` and `webOrigin` in the separately approved scenario before any bearer token can be sent.
 
 Tokens are supplied only through the process environment and are never printed:
 
 - `REFS_PRODUCTION_AI_E2E_PRODUCER_TOKEN`: `AI_CONTROLLER_REVIEWER`
-- `REFS_PRODUCTION_AI_E2E_MAKER_TOKEN`: an entity-bound human maker with `GL.JE.CREATE`, `GL.JE.SUBMIT`, and `GL.JE.VIEW`. The same maker accepts the decision, creates the Draft, and submits that Draft; this matches the JE maker authority boundary while remaining separated from Review, Approve, and Post.
+- `REFS_PRODUCTION_AI_E2E_MAKER_TOKEN`: `AI_ACCOUNTING_DECISION_MAKER`, with `GL.JE.CREATE` and read authority. This human accepts the decision and creates the Draft, but cannot Submit, Review, Approve, or Post.
+- `REFS_PRODUCTION_AI_E2E_SUBMITTER_TOKEN`: `JE_SUBMITTER`, held by a distinct human with `GL.JE.SUBMIT` and read authority but no Draft, Review, Approve, or Post authority.
 - `REFS_PRODUCTION_AI_E2E_REVIEWER_TOKEN`: `JE_REVIEWER`
 - `REFS_PRODUCTION_AI_E2E_APPROVER_TOKEN`: `JE_APPROVER`
 - `REFS_PRODUCTION_AI_E2E_POSTER_TOKEN`: `JE_POSTER`
@@ -59,7 +65,7 @@ Run the default preflight:
 npm run test:production-ai-accounting-e2e
 ```
 
-It verifies API live/ready and Web build are exact `REFS_RELEASE_SHA` and `no-store`; every token resolves to the approved entity-bound actor; sessions are current; permissions are present without conflicting JE/report authority; the period is `OPEN`; and the exact signed source/payload/line hashes are retained. It sends no POST requests. The maker is one actor with Create + Submit + View; Reviewer, Approver, Poster, snapshot Preparer, and snapshot Approver remain distinct actors.
+It verifies API live/ready and Web build are exact `REFS_RELEASE_SHA` and `no-store`; every token resolves to the approved entity-bound actor with the exact frozen effective and configured permission bundle; sessions are current; the period is `OPEN`; and the exact signed source/payload/line hashes are retained. It sends no POST requests. Draft maker, Submitter, Reviewer, Approver, Poster, snapshot Preparer, and snapshot Approver remain distinct actors with one workflow authority stage each.
 
 ## Authorized write execution
 
@@ -76,7 +82,7 @@ One switch alone remains GET-only. A caller cannot forge `writeEnabled`: the run
 1. retain the complete AI decision population and select the exact signed source;
 2. read queue → human accept → read queue;
 3. create standard MANUAL Draft → GET Journal;
-4. the Draft maker submits, then distinct Reviewer, Approver, and Poster actors advance the exact `PENDING_REVIEW → PENDING_APPROVAL → APPROVED → POSTED` states with unique idempotency keys and exact strong `If-Match` revisions, followed by GET and retained queue readback after every transition;
+4. a distinct Submitter submits the Draft, then distinct Reviewer, Approver, and Poster actors advance the exact `PENDING_REVIEW → PENDING_APPROVAL → APPROVED → POSTED` states with unique idempotency keys and exact strong `If-Match` revisions, followed by GET and retained queue readback after every transition;
 5. prepare and independently approve the immutable statement snapshot, with GET readback;
 6. retain the server-derived Posted outcome review using its exact current review revision, then GET history;
 7. read the complete paged retained-decision queue and complete paged GL population through migration 300 snapshot readers, then require the exact Journal/source lineage in GL and financial statements. The first page supplies a content-addressed token over scope, filter, total, and all ordered row identities/revisions; every later page presents that exact token. Concurrent insert/delete replacement, revision, evidence, or lineage drift fails closed even if the total count is unchanged.
