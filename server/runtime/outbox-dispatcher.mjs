@@ -1,22 +1,19 @@
+import {sealOutboxPayload,serializeOutboxEvent} from './outbox-wire-contract.mjs';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA=/^sha256:[0-9a-f]{64}$/;
 const TOKEN=/^[A-Za-z0-9._~+/=-]{16,4096}$/;
-const EVENT_KEYS=['aggregate_id','aggregate_type','attempt_count','available_at','created_at','entity_id','event_type','last_error','locked_at','locked_by','outbox_event_id','payload','payload_hash','published_at','status','tenant_id'];
+const EVENT_KEYS=['aggregate_id','aggregate_type','attempt_count','available_at','created_at','entity_id','event_type','last_error','locked_at','locked_by','outbox_event_id','payload_canonical_text','payload_hash','published_at','status','tenant_id'];
 const RECEIPT_KEYS=['accepted','outbox_event_id','payload_hash','schema_version'];
-const SECRET_KEY=/(^|_)(authorization|api_key|access_token|refresh_token|private_key|password|credential|client_secret|session_token)($|_)/i;
-const SECRET_VALUE=/(?:\bBearer\s+[A-Za-z0-9._~+/=-]{8,}|\b(?:sk|rk|pk)-[A-Za-z0-9_-]{12,})/i;
 const exactKeys=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&JSON.stringify(Object.keys(value).sort())===JSON.stringify(keys);
 const fail=(code,message,{retryable=false}={})=>{const error=new Error(message);error.code=code;error.retryable=retryable;throw error;};
 const canonicalTime=value=>{const date=value instanceof Date?value:new Date(value);if(!Number.isFinite(date.valueOf()))return null;return date.toISOString();};
-const containsSecret=value=>{if(typeof value==='string')return SECRET_VALUE.test(value);if(Array.isArray(value))return value.some(containsSecret);if(value&&typeof value==='object')return Object.entries(value).some(([key,nested])=>SECRET_KEY.test(key)||containsSecret(nested));return false;};
 
 export function validateClaimedOutboxEvent(value,{tenantId}={}){
   if(!exactKeys(value,EVENT_KEYS))fail('OUTBOX_EVENT_CONTRACT_INVALID','Claimed outbox event has an open or incomplete shape.');
   if(!UUID.test(value.outbox_event_id)||!UUID.test(value.tenant_id)||!UUID.test(value.entity_id)||!UUID.test(value.aggregate_id)||value.tenant_id!==tenantId)fail('OUTBOX_EVENT_SCOPE_INVALID','Claimed outbox event scope is invalid.');
-  if(typeof value.aggregate_type!=='string'||!value.aggregate_type||typeof value.event_type!=='string'||!value.event_type||!SHA.test(value.payload_hash)||!value.payload||typeof value.payload!=='object'||Array.isArray(value.payload))fail('OUTBOX_EVENT_CONTRACT_INVALID','Claimed outbox event evidence is invalid.');
-  if(containsSecret(value.payload))fail('OUTBOX_EVENT_SECRET_DENIED','Claimed outbox event contains credential-shaped material.');
+  if(typeof value.aggregate_type!=='string'||!value.aggregate_type||typeof value.event_type!=='string'||!value.event_type||!SHA.test(value.payload_hash)||typeof value.payload_canonical_text!=='string')fail('OUTBOX_EVENT_CONTRACT_INVALID','Claimed outbox event evidence is invalid.');
   if(value.status!=='PENDING'||!Number.isSafeInteger(value.attempt_count)||value.attempt_count<1||typeof value.locked_by!=='string'||!value.locked_by||!canonicalTime(value.locked_at)||!canonicalTime(value.available_at)||!canonicalTime(value.created_at)||value.published_at!==null)fail('OUTBOX_EVENT_STATE_INVALID','Claimed outbox event state is invalid.');
-  return Object.freeze({schema_version:'REFS_OUTBOX_EVENT_V1',outbox_event_id:value.outbox_event_id,tenant_id:value.tenant_id,entity_id:value.entity_id,aggregate_type:value.aggregate_type,aggregate_id:value.aggregate_id,event_type:value.event_type,payload:value.payload,payload_hash:value.payload_hash,attempt_count:value.attempt_count,created_at:canonicalTime(value.created_at)});
+  return sealOutboxPayload({schema_version:'REFS_OUTBOX_EVENT_V1',outbox_event_id:value.outbox_event_id,tenant_id:value.tenant_id,entity_id:value.entity_id,aggregate_type:value.aggregate_type,aggregate_id:value.aggregate_id,event_type:value.event_type,payload:null,payload_hash:value.payload_hash,attempt_count:value.attempt_count,created_at:canonicalTime(value.created_at)},value.payload_canonical_text);
 }
 
 export class HttpOutboxPublisher{
@@ -28,7 +25,7 @@ export class HttpOutboxPublisher{
     this.endpoint=url.toString();this.token=token;this.fetcher=fetcher;this.timeoutMs=timeoutMs;
   }
   async publish(event){
-    const body=JSON.stringify(event);if(new TextEncoder().encode(body).byteLength>1000000)fail('OUTBOX_EVENT_TOO_LARGE','Outbox event exceeds the publisher request limit.');
+    const body=serializeOutboxEvent(event);if(new TextEncoder().encode(body).byteLength>1000000)fail('OUTBOX_EVENT_TOO_LARGE','Outbox event exceeds the publisher request limit.');
     const controller=new AbortController();let timer,response,reader,consumed=false;
     // Keep one deadline through headers AND the full bounded receipt. A peer
     // that sends headers and then stalls must not pin the dispatch loop forever.

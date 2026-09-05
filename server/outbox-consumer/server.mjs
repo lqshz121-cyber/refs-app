@@ -22,9 +22,9 @@ export function createConsumerServer({ repository, config }) {
         if (bytes > 1000000) throw failure('OUTBOX_EVENT_TOO_LARGE', 413);
         chunks.push(chunk);
       }
-      let event; try { event = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks))); } catch { throw failure('INVALID_JSON'); }
+      let event,rawEnvelope; try { rawEnvelope=new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));event = JSON.parse(rawEnvelope); } catch { throw failure('INVALID_JSON'); }
       validateEvent(event, config, req.headers);
-      const result = await repository.accept(event);
+      const result = await repository.accept(event,rawEnvelope);
       respond(res, 200, result);
     } catch (error) {
       if (!req.complete) req.resume();

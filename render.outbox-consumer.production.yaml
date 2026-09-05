@@ -1,15 +1,15 @@
-# Separate staging stack and database. Never point it at accounting PostgreSQL.
-# Provision its low-privilege LOGIN and bootstrap before deploying this web service.
+# Independent production consumer only; applying this manifest creates billable
+# resources and needs the separately approved production scope and release SHA.
 databases:
-  - name: refs-outbox-consumer-postgres-staging
-    databaseName: refs_outbox_consumer_staging
+  - name: refs-outbox-consumer-postgres-production
+    databaseName: refs_outbox_consumer_production
     plan: basic-256mb
     region: oregon
     postgresMajorVersion: "18"
     ipAllowList: []
 services:
   - type: web
-    name: refs-outbox-consumer-staging
+    name: refs-outbox-consumer-production
     runtime: node
     region: oregon
     plan: starter
@@ -23,13 +23,12 @@ services:
       - key: NODE_ENV
         value: production
       - key: OUTBOX_CONSUMER_DATABASE_NAME
-        value: refs_outbox_consumer_staging
-      # Use the dedicated non-owner LOGIN, not Render's database owner URL.
+        value: refs_outbox_consumer_production
       - key: OUTBOX_CONSUMER_DATABASE_URL
         sync: false
       - key: OUTBOX_CONSUMER_TOKEN
         sync: false
       - key: OUTBOX_CONSUMER_TENANT_ID
-        value: 6fb25daf-0799-4805-bede-be54230da33c
+        sync: false
       - key: OUTBOX_CONSUMER_ENTITY_ID
-        value: ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3
+        sync: false

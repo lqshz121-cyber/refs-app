@@ -21,17 +21,27 @@ dispatcher must use its HTTPS URL (never direct public HTTP).
 The dedicated runtime LOGIN inherits `refs_outbox_consumer_runtime`, which has
 only schema USAGE and EXECUTE on `ready`/`accept`; it has no table read/write,
 DDL, accounting, grant or administrative permissions. Readiness rejects a
-superuser, database owner, role creator, database creator, BYPASSRLS identity,
+superuser, database owner, role creator, database creator, BYPASSRLS or REPLICATION identity,
 missing initialized scope and detectable accounting schema. Credentials still
 need operator verification that this is a separate database/instance; naming is
 not a substitute for that check.
 
 The database itself recomputes the existing PostgreSQL `refs_jsonb_hash` algorithm:
 SHA256 of UTF-8 `payload::jsonb::text`. JavaScript sorted JSON is **not** equivalent.
-Payload hash mismatch is a permanent 400, with zero retained writes. Source JSON
-numeric scale/precision that the existing dispatcher cannot preserve may fail this
-gate; repair the producer representation (e.g. MONEY4 strings) rather than accepting
-an unverified hash. Never relabel these rejections PUBLISHED.
+Payload hash mismatch is a permanent 400, with zero retained writes. The v3 claim
+repository now selects `payload::text AS payload_canonical_text`, not a node-postgres
+parsed JSON payload. The publisher seals that text against the source hash and
+inserts those exact JSON bytes into the closed V1 envelope. The consumer passes the
+original UTF-8 envelope to PostgreSQL without JSON.stringify. JSON.parse is used
+only for shape/scope/secret validation, never to regenerate authoritative payload
+bytes. Numeric `12.0000` and values beyond JavaScript safe precision survive exactly;
+real PG15/16/18 tests cover source hash → transport → stored hash and PUBLISHED.
+Never relabel rejected events PUBLISHED.
+
+Publisher and HTTP consumer share the AI secret-safety baseline plus token, secret,
+cookie/set-cookie, api-key, database_url, JWT and OAuth-shaped value detection.
+The SQL accept function independently traverses nested JSON with equivalent deny
+rules. The common synthetic negative corpus must leave zero additional ledger rows.
 
 The primary key is `outbox_event_id`, with `(outbox_event_id,payload_hash)` unique.
 Same ID/hash and identical immutable envelope replays the receipt. A changed
@@ -125,4 +135,19 @@ The test intentionally does not drop databases or roles; dispose only the test
 container/volume you created. CI's service container is fresh per matrix job.
 
 Blueprint fields follow the [Render specification](https://render.com/docs/blueprint-spec).
-No production stack or production completion is claimed by this staging manifest.
+## Same-SHA production promotion
+
+`render.outbox-consumer.production.yaml` defines a **separate consumer-only**
+production web service and database. Both manifests explicitly freeze Oregon,
+one Starter web instance, Basic-256mb PostgreSQL18 and denied external DB ingress.
+These are resource specifications, not proof that resources exist or are deployed.
+The production accounting/API/Web/dispatcher stack remains separately coordinated.
+
+After staging acceptance, record the exact immutable 40-character commit SHA and
+manually deploy that **same SHA** to the production consumer and its approved
+production dispatcher. Auto-deploy is off; do not deploy whichever main is current.
+Use a separate production DB, LOGIN, token and approved tenant/entity coordinates;
+never reuse staging credentials or infer production scope. Verify both health
+release stamps, backup/restore, unauthorized rejection, exact hash/receipt and
+one-row replay before resuming production dispatch. No production creation,
+deployment or completion is claimed by this commit.

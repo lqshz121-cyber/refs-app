@@ -27,12 +27,35 @@ FOR EACH STATEMENT EXECUTE FUNCTION refs_outbox_consumer.reject_change();
 CREATE TRIGGER configuration_immutable BEFORE UPDATE OR DELETE OR TRUNCATE ON refs_outbox_consumer.configuration
 FOR EACH STATEMENT EXECUTE FUNCTION refs_outbox_consumer.reject_change();
 
+CREATE FUNCTION refs_outbox_consumer.safe_payload(v jsonb,depth integer DEFAULT 0) RETURNS boolean
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE entry record; item jsonb; value_text text;
+BEGIN
+  IF depth>32 THEN RETURN false; END IF;
+  IF jsonb_typeof(v)='object' THEN
+    FOR entry IN SELECT key,value FROM jsonb_each(v) LOOP
+      IF entry.key ~* '(authorization|credential|password|secret|token|cookie|api[_-]?key|private[_-]?key|database[_-]?url|raw[_-]?(payload|request|response|package|prompt))'
+        OR entry.key IN ('__proto__','constructor','prototype')
+        OR NOT refs_outbox_consumer.safe_payload(entry.value,depth+1) THEN RETURN false; END IF;
+    END LOOP;
+  ELSIF jsonb_typeof(v)='array' THEN
+    FOR item IN SELECT value FROM jsonb_array_elements(v) LOOP
+      IF NOT refs_outbox_consumer.safe_payload(item,depth+1) THEN RETURN false; END IF;
+    END LOOP;
+  ELSIF jsonb_typeof(v)='string' THEN
+    value_text:=v #>> '{}';
+    IF value_text ~* '(Bearer[[:space:]]+[A-Za-z0-9._~+/=-]{8,}|(api[ _-]?key|access[ _-]?token|refresh[ _-]?token|token|secret|password|authorization|oauth|cookie|set-cookie|database[_-]?url)["'']?[[:space:]]*[:=][[:space:]]*[^[:space:],;]+|(sk|rk|pk)-[A-Za-z0-9_-]{8,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{35}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|ya29\.[A-Za-z0-9_-]{8,})' THEN RETURN false; END IF;
+  END IF;
+  RETURN true;
+END;
+$$;
+
 CREATE FUNCTION refs_outbox_consumer.ready(p_database text,p_tenant uuid,p_entity uuid) RETURNS boolean
 LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog AS $$
   SELECT current_database()=p_database
     AND EXISTS(SELECT 1 FROM refs_outbox_consumer.configuration c WHERE c.database_name=p_database AND c.tenant_id=p_tenant AND c.entity_id=p_entity)
     AND pg_has_role(session_user,'refs_outbox_consumer_runtime','MEMBER')
-    AND NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=session_user AND (rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls))
+    AND NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=session_user AND (rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls OR rolreplication))
     AND session_user<>(SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database())
     AND NOT has_database_privilege(session_user,current_database(),'CREATE')
     AND NOT has_schema_privilege(session_user,'refs_outbox_consumer','CREATE')
@@ -61,8 +84,7 @@ BEGIN
     OR jsonb_typeof(e->'attempt_count') IS DISTINCT FROM 'number'
     OR coalesce(e->>'attempt_count','') !~ '^[1-9][0-9]{0,8}$'
     OR coalesce(e->>'created_at','') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$'
-    OR (e->'payload')::text ~* '"([a-z_]*_)?(authorization|api_key|access_token|refresh_token|private_key|password|credential|client_secret|session_token)(_[a-z_]*)?"[[:space:]]*:'
-    OR (e->'payload')::text ~* '(Bearer[[:space:]]+[A-Za-z0-9._~+/=-]{8,}|(sk|rk|pk)-[A-Za-z0-9_-]{12,})' THEN
+    OR NOT refs_outbox_consumer.safe_payload(e->'payload') THEN
     RAISE EXCEPTION USING ERRCODE='P0400', MESSAGE='OUTBOX_EVENT_INVALID';
   END IF;
   IF to_char((e->>'created_at')::timestamptz AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')<>e->>'created_at' THEN

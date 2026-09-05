@@ -3,9 +3,16 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
 import {verifyOutboxDispatchReleaseConfig} from '../runtime/verify-outbox-dispatch-release-config.mjs';
+import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
 
 const file=name=>new URL(`../db/migrations/${name}`,import.meta.url);
 const tenantId='11111111-1111-4111-8111-111111111111',entityId='22222222-2222-4222-8222-222222222222';
+
+test('v3 repository projects payload as PostgreSQL text without weakening grant-revision scope',async()=>{
+  let call;const result=await PostgresAccountingKernel.prototype.claimOutboxV3.call({inSession:fn=>fn({query:async(...args)=>{call=args;return {rows:[{payload_canonical_text:'{"amount": 12.0000}'}]};}})},{tenantId,scopes:[{entityId,grantSetVersion:7}],limit:3,leaseSeconds:120});
+  assert.match(call[0],/o\.payload::text AS payload_canonical_text/);assert.match(call[0],/refs_claim_outbox_v3\(\$1,refs_current_actor\(\),\$2::uuid\[\],\$3::bigint\[\],\$4,\$5\)/);
+  assert.deepEqual(call[1],[tenantId,[entityId],[7],3,120]);assert.equal(result[0].payload_canonical_text,'{"amount": 12.0000}');
+});
 
 test('migration 299 can be reapplied after its fail-closed down migration retains v3',async()=>{const up=await readFile(file('299_outbox_dispatch_entity_revision_claim.sql'),'utf8');assert.match(up,/CREATE OR REPLACE FUNCTION refs_claim_outbox_v3/);});
 

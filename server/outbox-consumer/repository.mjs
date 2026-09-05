@@ -7,11 +7,12 @@ export class ConsumerRepository {
     if (result.rows.length !== 1 || result.rows[0].ready !== true) throw failure('OUTBOX_CONSUMER_NOT_READY', 503);
     return true;
   }
-  async accept(event) {
+  async accept(event,rawEnvelope) {
     // SQL recomputes SHA256 over PostgreSQL canonical jsonb text, identical to
     // accounting refs_jsonb_hash. Never substitute JavaScript sorted JSON here.
+    if(typeof rawEnvelope!=='string'||Buffer.byteLength(rawEnvelope)>1000000)throw failure('OUTBOX_CANONICAL_ENVELOPE_REQUIRED');
     let result;
-    try { result = await this.pool.query('SELECT refs_outbox_consumer.accept($1::jsonb) AS receipt', [JSON.stringify(event)]); }
+    try { result = await this.pool.query('SELECT refs_outbox_consumer.accept($1::jsonb) AS receipt', [rawEnvelope]); }
     catch (error) {
       if (error.code === 'P0409') throw failure('OUTBOX_EVENT_CONFLICT', 409);
       if (error.code === 'P0400') throw failure('OUTBOX_PAYLOAD_HASH_INVALID');

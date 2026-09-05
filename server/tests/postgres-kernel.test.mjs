@@ -7,6 +7,8 @@ import {runtimeConfig} from '../runtime/config.mjs';
 import {createPool} from '../runtime/db.mjs';
 import {migrateDown,migrateUp} from '../runtime/migrations.mjs';
 import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
+import {validateClaimedOutboxEvent} from '../runtime/outbox-dispatcher.mjs';
+import {serializeOutboxEvent} from '../runtime/outbox-wire-contract.mjs';
 import {createAccountingApi} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
@@ -2167,14 +2169,17 @@ pgTest('formal IAM grant sync reconciles and revokes desired state with version,
 });
 
 pgTest('outbox dispatcher reclaims expired leases and separates retry, dead-letter, and publish completion',async()=>{
-  const ids=await seed(),firstId=randomUUID(),secondId=randomUUID(),payload={schema_version:'OUTBOX_TEST_EVENT_V1',value:'retained'};
-  const payloadHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[JSON.stringify(payload)])).rows[0].hash;
+  const ids=await seed(),firstId=randomUUID(),secondId=randomUUID(),payloadText='{"schema_version":"OUTBOX_TEST_EVENT_V1","value":"retained","amount":12.0000,"precise":9007199254740993.1200}';
+  const payloadHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[payloadText])).rows[0].hash;
   for(const eventId of [firstId,secondId])await adminPool.query(`INSERT INTO outbox_event(outbox_event_id,tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash)
-    VALUES($1,$2,$3,'OUTBOX_TEST',$1,'OUTBOX_TEST_EVENT',$4::jsonb,$5)`,[eventId,ids.tenantId,ids.entityId,JSON.stringify(payload),payloadHash]);
+    VALUES($1,$2,$3,'OUTBOX_TEST',$1,'OUTBOX_TEST_EVENT',$4::jsonb,$5)`,[eventId,ids.tenantId,ids.entityId,payloadText,payloadHash]);
   const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
   for(const [actor,key] of [['outbox-worker-one','outbox-service-one-0001'],['outbox-worker-two','outbox-service-two-0001']])await sync.reconcile({tenantId:ids.tenantId,actorId:actor,entityId:ids.entityId,permissions:['OUTBOX.DISPATCH'],authorityClass:'SERVICE',validUntil:null,expectedVersion:0,idempotencyKey:key});
   const first=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'outbox-worker-one',['OUTBOX.DISPATCH'])});
   const claimed=await first.claimOutboxV3({tenantId:ids.tenantId,scopes:[{entityId:ids.entityId,grantSetVersion:1}],limit:1,leaseSeconds:5});assert.equal(claimed.length,1);assert.equal(claimed[0].attempt_count,1);assert.equal(claimed[0].locked_by,'outbox-worker-one');
+  assert.match(claimed[0].payload_canonical_text,/12\.0000/);assert.match(claimed[0].payload_canonical_text,/9007199254740993\.1200/);assert.equal('payload' in claimed[0],false);
+  const transported=serializeOutboxEvent(validateClaimedOutboxEvent(claimed[0],{tenantId:ids.tenantId}));
+  assert.equal((await adminPool.query("SELECT refs_jsonb_hash($1::jsonb->'payload') hash",[transported])).rows[0].hash,payloadHash,'real v3 claim→HTTP payload keeps historical numeric hash exactly');
   await adminPool.query("UPDATE outbox_event SET locked_at=clock_timestamp()-interval '10 seconds' WHERE outbox_event_id=$1",[claimed[0].outbox_event_id]);
   const second=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'outbox-worker-two',['OUTBOX.DISPATCH'])}),reclaimed=await second.claimOutboxV3({tenantId:ids.tenantId,scopes:[{entityId:ids.entityId,grantSetVersion:1}],limit:1,leaseSeconds:5});assert.equal(reclaimed.length,1);assert.equal(reclaimed[0].outbox_event_id,claimed[0].outbox_event_id);assert.equal(reclaimed[0].attempt_count,2);assert.equal(reclaimed[0].locked_by,'outbox-worker-two');
   const dead=await second.completeOutboxV2({tenantId:ids.tenantId,eventId:reclaimed[0].outbox_event_id,success:false,retryable:true,errorCode:'EVENT_BUS_UNAVAILABLE',maxAttempts:2,retryBaseSeconds:1});assert.equal(dead.status,'FAILED');assert.equal(dead.retry_scheduled,false);
