@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
 import {HttpOutboxPublisher,OutboxDispatchService,validateClaimedOutboxEvent} from '../runtime/outbox-dispatcher.mjs';
 import {OutboxDispatchWorker,outboxDispatchHealthResponse} from '../runtime/outbox-dispatch-worker.mjs';
 import {outboxDispatchConfig} from '../runtime/start-outbox-dispatch-worker.mjs';
@@ -22,6 +23,55 @@ test('HTTP publisher sends one idempotent closed envelope and requires an exact 
   assert.equal(receipt.accepted,true);assert.equal(request.init.headers['idempotency-key'],eventId);assert.equal(request.init.headers['x-refs-payload-hash'],event.payload_hash);assert.equal(JSON.parse(request.init.body).tenant_id,tenantId);assert.equal(request.init.redirect,'error');
   const bad=new HttpOutboxPublisher({endpoint:'https://events.example.test/v1/refs',token:'publisher-token-0001',fetcher:async()=>new Response(JSON.stringify({...receipt,outbox_event_id:aggregateId}),{status:200,headers:{'cache-control':'no-store','content-type':'application/json'}}),nodeEnv:'production'});await assert.rejects(bad.publish(event),error=>error.code==='OUTBOX_PUBLISH_RECEIPT_INVALID');
   assert.throws(()=>new HttpOutboxPublisher({endpoint:'http://events.example.test',token:'publisher-token-0001',nodeEnv:'production'}),error=>error.code==='OUTBOX_PUBLISHER_CONFIG_INVALID');
+});
+
+async function localPublisher(t,handler,{timeoutMs=3000}={}){
+  const server=createServer((request,response)=>{request.resume();handler(request,response);});
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  t.after(()=>new Promise(resolve=>{server.close(resolve);server.closeAllConnections();}));
+  return new HttpOutboxPublisher({endpoint:`http://127.0.0.1:${server.address().port}/events`,token:'publisher-token-0001',nodeEnv:'test',timeoutMs});
+}
+
+test('HTTP publisher deadline includes a real response body stalled after headers',{timeout:5000},async t=>{
+  let headersSent=false,closed;
+  const disconnected=new Promise(resolve=>{closed=resolve;}),publisher=await localPublisher(t,(_request,response)=>{
+    response.on('close',closed);response.writeHead(202,{'cache-control':'no-store','content-type':'application/json'});response.write('{');headersSent=true;
+  },{timeoutMs:1000});
+  await assert.rejects(publisher.publish(validateClaimedOutboxEvent(row(),{tenantId})),error=>error.code==='OUTBOX_PUBLISH_TRANSPORT_FAILED'&&error.retryable===true);
+  assert.equal(headersSent,true);
+  await disconnected;
+});
+
+test('HTTP publisher cancels a real oversized streaming receipt before EOF without leaking its body',{timeout:5000},async t=>{
+  let closed;
+  const disconnected=new Promise(resolve=>{closed=resolve;}),publisher=await localPublisher(t,(_request,response)=>{
+    response.on('close',closed);response.writeHead(202,{'cache-control':'no-store','content-type':'application/json'});
+    response.write('private-body-marker'.padEnd(4096,'x'));setImmediate(()=>response.write('x'));
+    // Deliberately never end: the byte limit must reject independently of EOF.
+  });
+  await assert.rejects(publisher.publish(validateClaimedOutboxEvent(row(),{tenantId})),error=>{
+    assert.equal(error.code,'OUTBOX_PUBLISH_RECEIPT_INVALID');assert.equal(error.retryable,false);
+    assert.equal(String(error).includes('private-body-marker'),false);return true;
+  });
+  await disconnected;
+});
+
+test('HTTP publisher accepts an exact 4096-byte streamed bound receipt and preserves idempotency',{timeout:5000},async t=>{
+  const event=validateClaimedOutboxEvent(row(),{tenantId}),receipt={accepted:true,outbox_event_id:eventId,payload_hash:event.payload_hash,schema_version:'REFS_OUTBOX_PUBLISH_RECEIPT_V1'};
+  let requestHeaders;
+  const publisher=await localPublisher(t,(request,response)=>{
+    requestHeaders=request.headers;response.writeHead(202,{'cache-control':'no-store','content-type':'application/json'});
+    const raw=JSON.stringify(receipt).padEnd(4096,' ');response.write(raw.slice(0,2048));setImmediate(()=>response.end(raw.slice(2048)));
+  });
+  assert.deepEqual(await publisher.publish(event),receipt);
+  assert.equal(requestHeaders['idempotency-key'],eventId);assert.equal(requestHeaders['x-refs-payload-hash'],event.payload_hash);
+});
+
+test('HTTP publisher cancels an unread response on terminal header rejection',async()=>{
+  let cancelled=false;
+  const publisher=new HttpOutboxPublisher({endpoint:'https://events.example.test/v1/refs',token:'publisher-token-0001',nodeEnv:'production',fetcher:async()=>new Response(new ReadableStream({cancel(){cancelled=true;}}),{status:404})});
+  await assert.rejects(publisher.publish(validateClaimedOutboxEvent(row(),{tenantId})),error=>error.code==='OUTBOX_PUBLISH_REJECTED'&&error.retryable===false);
+  assert.equal(cancelled,true);
 });
 
 test('malformed claimed payload is terminally sealed and never reaches the publisher',async()=>{let published=0;const completions=[],kernel={claimOutboxV3:async()=>[row({payload:{client_secret:'hidden'}})],completeOutboxV2:async args=>{completions.push(args);return completion('FAILED');}},service=new OutboxDispatchService({kernelFactory:async()=>kernel,publisher:{publish:async()=>{published++;}}}),result=await service.runOnce({trusted:true,actorId:'outbox-service'},{tenantId,scopes:[{entityId,grantSetVersion:4}]});assert.equal(published,0);assert.equal(result[0].status,'FAILED');assert.equal(completions[0].retryable,false);assert.equal(completions[0].errorCode,'OUTBOX_EVENT_SECRET_DENIED');});
