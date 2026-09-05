@@ -47,6 +47,8 @@ jobs:
         run: npm run test:autorecon
       - name: Frontend audit gate
         run: npm run test:audit
+      - name: Complete root release suite gate
+        run: npm test
       - name: Accounting kernel static and unit gate
         working-directory: server
         run: npm test

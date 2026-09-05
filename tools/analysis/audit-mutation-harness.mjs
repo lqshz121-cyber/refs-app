@@ -22,13 +22,13 @@ import path from 'node:path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const bundle = path.join(root, 'audit.cjs');
-const esbuild = path.join(root, 'node_modules', '.bin', 'esbuild');
+const esbuild = path.join(root, 'node_modules', 'esbuild', 'bin', 'esbuild');
 
 if (!existsSync(esbuild)) {
   console.error(`esbuild not found at ${esbuild}. Restore node_modules and retry.`);
   process.exit(2);
 }
-execFileSync(esbuild, ['./audit.js', '--bundle', '--platform=node', '--format=cjs', '--jsx=automatic',
+execFileSync(process.execPath, [esbuild, './audit.js', '--bundle', '--platform=node', '--format=cjs', '--jsx=automatic',
   '--loader:.js=jsx', '--loader:.jsx=jsx', `--outfile=${bundle}`], {cwd: root, stdio: 'pipe'});
 
 const run = (inject) => {

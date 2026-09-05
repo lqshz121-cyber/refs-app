@@ -27,7 +27,7 @@ export function validateWbsH1AccountingManifest(manifest,{manifestPath,companyCo
   const matches=manifest.files.filter(file=>file?.domain==='accounting_info'&&file.company_code===companyCode&&file.period==='2026-H1');
   if(matches.length!==1)throw new Error('The WBS H1 accounting_info manifest entry is missing or ambiguous');
   const entry=matches[0],fileName=`accounting_info__${companyCode}__2026-H1.ndjson`;
-  if(basename(String(entry.path||''))!==fileName||!Number.isSafeInteger(entry.rows)||entry.rows<1||!Number.isSafeInteger(entry.bytes)||entry.bytes<1||!SHA64.test(entry.sha256||''))throw new Error('The WBS H1 accounting_info manifest entry is invalid');
+  if(basename(String(entry.path||'').replace(/\\/g,'/'))!==fileName||!Number.isSafeInteger(entry.rows)||entry.rows<1||!Number.isSafeInteger(entry.bytes)||entry.bytes<1||!SHA64.test(entry.sha256||''))throw new Error('The WBS H1 accounting_info manifest entry is invalid');
   const sourceManifest=Object.freeze({schema_version:manifest.schema_version,domain:'accounting_info',company_code:companyCode,period:'2026-H1',date_from:manifest.date_from,date_to:manifest.date_to,generated_at:manifest.generated_at,file_name:fileName,rows:entry.rows,bytes:entry.bytes,sha256:entry.sha256.toLowerCase()});
   return Object.freeze({sourceManifest,filePath:join(dirname(manifestPath),fileName)});
 }
