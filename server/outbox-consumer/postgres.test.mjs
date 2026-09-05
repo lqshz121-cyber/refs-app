@@ -49,6 +49,7 @@ test('fresh isolated PostgreSQL consumer: durable replay, conflict, concurrency,
       await assert.rejects(pool.query('SELECT refs_outbox_consumer.accept($1::jsonb)',[JSON.stringify({...e,outbox_event_id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',payload,payload_hash:secretHash})]),err=>err.code==='P0400');
     }
     assert.equal((await admin.query('SELECT count(*)::int AS count FROM refs_outbox_consumer.event_ledger')).rows[0].count,1,'all secret cases leave zero additional durable rows');
+    await assert.rejects(pool.query('SELECT refs_outbox_consumer.accept($1::jsonb)',[JSON.stringify({...e,event_type:'ya29.syntheticOAuthToken123'})]),err=>err.code==='P0400');
     const numeric=(await admin.query("SELECT p::text payload_canonical_text, 'sha256:'||encode(digest(convert_to(p::text,'UTF8'),'sha256'),'hex') payload_hash FROM (SELECT '{\"amount\":12.0000,\"precise\":9007199254740993.1200}'::jsonb p) s")).rows[0];
     const claimed={aggregate_id:e.aggregate_id,aggregate_type:e.aggregate_type,attempt_count:1,available_at:e.created_at,created_at:e.created_at,entity_id:entityId,event_type:e.event_type,last_error:null,locked_at:e.created_at,locked_by:'test-worker',outbox_event_id:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',...numeric,published_at:null,status:'PENDING',tenant_id:tenantId};
     const token='synthetic-consumer-test-token-123456';const server=createConsumerServer({repository:new ConsumerRepository(pool,config),config:{...config,token,release:'a'.repeat(40)}});

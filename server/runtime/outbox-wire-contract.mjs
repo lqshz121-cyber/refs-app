@@ -19,7 +19,7 @@ export function sealOutboxPayload(event,canonicalPayloadText){
   let parsed;try{parsed=JSON.parse(canonicalPayloadText);}catch{fail('OUTBOX_EVENT_CONTRACT_INVALID');}
   if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))fail('OUTBOX_EVENT_CONTRACT_INVALID');
   // Parsed numbers are used only for traversal, never for hashing/serialization.
-  if(!safeAiEvidenceTree(parsed)||!safeOutboxPayload(parsed))fail('OUTBOX_EVENT_SECRET_DENIED');
+  if(!safeAiEvidenceTree(parsed)||!safeOutboxPayload({...event,payload:parsed}))fail('OUTBOX_EVENT_SECRET_DENIED');
   if(payloadHash(canonicalPayloadText)!==event.payload_hash)fail('OUTBOX_EVENT_PAYLOAD_HASH_INVALID');
   const sealed=Object.freeze({...event,payload:parsed});texts.set(sealed,canonicalPayloadText);return sealed;
 }

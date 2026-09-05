@@ -84,7 +84,7 @@ BEGIN
     OR jsonb_typeof(e->'attempt_count') IS DISTINCT FROM 'number'
     OR coalesce(e->>'attempt_count','') !~ '^[1-9][0-9]{0,8}$'
     OR coalesce(e->>'created_at','') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$'
-    OR NOT refs_outbox_consumer.safe_payload(e->'payload') THEN
+    OR NOT refs_outbox_consumer.safe_payload(e) THEN
     RAISE EXCEPTION USING ERRCODE='P0400', MESSAGE='OUTBOX_EVENT_INVALID';
   END IF;
   IF to_char((e->>'created_at')::timestamptz AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')<>e->>'created_at' THEN

@@ -18,6 +18,7 @@ test('closed event binds header, server scope, canonical timestamp and rejects s
   const e=fixture();assert.equal(validateEvent(e,config,headers(e)),e);
   for(const delta of [{extra:true},{tenant_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},{attempt_count:0},{created_at:'2026-02-30T00:00:00.000Z'},{payload:{authorization:'private'}},{payload:{memo:'Bearer secret-secret-token'}},{payload:{database_url:'synthetic'}}]) assert.throws(()=>validateEvent({...e,...delta},config,headers(e)));
   assert.throws(()=>validateEvent(e,config,{}));
+  assert.throws(()=>validateEvent({...e,event_type:'ya29.syntheticOAuthToken123'},config,headers(e)),error=>error.code==='OUTBOX_SECRET_DENIED');
 });
 test('startup only accepts dedicated database namespace, scope and token; rejects accounting credentials',()=>{
   const env={OUTBOX_CONSUMER_DATABASE_URL:'postgres://consumer:local@localhost/refs_outbox_consumer_test',OUTBOX_CONSUMER_DATABASE_NAME:config.databaseName,OUTBOX_CONSUMER_TOKEN:token,OUTBOX_CONSUMER_TENANT_ID:tenantId,OUTBOX_CONSUMER_ENTITY_ID:entityId};

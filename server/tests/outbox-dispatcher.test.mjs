@@ -22,6 +22,7 @@ test('publisher retains PostgreSQL numeric scale and precision without JSON roun
 test('publisher secret deny matches AI baseline plus cookie/database/JWT/OAuth with zero network calls',async()=>{
   let calls=0;const publisher=new HttpOutboxPublisher({endpoint:'https://example.test',token:'synthetic-test-token-123',fetcher:()=>{calls++;}});
   for(const payload of secretPayloads)assert.throws(()=>validateClaimedOutboxEvent(row({payload}),{tenantId}),error=>error.code==='OUTBOX_EVENT_SECRET_DENIED');
+  assert.throws(()=>validateClaimedOutboxEvent(row({event_type:'ya29.syntheticOAuthToken123'}),{tenantId}),error=>error.code==='OUTBOX_EVENT_SECRET_DENIED');
   await assert.rejects(publisher.publish({...validateClaimedOutboxEvent(row(),{tenantId}),payload:{token:'synthetic'}}));
   assert.equal(calls,0);
 });

@@ -14,7 +14,7 @@ export function validateEvent(event, { tenantId, entityId }, headers) {
   if (!SHA.test(event.payload_hash) || !event.payload || typeof event.payload !== 'object' || Array.isArray(event.payload) || !Number.isSafeInteger(event.attempt_count) || event.attempt_count < 1) throw failure('OUTBOX_EVENT_INVALID');
   if (typeof event.created_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(event.created_at) || !Number.isFinite(Date.parse(event.created_at)) || new Date(event.created_at).toISOString() !== event.created_at) throw failure('OUTBOX_EVENT_INVALID');
   if (headers['idempotency-key'] !== event.outbox_event_id || headers['x-refs-payload-hash'] !== event.payload_hash) throw failure('OUTBOX_HEADER_MISMATCH');
-  if (!safeOutboxPayload(event.payload)) throw failure('OUTBOX_SECRET_DENIED');
+  if (!safeOutboxPayload(event)) throw failure('OUTBOX_SECRET_DENIED');
   return event;
 }
 export function readConfig(env) {
