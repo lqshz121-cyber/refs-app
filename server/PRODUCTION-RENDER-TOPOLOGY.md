@@ -45,8 +45,12 @@ coordinate is entered as a reviewed `sync:false` value in Render.
    exact same SHA, then verify `/refs-build.js` and the API release agree.
 7. Create `render.integrations.production.yaml` only after provider trust,
    immutable storage, scanner TLS, evidence retention, service actors, and scopes
-   pass independent review. Never copy values from staging. Deploy the exact same
-   SHA, validate the API first, then cleanup and integrations-dispatch workers.
+   pass independent review. Its four least-privilege database roles must target the
+   same approved production accounting database endpoint as the base API; never
+   create a second accounting ledger or copy values from staging. Deploy the exact
+   same SHA, validate the API first, then cleanup and integrations-dispatch workers.
+   After acceptance, change the Web client to the integrations API as one atomic
+   origin switch. Browser reads and commands must never split across both APIs.
 8. Run authenticated read-only acceptance before any controlled business command.
    A production E2E is separate evidence and must use approved identities, exact
    role bundles, scope, idempotency, source evidence, and journal/GL/report readback.

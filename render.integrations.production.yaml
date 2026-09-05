@@ -1,7 +1,8 @@
 services:
   # Provider-signed production API. It is isolated from the base production API
-  # so its storage, scanner, trust, and database bindings
-  # can be reviewed and promoted as one closed environment.
+  # as a service, while its four independently entered database roles must target
+  # the same approved production accounting database endpoint. Storage, scanner,
+  # trust, and database bindings are reviewed and promoted as one closed set.
   - type: web
     name: refs-accounting-api-integrations-production
     runtime: node
