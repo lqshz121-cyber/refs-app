@@ -95,3 +95,61 @@ test('Render integrations outbox producer fails closed when its isolated consume
   const withoutConsumer=integrations.replace(/^  # Dedicated dispatcher for the separately promoted integrations API[\s\S]*$/m,'');
   assert.throws(()=>assertOutboxCoverage(withoutConsumer,{apiName:'refs-accounting-api-integrations-staging',workerName:'refs-outbox-dispatch-integrations-staging'}),/Render manifest is missing refs-outbox-dispatch-integrations-staging/);
 });
+
+const envKeys=section=>[...section.matchAll(/^\s+- key: ([A-Z0-9_]+)\r?$/gm)].map(match=>match[1]).sort();
+const exactEnv=(section,keys,label)=>assert.deepEqual(envKeys(section),[...keys].sort(),`${label} environment contract must remain closed`);
+const DATABASE_KEYS=['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL'];
+const OIDC_KEYS=['OIDC_ISSUER','OIDC_AUDIENCE','OIDC_JWKS_URI','REFS_HTTP_ALLOWED_ORIGINS'];
+const API_BASE_KEYS=['NODE_ENV','REFS_DEPLOYMENT_ENV','REFS_HTTP_HOST','REFS_HTTP_MAX_BODY_BYTES','REFS_PG_REQUIRED','REFS_PG_MIGRATION_STATEMENT_TIMEOUT_MS','REFS_ATTACHMENT_MODE','REFS_WBS_INGEST_MODE','REFS_WBS_LIVE_PILOT_MODE','REFS_WBS_TEST_IMPORT_MODE','REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE','REFS_CONTROLLED_DEMO_MODE',...DATABASE_KEYS,...OIDC_KEYS];
+const OUTBOX_KEYS=['NODE_ENV','REFS_PG_REQUIRED',...DATABASE_KEYS,'OUTBOX_DISPATCH_ACTOR_ID','OUTBOX_DISPATCH_SCOPES','OUTBOX_PUBLISH_URL','OUTBOX_PUBLISH_TOKEN','OUTBOX_DISPATCH_BATCH','OUTBOX_DISPATCH_INTERVAL_MS','OUTBOX_DISPATCH_CONCURRENCY','OUTBOX_DISPATCH_LEASE_SECONDS','OUTBOX_DISPATCH_MAX_ATTEMPTS','OUTBOX_DISPATCH_RETRY_BASE_SECONDS','OUTBOX_PUBLISH_TIMEOUT_MS','OUTBOX_DISPATCH_HEALTH_PORT','OUTBOX_DISPATCH_HEALTH_FRESHNESS_MS','OUTBOX_DISPATCH_MAX_CONSECUTIVE_ERRORS'];
+
+test('Render production topology is independent, closed, and keeps every test-only mode disabled',async()=>{
+  const manifest=await readFile(resolve(root,'render.production.yaml'),'utf8');
+  const api=serviceSection(manifest,'refs-accounting-api-production'),outbox=serviceSection(manifest,'refs-outbox-dispatch-production'),web=serviceSection(manifest,'refs-app-production');
+  assert.equal(api.type,'web');assert.equal(outbox.type,'worker');assert.equal(web.type,'web');
+  assert.doesNotMatch(manifest,/staging/i);assert.doesNotMatch(manifest,/^databases:/m);assert.doesNotMatch(manifest,/^\s+(?:plan|region):/m);assert.doesNotMatch(manifest,/autoDeploy:\s*true|autoDeployTrigger:\s*(?:commit|checksPass)/);
+  assert.equal((manifest.match(/autoDeployTrigger: off/g)||[]).length,3);
+  exactEnv(api.body,API_BASE_KEYS,'production API');
+  for(const [key,value] of [['NODE_ENV','production'],['REFS_DEPLOYMENT_ENV','production'],['REFS_HTTP_HOST','0.0.0.0'],['REFS_HTTP_MAX_BODY_BYTES','"10485760"'],['REFS_PG_REQUIRED','"1"'],['REFS_PG_MIGRATION_STATEMENT_TIMEOUT_MS','"600000"'],['REFS_ATTACHMENT_MODE','DISABLED'],['REFS_WBS_INGEST_MODE','DISABLED'],['REFS_WBS_LIVE_PILOT_MODE','DISABLED'],['REFS_WBS_TEST_IMPORT_MODE','DISABLED'],['REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE','DISABLED'],['REFS_CONTROLLED_DEMO_MODE','DISABLED']])assert.ok(hasFixed(api.body,key,value),`production API is missing ${key}=${value}`);
+  for(const key of [...DATABASE_KEYS,...OIDC_KEYS])assert.ok(hasSecret(api.body,key),`production API must receive ${key} independently`);
+  assert.doesNotMatch(api.body,/REFS_STAGE1_|WBS_CF_ACCESS_|REFS_PUBLIC_/);
+  exactEnv(outbox.body,OUTBOX_KEYS,'production outbox dispatcher');
+  assert.match(outbox.body,/preDeployCommand: npm run preflight:outbox-dispatch-release/);assert.match(outbox.body,/startCommand: npm run start:outbox-dispatch/);
+  for(const key of DATABASE_KEYS)assert.ok(hasServiceReference(outbox.body,key,'refs-accounting-api-production'),`production dispatcher must inherit ${key} only from its producer`);
+  for(const key of ['OUTBOX_DISPATCH_ACTOR_ID','OUTBOX_DISPATCH_SCOPES','OUTBOX_PUBLISH_URL','OUTBOX_PUBLISH_TOKEN'])assert.ok(hasSecret(outbox.body,key),`production dispatcher is missing ${key}`);
+  const webKeys=['REFS_DEPLOYMENT_ENV','REFS_WBS_TEST_IMPORT_MODE','REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE','REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE','REFS_PUBLIC_OIDC_ISSUER','REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT','REFS_PUBLIC_OIDC_TOKEN_ENDPOINT','REFS_PUBLIC_OIDC_REDIRECT_URI','REFS_PUBLIC_OIDC_CLIENT_ID','REFS_PUBLIC_OIDC_AUDIENCE','REFS_PUBLIC_OIDC_SCOPE'];
+  exactEnv(web.body,webKeys,'production Web');assert.match(web.body,/runtime: static/);assert.match(web.body,/pullRequestPreviewsEnabled: false/);
+  for(const [key,value] of [['REFS_DEPLOYMENT_ENV','production'],['REFS_WBS_TEST_IMPORT_MODE','DISABLED'],['REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE','DISABLED']])assert.ok(hasFixed(web.body,key,value),`production Web is missing ${key}=${value}`);
+  for(const key of webKeys.filter(key=>key.startsWith('REFS_PUBLIC_')&&key!=='REFS_PUBLIC_OIDC_SCOPE'))assert.ok(hasSecret(web.body,key),`production Web must receive ${key} independently`);
+  for(const asset of ['/refs-runtime-lock.js','/refs-runtime-config.js','/refs-build.js','/index.html','/'])assert.match(web.body,new RegExp(`path: ${asset.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\r?\\n\\s+name: Cache-Control\\r?\\n\\s+value: no-store`));
+  assert.doesNotMatch(manifest,/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i,'production manifest must not commit tenant/entity/user facts');
+});
+
+test('Render production integrations isolate signed ingest, cleanup, and dispatch from all other environments',async()=>{
+  const manifest=await readFile(resolve(root,'render.integrations.production.yaml'),'utf8');
+  const api=serviceSection(manifest,'refs-accounting-api-integrations-production'),cleanup=serviceSection(manifest,'refs-attachment-cleanup-production'),outbox=serviceSection(manifest,'refs-outbox-dispatch-integrations-production');
+  assert.equal(api.type,'web');assert.equal(cleanup.type,'worker');assert.equal(outbox.type,'worker');
+  assert.doesNotMatch(manifest,/staging/i);assert.doesNotMatch(manifest,/^databases:/m);assert.doesNotMatch(manifest,/^\s+(?:plan|region):/m);assert.equal((manifest.match(/autoDeployTrigger: off/g)||[]).length,3);
+  const integrationKeys=[...API_BASE_KEYS,'WBS_SNAPSHOT_ED25519_PUBLIC_KEYS','WBS_PROVIDER_SIGNED_TRUST','WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID','REFS_WBS_EVIDENCE_RETENTION_DAYS','S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','S3_SESSION_TOKEN','VIRUS_SCANNER_ENDPOINT','VIRUS_SCANNER_TOKEN','VIRUS_SCANNER_CA_PEM','VIRUS_SCANNER_SERVER_NAME','ATTACHMENT_SCANNER_ACTOR_ID'];
+  exactEnv(api.body,integrationKeys,'production integrations API');
+  for(const [key,value] of [['NODE_ENV','production'],['REFS_DEPLOYMENT_ENV','production'],['REFS_ATTACHMENT_MODE','REQUIRED'],['REFS_WBS_INGEST_MODE','REQUIRED'],['REFS_WBS_LIVE_PILOT_MODE','DISABLED'],['REFS_WBS_TEST_IMPORT_MODE','DISABLED'],['REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE','DISABLED'],['REFS_CONTROLLED_DEMO_MODE','DISABLED']])assert.ok(hasFixed(api.body,key,value),`production integrations API is missing ${key}=${value}`);
+  for(const key of integrationKeys.filter(key=>!['NODE_ENV','REFS_DEPLOYMENT_ENV','REFS_HTTP_HOST','REFS_HTTP_MAX_BODY_BYTES','REFS_PG_REQUIRED','REFS_PG_MIGRATION_STATEMENT_TIMEOUT_MS','REFS_ATTACHMENT_MODE','REFS_WBS_INGEST_MODE','REFS_WBS_LIVE_PILOT_MODE','REFS_WBS_TEST_IMPORT_MODE','REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE','REFS_CONTROLLED_DEMO_MODE'].includes(key)))assert.ok(hasSecret(api.body,key),`production integrations API must receive ${key} independently`);
+  assert.doesNotMatch(api.body,/REFS_STAGE1_|WBS_CF_ACCESS_|REFS_PUBLIC_/);
+  const cleanupKeys=['NODE_ENV','REFS_PG_REQUIRED',...DATABASE_KEYS,'ATTACHMENT_CLEANUP_ACTOR_ID','ATTACHMENT_CLEANUP_SCOPES','ATTACHMENT_CLEANUP_BATCH','ATTACHMENT_CLEANUP_INTERVAL_MS','ATTACHMENT_CLEANUP_CONCURRENCY','ATTACHMENT_CLEANUP_HEALTH_PORT','S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','S3_SESSION_TOKEN'];
+  exactEnv(cleanup.body,cleanupKeys,'production attachment cleanup');assert.match(cleanup.body,/startCommand: npm run start:attachment-cleanup/);
+  for(const key of [...DATABASE_KEYS,'S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','S3_SESSION_TOKEN'])assert.ok(hasServiceReference(cleanup.body,key,'refs-accounting-api-integrations-production'),`production cleanup must inherit ${key} only from its producer`);
+  for(const key of ['ATTACHMENT_CLEANUP_ACTOR_ID','ATTACHMENT_CLEANUP_SCOPES'])assert.ok(hasSecret(cleanup.body,key),`production cleanup is missing ${key}`);
+  exactEnv(outbox.body,OUTBOX_KEYS,'production integrations dispatcher');
+  for(const key of DATABASE_KEYS)assert.ok(hasServiceReference(outbox.body,key,'refs-accounting-api-integrations-production'),`production integrations dispatcher must inherit ${key} only from its producer`);
+  for(const key of ['OUTBOX_DISPATCH_ACTOR_ID','OUTBOX_DISPATCH_SCOPES','OUTBOX_PUBLISH_URL','OUTBOX_PUBLISH_TOKEN'])assert.ok(hasSecret(outbox.body,key),`production integrations dispatcher is missing ${key}`);
+  assert.doesNotMatch(manifest,/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i,'production integrations manifest must not commit tenant/entity/user facts');
+});
+
+test('production topology runbook reuses the independent consumer and forbids automatic database rollback',async()=>{
+  const runbook=await readFile(resolve(root,'server','PRODUCTION-RENDER-TOPOLOGY.md'),'utf8');
+  const consumer=await readFile(resolve(root,'render.outbox-consumer.production.yaml'),'utf8');
+  for(const token of ['render.production.yaml','render.integrations.production.yaml','render.outbox-consumer.production.yaml','sync:false','OUTBOX.DISPATCH','/health/live','/health/ready','/refs-build.js','exact same SHA','authenticated read-only acceptance','backup/PITR','same approved production accounting database endpoint','never split across both APIs'])assert.match(runbook,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i'),`production runbook is missing ${token}`);
+  assert.doesNotMatch(runbook,/use `db:(?:down|reset)`/i);assert.match(runbook,/never use automatic down\/reset migrations/i);
+  assert.match(consumer,/name: refs-outbox-consumer-production/);assert.match(consumer,/name: refs-outbox-consumer-postgres-production/);assert.doesNotMatch(consumer,/staging/i);
+  for(const key of ['OUTBOX_CONSUMER_DATABASE_URL','OUTBOX_CONSUMER_TOKEN','OUTBOX_CONSUMER_TENANT_ID','OUTBOX_CONSUMER_ENTITY_ID'])assert.ok(hasSecret(serviceSection(consumer,'refs-outbox-consumer-production').body,key),`production consumer is missing ${key}`);
+});
