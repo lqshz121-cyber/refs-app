@@ -153,3 +153,12 @@ test('production topology runbook reuses the independent consumer and forbids au
   assert.match(consumer,/name: refs-outbox-consumer-production/);assert.match(consumer,/name: refs-outbox-consumer-postgres-production/);assert.doesNotMatch(consumer,/staging/i);
   for(const key of ['OUTBOX_CONSUMER_DATABASE_URL','OUTBOX_CONSUMER_TOKEN','OUTBOX_CONSUMER_TENANT_ID','OUTBOX_CONSUMER_ENTITY_ID'])assert.ok(hasSecret(serviceSection(consumer,'refs-outbox-consumer-production').body,key),`production consumer is missing ${key}`);
 });
+
+test('production rollout separates initial deployment, frozen service SHA, and Blueprint sync gates',async()=>{
+  const runbook=await readFile(resolve(root,'server','PRODUCTION-RENDER-TOPOLOGY.md'),'utf8');
+  for(const token of ['Do not click **Deploy Blueprint**','creates services individually','leaving later services','uncreated','frozen release branch','git ls-remote','immediately before each','service\'s own `branch`','Auto-Deploy to Off before creation','API `commitId`','fromService','rotated with their producer','Blueprint adoption is a separate','before the first sync','Auto Sync to No','every production Blueprint','consumer','before permitting further source changes','independent controls','Manual Sync','leave Web uncreated']){
+    assert.ok(runbook.toLowerCase().includes(token.toLowerCase()),`production rollout is missing ${token}`);
+  }
+  assert.doesNotMatch(runbook,/Create `render\.production\.yaml` without deploying it/);
+  assert.ok(runbook.indexOf('create the dispatcher only after API readiness passes')<runbook.indexOf('6. Set every static public coordinate'));
+});
