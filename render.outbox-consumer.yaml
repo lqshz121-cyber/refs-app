@@ -1,0 +1,31 @@
+# Separate staging stack and database. Never point it at accounting PostgreSQL.
+# Provision its low-privilege LOGIN and bootstrap before deploying this web service.
+databases:
+  - name: refs-outbox-consumer-postgres-staging
+    databaseName: refs_outbox_consumer_staging
+    plan: basic-256mb
+    postgresMajorVersion: "18"
+    ipAllowList: []
+services:
+  - type: web
+    name: refs-outbox-consumer-staging
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: node outbox-consumer/start.mjs
+    healthCheckPath: /health/ready
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: OUTBOX_CONSUMER_DATABASE_NAME
+        value: refs_outbox_consumer_staging
+      # Use the dedicated non-owner LOGIN, not Render's database owner URL.
+      - key: OUTBOX_CONSUMER_DATABASE_URL
+        sync: false
+      - key: OUTBOX_CONSUMER_TOKEN
+        sync: false
+      - key: OUTBOX_CONSUMER_TENANT_ID
+        value: 6fb25daf-0799-4805-bede-be54230da33c
+      - key: OUTBOX_CONSUMER_ENTITY_ID
+        value: ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3
