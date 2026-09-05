@@ -5,6 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {databaseName,runtimeConfig} from './config.mjs';
 import {KernelError,withTransaction} from './db.mjs';
 import {MIGRATION_MANIFEST} from './migration-manifest.mjs';
+import {observeMigration} from './migration-observability.mjs';
 
 const here=dirname(fileURLToPath(import.meta.url));
 const migrationRoot=resolve(here,'..','db','migrations');
@@ -80,7 +81,7 @@ async function assertMigrationConnection(client,{destructive=false}={}){
 
 const pinnedClientPool=client=>({connect:async()=>({query:(...args)=>client.query(...args),release:()=>{}})});
 
-export async function migrateUp(pool){
+export async function migrateUp(pool,observation={}){
   const client=await pool.connect();
   let locked=false;
   try{
@@ -90,24 +91,26 @@ export async function migrateUp(pool){
     const files=await filesAt(migrationRoot);
     assertManifest(files);
     for(const name of files){
-      const migration=await migrationFile(migrationRoot,name);
-      assertChecksum(migration,'up');
-      const applied=await client.query('SELECT checksum FROM refs_schema_migration WHERE migration_name=$1',[name]);
-      if(applied.rowCount){
-        if(applied.rows[0].checksum!==migration.checksum)throw new KernelError('MIGRATION_CHECKSUM_MISMATCH',`Applied migration changed: ${name}`);
-        continue;
-      }
-      await withTransaction(pinnedClientPool(client),async tx=>{
-        await tx.query(migration.sql);
-        await tx.query('INSERT INTO refs_schema_migration(migration_name,checksum) VALUES($1,$2)',[name,migration.checksum]);
-      });
+      await observeMigration(name,'up',async()=>{
+        const migration=await migrationFile(migrationRoot,name);
+        assertChecksum(migration,'up');
+        const applied=await client.query('SELECT checksum FROM refs_schema_migration WHERE migration_name=$1',[name]);
+        if(applied.rowCount){
+          if(applied.rows[0].checksum!==migration.checksum)throw new KernelError('MIGRATION_CHECKSUM_MISMATCH',`Applied migration changed: ${name}`);
+          return 'skipped';
+        }
+        await withTransaction(pinnedClientPool(client),async tx=>{
+          await tx.query(migration.sql);
+          await tx.query('INSERT INTO refs_schema_migration(migration_name,checksum) VALUES($1,$2)',[name,migration.checksum]);
+        });
+      },observation);
     }
   }finally{
     try{if(locked)await client.query('SELECT pg_advisory_unlock($1)',[lockKey]);}finally{client.release();}
   }
 }
 
-export async function migrateDown(pool,{all=false}={}){
+export async function migrateDown(pool,{all=false,...observation}={}){
   const client=await pool.connect();
   let locked=false;
   try{
@@ -117,12 +120,14 @@ export async function migrateDown(pool,{all=false}={}){
     const applied=(await client.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name DESC')).rows.map(row=>row.migration_name);
     const selected=all?applied:applied.slice(0,1);
     for(const name of selected){
-      const down=await migrationFile(downRoot,name);
-      assertChecksum(down,'down');
-      await withTransaction(pinnedClientPool(client),async tx=>{
-        await tx.query(down.sql);
-        await tx.query('DELETE FROM refs_schema_migration WHERE migration_name=$1',[name]);
-      });
+      await observeMigration(name,'down',async()=>{
+        const down=await migrationFile(downRoot,name);
+        assertChecksum(down,'down');
+        await withTransaction(pinnedClientPool(client),async tx=>{
+          await tx.query(down.sql);
+          await tx.query('DELETE FROM refs_schema_migration WHERE migration_name=$1',[name]);
+        });
+      },observation);
     }
   }finally{
     try{if(locked)await client.query('SELECT pg_advisory_unlock($1)',[lockKey]);}finally{client.release();}

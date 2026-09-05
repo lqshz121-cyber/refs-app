@@ -23,6 +23,9 @@ services:
         value: "10485760"
       - key: REFS_PG_REQUIRED
         value: "1"
+      # Migration-only pool deadline; ordinary API query/lock limits stay separate.
+      - key: REFS_PG_MIGRATION_STATEMENT_TIMEOUT_MS
+        value: "600000"
       - key: REFS_DEPLOYMENT_ENV
         value: staging
       - key: REFS_STAGE1_BOOTSTRAP_CONFIRM

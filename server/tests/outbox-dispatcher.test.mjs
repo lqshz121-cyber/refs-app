@@ -1,14 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
+import {payloadHash,serializeOutboxEvent} from '../runtime/outbox-wire-contract.mjs';
+import {secretPayloads} from './helpers/outbox-secret-cases.mjs';
 import {HttpOutboxPublisher,OutboxDispatchService,validateClaimedOutboxEvent} from '../runtime/outbox-dispatcher.mjs';
 import {OutboxDispatchWorker,outboxDispatchHealthResponse} from '../runtime/outbox-dispatch-worker.mjs';
 import {outboxDispatchConfig} from '../runtime/start-outbox-dispatch-worker.mjs';
 import {OutboxDispatchPreflight,validateOutboxDispatchScopes} from '../runtime/outbox-dispatch-preflight.mjs';
 
 const tenantId='11111111-1111-4111-8111-111111111111',entityId='22222222-2222-4222-8222-222222222222',eventId='33333333-3333-4333-8333-333333333333',aggregateId='44444444-4444-4444-8444-444444444444';
-const row=(overrides={})=>({aggregate_id:aggregateId,aggregate_type:'JOURNAL_ENTRY',attempt_count:1,available_at:new Date('2026-08-24T00:00:00.000Z'),created_at:new Date('2026-08-24T00:00:00.000Z'),entity_id:entityId,event_type:'JOURNAL_POSTED',last_error:null,locked_at:new Date('2026-08-24T00:00:01.000Z'),locked_by:'outbox-service',outbox_event_id:eventId,payload:{journal_entry_id:aggregateId},payload_hash:`sha256:${'a'.repeat(64)}`,published_at:null,status:'PENDING',tenant_id:tenantId,...overrides});
+const row=(overrides={})=>{const {payload={journal_entry_id:aggregateId},...rest}=overrides;const text=JSON.stringify(payload);return {aggregate_id:aggregateId,aggregate_type:'JOURNAL_ENTRY',attempt_count:1,available_at:new Date('2026-08-24T00:00:00.000Z'),created_at:new Date('2026-08-24T00:00:00.000Z'),entity_id:entityId,event_type:'JOURNAL_POSTED',last_error:null,locked_at:new Date('2026-08-24T00:00:01.000Z'),locked_by:'outbox-service',outbox_event_id:eventId,payload_canonical_text:text,payload_hash:payloadHash(text),published_at:null,status:'PENDING',tenant_id:tenantId,...rest};};
 const completion=(status='PUBLISHED')=>({schema_version:'OUTBOX_DISPATCH_COMPLETION_V1',outbox_event_id:eventId,status,attempt_count:1,retry_scheduled:status==='PENDING',available_at:'2026-08-24T00:00:05.000Z'});
+
+test('publisher retains PostgreSQL numeric scale and precision without JSON roundtrip',async()=>{
+  const text='{"amount": 12.0000, "precise": 9007199254740993.1200}';
+  const event=validateClaimedOutboxEvent(row({payload_canonical_text:text,payload_hash:payloadHash(text)}),{tenantId});
+  assert.ok(serializeOutboxEvent(event).includes(text));
+  assert.notEqual(JSON.stringify(event.payload),text);
+  await assert.rejects(new HttpOutboxPublisher({endpoint:'https://example.test',token:'synthetic-test-token-123',fetcher:()=>{throw new Error('must not run');}}).publish({...event}),error=>error.code==='OUTBOX_EVENT_CANONICAL_PAYLOAD_REQUIRED');
+});
+test('publisher secret deny matches AI baseline plus cookie/database/JWT/OAuth with zero network calls',async()=>{
+  let calls=0;const publisher=new HttpOutboxPublisher({endpoint:'https://example.test',token:'synthetic-test-token-123',fetcher:()=>{calls++;}});
+  for(const payload of secretPayloads)assert.throws(()=>validateClaimedOutboxEvent(row({payload}),{tenantId}),error=>error.code==='OUTBOX_EVENT_SECRET_DENIED');
+  assert.throws(()=>validateClaimedOutboxEvent(row({event_type:'ya29.syntheticOAuthToken123'}),{tenantId}),error=>error.code==='OUTBOX_EVENT_SECRET_DENIED');
+  await assert.rejects(publisher.publish({...validateClaimedOutboxEvent(row(),{tenantId}),payload:{token:'synthetic'}}));
+  assert.equal(calls,0);
+});
 
 test('claimed event contract is closed, exact-scope, and never accepts a published or unlocked row',()=>{
   const event=validateClaimedOutboxEvent(row(),{tenantId});assert.equal(event.schema_version,'REFS_OUTBOX_EVENT_V1');assert.equal(event.created_at,'2026-08-24T00:00:00.000Z');
@@ -19,7 +36,7 @@ test('claimed event contract is closed, exact-scope, and never accepts a publish
 });
 
 test('HTTP publisher sends one idempotent closed envelope and requires an exact no-store receipt',async()=>{
-  let request;const publisher=new HttpOutboxPublisher({endpoint:'https://events.example.test/v1/refs',token:'publisher-token-0001',fetcher:async(url,init)=>{request={url,init};return new Response(JSON.stringify({accepted:true,outbox_event_id:eventId,payload_hash:`sha256:${'a'.repeat(64)}`,schema_version:'REFS_OUTBOX_PUBLISH_RECEIPT_V1'}),{status:202,headers:{'cache-control':'private, no-store','content-type':'application/json'}});},nodeEnv:'production'}),event=validateClaimedOutboxEvent(row(),{tenantId}),receipt=await publisher.publish(event);
+  let request;const publisher=new HttpOutboxPublisher({endpoint:'https://events.example.test/v1/refs',token:'publisher-token-0001',fetcher:async(url,init)=>{request={url,init};return new Response(JSON.stringify({accepted:true,outbox_event_id:eventId,payload_hash:row().payload_hash,schema_version:'REFS_OUTBOX_PUBLISH_RECEIPT_V1'}),{status:202,headers:{'cache-control':'private, no-store','content-type':'application/json'}});},nodeEnv:'production'}),event=validateClaimedOutboxEvent(row(),{tenantId}),receipt=await publisher.publish(event);
   assert.equal(receipt.accepted,true);assert.equal(request.init.headers['idempotency-key'],eventId);assert.equal(request.init.headers['x-refs-payload-hash'],event.payload_hash);assert.equal(JSON.parse(request.init.body).tenant_id,tenantId);assert.equal(request.init.redirect,'error');
   const bad=new HttpOutboxPublisher({endpoint:'https://events.example.test/v1/refs',token:'publisher-token-0001',fetcher:async()=>new Response(JSON.stringify({...receipt,outbox_event_id:aggregateId}),{status:200,headers:{'cache-control':'no-store','content-type':'application/json'}}),nodeEnv:'production'});await assert.rejects(bad.publish(event),error=>error.code==='OUTBOX_PUBLISH_RECEIPT_INVALID');
   assert.throws(()=>new HttpOutboxPublisher({endpoint:'http://events.example.test',token:'publisher-token-0001',nodeEnv:'production'}),error=>error.code==='OUTBOX_PUBLISHER_CONFIG_INVALID');

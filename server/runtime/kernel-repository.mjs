@@ -2696,7 +2696,10 @@ export class PostgresAccountingKernel{
     const entityIds=Array.isArray(scopes)?scopes.map(scope=>scope.entityId):[];
     const grantSetVersions=Array.isArray(scopes)?scopes.map(scope=>scope.grantSetVersion):[];
     return this.inSession(async client=>(await client.query(
-      'SELECT * FROM refs_claim_outbox_v3($1,refs_current_actor(),$2::uuid[],$3::bigint[],$4,$5)',
+      `SELECT o.aggregate_id,o.aggregate_type,o.attempt_count,o.available_at,o.created_at,o.entity_id,o.event_type,
+        o.last_error,o.locked_at,o.locked_by,o.outbox_event_id,o.payload::text AS payload_canonical_text,
+        o.payload_hash,o.published_at,o.status,o.tenant_id
+        FROM refs_claim_outbox_v3($1,refs_current_actor(),$2::uuid[],$3::bigint[],$4,$5) o`,
       [tenantId,entityIds,grantSetVersions,limit,leaseSeconds]
     )).rows);
   }
