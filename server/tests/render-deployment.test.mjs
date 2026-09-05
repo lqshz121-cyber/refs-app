@@ -162,3 +162,14 @@ test('production rollout separates initial deployment, frozen service SHA, and B
   assert.doesNotMatch(runbook,/Create `render\.production\.yaml` without deploying it/);
   assert.ok(runbook.indexOf('create the dispatcher only after API readiness passes')<runbook.indexOf('6. Set every static public coordinate'));
 });
+
+test('production IAM grants follow migration and fail closed without a production ceremony',async()=>{
+  const runbook=await readFile(resolve(root,'server','PRODUCTION-RENDER-TOPOLOGY.md'),'utf8');
+  const preparation=runbook.slice(runbook.indexOf('4. Review'),runbook.indexOf('5. Create/deploy'));
+  assert.match(preparation,/without granting permissions yet/);
+  const migration=runbook.indexOf('Run migrations through its');
+  const ceremony=runbook.indexOf('complete an independently approved production IAM ceremony');
+  const worker=runbook.indexOf('create the dispatcher only after API readiness passes');
+  assert.ok(migration>=0&&migration<ceremony&&ceremony<worker,'migration, production IAM, then worker creation must remain ordered');
+  for(const token of ['Only after migrations and API readiness pass','not implemented by this topology change','**STOP**','leave workers and Web uncreated','Do not use `workflow-role-grant` or `workflow:grant`','REFS_DEPLOYMENT_ENV=staging','direct SQL/self-grant','same production IAM gate to integrations and cleanup actors'])assert.ok(runbook.includes(token),`production IAM gate is missing ${token}`);
+});

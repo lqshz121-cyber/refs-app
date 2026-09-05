@@ -84,12 +84,22 @@ Platform references: [Blueprint creation and Auto Sync](https://render.com/docs/
    database and distinct least-privilege roles. OIDC and allowed origins must use
    only the production API/Web applications and domains.
 4. Review `OUTBOX_DISPATCH_SCOPES` as a closed JSON array of approved production
-   tenant/entity pairs. Grant the dedicated actor exactly `OUTBOX.DISPATCH` with
-   the approved finite expiry. Point `OUTBOX_PUBLISH_URL` only to the production
-   consumer and enter its independent token.
+   tenant/entity pairs. Prepare the dedicated actor and finite-expiry grant request
+   without granting permissions yet. Point `OUTBOX_PUBLISH_URL` only to the
+   production consumer and enter its independent token.
 5. Create/deploy only the base API at the approved SHA. Run migrations through its
    `preDeployCommand`, then require `/health/live` and `/health/ready` to return
-   `no-store` and the exact SHA. Run the dispatch preflight before enabling the
+   `no-store` and the exact SHA. Only after migrations and API readiness pass,
+   complete an independently approved production IAM ceremony to grant the
+   dedicated actor exactly `OUTBOX.DISPATCH` for the approved scopes and finite
+   expiry; verify the effective grant against the migrated catalog. This production
+   IAM ceremony is not implemented by this topology change. **STOP** if no reviewed
+   production-capable ceremony is available; leave workers and Web uncreated.
+   Do not use `workflow-role-grant` or `workflow:grant` as a production workaround:
+   the current implementation requires `REFS_DEPLOYMENT_ENV=staging`. Never relabel
+   production as staging or use direct SQL/self-grant to bypass this missing gate.
+   Apply the same production IAM gate to integrations and cleanup actors before
+   creating their workers. Run the dispatch preflight before enabling the
    worker: create the dispatcher only after API readiness passes, then require its
    startup permission/backlog preflight and fresh health evidence. Pause on failure;
    leave Web uncreated until API and worker readiness pass.
