@@ -1,0 +1,222 @@
+services:
+  # Provider-signed production API. It is isolated from the base production API
+  # as a service, while its four independently entered database roles must target
+  # the same approved production accounting database endpoint. Storage, scanner,
+  # trust, and database bindings are reviewed and promoted as one closed set.
+  - type: web
+    name: refs-accounting-api-integrations-production
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    preDeployCommand: npm run db:up
+    startCommand: npm start
+    healthCheckPath: /health/ready
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: REFS_DEPLOYMENT_ENV
+        value: production
+      - key: REFS_HTTP_HOST
+        value: 0.0.0.0
+      - key: REFS_HTTP_MAX_BODY_BYTES
+        value: "10485760"
+      - key: REFS_PG_REQUIRED
+        value: "1"
+      - key: REFS_PG_MIGRATION_STATEMENT_TIMEOUT_MS
+        value: "600000"
+      - key: REFS_ATTACHMENT_MODE
+        value: REQUIRED
+      - key: REFS_WBS_INGEST_MODE
+        value: REQUIRED
+      - key: REFS_WBS_LIVE_PILOT_MODE
+        value: DISABLED
+      - key: REFS_WBS_TEST_IMPORT_MODE
+        value: DISABLED
+      - key: REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE
+        value: DISABLED
+      - key: REFS_CONTROLLED_DEMO_MODE
+        value: DISABLED
+      - key: DATABASE_URL
+        sync: false
+      - key: MIGRATION_DATABASE_URL
+        sync: false
+      - key: CONTEXT_ISSUER_DATABASE_URL
+        sync: false
+      - key: GRANT_SYNC_DATABASE_URL
+        sync: false
+      - key: OIDC_ISSUER
+        sync: false
+      - key: OIDC_AUDIENCE
+        sync: false
+      - key: OIDC_JWKS_URI
+        sync: false
+      - key: REFS_HTTP_ALLOWED_ORIGINS
+        sync: false
+      - key: WBS_SNAPSHOT_ED25519_PUBLIC_KEYS
+        sync: false
+      - key: WBS_PROVIDER_SIGNED_TRUST
+        sync: false
+      - key: WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID
+        sync: false
+      - key: REFS_WBS_EVIDENCE_RETENTION_DAYS
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_SESSION_TOKEN
+        sync: false
+      - key: VIRUS_SCANNER_ENDPOINT
+        sync: false
+      - key: VIRUS_SCANNER_TOKEN
+        sync: false
+      - key: VIRUS_SCANNER_CA_PEM
+        sync: false
+      - key: VIRUS_SCANNER_SERVER_NAME
+        sync: false
+      - key: ATTACHMENT_SCANNER_ACTOR_ID
+        sync: false
+
+  - type: worker
+    name: refs-attachment-cleanup-production
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: npm run start:attachment-cleanup
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: REFS_PG_REQUIRED
+        value: "1"
+      - key: DATABASE_URL
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-production
+          envVarKey: DATABASE_URL
+      - key: MIGRATION_DATABASE_URL
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-production
+          envVarKey: MIGRATION_DATABASE_URL
+      - key: CONTEXT_ISSUER_DATABASE_URL
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-production
+          envVarKey: CONTEXT_ISSUER_DATABASE_URL
+      - key: GRANT_SYNC_DATABASE_URL
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-production
+          envVarKey: GRANT_SYNC_DATABASE_URL
+      - key: ATTACHMENT_CLEANUP_ACTOR_ID
+        sync: false
+      - key: ATTACHMENT_CLEANUP_SCOPES
+        sync: false
+      - key: ATTACHMENT_CLEANUP_BATCH
+        value: "25"
+      - key: ATTACHMENT_CLEANUP_INTERVAL_MS
+        value: "30000"
+      - key: ATTACHMENT_CLEANUP_CONCURRENCY
+        value: "2"
+      - key: ATTACHMENT_CLEANUP_HEALTH_PORT
+        value: "9091"
+      - key: S3_ENDPOINT
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-production
+          envVarKey: S3_ENDPOINT
+      - key: S3_BUCKET
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-production
+          envVarKey: S3_BUCKET
+      - key: S3_REGION
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-production
+          envVarKey: S3_REGION
+      - key: S3_ACCESS_KEY_ID
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-production
+          envVarKey: S3_ACCESS_KEY_ID
+      - key: S3_SECRET_ACCESS_KEY
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-production
+          envVarKey: S3_SECRET_ACCESS_KEY
+      - key: S3_SESSION_TOKEN
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-production
+          envVarKey: S3_SESSION_TOKEN
+
+  - type: worker
+    name: refs-outbox-dispatch-integrations-production
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    preDeployCommand: npm run preflight:outbox-dispatch-release
+    startCommand: npm run start:outbox-dispatch
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: REFS_PG_REQUIRED
+        value: "1"
+      - key: DATABASE_URL
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-production
+          envVarKey: DATABASE_URL
+      - key: MIGRATION_DATABASE_URL
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-production
+          envVarKey: MIGRATION_DATABASE_URL
+      - key: CONTEXT_ISSUER_DATABASE_URL
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-production
+          envVarKey: CONTEXT_ISSUER_DATABASE_URL
+      - key: GRANT_SYNC_DATABASE_URL
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-production
+          envVarKey: GRANT_SYNC_DATABASE_URL
+      - key: OUTBOX_DISPATCH_ACTOR_ID
+        sync: false
+      - key: OUTBOX_DISPATCH_SCOPES
+        sync: false
+      - key: OUTBOX_PUBLISH_URL
+        sync: false
+      - key: OUTBOX_PUBLISH_TOKEN
+        sync: false
+      - key: OUTBOX_DISPATCH_BATCH
+        value: "100"
+      - key: OUTBOX_DISPATCH_INTERVAL_MS
+        value: "5000"
+      - key: OUTBOX_DISPATCH_CONCURRENCY
+        value: "2"
+      - key: OUTBOX_DISPATCH_LEASE_SECONDS
+        value: "300"
+      - key: OUTBOX_DISPATCH_MAX_ATTEMPTS
+        value: "8"
+      - key: OUTBOX_DISPATCH_RETRY_BASE_SECONDS
+        value: "5"
+      - key: OUTBOX_PUBLISH_TIMEOUT_MS
+        value: "10000"
+      - key: OUTBOX_DISPATCH_HEALTH_PORT
+        value: "10002"
+      - key: OUTBOX_DISPATCH_HEALTH_FRESHNESS_MS
+        value: "30000"
+      - key: OUTBOX_DISPATCH_MAX_CONSECUTIVE_ERRORS
+        value: "6"
