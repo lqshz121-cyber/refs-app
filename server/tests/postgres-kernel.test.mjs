@@ -42,6 +42,7 @@ import {detectManualJournalRisks} from '../runtime/ai-manual-journal-risk.mjs';
 import {detectCrossEntityPaymentInvoiceReviews} from '../runtime/ai-cross-entity-payment-invoice-review.mjs';
 import {analyzeAttestedConstructionLoanDrawCwip} from '../runtime/ai-construction-loan-cwip-population-attestation.mjs';
 import {AUTHORITATIVE_WORKFLOW_ROLES} from '../runtime/workflow-role-grant.mjs';
+import {proveSnapshotImportAtomicity} from './helpers/wbs-h1-snapshot-atomicity-fixture.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -67,6 +68,10 @@ before(async()=>{
     if(adminPool)await adminPool.end().catch(()=>{});
     adminPool=null;runtimePool=null;issuerPool=null;
   }
+});
+
+pgTest('WBS H1 local snapshot import atomically rejects drift and replays immutable receipts',async()=>{
+  await proveSnapshotImportAtomicity(adminPool);
 });
 
 pgTest('AI vendor monthly spend reads one complete signed current-source population across the approved history window',async()=>{
