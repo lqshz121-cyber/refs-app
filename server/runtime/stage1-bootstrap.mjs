@@ -211,7 +211,8 @@ export async function grantStage1ReadAccess(pool,config,{principalProvider=async
     throw new KernelError('STAGE1_GRANT_SCOPE_DENIED','Stage 1 grant must contain exactly the approved read permissions');
   }
   const sync=new PostgresGrantSync(pool,{principalProvider,transactionGuard:client=>assertStagingDeploymentTarget(client,config)});
-  await assertStagingDeploymentTarget(pool,config);
+  // This internal grant helper performs no OIDC work. Preserve principal/login
+  // error priority; the deployment guard runs inside the same grant transaction.
   const result=await sync.reconcile(config);
   const returned=[...(result.permissions||[])].sort();
   if(returned.length!==STAGE1_READ_PERMISSIONS.length||returned.some((value,index)=>value!==STAGE1_READ_PERMISSIONS[index]))throw new KernelError('STAGE1_GRANT_RESULT_INVALID','Grant sync returned an unexpected permission set');

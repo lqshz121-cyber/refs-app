@@ -100,6 +100,24 @@ test('self-service read activation derives a rolling expiry and current grant re
   assert.notEqual(calls[1][1].validUntil,base.REFS_STAGE1_GRANT_VALID_UNTIL);
 });
 
+test('direct Stage 1 reads preserve identity denial priority and retain the transaction deployment guard',async()=>{
+  const config=stage1GrantConfig(base);
+  for(const login of ['refs_migrator','refs_grant_sync']){
+    const calls=[];
+    const pool={query:async()=>{throw new Error('Direct read must not perform an out-of-transaction preflight');},connect:async()=>({release(){},query:async sql=>{
+      calls.push(sql);
+      if(sql==='SELECT session_user,current_user')return {rowCount:1,rows:[{session_user:login,current_user:login}]};
+      if(sql.includes('refs_assert_staging_deployment_target'))return {rowCount:1,rows:[{asserted:false}]};
+      return {rowCount:0,rows:[]};
+    }})};
+    await assert.rejects(grantStage1ReadAccess(pool,config),error=>error.code===(login==='refs_migrator'?'GRANT_SYNC_DB_IDENTITY_DENIED':'DEPLOYMENT_IDENTITY_DENIED'));
+    assert.equal(calls.filter(sql=>sql.includes('refs_assert_staging_deployment_target')).length,login==='refs_grant_sync'?1:0);
+    assert.equal(calls.some(sql=>sql.includes('refs_grant_request_hash')||sql.includes('refs_reconcile_actor_grants')),false);
+    assert.equal(calls.at(-1),'ROLLBACK');
+  }
+  await assert.rejects(grantStage1ReadAccess({connect:async()=>{throw new Error('Untrusted principal must not reach PostgreSQL');}},config,{principalProvider:async()=>({trusted:false,serviceId:'platform-iam-sync'})}),error=>error.code==='GRANT_SYNC_PRINCIPAL_DENIED');
+});
+
 test('Stage 1 runtime no longer calls legacy grant hashes or self-upgrade SQL wrappers',async()=>{
   const source=await import('node:fs/promises').then(({readFile})=>readFile(new URL('../runtime/stage1-bootstrap.mjs',import.meta.url),'utf8'));
   assert.doesNotMatch(source,/refs_grant_request_hash\(/);
