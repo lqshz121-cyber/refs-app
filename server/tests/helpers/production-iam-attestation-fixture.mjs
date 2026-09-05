@@ -26,7 +26,7 @@ export async function productionIamAttestationFixture({adminPool,ids}){
     const names=['refs_deployment_identity','runtime_actor_grant','runtime_actor_grant_set','runtime_grant_sync_receipt','runtime_auth_context','audit_event','outbox_event','idempotency_receipt','journal_entry','ledger_line'];
     return (await client.query(`SELECT ${names.map(name=>`(SELECT count(*)::int FROM ${name}) AS ${name}`).join(',')}`)).rows[0];
   };
-  const pool={query:(...args)=>client.query(...args),connect:async()=>({release(){},query:(sql,args)=>client.query(sql==='BEGIN ISOLATION LEVEL SERIALIZABLE'?'SAVEPOINT grant_ceremony':sql==='COMMIT'?'RELEASE SAVEPOINT grant_ceremony':sql==='ROLLBACK'?'ROLLBACK TO SAVEPOINT grant_ceremony':sql,args)})};
+  const pool={query:(...args)=>client.query(...args),connect:async()=>({release(){},query:(sql,args)=>sql==='SET TRANSACTION ISOLATION LEVEL SERIALIZABLE'?Promise.resolve({rows:[],rowCount:0}):client.query(sql==='BEGIN'?'SAVEPOINT grant_ceremony':sql==='COMMIT'?'RELEASE SAVEPOINT grant_ceremony':sql==='ROLLBACK'?'ROLLBACK TO SAVEPOINT grant_ceremony':sql,args)})};
   const definition=AUTHORITATIVE_WORKFLOW_ROLES.JE_SUBMITTER;
   const config={installationId,expectedDatabase:db,tenantId:ids.tenantId,entityId:ids.entityId,role:'JE_SUBMITTER',...definition,validUntil:new Date(Date.now()+3600000).toISOString(),expectedVersion:0,idempotencyKey:'production-iam-fixture-human',accessToken:''};
   const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048});
@@ -50,6 +50,8 @@ export async function productionIamAttestationFixture({adminPool,ids}){
       await asRole(role);
       await denied(()=>client.query(initialize,initArgs),'42501');
       await denied(()=>client.query('SELECT * FROM refs_deployment_identity'),'42501');
+      await denied(()=>client.query('SELECT * FROM refs_deployment_identity_fence'),'42501');
+      await denied(()=>client.query('UPDATE refs_deployment_identity_fence SET generation=0'),'42501');
       await denied(()=>client.query('INSERT INTO refs_deployment_identity(installation_id,deployment_environment,database_name) VALUES($1,$2,$3)',assertArgs),'42501');
       if(role!=='refs_grant_sync'){
         await denied(()=>client.query(assertion,assertArgs),'42501');
@@ -68,12 +70,14 @@ export async function productionIamAttestationFixture({adminPool,ids}){
     await asRole('migrator');await client.query('ROLLBACK TO SAVEPOINT staging_identity');
     assert.equal((await client.query(initialize,initArgs)).rows[0].initialized,true);
     const retained=(await client.query('SELECT * FROM refs_deployment_identity')).rows;
+    const retainedFence=(await client.query('SELECT generation,xmin::text FROM refs_deployment_identity_fence')).rows;
     assert.equal((await client.query(initialize,initArgs)).rows[0].initialized,false);
     for(const drift of [[randomUUID(),'production',db,initArgs[3]],[installationId,'staging',db,initArgs[3]],[installationId,'production','other_database',initArgs[3]]])await denied(()=>client.query(initialize,drift));
     for(const sql of ['UPDATE refs_deployment_identity SET deployment_environment=deployment_environment','DELETE FROM refs_deployment_identity','TRUNCATE refs_deployment_identity'])await denied(()=>client.query(sql),'42501');
     const down=(await readFile(new URL('../../db/migrations/down/301_deployment_identity_attestation.sql',import.meta.url),'utf8')).replace(/^\s*BEGIN;\s*/,'').replace(/\s*COMMIT;\s*$/,'');
     await denied(()=>client.query(down),'42501');
     assert.deepEqual((await client.query('SELECT * FROM refs_deployment_identity')).rows,retained);
+    assert.deepEqual((await client.query('SELECT generation,xmin::text FROM refs_deployment_identity_fence')).rows,retainedFence);
     const before=await counts();
     await asRole('refs_grant_sync');
     await denied(()=>grantStagingWorkflowRole(pool,config,{authenticator}),'42501');

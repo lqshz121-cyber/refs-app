@@ -210,7 +210,7 @@ export async function grantStage1ReadAccess(pool,config,{principalProvider=async
   if(config.permissions.length!==STAGE1_READ_PERMISSIONS.length||config.permissions.some((value,index)=>value!==STAGE1_READ_PERMISSIONS[index])){
     throw new KernelError('STAGE1_GRANT_SCOPE_DENIED','Stage 1 grant must contain exactly the approved read permissions');
   }
-  const sync=new PostgresGrantSync(pool,{principalProvider});
+  const sync=new PostgresGrantSync(pool,{principalProvider,transactionGuard:client=>assertStagingDeploymentTarget(client,config)});
   await assertStagingDeploymentTarget(pool,config);
   const result=await sync.reconcile(config);
   const returned=[...(result.permissions||[])].sort();
@@ -224,7 +224,7 @@ export async function grantStage1SelfReadAccess(pool,config,{principalProvider=a
   }
   const now=Number(clock());
   if(!Number.isFinite(now))throw new KernelError('STAGE1_GRANT_CLOCK_INVALID','Stage 1 self-service grant clock is invalid');
-  const sync=syncFactory(pool,{principalProvider});
+  const sync=syncFactory(pool,{principalProvider,transactionGuard:client=>assertStagingDeploymentTarget(client,config)});
   await assertStagingDeploymentTarget(pool,config);
   const expectedVersion=await sync.currentVersion({tenantId:config.tenantId,actorId:config.actorId,entityId:config.entityId});
   const validUntil=new Date(now+23*60*60*1000).toISOString();

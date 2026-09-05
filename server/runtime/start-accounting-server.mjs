@@ -145,8 +145,9 @@ export async function startAccountingServer({env=process.env,fetcher=globalThis.
     // Fail before automatic role assignment or accepting any HTTP request.
     if(grantSyncPool)await assertStagingDeploymentTarget(grantSyncPool,{installationId:env.REFS_EXPECTED_INSTALLATION_ID||null,expectedDatabase:env.REFS_EXPECTED_DATABASE_NAME||null});
     const stagingGrantPrincipal=async()=>{await assertStagingDeploymentTarget(grantSyncPool,{installationId:env.REFS_EXPECTED_INSTALLATION_ID||null,expectedDatabase:env.REFS_EXPECTED_DATABASE_NAME||null});return {trusted:true,serviceId:'platform-iam-sync'};};
-    if(config.wbsTestImport)await reconcileWbsTestImportActorGrants({scope:config.wbsTestImport,grantSync:new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal})});
-    if(config.controlledTestAiWorkflow)await reconcileControlledTestAiWorkflowActorGrants({scope:config.controlledTestAiWorkflow,grantSync:new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal})});
+    const stagingTransactionGuard=client=>assertStagingDeploymentTarget(client,{installationId:env.REFS_EXPECTED_INSTALLATION_ID||null,expectedDatabase:env.REFS_EXPECTED_DATABASE_NAME||null});
+    if(config.wbsTestImport)await reconcileWbsTestImportActorGrants({scope:config.wbsTestImport,grantSync:new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard})});
+    if(config.controlledTestAiWorkflow)await reconcileControlledTestAiWorkflowActorGrants({scope:config.controlledTestAiWorkflow,grantSync:new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard})});
     await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(config.port,config.host,resolve);});
   }
   catch(error){await Promise.allSettled([runtimePool.end(),issuerPool.end(),grantSyncPool?.end()]);throw error;}

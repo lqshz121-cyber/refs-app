@@ -13,7 +13,11 @@ export function productionWorkflowRoleGrantConfig(env=process.env){
 }
 
 export async function grantProductionWorkflowRole(pool,config,options={}){
-  const result=await pool.query('SELECT refs_assert_deployment_identity($1,$2,$3) AS asserted',[config.installationId,'production',config.expectedDatabase]);
-  if(result.rows?.[0]?.asserted!==true)throw new KernelError('DEPLOYMENT_IDENTITY_DENIED','Database identity assertion failed');
-  return config.principalKind==='SERVICE'?grantConfiguredServiceWorkflowRole(pool,config,options):grantAuthenticatedWorkflowRole(pool,config,options);
+  const transactionGuard=async client=>{
+    const result=await client.query('SELECT refs_assert_deployment_identity($1,$2,$3) AS asserted',[config.installationId,'production',config.expectedDatabase]);
+    if(result.rows?.[0]?.asserted!==true)throw new KernelError('DEPLOYMENT_IDENTITY_DENIED','Database identity assertion failed');
+  };
+  await transactionGuard(pool);
+  const guarded={...options,transactionGuard};
+  return config.principalKind==='SERVICE'?grantConfiguredServiceWorkflowRole(pool,config,guarded):grantAuthenticatedWorkflowRole(pool,config,guarded);
 }

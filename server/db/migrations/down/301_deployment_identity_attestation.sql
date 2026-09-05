@@ -9,5 +9,6 @@ DROP FUNCTION refs_assert_deployment_identity(uuid,text,text);
 DROP FUNCTION refs_assert_staging_deployment_target(uuid,text);
 DROP FUNCTION refs_initialize_deployment_identity(uuid,text,text,text);
 DROP TABLE refs_deployment_identity;
+DROP TABLE refs_deployment_identity_fence;
 DROP FUNCTION refs_deployment_identity_immutable();
 COMMIT;

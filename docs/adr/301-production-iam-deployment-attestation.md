@@ -31,6 +31,12 @@ Restore/clone retains the original installation identity. Name/environment/insta
 
 ## Verification
 
+### Atomic sealing boundary
+
+Pre-OIDC assertions are only fast rejection. Every actual role mutation and revision read installs a `PostgresGrantSync.transactionGuard` inside each SERIALIZABLE retry transaction. Both assertions take an identity-table SHARE lock until commit, conflicting with initialization's EXCLUSIVE lock. A private, migration-created fence row is updated only on first seal and locked FOR SHARE by assertions. This forces a serialization failure when a transaction's snapshot predates a committed seal; an old empty snapshot cannot authorize a post-seal staging mutation. Lock order is always identity table then fence row. Same-input initialization replay never updates the fence. Missing/inconsistent fence state fails closed. Generic v2 callers retain their existing contract and receive no new database permissions.
+
+The two-connection race fixture owns a separate generated `*_test` database and drops only that database after closing its own sessions. It observes the initializer's blocked EXCLUSIVE lock while a grant holds its transaction guard; verifies the grant commits before seal proceeds; then tests seal during OIDC and an old SERIALIZABLE snapshot, requiring 42501/40001 and zero mutation deltas. The ordinary ACL fixture uses savepoints for rollback-only isolation; the race fixture uses actual BEGIN/COMMIT on separate connections.
+
 ### Grant call-surface inventory
 
 | Executable or internal surface | Classification and boundary |
