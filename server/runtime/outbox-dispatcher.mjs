@@ -29,16 +29,36 @@ export class HttpOutboxPublisher{
   }
   async publish(event){
     const body=JSON.stringify(event);if(new TextEncoder().encode(body).byteLength>1000000)fail('OUTBOX_EVENT_TOO_LARGE','Outbox event exceeds the publisher request limit.');
-    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),this.timeoutMs);
-    let response;
-    try{response=await this.fetcher(this.endpoint,{method:'POST',headers:{authorization:`Bearer ${this.token}`,'content-type':'application/json','idempotency-key':event.outbox_event_id,'x-refs-payload-hash':event.payload_hash},body,signal:controller.signal,redirect:'error'});}catch{fail('OUTBOX_PUBLISH_TRANSPORT_FAILED','Outbox publisher transport failed.',{retryable:true});}finally{clearTimeout(timer);}
-    if(!response.ok)fail(response.status===408||response.status===425||response.status===429||response.status>=500?'OUTBOX_PUBLISH_RETRYABLE':'OUTBOX_PUBLISH_REJECTED','Outbox publisher rejected the event.',{retryable:response.status===408||response.status===425||response.status===429||response.status>=500});
-    if(!/\bno-store\b/i.test(response.headers.get('cache-control')||''))fail('OUTBOX_PUBLISH_RECEIPT_INVALID','Outbox publisher receipt is cacheable.');
-    if(!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type')||''))fail('OUTBOX_PUBLISH_RECEIPT_INVALID','Outbox publisher receipt content type is invalid.');
-    let raw;try{raw=await response.text();}catch{fail('OUTBOX_PUBLISH_RECEIPT_INVALID','Outbox publisher receipt could not be read.');}if(new TextEncoder().encode(raw).byteLength>4096)fail('OUTBOX_PUBLISH_RECEIPT_INVALID','Outbox publisher receipt is too large.');
-    let receipt;try{receipt=JSON.parse(raw);}catch{fail('OUTBOX_PUBLISH_RECEIPT_INVALID','Outbox publisher receipt is not JSON.');}
-    if(!exactKeys(receipt,RECEIPT_KEYS)||receipt.schema_version!=='REFS_OUTBOX_PUBLISH_RECEIPT_V1'||receipt.accepted!==true||receipt.outbox_event_id!==event.outbox_event_id||receipt.payload_hash!==event.payload_hash)fail('OUTBOX_PUBLISH_RECEIPT_INVALID','Outbox publisher receipt does not bind the event.');
-    return Object.freeze({...receipt});
+    const controller=new AbortController();let timer,response,reader,consumed=false;
+    // Keep one deadline through headers AND the full bounded receipt. A peer
+    // that sends headers and then stalls must not pin the dispatch loop forever.
+    const deadline=new Promise((_,reject)=>{timer=setTimeout(()=>{reject(Object.assign(new Error('Outbox publisher transport failed.'),{code:'OUTBOX_PUBLISH_TRANSPORT_FAILED',retryable:true}));controller.abort();},this.timeoutMs);});
+    try{
+      return await Promise.race([deadline,(async()=>{
+        response=await this.fetcher(this.endpoint,{method:'POST',headers:{authorization:`Bearer ${this.token}`,'content-type':'application/json','idempotency-key':event.outbox_event_id,'x-refs-payload-hash':event.payload_hash},body,signal:controller.signal,redirect:'error'});
+        if(controller.signal.aborted){response.body?.cancel().catch(()=>{});fail('OUTBOX_PUBLISH_TRANSPORT_FAILED','Outbox publisher transport failed.',{retryable:true});}
+        if(!response.ok)fail(response.status===408||response.status===425||response.status===429||response.status>=500?'OUTBOX_PUBLISH_RETRYABLE':'OUTBOX_PUBLISH_REJECTED','Outbox publisher rejected the event.',{retryable:response.status===408||response.status===425||response.status===429||response.status>=500});
+        if(!/\bno-store\b/i.test(response.headers.get('cache-control')||''))fail('OUTBOX_PUBLISH_RECEIPT_INVALID','Outbox publisher receipt is cacheable.');
+        if(!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type')||''))fail('OUTBOX_PUBLISH_RECEIPT_INVALID','Outbox publisher receipt content type is invalid.');
+        if(!response.body?.getReader)fail('OUTBOX_PUBLISH_RECEIPT_INVALID','Outbox publisher receipt body is unavailable.');
+        reader=response.body.getReader();const bytes=new Uint8Array(4096);let length=0;
+        while(true){
+          const {done,value}=await reader.read();if(done){consumed=true;break;}
+          if(value.byteLength>bytes.length-length)fail('OUTBOX_PUBLISH_RECEIPT_INVALID','Outbox publisher receipt is too large.');
+          bytes.set(value,length);length+=value.byteLength;
+        }
+        let receipt;try{receipt=JSON.parse(new TextDecoder().decode(bytes.subarray(0,length)));}catch{fail('OUTBOX_PUBLISH_RECEIPT_INVALID','Outbox publisher receipt is not JSON.');}
+        if(!exactKeys(receipt,RECEIPT_KEYS)||receipt.schema_version!=='REFS_OUTBOX_PUBLISH_RECEIPT_V1'||receipt.accepted!==true||receipt.outbox_event_id!==event.outbox_event_id||receipt.payload_hash!==event.payload_hash)fail('OUTBOX_PUBLISH_RECEIPT_INVALID','Outbox publisher receipt does not bind the event.');
+        return Object.freeze({...receipt});
+      })()]);
+    }catch(error){
+      if(['OUTBOX_PUBLISH_TRANSPORT_FAILED','OUTBOX_PUBLISH_RETRYABLE','OUTBOX_PUBLISH_REJECTED','OUTBOX_PUBLISH_RECEIPT_INVALID'].includes(error?.code))throw error;
+      fail('OUTBOX_PUBLISH_TRANSPORT_FAILED','Outbox publisher transport failed.',{retryable:true});
+    }finally{
+      clearTimeout(timer);
+      if(!consumed){controller.abort();try{(reader?reader.cancel():response?.body?.cancel())?.catch(()=>{});}catch{}}
+      try{reader?.releaseLock();}catch{}
+    }
   }
 }
 
