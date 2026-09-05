@@ -4,6 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {grantProductionWorkflowRole} from '../../runtime/production-workflow-role-grant.mjs';
 import {AUTHORITATIVE_WORKFLOW_ROLES,grantStagingWorkflowRole} from '../../runtime/workflow-role-grant.mjs';
 import {OidcJwtAuthenticator,REFS_TENANT_CLAIM} from '../../api/oidc-authenticator.mjs';
+import {grantStage1SelfReadAccess,grantStage1AuthenticatedReadAccess,STAGE1_READ_PERMISSIONS} from '../../runtime/stage1-bootstrap.mjs';
 
 // All installation initialization is rolled back with this isolated fixture.
 // Session authorization exercises actual database ACLs, not SET ROLE alone.
@@ -77,6 +78,11 @@ export async function productionIamAttestationFixture({adminPool,ids}){
     await asRole('refs_grant_sync');
     await denied(()=>grantStagingWorkflowRole(pool,config,{authenticator}),'42501');
     await denied(()=>grantStagingWorkflowRole(pool,config,{installationId,expectedDatabase:db,authenticator}),'42501');
+    const selfRead={...config,permissions:[...STAGE1_READ_PERMISSIONS],authorityClass:'ANALYSIS',actorId:'fixture|late-self-read'};
+    // The same pool passed the uninitialized staging guard earlier; sealing
+    // production must revoke that old startup assumption on the next call.
+    await denied(()=>grantStage1SelfReadAccess(pool,selfRead),'42501');
+    await denied(()=>grantStage1AuthenticatedReadAccess(pool,selfRead,{authenticator}),'42501');
     for(const changed of [{installationId:randomUUID()},{expectedDatabase:'other_database'}])await denied(()=>grantProductionWorkflowRole(pool,{...config,...changed},{authenticator}),'42501');
     assert.equal(keyLookups,0);
     for(const changed of [{accessToken:token({aud:'wrong'})},{accessToken:token({}).replace(/\.[^.]+$/,'.invalid_signature')},{accessToken:token({[REFS_TENANT_CLAIM]:randomUUID()})},{permissions:[...config.permissions,'GL.JE.POST']},{entityId:randomUUID()},{validUntil:new Date(Date.now()+25*3600000).toISOString()}])await denied(()=>grantProductionWorkflowRole(pool,{...config,...changed},{authenticator}));

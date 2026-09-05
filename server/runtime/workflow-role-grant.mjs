@@ -93,9 +93,13 @@ export function authoritativeWorkflowRoleGrantConfig(environment=process.env){
 }
 
 export async function grantStagingWorkflowRole(pool,config,{installationId=null,expectedDatabase=null,...options}={}){
+  await assertStagingDeploymentTarget(pool,{installationId,expectedDatabase});
+  return config.principalKind==='SERVICE'?grantConfiguredServiceWorkflowRole(pool,config,options):grantAuthenticatedWorkflowRole(pool,config,options);
+}
+
+export async function assertStagingDeploymentTarget(pool,{installationId=null,expectedDatabase=null}={}){
   const result=await pool.query('SELECT refs_assert_staging_deployment_target($1,$2) AS asserted',[installationId,expectedDatabase]);
   if(result.rows?.[0]?.asserted!==true)throw new KernelError('DEPLOYMENT_IDENTITY_DENIED','Staging database target assertion failed');
-  return config.principalKind==='SERVICE'?grantConfiguredServiceWorkflowRole(pool,config,options):grantAuthenticatedWorkflowRole(pool,config,options);
 }
 
 // Shared policy parsing does not establish deployment authorization.

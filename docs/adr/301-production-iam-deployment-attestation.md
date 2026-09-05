@@ -31,6 +31,21 @@ Restore/clone retains the original installation identity. Name/environment/insta
 
 ## Verification
 
+### Grant call-surface inventory
+
+| Executable or internal surface | Classification and boundary |
+| --- | --- |
+| `tools/production-workflow-role-grant.mjs` | Production assertion before human OIDC or service reconciliation |
+| `tools/workflow-role-grant.mjs` | Staging assertion before human OIDC or service reconciliation |
+| `tools/stage1-bootstrap.mjs grant` | Same staging assertion before authenticated read grant; provision unchanged |
+| `runtime/start-accounting-server.mjs` | Staging assertion whenever a grant-sync pool is enabled, before automatic assignments or listening |
+| Startup WBS test-import / controlled-test AI grant bundles | Internal reconciliation under startup guard; never automatically assigned on sealed production |
+| Accounting server Stage 1 self-read HTTP route | Guarded startup plus fresh guard on every self-read grant; sealing after startup cannot preserve stale grant authority |
+| Three Stage 1 WBS/operator/controlled upgrades | Retired, unconditional denial before reconciliation |
+| `grantStage1ReadAccess`, `grantStage1SelfReadAccess`, authenticated Stage 1 helper | Fresh staging assertion on each call; configured identity is carried from server-side configuration |
+| `PostgresGrantSync` / SQL v2 | Generic IAM mechanism retains existing contract; no public API actor credentials or table access added |
+| PostgreSQL test helpers | Synthetic isolated test-only calls; never executed against live databases |
+
 The existing staging CLI now calls a separate narrow staging-target guard before OIDC or reconciliation. Never-initialized legacy staging databases remain compatible. Once initialized, staging requires the exact expected installation UUID and database, and a production identity is always rejected even when callers supply staging environment variables. A missing migration/guard also fails closed. Generic v2 reconciliation and policy-only helpers retain their contracts; they are not CLI deployment authorization.
 
 The production IAM fixture is registered in the existing fresh PostgreSQL suite and therefore runs in required PostgreSQL 15/16/18 CI. It uses real PostgreSQL ACLs via session authorization and rolls its synthetic initialization back. It checks uninitialized/wrong-environment/wrong-installation/wrong-database before key lookup; ordinary-role privilege denials; immutable replay/drift; invalid signature/audience, cross-tenant, mixed authority, unknown entity, overlong expiry; unchanged grant/audit/outbox/context/idempotency/accounting counts after denials; exact replacement, CAS, canonical audit/outbox hashes, idempotent replay and distinct service-only ceremony. No fixture touches a live deployment.

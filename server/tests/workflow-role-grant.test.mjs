@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {productionWorkflowRoleGrantConfig,grantProductionWorkflowRole} from '../runtime/production-workflow-role-grant.mjs';
 import {runtimeConfig} from '../runtime/config.mjs';
 import {grantStagingWorkflowRole} from '../runtime/workflow-role-grant.mjs';
+import {readFile} from 'node:fs/promises';
 import {AUTHORITATIVE_WORKFLOW_ROLES,WORKFLOW_SOD_GROUPS,assertWorkflowRoleSafety,authoritativeWorkflowRoleGrantConfig,grantAuthenticatedWorkflowRole,grantConfiguredServiceWorkflowRole} from '../runtime/workflow-role-grant.mjs';
 
 const validUntil='2026-08-24T00:00:00.000Z';
@@ -13,6 +14,14 @@ test('staging ceremony demands successful database guard before authentication o
   const config=authoritativeWorkflowRoleGrantConfig(base);let calls=0;
   for(const rows of [[],[{asserted:false}],[{asserted:null}]])await assert.rejects(grantStagingWorkflowRole({query:async sql=>{assert.match(sql,/refs_assert_staging_deployment_target/);return {rows};}},config,{authenticator:{authenticate:async()=>{calls++;}}}),{code:'DEPLOYMENT_IDENTITY_DENIED'});
   assert.equal(calls,0);
+});
+
+test('every executable legacy grant entry attests before OIDC, automatic reconciliation or HTTP listen',async()=>{
+  const cli=await readFile(new URL('../tools/stage1-bootstrap.mjs',import.meta.url),'utf8');
+  assert.ok(cli.indexOf('await assertStagingDeploymentTarget(')<cli.indexOf('await grantStage1AuthenticatedReadAccess('));
+  const startup=await readFile(new URL('../runtime/start-accounting-server.mjs',import.meta.url),'utf8');
+  const guarded=startup.indexOf('if(grantSyncPool)await assertStagingDeploymentTarget(');assert.ok(guarded>0);
+  for(const operation of ['await reconcileWbsTestImportActorGrants(','await reconcileControlledTestAiWorkflowActorGrants(','server.listen('])assert.ok(guarded<startup.indexOf(operation));
 });
 
 test('production ceremony requires exact deployment identity and retains four URL isolation',async()=>{
