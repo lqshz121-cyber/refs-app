@@ -1,10 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {productionWorkflowRoleGrantConfig,grantProductionWorkflowRole} from '../runtime/production-workflow-role-grant.mjs';
+import {runtimeConfig} from '../runtime/config.mjs';
+import {grantStagingWorkflowRole} from '../runtime/workflow-role-grant.mjs';
 import {AUTHORITATIVE_WORKFLOW_ROLES,WORKFLOW_SOD_GROUPS,assertWorkflowRoleSafety,authoritativeWorkflowRoleGrantConfig,grantAuthenticatedWorkflowRole,grantConfiguredServiceWorkflowRole} from '../runtime/workflow-role-grant.mjs';
 
 const validUntil='2026-08-24T00:00:00.000Z';
 const base={NODE_ENV:'production',REFS_DEPLOYMENT_ENV:'staging',REFS_WORKFLOW_ROLE_CONFIRM:'AUTHORITATIVE_WORKFLOW_ROLE_ONLY',REFS_STAGE1_TENANT_ID:'11111111-1111-4111-8111-111111111111',REFS_STAGE1_ENTITY_ID:'22222222-2222-4222-8222-222222222222',REFS_WORKFLOW_ROLE:'WBS_PAYABLE_MAKER',REFS_WORKFLOW_GRANT_VALID_UNTIL:validUntil,REFS_WORKFLOW_GRANT_EXPECTED_VERSION:'2',REFS_WORKFLOW_GRANT_IDEMPOTENCY_KEY:'workflow-maker-0001',REFS_AUTHENTICATED_ACCESS_TOKEN:'opaque',OIDC_ISSUER:'https://issuer.example',OIDC_AUDIENCE:'refs',OIDC_JWKS_URI:'https://issuer.example/jwks'};
 const permissions=role=>AUTHORITATIVE_WORKFLOW_ROLES[role].permissions;
+
+test('staging ceremony demands successful database guard before authentication or grant reservation',async()=>{
+  const config=authoritativeWorkflowRoleGrantConfig(base);let calls=0;
+  for(const rows of [[],[{asserted:false}],[{asserted:null}]])await assert.rejects(grantStagingWorkflowRole({query:async sql=>{assert.match(sql,/refs_assert_staging_deployment_target/);return {rows};}},config,{authenticator:{authenticate:async()=>{calls++;}}}),{code:'DEPLOYMENT_IDENTITY_DENIED'});
+  assert.equal(calls,0);
+});
+
+test('production ceremony requires exact deployment identity and retains four URL isolation',async()=>{
+  const urls=runtimeConfig({}),env={...base,REFS_DEPLOYMENT_ENV:'production',REFS_WORKFLOW_ROLE_CONFIRM:'PRODUCTION_WORKFLOW_ROLE_ONLY',REFS_EXPECTED_INSTALLATION_ID:'33333333-3333-4333-8333-333333333333',REFS_EXPECTED_DATABASE_NAME:'refs_kernel_test',DATABASE_URL:urls.databaseUrl,MIGRATION_DATABASE_URL:urls.migrationDatabaseUrl,CONTEXT_ISSUER_DATABASE_URL:urls.contextIssuerDatabaseUrl,GRANT_SYNC_DATABASE_URL:urls.grantSyncDatabaseUrl};
+  const config=productionWorkflowRoleGrantConfig(env);
+  for(const change of [{REFS_EXPECTED_INSTALLATION_ID:''},{REFS_EXPECTED_DATABASE_NAME:'other'},{REFS_DEPLOYMENT_ENV:'staging'},{REFS_WORKFLOW_ROLE_CONFIRM:base.REFS_WORKFLOW_ROLE_CONFIRM},{DATABASE_URL:urls.grantSyncDatabaseUrl},{CONTEXT_ISSUER_DATABASE_URL:urls.contextIssuerDatabaseUrl.replace('55432','55433')}])assert.throws(()=>productionWorkflowRoleGrantConfig({...env,...change}));
+  let authCalls=0,writes=0;
+  await assert.rejects(grantProductionWorkflowRole({query:async(sql,args)=>{assert.match(sql,/refs_assert_deployment_identity/);assert.deepEqual(args,[config.installationId,'production',config.expectedDatabase]);throw Object.assign(new Error('denied'),{code:'42501'});},connect:async()=>{writes++;} },config,{authenticator:{authenticate:async()=>{authCalls++;}}}),{code:'42501'});
+  assert.equal(authCalls,0);assert.equal(writes,0);
+});
 
 test('workflow roles are frozen single-authority exact replacements and exclude service permissions',()=>{
   const config=authoritativeWorkflowRoleGrantConfig(base);

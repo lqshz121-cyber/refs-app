@@ -89,6 +89,17 @@ const validUtc=value=>{if(!UTC_TIMESTAMP.test(value))return false;const parsed=n
 
 export function authoritativeWorkflowRoleGrantConfig(environment=process.env){
   if(environment.NODE_ENV!=='production'||environment.REFS_DEPLOYMENT_ENV!=='staging'||environment.REFS_WORKFLOW_ROLE_CONFIRM!=='AUTHORITATIVE_WORKFLOW_ROLE_ONLY')throw new KernelError('WORKFLOW_ROLE_ENV_DENIED','Workflow role grants require the explicit staging confirmation');
+  return workflowRolePolicyConfig(environment);
+}
+
+export async function grantStagingWorkflowRole(pool,config,{installationId=null,expectedDatabase=null,...options}={}){
+  const result=await pool.query('SELECT refs_assert_staging_deployment_target($1,$2) AS asserted',[installationId,expectedDatabase]);
+  if(result.rows?.[0]?.asserted!==true)throw new KernelError('DEPLOYMENT_IDENTITY_DENIED','Staging database target assertion failed');
+  return config.principalKind==='SERVICE'?grantConfiguredServiceWorkflowRole(pool,config,options):grantAuthenticatedWorkflowRole(pool,config,options);
+}
+
+// Shared policy parsing does not establish deployment authorization.
+export function workflowRolePolicyConfig(environment){
   const tenantId=required(environment,'REFS_STAGE1_TENANT_ID').toLowerCase(),entityId=required(environment,'REFS_STAGE1_ENTITY_ID').toLowerCase();
   if(!UUID.test(tenantId)||!UUID.test(entityId))throw new KernelError('WORKFLOW_ROLE_CONFIG_INVALID','Workflow role scope must use UUIDs');
   const roleName=required(environment,'REFS_WORKFLOW_ROLE'),definition=AUTHORITATIVE_WORKFLOW_ROLES[roleName];

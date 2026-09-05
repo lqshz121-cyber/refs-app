@@ -18,7 +18,7 @@ test('migration 300 hashes complete ordered queue and GL versions inside each pa
   assert.match(up,/ordered_population AS MATERIALIZED/);assert.match(up,/population AS MATERIALIZED/);assert.match(up,/ordered_row_versions/);assert.match(up,/tenant_id',p_tenant,'entity_id',p_entity,'period_id',p_period/);
   assert.match(up,/journal_revision',j\.revision/);assert.match(up,/human_evidence_hash',h\.evidence_hash/);assert.match(up,/draft_evidence_hash',de\.evidence_hash/);assert.match(up,/source_document_ids'/);
   assert.match(up,/LIMIT 100001/);assert.match(up,/p_limit NOT BETWEEN 1 AND 200/);assert.match(up,/population hash changed between pages/);
-  assert.equal(MIGRATION_MANIFEST.at(-1).name,'300_authoritative_paged_read_snapshots.sql');
+  assert.ok(MIGRATION_MANIFEST.some(item=>item.name==='300_authoritative_paged_read_snapshots.sql'));
 });
 
 test('repository sends the first-page token back to both database readers',async()=>{
