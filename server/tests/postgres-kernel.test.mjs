@@ -4221,6 +4221,9 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   await assert.rejects(maker.createApVendorCredit({...ids,creditNumber:'VC-CONTROL-BAD',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1'}],reason:'Reject control-account counterpart',idempotencyKey:'vendor-credit-control-bad'}),error=>error.code==='23514');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE adjustment_kind='AP_VENDOR_CREDIT'",[])).rows[0].n,0);
   const credit=await maker.createApVendorCredit({...ids,creditNumber:'VC-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Credit'}],reason:'Vendor credit',idempotencyKey:'vendor-credit-100'});
+  const draftRecordReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'AP_VENDOR_CREDIT-draft-record-reader',['AP.VIEW'])});
+  const draftRecord=await draftRecordReader.readBusinessRecord({tenantId:ids.tenantId,entityId:ids.entityId,recordId:credit.business_adjustment_id,recordKind:'AP_VENDOR_CREDIT'});
+  assert.equal(draftRecord.record.status,'DRAFT');assert.equal(draftRecord.record.journal_status,'DRAFT');assert.equal(draftRecord.record.journal_entry_id,credit.journal_entry_id);assert.equal(draftRecord.record.amount,'100.0000');
   await attachAutoSource({...ids,journalId:credit.journal_entry_id},{reuseApprovedSnapshots:true});
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-reviewer',['GL.JE.REVIEW'])});
   const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-approver',['GL.JE.APPROVE'])});
@@ -4355,6 +4358,9 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   await assert.rejects(maker.createArCreditMemo({...ids,memoNumber:'CM-CONTROL-BAD',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'120200',amount:100,member_ref:'CUSTOMER-1'}]),reason:'Reject control-account counterpart',idempotencyKey:'ar-credit-control-bad'}),error=>error.code==='23514');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE adjustment_kind='AR_CREDIT_MEMO'",[])).rows[0].n,0);
   const memo=await maker.createArCreditMemo({...ids,memoNumber:'CM-100',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'410000',amount:100,description:'Memo'}]),reason:'Credit memo',idempotencyKey:'ar-credit-100'});
+  const draftRecordReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'AR_CREDIT_MEMO-draft-record-reader',['AR.VIEW'])});
+  const draftRecord=await draftRecordReader.readBusinessRecord({tenantId:ids.tenantId,entityId:ids.entityId,recordId:memo.business_adjustment_id,recordKind:'AR_CREDIT_MEMO'});
+  assert.equal(draftRecord.record.status,'DRAFT');assert.equal(draftRecord.record.journal_status,'DRAFT');assert.equal(draftRecord.record.journal_entry_id,memo.journal_entry_id);assert.equal(draftRecord.record.amount,'100.0000');
   await attachAutoSource({...ids,journalId:memo.journal_entry_id},{reuseApprovedSnapshots:true});
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-reviewer',['GL.JE.REVIEW'])});
   const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-approver',['GL.JE.APPROVE'])});
@@ -4709,6 +4715,9 @@ pgTest('credit target lookup searches all source periods and keyset-pages 100001
     FROM business_document CROSS JOIN generate_series($2::int,$3::int) n WHERE business_document_id=$1`,[billId,first,Math.min(first+4999,100001)]);
   await adminPool.query('ANALYZE business_document');
   const expected=(await adminPool.query("SELECT business_document_id FROM business_document WHERE tenant_id=$1 AND document_number LIKE 'TARGET-%' ORDER BY business_document_id OFFSET 99998 LIMIT 3",[ids.tenantId])).rows;
+  const pointStarted=Date.now();
+  for(const target of expected){const record=await reader.readBusinessRecord({tenantId:ids.tenantId,entityId:ids.entityId,recordId:target.business_document_id,recordKind:'AP_BILL'});assert.equal(record.record.record_id,target.business_document_id);assert.equal(record.record.period_id,ids.periodId);assert.equal(record.record.amount,'100.0000');}
+  assert.ok(Date.now()-pointStarted<5000,'three exact reads among 100001 documents must finish within five seconds');
   const page=await applier.readCreditAllocationTargets({...args,query:'TARGET-',afterId:expected[0].business_document_id,limit:1});
   assert.equal(page.rows[0].business_document_id,expected[1].business_document_id);assert.equal(page.next_id,expected[1].business_document_id);
   const final=await applier.readCreditAllocationTargets({...args,query:'TARGET-',afterId:page.next_id,limit:1});
