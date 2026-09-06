@@ -705,7 +705,7 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         if(!validSettlementHistorySelection(selection)||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Settlement history selection is invalid');
         const kernel=await kernelFactory(principal);
         if(!kernel||typeof kernel.readDocumentSettlements!=='function')throw new AccountingApiError(503,'SETTLEMENT_HISTORY_UNAVAILABLE','Settlement history is unavailable');
-        result=await kernel.readDocumentSettlements({tenantId:principal.tenantId,entityId,...selection});
+        try{result=await kernel.readDocumentSettlements({tenantId:principal.tenantId,entityId,...selection});}catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'SETTLEMENT_CURSOR_INVALID','The history cursor is invalid for this document. Refresh from the first page.');throw error;}
         if(!validSettlementHistory(result,{entityId,...selection}))throw new AccountingApiError(500,'SETTLEMENT_HISTORY_INVALID','Settlement history did not match its scope');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }

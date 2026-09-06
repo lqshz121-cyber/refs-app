@@ -23,3 +23,5 @@ test('history rejects scope contamination, duplicate/out-of-order rows and false
   assert.equal((await get(apiFor({readDocumentSettlements:async()=>({...page,rows:[row,earlier]})}))).status,200);
   assert.equal((await get(apiFor({readDocumentSettlements:async()=>({...page,rows:[earlier,row]})}))).status,500);
 });
+
+test('an unavailable scoped cursor is a refreshable query error',async()=>{const r=await get(apiFor({readDocumentSettlements:async()=>{throw Object.assign(new Error('cursor missing'),{code:'22023'});}}));assert.equal(r.status,400);assert.equal(r.body.code,'SETTLEMENT_CURSOR_INVALID');});
