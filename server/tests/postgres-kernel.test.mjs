@@ -6490,6 +6490,19 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   await adminPool.query('UPDATE bank_source SET amount=2 WHERE bank_source_id=$1',[saleBankId]);
   assert.equal((await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.rows.length,0);
   await adminPool.query('UPDATE bank_source SET amount=1.2345 WHERE bank_source_id=$1',[saleBankId]);
+  // Synthetic match exercises schema/candidate exclusion and rollback guards;
+  // the cash-sale match command is not implemented by this read foundation.
+  const syntheticMatchId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_match(bank_match_id,tenant_id,entity_id,bank_source_id,sales_receipt_id,journal_entry_id,journal_line_id,ledger_line_id,candidate_rule_code,amount_delta,currency_match,date_delta_days,status,matched_by)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,'EXACT_POSTED_SALES_RECEIPT',0,true,0,'ACTIVE','synthetic-read-fixture')`,[syntheticMatchId,ids.tenantId,ids.entityId,saleBankId,receipt.sales_receipt_id,receipt.journal_entry_id,saleCandidate.journal_line_id,saleCandidate.ledger_line_id]);
+  assert.equal((await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.rows.length,0);
+  await assert.rejects(migrateDownThrough(adminPool,'320_sales_receipt_bank_evidence.sql'),/Retained sales receipt bank match history prevents destructive rollback/);
+  await adminPool.query("UPDATE bank_match SET status='UNMATCHED',unmatched_by='synthetic-read-fixture',unmatched_at=clock_timestamp(),version=version+1 WHERE bank_match_id=$1",[syntheticMatchId]);
+  await assert.rejects(migrateDownThrough(adminPool,'320_sales_receipt_bank_evidence.sql'),/Retained sales receipt bank match history prevents destructive rollback/);
+  assert.equal((await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.rows.length,1);
+  await adminPool.query('DELETE FROM bank_match WHERE bank_match_id=$1',[syntheticMatchId]);
+  await migrateDownThrough(adminPool,'320_sales_receipt_bank_evidence.sql');await migrateUp(adminPool);
+  assert.equal((await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.rows[0].sales_receipt_id,receipt.sales_receipt_id);
   assert.deepEqual(await counts(),{sales:1,documents:0,allocations:0});
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type=ANY($2::text[])',[receipt.sales_receipt_id,['SALES_RECEIPT_DRAFT_CREATED','SALES_RECEIPT_POSTED']])).rows[0].n,2);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type=ANY($2::text[])',[receipt.sales_receipt_id,['SALES_RECEIPT_DRAFT_CREATED','SALES_RECEIPT_POSTED']])).rows[0].n,2);
