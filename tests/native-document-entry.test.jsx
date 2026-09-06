@@ -1,3 +1,4 @@
+import {CreditAllocationHistory} from '../src/credit-allocation-history.jsx';
 import {DocumentSettlementHistory} from '../src/document-settlement-history.jsx';
 import {NativeRefundEntry,NativeRefundForm} from '../src/native-refund-entry.jsx';
 import {NativeCreditAllocationEntry,NativeCreditAllocationForm} from '../src/native-credit-allocation.jsx';
@@ -54,3 +55,10 @@ assert.match(paymentPeriodView,/Payment period/);assert.match(paymentPeriodView,
 
 assert.equal(renderToStaticMarkup(<DocumentSettlementHistory config={config} kind="AP_PAYMENT" access={access}/>),'');
 for(const [kind,permission,label] of [['AP_PAYMENT','AP.VIEW','Payment history'],['AR_RECEIPT','AR.VIEW','Receipt history']]){const markup=renderToStaticMarkup(<DocumentSettlementHistory config={config} kind={kind} access={{...access,permissions:[permission]}}/>);assert.match(markup,new RegExp(label));assert.match(markup,/Refresh history/);assert.doesNotMatch(markup,/No payments|No receipts|Save draft/);}
+
+for(const kind of ['AP_VENDOR_CREDIT','AR_CREDIT_MEMO','AP_BILL','AR_INVOICE']){
+ const historyAccess={...access,permissions:[kind.startsWith('AP')?'AP.VIEW':'AR.VIEW']};
+ assert.match(renderToStaticMarkup(<CreditAllocationHistory config={config} kind={kind} subjectId={config.periodId} access={historyAccess}/>),/Credit allocation history/);
+ assert.equal(renderToStaticMarkup(<CreditAllocationHistory config={config} kind={kind} subjectId={config.periodId} access={access}/>),'');
+ assert.equal(renderToStaticMarkup(<CreditAllocationHistory config={config} kind={kind} subjectId={config.periodId} access={{...historyAccess,session_refresh_required:true}}/>),'');
+}
