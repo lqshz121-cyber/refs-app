@@ -163,6 +163,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const [scopeRows,setScopeRows]=useState([]);
   const [scopeMetadata,setScopeMetadata]=useState(null);
   const [scopeCatalog,setScopeCatalog]=useState([]);
+  const [scopeCatalogStatus,setScopeCatalogStatus]=useState('IDLE');
+  const [scopeCatalogRetry,setScopeCatalogRetry]=useState(0);
   const [selectedScope,setSelectedScope]=useState(null);
   const accountingReadGuard = useRef(null);
   if (!accountingReadGuard.current) accountingReadGuard.current = createAuthoritativeReadGuard();
@@ -513,7 +515,17 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeChartOfAccounts({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeRows(result.ok?result.rows:[]);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeScope({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeMetadata(result.ok?result.row:null);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};setAccessState({status:'LOADING'});refreshCurrentActorAccess({config,fetcher:boundFetcher}).then(result=>{if(current)setAccessState(result.ok?{status:'READY',row:result.row}:{status:'ERROR',code:result.code,message:result.message});});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
-  useEffect(()=>{let current=true;if(!['READY','ACCESS_DENIED'].includes(phase)||!baseConfig)return()=>{current=false;};refreshAuthoritativeScopeCatalog({config:baseConfig,fetcher:boundFetcher}).then(result=>{if(current&&result.ok)setScopeCatalog([...result.rows]);});return()=>{current=false;};},[phase,baseConfig,boundFetcher]);
+  useEffect(()=>{
+    let current=true;
+    if(!['READY','ACCESS_DENIED'].includes(phase)||!baseConfig)return()=>{current=false;};
+    setScopeCatalogStatus('LOADING');
+    refreshAuthoritativeScopeCatalog({config:baseConfig,fetcher:boundFetcher}).then(result=>{
+      if(!current)return;
+      if(result.ok)setScopeCatalog([...result.rows]);
+      setScopeCatalogStatus(result.ok?'READY':'ERROR');
+    });
+    return()=>{current=false;};
+  },[phase,baseConfig,boundFetcher,scopeCatalogRetry,workspaceRefreshVersion]);
   const applyScope=useCallback(next=>{
     if(!next||next.entity_id===config?.entityId&&next.period_id===config?.periodId)return;
     accountingReadGuard.current.invalidate();
@@ -608,6 +620,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
           <span title={`${scopePresentation.periodHint ? `${scopePresentation.periodHint} ` : ''}${scopePresentation.periodDetail}`}><b>Period</b> {scopePresentation.periodLabel}{scopePresentation.periodHint&&<small className="muted sm"> — period details not returned by API</small>}</span>
           {config.cashAccountCode&&<span><b>Cash account</b> {scopePresentation.cashAccountLabel}</span>}
           <AuthoritativeAccessStatus state={accessState}/>
+          {scopeCatalogStatus==='LOADING'&&<span role="status">Loading companies…</span>}
+          {scopeCatalogStatus==='ERROR'&&<span role="status">Company list could not load. <button type="button" className="link-btn" onClick={()=>setScopeCatalogRetry(value=>value+1)}>Retry company list</button></span>}
         </section>
         {(sessionExpired || renewalFailure) && <RuntimeErrorPanel
           code={sessionExpired ? 'OIDC_SESSION_EXPIRED' : 'OIDC_SESSION_EXPIRING'}
