@@ -31,7 +31,7 @@ BEGIN
       AND d.document_kind=(CASE p_action WHEN 'AP_CREDIT_APPLY' THEN 'AP_BILL' ELSE 'AR_INVOICE' END)
       AND d.status IN ('APPROVED','OPEN','PARTIALLY_PAID') AND d.open_balance-used.pending>0
       AND (p_after_id IS NULL OR d.business_document_id>p_after_id)
-      AND (p_query='' OR strpos(lower(d.document_number),lower(p_query))>0 OR strpos(lower(COALESCE(d.description,'')),lower(p_query))>0)
+      AND (p_query='' OR strpos(lower(d.document_number),lower(p_query))>0 OR strpos(lower(COALESCE(j.description,'')),lower(p_query))>0)
       AND EXISTS(SELECT 1 FROM ledger_line l WHERE l.tenant_id=d.tenant_id AND l.entity_id=d.entity_id AND l.journal_entry_id=j.journal_entry_id)
     ORDER BY d.business_document_id LIMIT p_limit+1
   ), page AS MATERIALIZED (SELECT * FROM candidates ORDER BY business_document_id LIMIT p_limit)
