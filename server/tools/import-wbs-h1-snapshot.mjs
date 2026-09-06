@@ -70,6 +70,16 @@ const specifications={
 const referenceDomains=new Set(['accounting_setting','accounting_monthly_setting','costcode_account_relation','corpmastersub','mdm_company','mdm_entity','mdm_project','mdm_cost_code','mdm_account_book']);
 const text=value=>value===null||value===undefined?null:String(value).replaceAll('\u0000','');
 const sourceText=new WeakMap();
+const moneyColumns=new Set(['amount','accounting_value','invoice_amount','invoice_total_amount','paid_amount','balance','bucket_amount']);
+
+export function assertSnapshotMoneyProjection(domain,row){
+  const spec=specifications[domain];if(!spec)return;
+  const values=spec.map(row);
+  for(const [index,column] of spec.columns.entries()){
+    const value=values[index];
+    if(moneyColumns.has(column)&&value!=null&&(typeof value!=='string'||value.includes('\u0000')))throw new Error('Snapshot monetary projection requires lossless source text, not JSON numbers');
+  }
+}
 
 export function snapshotRowIdentity(domain,row){
   const spec=specifications[domain];
@@ -140,6 +150,7 @@ export async function importSnapshotFile({pool,root,file,batchSize=1000}){
       if(!line)continue;
       const row=JSON.parse(line);
       if(!row||typeof row!=='object'||Array.isArray(row))throw new Error('Snapshot rows must be JSON objects');
+      assertSnapshotMoneyProjection(file.domain,row);
       sourceText.set(row,line);
       const identity=snapshotRowIdentity(file.domain,row);
       if(identities.has(identity))throw new Error('Snapshot population contains a duplicate source identity');

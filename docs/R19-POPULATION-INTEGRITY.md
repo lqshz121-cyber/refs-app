@@ -18,6 +18,18 @@ keys, repeated keys, unsafe numeric identities and conflicting source rows STOP.
 Any domain needing a compound key requires separate source-contract review, not
 an automatic suffix, ordinal, company prefix, or digest-generated identity.
 
+### Monetary projection boundary (follow-up to frozen 736e7de9)
+
+Retaining raw JSON does not make a JS-derived text projection lossless. Real Node
+parsing maps numeric `9007199254740993` to `9007199254740992`,
+`0.10000000000000001` to `0.1`, and `1.2300` to `1.23`. Therefore the existing
+mapped monetary columns now accept only original string values (or null/missing),
+never JSON numbers, booleans or objects. Strings retain all digits and trailing
+zeros; NUL is rejected instead of stripped. No decimal scale or business rounding
+rule is guessed. This is a lexical preservation gate, not validation that a string
+is a valid business amount. Provider deliveries with numeric amounts require a
+separately reviewed lossless parsing/source-contract change before import.
+
 Duplicate identities within one file are rejected even when content agrees,
 including duplicates across batches. This preserves the distinction between parsed
 row count and unique retained population. Numeric typed IDs are canonicalized for

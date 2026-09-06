@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {importSnapshotFile,snapshotRowIdentity} from '../tools/import-wbs-h1-snapshot.mjs';
+import {importSnapshotFile,snapshotRowIdentity,assertSnapshotMoneyProjection} from '../tools/import-wbs-h1-snapshot.mjs';
 import {resolveSnapshotEntryPath,createSnapshotIntegrityProbe} from '../runtime/wbs-h1-snapshot-manifest.mjs';
 
 const digest=value=>createHash('sha256').update(value).digest('hex');
@@ -64,6 +64,21 @@ test('source identities never use batch indexes or unsafe numeric coercion',()=>
   assert.equal(snapshotRowIdentity('mdm_entity',{entity_id:'entity-1'}),'entity-1');
   assert.equal(snapshotRowIdentity('mdm_company',{uuid:'source-uuid'}),'source-uuid');
   assert.equal(snapshotRowIdentity('accounting_info',{id:'0012'}),'12');
+});
+
+test('monetary projections reject JSON numbers instead of rounding or guessing decimal scale',()=>{
+  for(const [domain,key] of [['accounting_info','amount'],['accounting_info','accounting_value'],['ap_business','amount'],['ar_aging','amount'],['ar_aging','paid_amount'],['ar_aging','ar_balance'],['ar_aging','bucket_amount'],['invoice_details','invoice_amt'],['invoice_details','invoice_tot_amt']]){
+    for(const raw of ['9007199254740993','0.10000000000000001','1.2300','0'])assert.throws(()=>assertSnapshotMoneyProjection(domain,JSON.parse(`{"${key}":${raw}}`)),/lossless source text/);
+    for(const value of ['9007199254740993','0.10000000000000001','1.2300','-0.0000',null])assert.doesNotThrow(()=>assertSnapshotMoneyProjection(domain,{[key]:value}));
+    assert.throws(()=>assertSnapshotMoneyProjection(domain,{[key]:'1\u0000.00'}),/lossless source text/);
+  }
+});
+
+test('late numeric money refusal rolls back earlier real importer batches',async t=>{
+  const content='{"id":1,"amount":"1.2300"}\n{"id":2,"amount":9007199254740993}',root=await fixture(t,content),{pool,calls}=connection();
+  await assert.rejects(importSnapshotFile({pool,root,file:claims(content),batchSize:1}),/lossless source text/);
+  assert.equal(calls.filter(x=>x.sql.startsWith('INSERT INTO wbs_h1_import.accounting_line')).length,1);
+  assert.deepEqual(calls.slice(-2).map(x=>x.sql),['ROLLBACK','RELEASE']);
 });
 
 test('duplicate identities across batches reject and roll back instead of reducing the population',async t=>{

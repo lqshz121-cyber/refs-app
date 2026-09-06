@@ -80,6 +80,10 @@ export async function proveSnapshotImportAtomicity(pool){
     assert.deepEqual((await snapshot()).rows,committed.rows,'same-content cross-file accounting replay does not mutate rows');
     await refuse('accounting_info',[{id:base+3,amount:'new'}, {...rows[0],amount:'changed'}],/population conflict/);
     await refuse('accounting_info',[{id:base+3,amount:'new'}, {...rows[0],unprojected_source_field:'changed'}],/population conflict/);
+    await refuse('accounting_info',[{id:base+3,amount:'1.2300'}, {id:base+5,amount:9007199254740992}],/lossless source text/);
+    const lossless=await source('accounting_info',[{id:base+5,amount:'9007199254740993',accounting_value:'1.2300'}]);
+    await importSnapshotFile({pool,root,file:lossless,batchSize:1});
+    assert.deepEqual((await pool.query('SELECT amount,accounting_value FROM wbs_h1_import.accounting_line WHERE wbs_id=$1',[base+5])).rows,[{amount:'9007199254740993',accounting_value:'1.2300'}]);
     await refuse('accounting_info',[rows[0],{...rows[0],id:`0${rows[0].id}`}],/duplicate source identity/);
     await pool.query('INSERT INTO wbs_h1_import.accounting_line(wbs_id,company_code,amount) VALUES($1,$2,$3)',[base+4,'R19_TEST','legacy']);
     await refuse('accounting_info',[{id:base+4,com_code:'R19_TEST',amount:'legacy'}],/legacy reconciliation/);
