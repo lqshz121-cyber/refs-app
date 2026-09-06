@@ -89,16 +89,7 @@ BEGIN
     INTO allowed_grants FROM runtime_actor_grant g JOIN permission_catalog pc ON pc.permission_code=g.permission
     WHERE g.tenant_id=p_tenant AND g.actor_id=p_actor AND g.revoked_at IS NULL
       AND (g.valid_until IS NULL OR g.valid_until>clock_timestamp())
-      AND (pc.sod_class IN('READ','VIEWER') OR pc.sod_class ~ '_READER<=clock_timestamp() AND (pc.effective_to IS NULL OR pc.effective_to>clock_timestamp());
-  IF allowed_grants IS NULL THEN RAISE EXCEPTION 'Actor has no active DB authorization grant' USING ERRCODE='42501'; END IF;
-  INSERT INTO runtime_auth_context(token_hash,tenant_id,grants,actor_id,bound_login,expires_at)
-    VALUES(p_token_hash,p_tenant,allowed_grants,p_actor,'refs_runtime',clock_timestamp()+make_interval(secs=>p_ttl_seconds))
-    RETURNING * INTO issued;
-  INSERT INTO audit_event(tenant_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,after_hash,metadata)
-    VALUES(p_tenant,'RUNTIME_CONTEXT_ISSUED','RUNTIME_AUTH_CONTEXT',issued.auth_context_id,'ISSUE',p_actor,'SYSTEM','AUTH.CONTEXT.ISSUE',issued.auth_context_id::text,issued.auth_context_id::text,p_token_hash,jsonb_build_object('expires_at',issued.expires_at,'issuer',session_user,'read_only',true));
-  RETURN issued;
-END;
-$$;)
+      AND (pc.sod_class IN('READ','VIEWER') OR pc.sod_class ~ '_READER$')
       AND g.permission<>'AI.ANALYSIS.EXPLAIN'
       AND NOT EXISTS(SELECT 1 FROM runtime_human_permission_authority h WHERE h.permission_code=g.permission)
       AND NOT EXISTS(SELECT 1 FROM runtime_service_only_permission s WHERE s.permission_code=g.permission)
@@ -108,7 +99,7 @@ $$;)
     VALUES(p_token_hash,p_tenant,allowed_grants,p_actor,'refs_runtime',clock_timestamp()+make_interval(secs=>p_ttl_seconds))
     RETURNING * INTO issued;
   INSERT INTO audit_event(tenant_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,after_hash,metadata)
-    VALUES(p_tenant,'RUNTIME_CONTEXT_ISSUED','RUNTIME_AUTH_CONTEXT',issued.auth_context_id,'ISSUE',p_actor,'SYSTEM','AUTH.CONTEXT.ISSUE',issued.auth_context_id::text,issued.auth_context_id::text,p_token_hash,jsonb_build_object('expires_at',issued.expires_at,'issuer',session_user));
+    VALUES(p_tenant,'RUNTIME_CONTEXT_ISSUED','RUNTIME_AUTH_CONTEXT',issued.auth_context_id,'ISSUE',p_actor,'SYSTEM','AUTH.CONTEXT.ISSUE',issued.auth_context_id::text,issued.auth_context_id::text,p_token_hash,jsonb_build_object('expires_at',issued.expires_at,'issuer',session_user,'read_only',true));
   RETURN issued;
 END;
 $$;
