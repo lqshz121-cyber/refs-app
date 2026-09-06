@@ -14,6 +14,14 @@ const ok=(data,status=200)=>({ok:true,status,json:async()=>({ok:true,data})});
 const receipt={payment_occurrence_id:entityId,business_allocation_id:periodId,business_document_id:businessDocumentId,journal_entry_id:entityId,status:'DRAFT',allocation_status:'PENDING',revision:0,idempotent:false};
 const fixture=(command,currentAccess=access)=>async(url,options)=>{assert.equal(options.credentials,'include');assert.equal(options.cache,'no-store');assert.equal(options.headers.authorization,'Bearer '+'a'.repeat(48));if(url.endsWith('/access/self'))return ok(currentAccess);if(url.includes('/settlement-context?'))return ok(context);if(url.includes('/chart-of-accounts?'))return ok([account]);return command(url,options);};
 
+test('refund entry can read bank choices without becoming a receipt or payment command',async()=>{
+  const fetcher=fixture((url,options)=>{assert.equal(new URL(url).searchParams.get('kind'),'AR_REFUND');assert.equal(options.method,'GET');return ok({schema_version:'SETTLEMENT_BANK_MEMBERS_V1',entity_id:entityId,settlement_kind:'AR_REFUND',query:'',after_ref:null,limit:50,rows:[bank],next_ref:null});});
+  const result=await readNativeSettlementBanks({config,kind:'AR_REFUND',fetcher});
+  assert.equal(result.ok,true);assert.deepEqual(result.data.rows,[bank]);
+  assert.equal(nativeSettlementAccess(config,'AR_REFUND',{...access,permissions:['AR.REFUND.CREATE','ATTACHMENT.CREATE']}),false);
+  assert.equal((await readNativeSettlementContext({config,kind:'AR_REFUND',businessDocumentId,fetcher})).ok,false);
+});
+
 test('settlement validation preserves exact amounts and rejects unavailable balance, wrong bank, date and identity',()=>{
   assert.equal(validateNativeSettlementDraft(args).body.amount,draft.amount);assert.equal(nativeSettlementAccess(config,'AP_PAYMENT',access),true);
   for(const patch of [{amount:'9007199254740993.1235'},{amount:'1e3'},{amount:1},{amount:'0'},{amount:'1.00001'},{date:'2026-08-32'},{date:'2026-07-31'},{number:' P1'},{reason:'short'}])assert.equal(validateNativeSettlementDraft({...args,draft:{...draft,...patch}}).ok,false);

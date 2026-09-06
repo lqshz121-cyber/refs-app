@@ -3285,6 +3285,19 @@ pgTest('settlement bank members use scoped active BANK masters, literal search a
   assert.deepEqual((await maker.readSettlementBankMembers({...base,query:'50%_'})).rows,[first.rows[0]]);
   assert.deepEqual((await maker.readSettlementBankMembers({...base,query:'ALPHA'})).rows,[first.rows[0]]);
   const apOnly=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ap-bank-reader',['AP.PAYMENT.CREATE'])});
+  const refundMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'refund-bank-reader',['AR.REFUND.CREATE'])});
+  const refundBase={...base,settlementKind:'AR_REFUND'};
+  assert.deepEqual(await refundMaker.readSettlementBankMembers(refundBase),{...first,settlement_kind:'AR_REFUND'});
+  assert.deepEqual((await refundMaker.readSettlementBankMembers({...refundBase,afterRef:first.next_ref})).rows,last.rows);
+  assert.deepEqual((await refundMaker.readSettlementBankMembers({...refundBase,query:'50%_'})).rows,[first.rows[0]]);
+  for(const settlementKind of ['AP_PAYMENT','AR_RECEIPT'])await assert.rejects(refundMaker.readSettlementBankMembers({...refundBase,settlementKind}),e=>e.code==='42501');
+  for(const kernel of [apOnly,arMaker])await assert.rejects(kernel.readSettlementBankMembers(refundBase),e=>e.code==='42501');
+  await assert.rejects(refundMaker.readSettlementBankMembers({...refundBase,entityId:other.entityId}),e=>e.code==='42501');
+  await migrateDownThrough(adminPool,'312_refund_bank_selection.sql');
+  await assert.rejects(refundMaker.readSettlementBankMembers(refundBase),e=>e.code==='22023');
+  assert.deepEqual(await maker.readSettlementBankMembers(base),first);
+  await migrateUp(adminPool);
+  assert.deepEqual(await refundMaker.readSettlementBankMembers(refundBase),{...first,settlement_kind:'AR_REFUND'});
   await assert.rejects(apOnly.readSettlementBankMembers({...base,settlementKind:'AR_RECEIPT'}),e=>e.code==='42501');
   for(const patch of [{tenantId:randomUUID()},{entityId:other.entityId}])await assert.rejects(maker.readSettlementBankMembers({...base,...patch}),e=>e.code==='42501');
   for(const patch of [{settlementKind:'AP_BILL'},{limit:0},{limit:101},{query:' bad'},{query:'\n'},{afterRef:''}])await assert.rejects(maker.readSettlementBankMembers({...base,...patch}),e=>e.code==='22023');
@@ -3296,6 +3309,8 @@ pgTest('settlement bank members use scoped active BANK masters, literal search a
     SELECT $1,$2,'BULK-'||lpad(n::text,6,'0'),'BANK','Bulk bank '||n FROM generate_series(1,100001) n`,[ids.tenantId,ids.entityId]);
   const started=performance.now(),bulk=await maker.readSettlementBankMembers({...base,query:'BULK-',afterRef:'BULK-099950',limit:25});
   t.diagnostic(`bank member keyset lookup with 100001 bulk masters: ${Math.round(performance.now()-started)}ms`);
+  const refundBulk=await refundMaker.readSettlementBankMembers({...refundBase,query:'BULK-',afterRef:'BULK-099950',limit:25});
+  assert.deepEqual(refundBulk.rows,bulk.rows);assert.equal(refundBulk.next_ref,bulk.next_ref);
   assert.equal(bulk.rows.length,25);assert.equal(bulk.rows[0].member_ref,'BULK-099951');assert.equal(bulk.next_ref,'BULK-099975');
   const end=await maker.readSettlementBankMembers({...base,query:'BULK-',afterRef:'BULK-100000',limit:25});
   assert.deepEqual(end.rows.map(r=>r.member_ref),['BULK-100001']);assert.equal(end.next_ref,null);

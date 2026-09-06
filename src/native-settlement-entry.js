@@ -1,6 +1,6 @@
 import {accountingApiConfig,authoritativeBearerHeaders,refreshCurrentActorAccess,refreshAuthoritativeChartOfAccounts} from './accounting-api.js';
 import {uploadVerifiedAttachment,validateAttachmentFile} from './attachment-api.js';
-import {validSettlementKind,validSettlementBankPage,validSettlementContext} from './native-settlement-contract.js';
+import {validSettlementKind,validSettlementBankKind,validSettlementBankPage,validSettlementContext} from './native-settlement-contract.js';
 
 const fail=(code,message)=>({ok:false,code,message});
 const uuid=value=>typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -22,7 +22,7 @@ export function readNativeSettlementContext({config,kind,businessDocumentId,fetc
   return read(config,`/business-documents/${businessDocumentId}/settlement-context?${new URLSearchParams({kind,periodId:config.periodId})}`,value=>validSettlementContext(value,{entityId:config.entityId,periodId:config.periodId,settlementKind:kind,businessDocumentId}),fetcher);
 }
 export function readNativeSettlementBanks({config,kind,query='',afterRef=null,limit=50,fetcher=globalThis.fetch}={}){
-  if(!configured(config)||!validSettlementKind(kind)||!text(query,128,0)||afterRef!==null&&!text(afterRef,128)||!Number.isInteger(limit)||limit<1||limit>100)return Promise.resolve(fail('BANK_SEARCH_INVALID','Enter a valid bank search.'));
+  if(!configured(config)||!validSettlementBankKind(kind)||!text(query,128,0)||afterRef!==null&&!text(afterRef,128)||!Number.isInteger(limit)||limit<1||limit>100)return Promise.resolve(fail('BANK_SEARCH_INVALID','Enter a valid bank search.'));
   const params=new URLSearchParams({kind,query,limit:String(limit)});if(afterRef!==null)params.set('afterRef',afterRef);
   return read(config,`/settlements/draft-bank-members?${params}`,value=>validSettlementBankPage(value,{entityId:config.entityId,settlementKind:kind,query,afterRef,limit}),fetcher);
 }
