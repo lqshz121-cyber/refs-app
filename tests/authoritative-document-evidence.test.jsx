@@ -241,7 +241,7 @@ assert.match(adjustmentDetail,/search Credit evidence/);
 assert.match(adjustmentDetail,/vendor Evidence Vendor/);
 assert.match(adjustmentDetail,/transaction type VENDOR_CREDIT/);
 assert.match(adjustmentDetail,/page 2/);
-assert.match(adjustmentDetail,/Read-only retained evidence\. Adjustment actions are unavailable here\./);
+assert.match(adjustmentDetail,/Retained adjustment evidence\./);
 assert.match(adjustmentDetail,/class="authoritative-document-detail-summary" aria-label="AP adjustment evidence summary"/,
   'adjustment evidence must elevate amount, period, currency, and revision into the shared compact summary');
 assert.match(adjustmentDetail,/<details class="authoritative-secondary-disclosure authoritative-adjustment-fields"><summary><span>Adjustment evidence fields<\/span><span class="badge badge-muted">READ ONLY<\/span><\/summary>/,
