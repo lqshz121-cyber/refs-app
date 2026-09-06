@@ -2336,6 +2336,21 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!exactKeys(result,['business_adjustment_id','source_adjustment_id','journal_entry_id','status','revision','idempotent'].sort())
           ||!UUID.test(result.business_adjustment_id||'')||!UUID.test(result.journal_entry_id||'')
           ||result.source_adjustment_id!==sourceAdjustmentId||result.status!=='DRAFT'||result.revision!==0||typeof result.idempotent!=='boolean')throw new AccountingApiError(500,'NATIVE_REFUND_RECEIPT_INVALID','Native refund creation returned an unconfirmed receipt');
+      }else if(parts.length===6&&parts[4]==='ar'&&parts[5]==='sales-receipts'){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','A new sales receipt uses an idempotency key');
+        allowOnly(payload,['periodId','number','customerRef','bankMemberRef','cashAccountCode','categoryAccountCode','date','currency','amount','reason','attachmentIds']);
+        if(typeof payload.amount!=='string')throw new AccountingApiError(400,'INVALID_AMOUNT','Sales receipt amount must be decimal text');
+        const amount=requireDecimalAmount(payload.amount,'amount');
+        if(amount.startsWith('-')||!/[1-9]/.test(amount))throw new AccountingApiError(400,'INVALID_AMOUNT','Sales receipt amount must be positive');
+        if([payload.number,payload.customerRef,payload.bankMemberRef].some(value=>!boundedText(value,128)||value!==value.trim()||/[\u0000-\u001f\u007f]/.test(value)))throw new AccountingApiError(400,'INVALID_SALES_RECEIPT_INPUT','Number, customer and bank must be valid company references');
+        if(typeof payload.currency!=='string'||!/^[A-Z]{3}$/.test(payload.currency))throw new AccountingApiError(400,'INVALID_CURRENCY','Currency must be a three-letter uppercase code');
+        const args={tenantId:principal.tenantId,entityId,periodId:requireUuid(payload.periodId,'periodId'),number:payload.number,customerRef:payload.customerRef,bankMemberRef:payload.bankMemberRef,
+          cashAccountCode:requireAccountCode(payload.cashAccountCode),categoryAccountCode:requireAccountCode(payload.categoryAccountCode),date:requireIsoDate(payload.date,'date'),currency:payload.currency,
+          amount,reason:requireReviewReason(payload.reason),attachmentIds:requireAttachmentIds(requireAttachmentIds(payload.attachmentIds).map(id=>id.toLowerCase())),idempotencyKey};
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.createNativeSalesReceipt!=='function')throw new AccountingApiError(503,'NATIVE_SALES_RECEIPT_UNAVAILABLE','Sales receipt creation is unavailable');
+        result=await kernel.createNativeSalesReceipt(args);
+        if(!exactKeys(result,['sales_receipt_id','journal_entry_id','status','revision','idempotent'].sort())||!UUID.test(result.sales_receipt_id||'')||!UUID.test(result.journal_entry_id||'')||result.status!=='DRAFT'||result.revision!==0||typeof result.idempotent!=='boolean')throw new AccountingApiError(500,'NATIVE_SALES_RECEIPT_INVALID','Sales receipt creation returned an unconfirmed receipt');
       }else if(parts.length===6&&parts[4]==='ar'&&parts[5]==='refunds'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['periodId','sourceAdjustmentId','refundNumber','refundDate','cashAccountCode','amount','reason']);

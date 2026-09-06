@@ -15,6 +15,243 @@
     }
   ],
   "paths": {
+    "/entities/{entityId}/ar/sales-receipts": {
+      "post": {
+        "operationId": "createNativeSalesReceipt",
+        "summary": "Create a supported cash-sale Draft journal",
+        "description": "Requires AR.SALES_RECEIPT.CREATE in the selected company. Validates active customer/affiliate, BANK member and controlled cash account, a category without a required member, open period and clean attachments. Creates the cash-sale record, normal Manual Draft journal, attachment links, audit, outbox and idempotency receipt atomically. Does not create an AR invoice or allocation. Standard journal approvals and posting remain mandatory; posting checks the receipt against its journal before status writeback. No query parameters or If-Match header.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "periodId",
+                  "number",
+                  "date",
+                  "cashAccountCode",
+                  "bankMemberRef",
+                  "amount",
+                  "reason",
+                  "attachmentIds",
+                  "customerRef",
+                  "categoryAccountCode",
+                  "currency"
+                ],
+                "properties": {
+                  "periodId": {
+                    "$ref": "#/components/schemas/Uuid"
+                  },
+                  "number": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "cashAccountCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "bankMemberRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,15})(\\.[0-9]{1,4})?$",
+                    "description": "Strictly positive exact decimal string, at most 16 integer and four fractional digits."
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 2000
+                  },
+                  "attachmentIds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 25,
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "#/components/schemas/Uuid"
+                    }
+                  },
+                  "customerRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "categoryAccountCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "currency": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Original sales receipt result replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "journal_entry_id",
+                        "status",
+                        "revision",
+                        "idempotent",
+                        "sales_receipt_id"
+                      ],
+                      "properties": {
+                        "journal_entry_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        },
+                        "sales_receipt_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Sales receipt and Manual Draft journal created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "journal_entry_id",
+                        "status",
+                        "revision",
+                        "idempotent",
+                        "sales_receipt_id"
+                      ],
+                      "properties": {
+                        "journal_entry_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        },
+                        "sales_receipt_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "423": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/entities/{entityId}/business-records/{recordId}": {
       "get": {
         "operationId": "readBusinessRecord",
