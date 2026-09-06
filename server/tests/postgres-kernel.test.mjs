@@ -4233,7 +4233,8 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'vendor-credit-control-reader',['AP.VIEW'])});
   assert.deepEqual(await reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'0.0000',control_balance:'0.0000',in_balance:true}]);
   assert.deepEqual(await reader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'100.0000',days_31_60:'-100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
-  const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,randomUUID(),['AP.VENDOR_CREDIT.APPLY'])});
+  const allocationActor=randomUUID();
+  const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,allocationActor,['AP.VENDOR_CREDIT.APPLY'])});
   const usageArgs={...ids,action:'AP_CREDIT_APPLY',businessAdjustmentId:credit.business_adjustment_id};
   const beforeUsage=await applier.readCreditUsageContext(usageArgs);
   assert.equal(beforeUsage.available_amount,'100.0000');
@@ -4243,6 +4244,34 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   await assert.rejects(applier.readCreditUsageContext({...usageArgs,periodId:randomUUID()}),error=>error.code==='P0002');
   await assert.rejects(applier.readCreditUsageContext({...usageArgs,businessAdjustmentId:randomUUID()}),error=>error.code==='P0002');
   await assert.rejects(applier.readCreditUsageContext({...usageArgs,entityId:randomUUID()}),error=>error.code==='42501');
+  const guardedArgs={...ids,businessAdjustmentId:credit.business_adjustment_id,businessDocumentId:billId,amount:'1.2345',reason:'Verify allocation capacity',idempotencyKey:'AP-capacity-invalid'};
+  const capacityCounts=async()=> (await adminPool.query(`SELECT
+    (SELECT count(*)::int FROM business_allocation WHERE tenant_id=$1) allocations,
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') audits,
+    (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) events,
+    (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1) receipts,
+    (SELECT open_balance::text FROM business_document WHERE business_document_id=$2) balance`,[ids.tenantId,billId])).rows[0];
+  const issuedContexts=async()=> (await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND actor_id=$2 AND event_type='RUNTIME_CONTEXT_ISSUED'",[ids.tenantId,allocationActor])).rows[0].n;
+  const beforeInvalid=await capacityCounts(),beforeContexts=await issuedContexts();
+  for(const amount of [null,'1.23456','NaN'])await assert.rejects(applier.applyApVendorCredit({...guardedArgs,amount}),error=>['22023','23514'].includes(error.code));
+  // Alter only a test fixture to exercise a same-company, same-currency wrong party.
+  await adminPool.query('UPDATE business_document SET counterparty_ref=$1 WHERE business_document_id=$2',['OTHER-PARTY',billId]);
+  await assert.rejects(applier.applyApVendorCredit(guardedArgs),error=>error.code==='23514');
+  await adminPool.query('UPDATE business_document SET counterparty_ref=$1 WHERE business_document_id=$2',['VENDOR-1',billId]);
+  assert.deepEqual(await capacityCounts(),beforeInvalid);
+  assert.equal(await issuedContexts(),beforeContexts+4);
+  const paymentMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'AP-capacity-payment-maker',['AP.PAYMENT.CREATE'])});
+  const reservation=await paymentMaker.createApPayment({...ids,businessDocumentId:billId,paymentNumber:'CAPACITY-80',paymentDate:'2026-07-18',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:80,reason:'Reserve target balance',idempotencyKey:'AP-capacity-payment'});
+  const beforeReserved=await capacityCounts(),reservedContexts=await issuedContexts();
+  await assert.rejects(applier.applyApVendorCredit({...guardedArgs,amount:21}),error=>error.code==='23514');
+  assert.deepEqual(await capacityCounts(),beforeReserved);
+  assert.equal(await issuedContexts(),reservedContexts+1);
+  // Remove the fixture reservation before the existing independent full-apply assertions.
+  await adminPool.query('DELETE FROM business_allocation WHERE payment_occurrence_id=$1',[reservation.payment_occurrence_id]);
+  await migrateDownThrough(adminPool,'313_credit_allocation_capacity.sql');
+  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_assert_credit_allocation_capacity(uuid,uuid,uuid,uuid,numeric)') fn")).rows[0].fn,null);
+  await migrateUp(adminPool);
+  await assert.rejects(applier.applyApVendorCredit({...guardedArgs,amount:'1.23456'}),error=>error.code==='22023');
   const first=await applier.applyApVendorCredit({...ids,businessAdjustmentId:credit.business_adjustment_id,businessDocumentId:billId,amount:40,reason:'Partial apply',idempotencyKey:'vendor-credit-apply-40'});
   assert.equal(first.status,'ACTIVE');
   const partialUsage=await applier.readCreditUsageContext(usageArgs);
@@ -4286,7 +4315,8 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   await poster.postJournal({...ids,journalEntryId:memo.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'ar-credit-post'});
   const agingReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-aging-reader',['AR.VIEW'])});
   assert.deepEqual(await agingReader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'100.0000',days_31_60:'-100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
-  const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,randomUUID(),['AR.CREDIT_MEMO.APPLY'])});
+  const allocationActor=randomUUID();
+  const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,allocationActor,['AR.CREDIT_MEMO.APPLY'])});
   const usageArgs={...ids,action:'AR_CREDIT_APPLY',businessAdjustmentId:memo.business_adjustment_id};
   const beforeUsage=await applier.readCreditUsageContext(usageArgs);
   assert.equal(beforeUsage.available_amount,'100.0000');
@@ -4296,6 +4326,34 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   await assert.rejects(applier.readCreditUsageContext({...usageArgs,periodId:randomUUID()}),error=>error.code==='P0002');
   await assert.rejects(applier.readCreditUsageContext({...usageArgs,businessAdjustmentId:randomUUID()}),error=>error.code==='P0002');
   await assert.rejects(applier.readCreditUsageContext({...usageArgs,entityId:randomUUID()}),error=>error.code==='42501');
+  const guardedArgs={...ids,businessAdjustmentId:memo.business_adjustment_id,businessDocumentId:invoiceId,amount:'1.2345',reason:'Verify allocation capacity',idempotencyKey:'AR-capacity-invalid'};
+  const capacityCounts=async()=> (await adminPool.query(`SELECT
+    (SELECT count(*)::int FROM business_allocation WHERE tenant_id=$1) allocations,
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') audits,
+    (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) events,
+    (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1) receipts,
+    (SELECT open_balance::text FROM business_document WHERE business_document_id=$2) balance`,[ids.tenantId,invoiceId])).rows[0];
+  const issuedContexts=async()=> (await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND actor_id=$2 AND event_type='RUNTIME_CONTEXT_ISSUED'",[ids.tenantId,allocationActor])).rows[0].n;
+  const beforeInvalid=await capacityCounts(),beforeContexts=await issuedContexts();
+  for(const amount of [null,'1.23456','NaN'])await assert.rejects(applier.applyArCreditMemo({...guardedArgs,amount}),error=>['22023','23514'].includes(error.code));
+  // Alter only a test fixture to exercise a same-company, same-currency wrong party.
+  await adminPool.query('UPDATE business_document SET counterparty_ref=$1 WHERE business_document_id=$2',['OTHER-PARTY',invoiceId]);
+  await assert.rejects(applier.applyArCreditMemo(guardedArgs),error=>error.code==='23514');
+  await adminPool.query('UPDATE business_document SET counterparty_ref=$1 WHERE business_document_id=$2',['CUSTOMER-1',invoiceId]);
+  assert.deepEqual(await capacityCounts(),beforeInvalid);
+  assert.equal(await issuedContexts(),beforeContexts+4);
+  const paymentMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'AR-capacity-payment-maker',['AR.RECEIPT.CREATE'])});
+  const reservation=await paymentMaker.createArReceipt({...ids,businessDocumentId:invoiceId,receiptNumber:'CAPACITY-80',receiptDate:'2026-07-18',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:80,reason:'Reserve target balance',idempotencyKey:'AR-capacity-payment'});
+  const beforeReserved=await capacityCounts(),reservedContexts=await issuedContexts();
+  await assert.rejects(applier.applyArCreditMemo({...guardedArgs,amount:21}),error=>error.code==='23514');
+  assert.deepEqual(await capacityCounts(),beforeReserved);
+  assert.equal(await issuedContexts(),reservedContexts+1);
+  // Remove the fixture reservation before the existing independent full-apply assertions.
+  await adminPool.query('DELETE FROM business_allocation WHERE payment_occurrence_id=$1',[reservation.payment_occurrence_id]);
+  await migrateDownThrough(adminPool,'313_credit_allocation_capacity.sql');
+  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_assert_credit_allocation_capacity(uuid,uuid,uuid,uuid,numeric)') fn")).rows[0].fn,null);
+  await migrateUp(adminPool);
+  await assert.rejects(applier.applyArCreditMemo({...guardedArgs,amount:'1.23456'}),error=>error.code==='22023');
   const first=await applier.applyArCreditMemo({...ids,businessAdjustmentId:memo.business_adjustment_id,businessDocumentId:invoiceId,amount:40,reason:'Partial apply',idempotencyKey:'ar-credit-apply-40'});
   assert.equal(first.status,'ACTIVE');
   const partialUsage=await applier.readCreditUsageContext(usageArgs);
@@ -4363,6 +4421,11 @@ for(const native of [false,true])pgTest(`${native?'native':'legacy'} AR refund p
   const draftUsage=await refundMaker.readCreditUsageContext(usageArgs);
   assert.equal(draftUsage.refund_amount,'60.0000');
   assert.equal(draftUsage.available_amount,'40.0000');
+  const creditApplier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-capacity-applier',['AR.CREDIT_MEMO.APPLY'])});
+  await assert.rejects(creditApplier.applyArCreditMemo({...ids,businessAdjustmentId:memo.business_adjustment_id,businessDocumentId:invoiceId,amount:41,reason:'Reject refund reserved credit',idempotencyKey:'refund-reserved-allocation'}),error=>error.code==='23514');
+  assert.deepEqual(await refundMaker.readCreditUsageContext(usageArgs),draftUsage);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key='refund-reserved-allocation'",[ids.tenantId])).rows[0].n,0);
+
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE source_adjustment_id=$1 AND adjustment_kind='AR_REFUND'",[memo.business_adjustment_id])).rows[0].n,1);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM idempotency_receipt WHERE tenant_id=$1 AND operation_scope=$3||$2::text AND idempotency_key IN ('refund-60-a','refund-60-b')",[ids.tenantId,ids.entityId,native?'NATIVE_AR_REFUND:':'AR_REFUND:'])).rows[0].n,1);
   if(native){
@@ -4405,6 +4468,50 @@ for(const native of [false,true])pgTest(`${native?'native':'legacy'} AR refund p
   }
 });
 
+
+pgTest('refund and credit allocation serialize against the same available credit',async()=>{
+  const native=true;
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:native?'VERIFIED_CLEAN':null,
+    extraAccounts:[{accountCode:'400000',accountName:'Revenue'},{accountCode:'410000',accountName:'Sales returns'}],
+    extraMembers:[{memberRef:'CUSTOMER-1',memberType:'CUSTOMER',displayName:'Customer'}],
+    journalLines:[{lineNo:1,accountCode:'120200',debit:100,credit:0,memberRef:'CUSTOMER-1'},{lineNo:2,accountCode:'400000',debit:0,credit:100}]});const invoiceId=randomUUID();
+  const source=await attachAutoSource(ids);
+  const sourcePoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-invoice-source-poster',['GL.JE.POST'])});
+  await sourcePoster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'refund-invoice-source-post'});
+  await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member) VALUES($1,$2,'220000','Customer refunds',false)",[ids.tenantId,ids.entityId]);
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by) VALUES($1,$2,$3,$4,'AR_INVOICE','INV-REFUND-1','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[invoiceId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-credit-maker',['AR.CREDIT_MEMO.CREATE'])});
+  const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-submitter',['GL.JE.SUBMIT'])});
+  const memo=await maker.createArCreditMemo({...ids,memoNumber:'CM-REFUND',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'410000',amount:100,description:'Memo'}]),reason:'Refund source credit',idempotencyKey:'refund-credit-source'});
+  await attachAutoSource({...ids,journalId:memo.journal_entry_id},{reuseApprovedSnapshots:true});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-reviewer',['GL.JE.REVIEW'])});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-approver',['GL.JE.APPROVE'])});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-poster',['GL.JE.POST'])});
+  await submitter.transitionJournal({...ids,journalEntryId:memo.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'refund-source-submit'});
+  await reviewer.transitionJournal({...ids,journalEntryId:memo.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'refund-source-review'});
+  await approver.transitionJournal({...ids,journalEntryId:memo.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'refund-source-approve'});
+  await poster.postJournal({...ids,journalEntryId:memo.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'refund-source-post'});
+  assert.deepEqual((await adminPool.query('SELECT account_code,debit_amount,credit_amount,member_ref FROM journal_line WHERE journal_entry_id=$1 ORDER BY line_no',[memo.journal_entry_id])).rows,[{account_code:'120200',debit_amount:'0.0000',credit_amount:'100.0000',member_ref:'CUSTOMER-1'},{account_code:'410000',debit_amount:'100.0000',credit_amount:'0.0000',member_ref:null}]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-control-reader',['AR.VIEW'])});
+  assert.deepEqual(await reader.getArControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'0.0000',control_balance:'0.0000',in_balance:true}]);
+  assert.deepEqual(await reader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'100.0000',days_31_60:'-100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
+  const refundMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-maker',['AR.REFUND.CREATE'])});
+  const usageArgs={...ids,action:'AR_REFUND',businessAdjustmentId:memo.business_adjustment_id};
+  assert.equal((await refundMaker.readCreditUsageContext(usageArgs)).available_amount,'100.0000');
+  await assert.rejects(refundMaker.readCreditUsageContext({...usageArgs,action:'AR_CREDIT_APPLY'}),error=>error.code==='42501');
+  const attachmentId=native?(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id:null;
+  const createRefund=(kernel,args)=>native?kernel.createNativeRefund({...args,number:args.refundNumber,date:args.refundDate,cashAccountCode:'111000',bankMemberRef:'BANK-1',attachmentIds:[attachmentId]}):kernel.createArRefund(args);
+
+  const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-race-applier',['AR.CREDIT_MEMO.APPLY'])});
+  const attempts=await Promise.allSettled([
+    createRefund(refundMaker,{...ids,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'RACE-60',refundDate:'2026-07-18',amount:60,reason:'Reserve credit through refund',idempotencyKey:'credit-race-refund'}),
+    applier.applyArCreditMemo({...ids,businessAdjustmentId:memo.business_adjustment_id,businessDocumentId:invoiceId,amount:60,reason:'Apply credit to open invoice',idempotencyKey:'credit-race-allocation'})
+  ]);
+  assert.equal(attempts.filter(r=>r.status==='fulfilled').length,1);
+  assert.equal(attempts.find(r=>r.status==='rejected').reason.code,'23514');
+  const usage=await refundMaker.readCreditUsageContext(usageArgs);assert.equal(usage.available_amount,'40.0000');
+  assert.equal(BigInt(usage.allocated_amount.replace('.',''))+BigInt(usage.refund_amount.replace('.','')),600000n);
+});
 pgTest('AP bill void posts in a new open period and leaves the original Posted JE immutable',async()=>{
   const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null});
   const trace=await attachAutoSource(ids);

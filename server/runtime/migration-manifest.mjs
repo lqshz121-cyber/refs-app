@@ -318,4 +318,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"310_credit_usage_context.sql","up":"201d8c5d9cf7361c1dce1ba500a311adf886436db932e3cd374c26a624003377","down":"6e4d65b19c539c27ec88168622617fdb14cf3794e171b7ef283244c88c9c3562"}),
   Object.freeze({"name":"311_native_refund_command.sql","up":"582049ca1639b4907cebc9f79842d5f2fe5afb8e6c1c796bb6568aa37cda3c6b","down":"01ea2bd3d01f9f966afcdd1f7c6b83de6337093a4709aefb061128402a4e077b"}),
   Object.freeze({"name":"312_refund_bank_selection.sql","up":"e8d1978d4081cffb148aece9897f12ebf971be3af9e08800822bbd154e72e90d","down":"67e03044f279d5b11a01695f900ad3a919e60b3984a9e5d2e27dbddd45c6a45c"}),
+  Object.freeze({"name":"313_credit_allocation_capacity.sql","up":"c68df5f3bc6a5e1096288c326b1b90024eebcead8ad8222acb9e9e8a250ef542","down":"48660d94577933498bb02aa49a68c888ba0384ad609db4e9c552dee58cffa910"}),
 ]);
