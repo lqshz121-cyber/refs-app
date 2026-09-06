@@ -13,7 +13,7 @@ for(const kind of ['AP_BILL','AR_INVOICE']){
   assert.equal(renderToStaticMarkup(<NativeDocumentEntry config={config} kind={kind} scope={{...scope,period_status:'CLOSED'}} access={access}/>),'');
   const entry=renderToStaticMarkup(<NativeDocumentEntry config={config} kind={kind} scope={scope} access={access}/>);assert.match(entry,/aria-expanded="false"/);assert.match(entry,/New (bill|invoice)/);
   const form=renderToStaticMarkup(<NativeDocumentEntryForm config={config} kind={kind} access={access} scope={scope} accounts={accounts}/>);
-  assert.match(form,/Scoped company/);assert.match(form,/inputMode="decimal"/);assert.match(form,/min="2026-08-01" max="2026-08-31"/);assert.match(form,/610000 · Office/);assert.doesNotMatch(form,/291001|localStorage|Post journal|Approve|type="number"/);assert.match(form,/Upload and verify support/);assert.match(form,/disabled="">Create draft/);
+  assert.match(form,/Scoped company/);assert.match(form,/inputMode="decimal"/);assert.match(form,/min="2026-08-01" max="2026-08-31"/);assert.match(form,/610000 · Office/);assert.doesNotMatch(form,/291001|localStorage|Post journal|Approve|type="number"/);assert.match(form,/Uploaded when you save/);assert.doesNotMatch(form,/Upload and verify support/);assert.match(form,/disabled="">Create draft/);
 }
 const page=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" config={config} currentActorAccess={access} scope={scope} accounts={accounts}/>);
 assert.match(page,/DRAFT ENTRY/);assert.match(page,/New bill/);
