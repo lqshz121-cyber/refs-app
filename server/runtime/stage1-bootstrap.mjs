@@ -1,5 +1,6 @@
 import {KernelError,requireRow,withSerializableRetry} from './db.mjs';
 import {PostgresGrantSync} from './grant-sync.mjs';
+import {assertStagingDeploymentTarget} from './workflow-role-grant.mjs';
 import {canonicalRequestHash} from './request-hash.mjs';
 import {RemoteJwksResolver,OidcJwtAuthenticator} from '../api/oidc-authenticator.mjs';
 
@@ -132,6 +133,8 @@ export function stage1SelfGrantConfig(environment=process.env){
   if(String(environment.REFS_STAGE1_SELF_GRANT_ENABLED||'')!=='STAGE1_AUTHORITATIVE_ONLY')return null;
   exactStaging(environment);
   return Object.freeze({
+    ...(environment.REFS_EXPECTED_INSTALLATION_ID?{installationId:environment.REFS_EXPECTED_INSTALLATION_ID}:{}),
+    ...(environment.REFS_EXPECTED_DATABASE_NAME?{expectedDatabase:environment.REFS_EXPECTED_DATABASE_NAME}:{}),
     tenantId:uuid(required(environment,'REFS_STAGE1_TENANT_ID'),'REFS_STAGE1_TENANT_ID'),
     entityId:uuid(required(environment,'REFS_STAGE1_ENTITY_ID'),'REFS_STAGE1_ENTITY_ID'),
     expectedVersion:0,
@@ -207,7 +210,9 @@ export async function grantStage1ReadAccess(pool,config,{principalProvider=async
   if(config.permissions.length!==STAGE1_READ_PERMISSIONS.length||config.permissions.some((value,index)=>value!==STAGE1_READ_PERMISSIONS[index])){
     throw new KernelError('STAGE1_GRANT_SCOPE_DENIED','Stage 1 grant must contain exactly the approved read permissions');
   }
-  const sync=new PostgresGrantSync(pool,{principalProvider});
+  const sync=new PostgresGrantSync(pool,{principalProvider,transactionGuard:client=>assertStagingDeploymentTarget(client,config)});
+  // This internal grant helper performs no OIDC work. Preserve principal/login
+  // error priority; the deployment guard runs inside the same grant transaction.
   const result=await sync.reconcile(config);
   const returned=[...(result.permissions||[])].sort();
   if(returned.length!==STAGE1_READ_PERMISSIONS.length||returned.some((value,index)=>value!==STAGE1_READ_PERMISSIONS[index]))throw new KernelError('STAGE1_GRANT_RESULT_INVALID','Grant sync returned an unexpected permission set');
@@ -220,7 +225,8 @@ export async function grantStage1SelfReadAccess(pool,config,{principalProvider=a
   }
   const now=Number(clock());
   if(!Number.isFinite(now))throw new KernelError('STAGE1_GRANT_CLOCK_INVALID','Stage 1 self-service grant clock is invalid');
-  const sync=syncFactory(pool,{principalProvider});
+  const sync=syncFactory(pool,{principalProvider,transactionGuard:client=>assertStagingDeploymentTarget(client,config)});
+  await assertStagingDeploymentTarget(pool,config);
   const expectedVersion=await sync.currentVersion({tenantId:config.tenantId,actorId:config.actorId,entityId:config.entityId});
   const validUntil=new Date(now+23*60*60*1000).toISOString();
   const result=await sync.reconcile({...config,expectedVersion,validUntil});
@@ -251,8 +257,9 @@ export async function upgradeStage1ControlledTestWorkflowAccess(pool,config,{pri
 }
 
 export async function grantStage1AuthenticatedReadAccess(pool,config,{authenticator}={}){
+  await assertStagingDeploymentTarget(pool,config);
   const verified=authenticator||new OidcJwtAuthenticator({issuer:config.issuer,audience:config.audience,keyResolver:new RemoteJwksResolver({jwksUri:config.jwksUri})});
   const principal=await verified.authenticate({headers:{authorization:`Bearer ${config.accessToken}`}});
   if(principal.tenantId!==config.tenantId)throw new KernelError('STAGE1_GRANT_TENANT_DENIED','Authenticated token tenant does not match the configured Stage 1 tenant');
-  return grantStage1ReadAccess(pool,{tenantId:config.tenantId,entityId:config.entityId,actorId:principal.actorId,expectedVersion:config.expectedVersion,authorityClass:config.authorityClass,validUntil:config.validUntil,idempotencyKey:config.idempotencyKey,permissions:config.permissions});
+  return grantStage1ReadAccess(pool,{installationId:config.installationId,expectedDatabase:config.expectedDatabase,tenantId:config.tenantId,entityId:config.entityId,actorId:principal.actorId,expectedVersion:config.expectedVersion,authorityClass:config.authorityClass,validUntil:config.validUntil,idempotencyKey:config.idempotencyKey,permissions:config.permissions});
 }

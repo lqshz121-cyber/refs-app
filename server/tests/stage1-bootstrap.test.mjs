@@ -92,12 +92,30 @@ test('self-service read activation derives a rolling expiry and current grant re
     reconcile:async input=>(calls.push(['reconcile',input]),{idempotent:false,version:8,permissions:[...STAGE1_READ_PERMISSIONS]}),
   };
   const now=Date.parse('2026-08-29T12:00:00.000Z');
-  const result=await grantStage1SelfReadAccess({}, {tenantId:base.REFS_STAGE1_TENANT_ID,entityId:base.REFS_STAGE1_ENTITY_ID,actorId:'auth0|reader',authorityClass:'ANALYSIS',permissions:[...STAGE1_READ_PERMISSIONS],idempotencyKey:'reader-activation-0001',expectedVersion:0,validUntil:'2026-08-24T00:00:00.000Z'}, {clock:()=>now,syncFactory:()=>sync});
+  const result=await grantStage1SelfReadAccess({query:async()=>({rows:[{asserted:true}]})}, {tenantId:base.REFS_STAGE1_TENANT_ID,entityId:base.REFS_STAGE1_ENTITY_ID,actorId:'auth0|reader',authorityClass:'ANALYSIS',permissions:[...STAGE1_READ_PERMISSIONS],idempotencyKey:'reader-activation-0001',expectedVersion:0,validUntil:'2026-08-24T00:00:00.000Z'}, {clock:()=>now,syncFactory:()=>sync});
   assert.deepEqual(result,{idempotent:false,version:8,permissionCount:5});
   assert.deepEqual(calls[0],['version',{tenantId:base.REFS_STAGE1_TENANT_ID,actorId:'auth0|reader',entityId:base.REFS_STAGE1_ENTITY_ID}]);
   assert.equal(calls[1][1].expectedVersion,7);
   assert.equal(calls[1][1].validUntil,'2026-08-30T11:00:00.000Z');
   assert.notEqual(calls[1][1].validUntil,base.REFS_STAGE1_GRANT_VALID_UNTIL);
+});
+
+test('direct Stage 1 reads preserve identity denial priority and retain the transaction deployment guard',async()=>{
+  const config=stage1GrantConfig(base);
+  for(const login of ['refs_migrator','refs_grant_sync']){
+    const calls=[];
+    const pool={query:async()=>{throw new Error('Direct read must not perform an out-of-transaction preflight');},connect:async()=>({release(){},query:async sql=>{
+      calls.push(sql);
+      if(sql==='SELECT session_user,current_user')return {rowCount:1,rows:[{session_user:login,current_user:login}]};
+      if(sql.includes('refs_assert_staging_deployment_target'))return {rowCount:1,rows:[{asserted:false}]};
+      return {rowCount:0,rows:[]};
+    }})};
+    await assert.rejects(grantStage1ReadAccess(pool,config),error=>error.code===(login==='refs_migrator'?'GRANT_SYNC_DB_IDENTITY_DENIED':'DEPLOYMENT_IDENTITY_DENIED'));
+    assert.equal(calls.filter(sql=>sql.includes('refs_assert_staging_deployment_target')).length,login==='refs_grant_sync'?1:0);
+    assert.equal(calls.some(sql=>sql.includes('refs_grant_request_hash')||sql.includes('refs_reconcile_actor_grants')),false);
+    assert.equal(calls.at(-1),'ROLLBACK');
+  }
+  await assert.rejects(grantStage1ReadAccess({connect:async()=>{throw new Error('Untrusted principal must not reach PostgreSQL');}},config,{principalProvider:async()=>({trusted:false,serviceId:'platform-iam-sync'})}),error=>error.code==='GRANT_SYNC_PRINCIPAL_DENIED');
 });
 
 test('Stage 1 runtime no longer calls legacy grant hashes or self-upgrade SQL wrappers',async()=>{
@@ -111,7 +129,7 @@ test('Stage 1 runtime no longer calls legacy grant hashes or self-upgrade SQL wr
 test('authenticated Stage 1 grants derive only the verified access-token subject and reject tenant swaps before PostgreSQL',async()=>{
   const config=stage1AuthenticatedGrantConfig({...base,REFS_AUTHENTICATED_ACCESS_TOKEN:'opaque-access-token',OIDC_ISSUER:'https://issuer.example',OIDC_AUDIENCE:'refs-stage1',OIDC_JWKS_URI:'https://issuer.example/jwks'});
   assert.equal(Object.hasOwn(config,'actorId'),false);
-  await assert.rejects(grantStage1AuthenticatedReadAccess({},config,{authenticator:{authenticate:async()=>({tenantId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',actorId:'auth0|swapped'})}}),error=>error.code==='STAGE1_GRANT_TENANT_DENIED');
+  await assert.rejects(grantStage1AuthenticatedReadAccess({query:async()=>({rows:[{asserted:true}]})},config,{authenticator:{authenticate:async()=>({tenantId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',actorId:'auth0|swapped'})}}),error=>error.code==='STAGE1_GRANT_TENANT_DENIED');
 });
 
 test('Stage 1 CLI failure output contains only a stable code and never echoes configuration or secrets',()=>{

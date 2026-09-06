@@ -89,6 +89,22 @@ const validUtc=value=>{if(!UTC_TIMESTAMP.test(value))return false;const parsed=n
 
 export function authoritativeWorkflowRoleGrantConfig(environment=process.env){
   if(environment.NODE_ENV!=='production'||environment.REFS_DEPLOYMENT_ENV!=='staging'||environment.REFS_WORKFLOW_ROLE_CONFIRM!=='AUTHORITATIVE_WORKFLOW_ROLE_ONLY')throw new KernelError('WORKFLOW_ROLE_ENV_DENIED','Workflow role grants require the explicit staging confirmation');
+  return workflowRolePolicyConfig(environment);
+}
+
+export async function grantStagingWorkflowRole(pool,config,{installationId=null,expectedDatabase=null,...options}={}){
+  await assertStagingDeploymentTarget(pool,{installationId,expectedDatabase});
+  const guarded={...options,transactionGuard:client=>assertStagingDeploymentTarget(client,{installationId,expectedDatabase})};
+  return config.principalKind==='SERVICE'?grantConfiguredServiceWorkflowRole(pool,config,guarded):grantAuthenticatedWorkflowRole(pool,config,guarded);
+}
+
+export async function assertStagingDeploymentTarget(pool,{installationId=null,expectedDatabase=null}={}){
+  const result=await pool.query('SELECT refs_assert_staging_deployment_target($1,$2) AS asserted',[installationId,expectedDatabase]);
+  if(result.rows?.[0]?.asserted!==true)throw new KernelError('DEPLOYMENT_IDENTITY_DENIED','Staging database target assertion failed');
+}
+
+// Shared policy parsing does not establish deployment authorization.
+export function workflowRolePolicyConfig(environment){
   const tenantId=required(environment,'REFS_STAGE1_TENANT_ID').toLowerCase(),entityId=required(environment,'REFS_STAGE1_ENTITY_ID').toLowerCase();
   if(!UUID.test(tenantId)||!UUID.test(entityId))throw new KernelError('WORKFLOW_ROLE_CONFIG_INVALID','Workflow role scope must use UUIDs');
   const roleName=required(environment,'REFS_WORKFLOW_ROLE'),definition=AUTHORITATIVE_WORKFLOW_ROLES[roleName];
@@ -108,26 +124,26 @@ export function authoritativeWorkflowRoleGrantConfig(environment=process.env){
   return Object.freeze({...common,accessToken:required(environment,'REFS_AUTHENTICATED_ACCESS_TOKEN'),issuer:required(environment,'OIDC_ISSUER'),audience:required(environment,'OIDC_AUDIENCE'),jwksUri:required(environment,'OIDC_JWKS_URI')});
 }
 
-export async function grantAuthenticatedWorkflowRole(pool,config,{authenticator}={}){
+export async function grantAuthenticatedWorkflowRole(pool,config,{authenticator,transactionGuard}={}){
   const expected=AUTHORITATIVE_WORKFLOW_ROLES[config.role];
   if(!expected||expected.principalKind!=='HUMAN'||config.principalKind!=='HUMAN'||config.authorityClass!==expected.authorityClass||config.permissions.length!==expected.permissions.length||config.permissions.some((value,index)=>value!==expected.permissions[index]))throw new KernelError('WORKFLOW_ROLE_SCOPE_DENIED','Workflow role grant does not match its frozen human permission bundle');
   assertWorkflowRoleSafety(expected);
   const verified=authenticator||new OidcJwtAuthenticator({issuer:config.issuer,audience:config.audience,keyResolver:new RemoteJwksResolver({jwksUri:config.jwksUri})});
   const principal=await verified.authenticate({headers:{authorization:`Bearer ${config.accessToken}`}});
   if(principal.tenantId!==config.tenantId)throw new KernelError('WORKFLOW_ROLE_TENANT_DENIED','Authenticated token tenant does not match the configured tenant');
-  const sync=new PostgresGrantSync(pool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+  const sync=new PostgresGrantSync(pool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'}),transactionGuard});
   const result=await sync.reconcile({tenantId:config.tenantId,entityId:config.entityId,actorId:principal.actorId,permissions:config.permissions,authorityClass:config.authorityClass,validUntil:config.validUntil,expectedVersion:config.expectedVersion,idempotencyKey:config.idempotencyKey});
   const returned=[...(result.permissions||[])].sort(),expectedSorted=[...expected.permissions].sort();
   if(returned.length!==expectedSorted.length||returned.some((value,index)=>value!==expectedSorted[index])||result.authority_class!==config.authorityClass||result.valid_until!==config.validUntil)throw new KernelError('WORKFLOW_ROLE_RESULT_INVALID','Grant sync returned an unexpected workflow role');
   return {role:config.role,authorityClass:config.authorityClass,validUntil:config.validUntil,idempotent:result.idempotent===true,version:result.version,permissionCount:returned.length};
 }
 
-export async function grantConfiguredServiceWorkflowRole(pool,config,{principalProvider=async()=>({trusted:true,serviceId:'platform-iam-sync'})}={}){
+export async function grantConfiguredServiceWorkflowRole(pool,config,{principalProvider=async()=>({trusted:true,serviceId:'platform-iam-sync'}),transactionGuard}={}){
   const expected=AUTHORITATIVE_WORKFLOW_ROLES[config.role];
   if(!expected||expected.principalKind!=='SERVICE'||config.principalKind!=='SERVICE'||config.authorityClass!=='SERVICE'||config.permissions.length!==expected.permissions.length||config.permissions.some((value,index)=>value!==expected.permissions[index]))throw new KernelError('WORKFLOW_ROLE_SCOPE_DENIED','Service role grant does not match its frozen permission bundle');
   assertWorkflowRoleSafety(expected);
   if(typeof config.serviceActorId!=='string'||config.serviceActorId.trim().length<8)throw new KernelError('WORKFLOW_ROLE_SERVICE_PRINCIPAL_DENIED','Service role requires the configured provider service actor');
-  const sync=new PostgresGrantSync(pool,{principalProvider});
+  const sync=new PostgresGrantSync(pool,{principalProvider,transactionGuard});
   const result=await sync.reconcile({tenantId:config.tenantId,entityId:config.entityId,actorId:config.serviceActorId,permissions:config.permissions,authorityClass:'SERVICE',validUntil:config.validUntil,expectedVersion:config.expectedVersion,idempotencyKey:config.idempotencyKey});
   const returned=[...(result.permissions||[])].sort(),expectedSorted=[...expected.permissions].sort();
   if(returned.length!==expectedSorted.length||returned.some((value,index)=>value!==expectedSorted[index])||result.authority_class!=='SERVICE'||result.valid_until!==config.validUntil)throw new KernelError('WORKFLOW_ROLE_RESULT_INVALID','Grant sync returned an unexpected service role');
