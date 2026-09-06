@@ -2250,15 +2250,42 @@ pgTest('expired write grants do not poison valid read contexts across upgrade an
   await checkReadOnly();
   const down=await readFile(new URL('../db/migrations/down/307_runtime_context_grant_membership.sql',import.meta.url),'utf8');
   const up=await readFile(new URL('../db/migrations/307_runtime_context_grant_membership.sql',import.meta.url),'utf8');
+  const currentGuard=(await adminPool.query("SELECT pg_get_functiondef('refs_guard_runtime_context_sod()'::regprocedure) definition")).rows[0].definition;
   try{
     await adminPool.query(down);
     await assert.rejects(issuer.issue({tenantId:ids.tenantId}),error=>error.code==='42501'&&error.message==='Human write authority requires a finite exact-role grant');
-  }finally{await adminPool.query(up);}
+  }finally{await adminPool.query(up);await adminPool.query(currentGuard);}
   await checkReadOnly();
   await adminPool.query("UPDATE runtime_actor_grant SET authority_class='LEGACY',valid_until=NULL WHERE tenant_id=$1 AND actor_id=$2 AND permission='GL.JE.POST'",[ids.tenantId,actor]);
   await assert.rejects(issuer.issue({tenantId:ids.tenantId}),error=>error.code==='42501'&&error.message==='Human write authority requires a finite exact-role grant');
   await adminPool.query("UPDATE runtime_actor_grant SET revoked_at=clock_timestamp() WHERE tenant_id=$1 AND actor_id=$2 AND permission='GL.JE.POST'",[ids.tenantId,actor]);
   await checkReadOnly();
+});
+
+pgTest('production reads fall back to existing read grants while invalid write authorities remain denied',async()=>{
+  const ids=await seed({status:'DRAFT'}),other=await seed({tenantId:ids.tenantId}),actor='auth0|legacy-reader';
+  await adminPool.query(`INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission,authority_class,valid_until)
+    VALUES($1,$2,$3,'GL.JE.VIEW','ANALYSIS',clock_timestamp()+interval '1 hour'),
+          ($1,$2,$3,'GL.JE.POST','LEGACY',NULL),($1,$2,$3,'GL.JE.APPROVE','LEGACY',NULL)`,[ids.tenantId,actor,ids.entityId]);
+  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor})});
+  await assert.rejects(issuer.issue({tenantId:ids.tenantId}),error=>error.code==='42501');
+  const readKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId,readOnly:true})});
+  assert.deepEqual(await readKernel.getJournalWorkflowCapabilities({tenantId:ids.tenantId,entityId:ids.entityId}),{entity_id:ids.entityId,can_submit:false,can_review:false,can_approve:false,can_post:false});
+  await assert.rejects(readKernel.getJournalWorkflowCapabilities({tenantId:ids.tenantId,entityId:other.entityId}),error=>error.code==='42501');
+  const server=createProductionAccountingServer({runtimePool,issuerPool,authenticator:{authenticate:async()=>({trusted:true,actorId:actor,tenantId:ids.tenantId})}});
+  await new Promise((resolve,reject)=>server.listen(0,'127.0.0.1',error=>error?reject(error):resolve()));
+  try{
+    const base=`http://127.0.0.1:${server.address().port}/api/v1/entities/${ids.entityId}/journal-entries`;
+    const response=await fetch(`${base}?periodId=${ids.periodId}`);
+    assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');
+    assert.ok((await response.json()).data.some(row=>row.journal_entry_id===ids.journalId));
+    const post=await fetch(`${base}/${ids.journalId}/post`,{method:'POST',headers:{'content-type':'application/json','idempotency-key':'read-fallback-post-denied-0001','if-match':'"0"'},body:JSON.stringify({periodId:ids.periodId})});
+    assert.equal(post.status,403);
+    assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[ids.journalId])).rows[0].status,'DRAFT');
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[ids.journalId])).rows[0].n,0);
+  }finally{await new Promise(resolve=>server.close(resolve));}
+  await adminPool.query("UPDATE runtime_actor_grant SET revoked_at=clock_timestamp() WHERE tenant_id=$1 AND actor_id=$2 AND permission='GL.JE.VIEW'",[ids.tenantId,actor]);
+  await assert.rejects(issuer.issue({tenantId:ids.tenantId,readOnly:true}),error=>error.code==='42501');
 });
 
 pgTest('finite human role sync enforces exact replacement, service-only deny, expiry, and context SoD',async()=>{
