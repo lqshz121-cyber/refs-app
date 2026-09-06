@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {webcrypto} from 'node:crypto';
-import {createNativeDocumentDraft,nativeDocumentEntryAccess,readNativeDocumentCounterparties,uploadNativeDocumentSupport,validateNativeDocumentDraft} from '../src/native-document-entry.js';
+import {prepareNativeDocumentDraft,sendNativeDocumentDraft,createNativeDocumentDraft,nativeDocumentEntryAccess,readNativeDocumentCounterparties,uploadNativeDocumentSupport,validateNativeDocumentDraft} from '../src/native-document-entry.js';
+import {recoverNativeDocument,retainNativeDocument,releaseNativeDocument} from '../src/native-document-recovery.js';
 const entityId='11111111-1111-4111-8111-111111111111',periodId='22222222-2222-4222-8222-222222222222',attachmentId='33333333-3333-4333-8333-333333333333';
 const config={baseUrl:'https://api.example',entityId,periodId,getAccessToken:async()=>'a'.repeat(48)};
 const scope={entity_id:entityId,period_id:periodId,entity_name:'Test company',entity_code:'TEST',base_currency:'USD',period_code:'2026-08',period_start:'2026-08-01',period_end:'2026-08-31',period_status:'OPEN'};
@@ -19,6 +20,18 @@ function fetchContext({currentAccess=access,currentScope=scope,currentAccounts=[
   assert.equal(options.method,'POST');return command(url,options);
 };}
 const receipt={business_document_id:entityId,journal_entry_id:periodId,document_kind:'AP_BILL',status:'DRAFT',revision:0,idempotent:false};
+for(const kind of ['AP_BILL','AR_INVOICE'])test(kind+' prepared recovery preserves scoped body and attachment without repeating scope validation',async()=>{
+ const prepared=await prepareNativeDocumentDraft({...args,kind,counterparty:{...vendor,member_type:kind==='AP_BILL'?'VENDOR':'CUSTOMER'},fetcher:fetchContext({command:()=>{throw Error('Preparation must not POST');}})});
+ assert.equal(prepared.ok,true);const command=prepared.command,recovery={config,kind,actorId:access.actor_id};retainNativeDocument(recovery,command);
+ const recovered=recoverNativeDocument(recovery);assert.deepEqual(recovered,command);recovered.document.amount='9.0000';assert.equal(recoverNativeDocument(recovery).document.amount,draft.amount,'recovery returns isolated copies');
+ for(const patch of [{actorId:'another-actor'},{kind:kind==='AP_BILL'?'AR_INVOICE':'AP_BILL'},{config:{...config,periodId:entityId}},{config:{...config,baseUrl:'https://other.example'}}])assert.equal(recoverNativeDocument({...recovery,...patch}),null);
+ assert.throws(()=>retainNativeDocument(recovery,{...command,idempotencyKey:'another-key'}));
+ let posts=0;const sent=await sendNativeDocumentDraft({config,command,fetcher:async(url,options)=>{if(url.endsWith('/access/self'))return ok(access);assert.equal(options.method,'POST');assert.equal(JSON.parse(options.body).amount,draft.amount);assert.deepEqual(JSON.parse(options.body).attachmentIds,[attachmentId]);posts++;return ok({...receipt,document_kind:kind,idempotent:true},200);}});
+ assert.equal(sent.ok,true);assert.equal(posts,1);
+ assert.equal((await sendNativeDocumentDraft({config:{...config,baseUrl:'https://other.example'},command,fetcher:()=>{throw Error('must not fetch');}})).ok,false);
+ assert.equal((await sendNativeDocumentDraft({config,command,fetcher:async()=>ok({...access,actor_id:'different'})})).ok,false);
+ releaseNativeDocument(recovery,{...command,idempotencyKey:'other'});assert.ok(recoverNativeDocument(recovery));releaseNativeDocument(recovery,command);assert.equal(recoverNativeDocument(recovery),null);
+});
 
 test('entry access requires exact company, current session and explicit create/upload permissions',()=>{
   assert.equal(nativeDocumentEntryAccess(config,'AP_BILL',access),true);

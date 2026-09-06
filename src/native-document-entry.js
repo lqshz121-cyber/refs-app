@@ -64,17 +64,26 @@ export async function uploadNativeDocumentSupport({config,kind,file,expectedActo
   }catch{return fail('ATTACHMENT_UPLOAD_UNCONFIRMED','The supporting document could not be confirmed. Retry the same file.');}
 }
 
-export async function createNativeDocumentDraft({config,kind,draft,counterparty,attachmentId,expectedActorId,fetcher=globalThis.fetch,cryptoApi=globalThis.crypto}={}){
+export async function prepareNativeDocumentDraft({config,kind,draft,counterparty,attachmentId,expectedActorId,fetcher=globalThis.fetch,cryptoApi=globalThis.crypto}={}){
   if(!normalizeConfig(config)||!kindValid(kind)||!cryptoApi?.subtle)return fail('DOCUMENT_ENTRY_INVALID','Document entry is not configured.');
   const context=await currentEntryContext(config,kind,fetcher,expectedActorId);if(!context.ok)return context;
   const accounts=await refreshAuthoritativeChartOfAccounts({config,fetcher});if(!accounts.ok)return accounts;
   const validated=validateNativeDocumentDraft({config,kind,draft,counterparty,attachmentId,scope:context.scope,accounts:accounts.rows});if(!validated.ok)return validated;
+  const identity=JSON.stringify(['NATIVE_DOCUMENT_V2',config.baseUrl,config.entityId,config.periodId,kind,context.access.actor_id,validated.document]);
+  const idempotencyKey='native-document-'+await hash(identity,cryptoApi);
+  return {ok:true,command:{baseUrl:config.baseUrl,entityId:config.entityId,periodId:config.periodId,kind,actorId:context.access.actor_id,idempotencyKey,document:structuredClone(validated.document),draft:structuredClone(draft),counterparty:structuredClone(counterparty),attachmentId}};
+}
+export async function sendNativeDocumentDraft({config,command,fetcher=globalThis.fetch}={}){
+  if(!normalizeConfig(config)||!kindValid(command?.kind)||command.baseUrl!==config.baseUrl||command.entityId!==config.entityId||command.periodId!==config.periodId)return fail('DOCUMENT_ENTRY_INVALID','The retained draft belongs to a different company, period or API.');
+  const access=await refreshCurrentActorAccess({config,fetcher});if(!access.ok)return access;
+  if(!nativeDocumentEntryAccess(config,command.kind,access.row)||access.row.actor_id!==command.actorId)return fail('DOCUMENT_ENTRY_ACCESS_REQUIRED','Restore the original sign-in and document entry access to confirm this draft.');
   let attempted=false,responseStatus=null;
   try{
-    const identity=JSON.stringify(['NATIVE_DOCUMENT_V1',config.entityId,config.periodId,kind,context.access.actor_id,validated.document]);
-    const idempotencyKey=`native-document-${await hash(identity,cryptoApi)}`;
     attempted=true;
-    const result=await createAuthoritativeBusinessDocument({config,kind,document:validated.document,idempotencyKey,fetcher:async(...request)=>{const response=await fetcher(...request);responseStatus=response.status;return response;}});
+    const result=await createAuthoritativeBusinessDocument({config,kind:command.kind,document:command.document,idempotencyKey:command.idempotencyKey,fetcher:async(...request)=>{const response=await fetcher(...request);responseStatus=response.status;return response;}});
     return {...result,attempted:true,unconfirmed:!result.ok&&!(Number.isInteger(responseStatus)&&responseStatus>=400&&responseStatus<500)};
   }catch{return {...fail('DOCUMENT_CREATE_UNCONFIRMED','Creation could not be confirmed. Retry the same document before changing its details.'),attempted,unconfirmed:attempted};}
+}
+export async function createNativeDocumentDraft(args={}){
+  const prepared=await prepareNativeDocumentDraft(args);return prepared.ok?sendNativeDocumentDraft({...args,command:prepared.command}):prepared;
 }
