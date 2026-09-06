@@ -15,6 +15,248 @@
     }
   ],
   "paths": {
+    "/entities/{entityId}/bank/transactions/{bankSourceId}/sales-receipt-candidates": {
+  "get": {
+    "operationId": "readSalesReceiptBankCandidates",
+    "summary": "Read posted cash sale candidates for a bank transaction",
+    "description": "Requires BANK.MATCH.CREATE. Company-scoped posted Sales Receipt and exact cash journal/ledger evidence. Same bank member, currency and positive amount, within 31 days, no active bank or receipt match. Stable UUID keyset pages. This read does not authorize matching; the command must revalidate under lock.",
+    "parameters": [
+      {
+        "$ref": "#/components/parameters/EntityId"
+      },
+      {
+        "name": "bankSourceId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      {
+        "name": "afterId",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "Posted Sales Receipt cash evidence",
+        "headers": {
+          "Cache-Control": {
+            "schema": {
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "ok",
+                "data"
+              ],
+              "properties": {
+                "ok": {
+                  "const": true
+                },
+                "data": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "schema_version",
+                    "entity_id",
+                    "bank_source_id",
+                    "bank_revision",
+                    "after_id",
+                    "limit",
+                    "rows",
+                    "next_id"
+                  ],
+                  "properties": {
+                    "schema_version": {
+                      "const": "SALES_RECEIPT_BANK_CANDIDATES_V1"
+                    },
+                    "entity_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "bank_source_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "bank_revision": {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]{0,18})$"
+                    },
+                    "after_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    },
+                    "rows": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "sales_receipt_id",
+                          "receipt_revision",
+                          "receipt_number",
+                          "period_id",
+                          "customer_ref",
+                          "customer_name",
+                          "bank_member_ref",
+                          "cash_account_code",
+                          "accounting_date",
+                          "currency",
+                          "amount",
+                          "journal_entry_id",
+                          "journal_revision",
+                          "journal_line_id",
+                          "ledger_line_id",
+                          "date_delta_days"
+                        ],
+                        "properties": {
+                          "sales_receipt_id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "receipt_revision": {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]{0,18})$"
+                          },
+                          "receipt_number": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "period_id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "customer_ref": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "customer_name": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "bank_member_ref": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "cash_account_code": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "accounting_date": {
+                            "type": "string",
+                            "format": "date"
+                          },
+                          "currency": {
+                            "type": "string",
+                            "pattern": "^[A-Z]{3}$"
+                          },
+                          "amount": {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]{0,15})\\.[0-9]{4}$"
+                          },
+                          "journal_entry_id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "journal_revision": {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]{0,18})$"
+                          },
+                          "journal_line_id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "ledger_line_id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "date_delta_days": {
+                            "type": "integer",
+                            "minimum": -31,
+                            "maximum": 31
+                          }
+                        }
+                      }
+                    },
+                    "next_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "$ref": "#/components/responses/Problem"
+      },
+      "401": {
+        "$ref": "#/components/responses/Problem"
+      },
+      "403": {
+        "$ref": "#/components/responses/Problem"
+      },
+      "404": {
+        "$ref": "#/components/responses/Problem",
+        "description": "Bank transaction was not found in this company"
+      },
+      "500": {
+        "$ref": "#/components/responses/Problem"
+      },
+      "503": {
+        "$ref": "#/components/responses/Problem"
+      }
+    }
+  }
+},
     "/entities/{entityId}/ar/sales-receipt-options": {
   "get": {
     "operationId": "readSalesReceiptOptions",
