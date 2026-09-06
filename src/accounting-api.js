@@ -2555,7 +2555,23 @@ export async function applyAuthoritativeCredit({config,kind,businessAdjustmentId
   if(!config||typeof fetcher!=='function'||!UUID.test(businessAdjustmentId||'')||!UUID.test(businessDocumentId||'')||!['AP_VENDOR_CREDIT','AR_CREDIT_MEMO'].includes(kind)||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>200)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Credit allocation command configuration is invalid.'};
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();const path=kind==='AP_VENDOR_CREDIT'?`/ap/vendor-credits/${businessAdjustmentId}/allocations`:`/ar/credit-memos/${businessAdjustmentId}/allocations`;
   const body={businessDocumentId,amount,reason};
-  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});if(!response.ok)return await failure(response);const result=await response.json();if(result?.ok!==true||!result.data)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid allocation envelope.'};return {ok:true,data:result.data,idempotent:response.status===200};}catch{return unreachable('The browser could not complete the authoritative credit allocation; no HTTP response was produced.');}
+  const unconfirmed=()=>({ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'The API did not confirm the credit, target document and applied amount. Check the saved allocation or retry with the same request key.'});
+  const units=value=>{
+    if(!['string','number'].includes(typeof value))return null;
+    const decimal=String(value);if(!/^(0|[1-9]\d{0,15})(\.\d{1,4})?$/.test(decimal))return null;
+    const [whole,fraction='']=decimal.split('.');return BigInt(whole)*10000n+BigInt(fraction.padEnd(4,'0'));
+  };
+  let response;
+  try{response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});}
+  catch{return unreachable('The browser could not confirm the credit allocation. Check the saved allocation or retry with the same request key.');}
+  if(!response.ok)return await failure(response);
+  let result;try{result=await response.json();}catch{return unconfirmed();}
+  const receipt=result?.data,requestedAmount=units(amount);
+  if(![200,201].includes(response.status)||result?.ok!==true||!receipt||Array.isArray(receipt)
+    ||!UUID.test(receipt.business_allocation_id||'')||receipt.business_adjustment_id!==businessAdjustmentId||receipt.business_document_id!==businessDocumentId
+    ||requestedAmount===null||requestedAmount<=0n||units(receipt.amount)!==requestedAmount
+    ||receipt.status!=='ACTIVE'||receipt.idempotent!==(response.status===200))return unconfirmed();
+  return {ok:true,data:receipt,idempotent:receipt.idempotent};
 }
 
 export async function transitionAuthoritativeJournal({config,journalEntryId,revision,action,fetcher=globalThis.fetch}={}){

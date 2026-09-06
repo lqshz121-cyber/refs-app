@@ -275,8 +275,23 @@ const periodEnvelope=data=>({ok:true,data,scope:periodScope(data)});
   assert.equal(credit.ok,true);assert.match(call.url,/\/ap\/vendor-credits$/);assert.equal(JSON.parse(call.options.body).creditNumber,'VC-100');
   const memo=await createAuthoritativeAdjustment({config,kind:'AR_CREDIT_MEMO',idempotencyKey:'AR-CREDIT-request-0001',adjustment:{number:'CM-100',date:'2026-08-02',counterpartyRef:'C-1',counterpartyName:'Customer',amount:4,lines:[{line_no:1,account_code:'411100',amount:4}],reason:'Approved customer credit'},fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{business_adjustment_id:entityId,journal_entry_id:periodId,status:'DRAFT',revision:0,idempotent:false}})};}});
   assert.equal(memo.ok,true);assert.match(call.url,/\/ar\/credit-memos$/);assert.equal(JSON.parse(call.options.body).memoNumber,'CM-100');
-  const allocation=await applyAuthoritativeCredit({config,kind:'AR_CREDIT_MEMO',businessAdjustmentId:entityId,businessDocumentId:'22222222-2222-4222-8222-222222222222',amount:5,reason:'Apply posted credit',idempotencyKey:'AR-CREDIT-ALLOC-0001',fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{status:'PENDING'}})};}});
-  assert.equal(allocation.ok,true);assert.match(call.url,/\/ar\/credit-memos\/.+\/allocations$/);assert.equal(JSON.parse(call.options.body).amount,5);
+  for(const kind of ['AP_VENDOR_CREDIT','AR_CREDIT_MEMO']){
+    const request={config,kind,businessAdjustmentId:entityId,businessDocumentId:'22222222-2222-4222-8222-222222222222',amount:'1.2345',reason:'Apply posted credit',idempotencyKey:'CREDIT-ALLOC-receipt-check'};
+    const receipt={business_allocation_id:periodId,business_adjustment_id:entityId,business_document_id:request.businessDocumentId,amount:1.2345,status:'ACTIVE',idempotent:false};
+    for(const patch of [{business_allocation_id:null},{business_adjustment_id:periodId},{business_document_id:entityId},{amount:1.2344},{amount:null},{status:'PENDING'},{status:'CANCELLED'},{idempotent:true}]){
+      const result=await applyAuthoritativeCredit({...request,fetcher:async()=>({ok:true,status:201,json:async()=>({ok:true,data:{...receipt,...patch}})})});
+      assert.equal(result.ok,false,kind+' rejects unconfirmed allocation receipt');assert.equal(result.code,'ACCOUNTING_API_PROTOCOL');assert.match(result.message,/same request key/);
+    }
+    for(const replay of [false,true]){
+      const result=await applyAuthoritativeCredit({...request,fetcher:async(url,options)=>{assert.match(url,kind==='AP_VENDOR_CREDIT'?/\/ap\/vendor-credits\/.+\/allocations$/:/\/ar\/credit-memos\/.+\/allocations$/);assert.equal(JSON.parse(options.body).amount,'1.2345');assert.equal(options.headers['idempotency-key'],request.idempotencyKey);return {ok:true,status:replay?200:201,json:async()=>({ok:true,data:{...receipt,idempotent:replay}})};}});
+      assert.equal(result.ok,true);assert.equal(result.idempotent,replay);
+    }
+    for(const response of [{ok:true,status:200,json:async()=>({ok:true,data:receipt})},{ok:true,status:202,json:async()=>({ok:true,data:receipt})},{ok:true,status:201,json:async()=>({ok:true,data:{status:'PENDING'}})},{ok:true,status:201,json:async()=>{throw Error('truncated JSON');}}]){
+      const result=await applyAuthoritativeCredit({...request,fetcher:async()=>response});assert.equal(result.code,'ACCOUNTING_API_PROTOCOL');
+    }
+    const large=await applyAuthoritativeCredit({...request,amount:'9999999999999999.9999',fetcher:async()=>({ok:true,status:201,json:async()=>({ok:true,data:{...receipt,amount:10000000000000000}})})});assert.equal(large.code,'ACCOUNTING_API_PROTOCOL');
+    let calls=0;const unknown=await applyAuthoritativeCredit({...request,fetcher:async()=>{calls++;throw Error('response lost');}});assert.equal(unknown.code,'ACCOUNTING_API_UNREACHABLE');assert.equal(calls,1);assert.match(unknown.message,/same request key/);
+  }
   const refund=await createAuthoritativeAdjustment({config,kind:'AR_REFUND',idempotencyKey:'AR-REFUND-request-0001',adjustment:{sourceAdjustmentId:entityId,number:'RF-100',date:'2026-08-02',amount:5,reason:'Return customer credit'},fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{business_adjustment_id:periodId,journal_entry_id:periodId,source_adjustment_id:entityId,status:'DRAFT',revision:0,idempotent:false}})};}});
   assert.equal(refund.ok,true);assert.match(call.url,/\/ar\/refunds$/);assert.equal(JSON.parse(call.options.body).cashAccountCode,'111000');
   for(const kind of ['AP_VENDOR_CREDIT','AR_CREDIT_MEMO','AR_REFUND']){
