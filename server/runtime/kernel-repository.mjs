@@ -2571,6 +2571,14 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async createNativeSalesReceipt(args){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_create_native_sales_receipt($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) AS result',
+      [args.tenantId,args.entityId,args.periodId,args.number,args.customerRef,args.bankMemberRef,args.cashAccountCode,
+        args.categoryAccountCode,args.date,args.currency,args.amount,args.reason,args.attachmentIds,args.idempotencyKey]
+    ),'NATIVE_SALES_RECEIPT_FAILED','Sales receipt Draft creation did not return a result').result);
+  }
+
   async createNativeRefund(args){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_create_native_refund($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) AS result',

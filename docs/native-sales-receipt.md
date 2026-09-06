@@ -1,0 +1,15 @@
+# Native sales receipt implementation in progress
+
+This module represents a cash sale as its own business record. It must not invent an AR invoice or an allocation merely to reuse invoice settlement infrastructure.
+
+`POST /api/v1/entities/{entityId}/ar/sales-receipts` requires `AR.SALES_RECEIPT.CREATE`, authenticated scope and an idempotency key. The body contains period, receipt number, customer reference, bank reference, cash/category accounts, date, currency, exact decimal amount, reason and verified attachment IDs. Tenant and actor come from the server session; the customer name comes from the company master. Input identity/hash overrides and unconfirmed backend receipts are rejected.
+
+Migration 317 introduces `sales_receipt`. Stable identity, company/period, number, customer name/reference, bank, accounts, date/currency/amount, description, journal reference, version and timestamps describe the record. Company-scoped foreign keys bind every master and journal reference. Raw application table access is revoked; the security-definer command enforces scoped permission. The down migration refuses to remove populated business records.
+
+Creation atomically writes a Manual Draft journal (debit bank cash, credit selected category with customer reference), clean attachment links, the sales receipt, audit, outbox and actor-bound idempotency receipt. It writes no ledger or AR document/allocation. The normal journal workflow owns review and approval. On posting, the receipt trigger verifies that period/date/number/currency, exact two-line amount, bank, customer and category still match, then writes POSTED state, revision, audit and outbox in that transaction. Intermediate approval state is read from the linked journal, not inferred from the business record's Draft status.
+
+Remaining work before this is a functional module: real PostgreSQL migration/up/down and command lifecycle tests, concurrent replay/conflict and posting-rollback evidence; read/list APIs and 100001-row pagination; scoped customer/bank/category input reads; native form and recovery; bank matching integration that does not require an invoice; edit/cancellation/refund business flows; journal/ledger/source drill, independent audit and live business acceptance. Multi-category/tax details are not represented by this initial one-category command.
+
+The PostgreSQL regression now covers empty migration down/up, scoped permission denial, foreign-company customer and attachment rejection, inactive customer rejection, concurrent replay and changed-body conflict, exact posting without AR balances, and atomic rollback when a balanced journal no longer matches the receipt. It also verifies that rollback refuses populated receipt records. These assertions still require execution against PostgreSQL.
+
+API contract tests with a mocked kernel, static migration-contract checks, the local server suite and the build have passed. Local fresh PostgreSQL 15 and 16 attempts could not run because the Docker engine is unavailable. No PostgreSQL execution, deployment, new permissions or real accounting writes have occurred for this module.
