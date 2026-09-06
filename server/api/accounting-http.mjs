@@ -1,3 +1,4 @@
+import {validBusinessRecordKind,validBusinessRecord} from '../runtime/business-record-detail.mjs';
 import {validCreditHistorySelection,validCreditHistory} from '../runtime/credit-allocation-history.mjs';
 import {validSettlementHistorySelection,validSettlementHistory} from '../runtime/settlement-history.mjs';
 import {createServer} from 'node:http';
@@ -737,6 +738,18 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!kernel||typeof kernel.readSettlementContext!=='function')throw new AccountingApiError(503,'SETTLEMENT_CONTEXT_UNAVAILABLE','Settlement context is unavailable');
         result=await kernel.readSettlementContext({tenantId:principal.tenantId,entityId,...selection});
         if(!validSettlementContext(result,{entityId,...selection}))throw new AccountingApiError(500,'SETTLEMENT_CONTEXT_INVALID','Settlement context did not match its scope or balances');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='business-records'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Record reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['recordKind']);
+        const selection={recordId:requireUuid(parts[5],'recordId').toLowerCase(),recordKind:parsedUrl.searchParams.get('recordKind')};
+        if(!validBusinessRecordKind(selection.recordKind))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Business record kind is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readBusinessRecord!=='function')throw new AccountingApiError(503,'BUSINESS_RECORD_UNAVAILABLE','Business record is unavailable');
+        result=await kernel.readBusinessRecord({tenantId:principal.tenantId,entityId,...selection});
+        if(!validBusinessRecord(result,{entityId,...selection}))throw new AccountingApiError(500,'BUSINESS_RECORD_INVALID','Business record did not match its scope');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===7&&['business-adjustments','business-documents'].includes(parts[4])&&parts[6]==='credit-allocations'){
