@@ -1,0 +1,41 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {webcrypto} from 'node:crypto';
+import {recoverNativeRefund,retainNativeRefund,releaseNativeRefund} from '../src/native-refund-recovery.js';
+import {nativeRefundAccess,readNativeRefundContext,readNativeRefundBanks,validateNativeRefundDraft,prepareNativeRefund,sendNativeRefund} from '../src/native-refund-entry.js';
+const entityId='11111111-1111-4111-8111-111111111111',periodId='22222222-2222-4222-8222-222222222222',sourceAdjustmentId='33333333-3333-4333-8333-333333333333';
+const config={baseUrl:'https://api.example',entityId,periodId,getAccessToken:async()=>'a'.repeat(48)};
+const access={tenant_id:sourceAdjustmentId,entity_id:entityId,actor_id:'oidc|maker',grant_set_version:1,permissions:['AR.REFUND.CREATE','ATTACHMENT.CREATE'],configured_permissions:['AR.REFUND.CREATE','ATTACHMENT.CREATE'],session_refresh_required:false};
+const account={period_id:periodId,period_code:'2026-08',period_start:'2026-08-01',period_end:'2026-08-31',account_code:'100100',account_name:'Operating bank',active:true,requires_member:true,required_member_type:'BANK',currency:null,opening_balance:null,period_debit:null,period_credit:null,ending_balance:null,posted_ledger_line_count:'0'};
+const context={schema_version:'CREDIT_USAGE_CONTEXT_V1',entity_id:entityId,action:'AR_REFUND',period:{period_id:periodId,starts_on:'2026-08-01',ends_on:'2026-08-31',status:'OPEN',revision:'0'},credit:{business_adjustment_id:sourceAdjustmentId,adjustment_kind:'AR_CREDIT_MEMO',journal_entry_id:entityId,number:'CM-1',counterparty_ref:'C-1',currency:'USD',amount:'9007199254740993.1234',revision:'4'},allocated_amount:'0.0000',refund_amount:'0.0000',available_amount:'9007199254740993.1234'};
+const bank={member_ref:'BANK1',member_type:'BANK',display_name:'Operating bank'},draft={number:'REF-1',date:'2026-08-10',amount:'9007199254740993.1234',cashAccountCode:'100100',reason:'Customer credit refund'};
+const args={config,kind:'AR_REFUND',sourceAdjustmentId,draft,bank,accounts:[account],context,attachmentId:periodId,expectedActorId:access.actor_id,cryptoApi:webcrypto};
+const receipt={business_adjustment_id:periodId,source_adjustment_id:sourceAdjustmentId,journal_entry_id:entityId,status:'DRAFT',revision:0,idempotent:false};
+const ok=(data,status=200)=>({ok:true,status,json:async()=>({ok:true,data})});
+const fixture=(command,currentAccess=access)=>async(url,options)=>{assert.equal(options.credentials,'include');assert.equal(options.cache,'no-store');if(url.endsWith('/access/self'))return ok(currentAccess);if(url.includes('/usage-context?')){assert.equal(new URL(url).searchParams.get('action'),'AR_REFUND');return ok(context);}if(url.includes('/chart-of-accounts?'))return ok([account]);return command(url,options);};
+test('refund recovery survives form replacement and isolates actor, company, period, credit and host',async()=>{
+  const prepared=await prepareNativeRefund({...args,fetcher:fixture(()=>{})});const scope={config,sourceAdjustmentId,actorId:access.actor_id};
+  retainNativeRefund(scope,prepared.command,{uncertain:true});
+  const saved=recoverNativeRefund(scope);assert.equal(saved.uncertain,true);assert.deepEqual(saved.command,prepared.command);
+  saved.command.body.amount='99';assert.equal(recoverNativeRefund(scope).command.body.amount,draft.amount);
+  for(const changed of [{...scope,actorId:'other'},{...scope,sourceAdjustmentId:entityId},...['entityId','periodId','baseUrl'].map(k=>({...scope,config:{...config,[k]:'other'}}))])assert.equal(recoverNativeRefund(changed),null);
+  assert.throws(()=>retainNativeRefund(scope,{...prepared.command,idempotencyKey:'different-key'}));
+  releaseNativeRefund(scope,{...prepared.command,idempotencyKey:'different-key'});assert.ok(recoverNativeRefund(scope));
+  releaseNativeRefund(scope,prepared.command);assert.equal(recoverNativeRefund(scope),null);
+});
+test('refund entry validates exact capacity, period, bank and actor without payment authority',async()=>{
+  assert.equal(validateNativeRefundDraft(args).body.amount,draft.amount);assert.equal(nativeRefundAccess(config,'AR_REFUND',access),true);assert.equal(nativeRefundAccess(config,'AP_PAYMENT',access),false);
+  for(const patch of [{amount:'9007199254740993.1235'},{amount:'1e3'},{amount:1},{amount:'-0.0001'},{date:'2026-02-30'},{date:'2026-09-01'}])assert.equal(validateNativeRefundDraft({...args,draft:{...draft,...patch}}).ok,false);
+  for(const c of [{...context,available_amount:'1.0000'},{...context,period:{...context.period,status:'CLOSED'}},{...context,credit:{...context.credit,business_adjustment_id:entityId}},{...context,refund_amount:'9007199254740993.1235',available_amount:'-0.0001'}])assert.equal(validateNativeRefundDraft({...args,context:c}).ok,false);
+  assert.equal((await readNativeRefundContext({...args,fetcher:fixture(()=>{})})).ok,true);
+  const page={schema_version:'SETTLEMENT_BANK_MEMBERS_V1',entity_id:entityId,settlement_kind:'AR_REFUND',query:'',after_ref:null,limit:50,rows:[bank],next_ref:null};
+  assert.equal((await readNativeRefundBanks({...args,fetcher:async()=>ok(page)})).ok,true);
+  assert.equal((await readNativeRefundBanks({...args,fetcher:async()=>ok({...page,settlement_kind:'AR_RECEIPT'})})).ok,false);
+});
+test('unknown refund outcomes retain exact intent for same-key replay and reject changed actors',async()=>{
+  const prepared=await prepareNativeRefund({...args,fetcher:fixture(()=>{throw Error('unexpected mutation');})});assert.equal(prepared.ok,true);
+  const requests=[],fetcher=fixture((url,options)=>{assert.match(url,/\/native-refunds$/);requests.push(options);if(requests.length===1)throw Error('lost');return ok({...receipt,idempotent:true});});
+  assert.equal((await sendNativeRefund({config,command:prepared.command,fetcher})).unconfirmed,true);
+  assert.equal((await sendNativeRefund({config,command:prepared.command,fetcher})).ok,true);
+  assert.equal(requests[0].body,requests[1].body);assert.equal(requests[0].headers['idempotency-key'],requests[1].headers['idempotency-key']);assert.equal(JSON.parse(requests[0].body).amount,draft.amount);
+  assert.equal((await sendNativeRefund({config,command:prepared.command,fetcher:fixture(()=>{throw Error('must not send');},{...access,actor_id:'other'})})).attempted,undefined);
+  for(const patch of [{source_adjustment_id:entityId},{status:'POSTED'},{revision:1},{idempotent:true},{extra:true}])assert.equal((await sendNativeRefund({config,command:prepared.command,fetcher:fixture(()=>ok({...receipt,...patch},201))})).unconfirmed,true);
+});
