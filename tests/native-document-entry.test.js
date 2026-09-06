@@ -1,10 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {readSalesReceiptPage,readSalesReceipt} from '../src/sales-receipt-api.js';
+import {prepareSalesReceipt,sendSalesReceipt,validateSalesReceiptDraft,uploadSalesReceiptSupport} from '../src/sales-receipt-entry.js';
+import {recoverSalesReceipt,retainSalesReceipt,releaseSalesReceipt,beginSalesReceiptAttempt,currentSalesReceiptAttempt} from '../src/sales-receipt-recovery.js';
 import {webcrypto} from 'node:crypto';
 import {prepareNativeDocumentDraft,sendNativeDocumentDraft,createNativeDocumentDraft,nativeDocumentEntryAccess,readNativeDocumentCounterparties,uploadNativeDocumentSupport,validateNativeDocumentDraft} from '../src/native-document-entry.js';
 import {recoverNativeDocument,retainNativeDocument,releaseNativeDocument} from '../src/native-document-recovery.js';
 const entityId='11111111-1111-4111-8111-111111111111',periodId='22222222-2222-4222-8222-222222222222',attachmentId='33333333-3333-4333-8333-333333333333';
 const config={baseUrl:'https://api.example',entityId,periodId,getAccessToken:async()=>'a'.repeat(48)};
+test('Sales Receipt client preserves exact persisted data and rejects stale scope and malformed pages',async()=>{
+ const record={sales_receipt_id:attachmentId,period_id:periodId,receipt_number:'SALE-1',customer_ref:'C-1',customer_name:'Cash customer',bank_member_ref:'BANK-1',cash_account_code:'111000',category_account_code:'400000',accounting_date:'2026-08-12',currency:'USD',amount:'9007199254740993.1234',description:'Verified sale evidence',status:'DRAFT',revision:'0',journal_entry_id:entityId,journal_number:'SALE-1',journal_status:'DRAFT',journal_revision:'0',created_at:'2026-08-12T01:00:00.000000Z',posted_at:null};
+ const page={schema_version:'SALES_RECEIPT_PAGE_V1',entity_id:entityId,period_id:periodId,after_id:null,limit:25,rows:[record],next_id:null},detail={schema_version:'SALES_RECEIPT_DETAIL_V1',entity_id:entityId,record},calls=[];
+ const fetcher=async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({ok:true,data:url.includes('?')?page:detail})};};
+ assert.deepEqual(await readSalesReceiptPage({config,fetcher}),{ok:true,data:page});
+ assert.deepEqual(await readSalesReceipt({config,receiptId:attachmentId,fetcher}),{ok:true,data:detail});
+ assert.equal(calls[0].options.cache,'no-store');assert.equal(calls[0].options.method,'GET');assert.ok(calls[0].url.includes('limit=25'));assert.equal(calls[0].options.headers.authorization,'Bearer '+'a'.repeat(48));
+ for(const bad of [{...page,entity_id:periodId},{...page,rows:[record,record]},{...page,next_id:attachmentId},{...page,rows:[{...record,amount:9007199254740994}]}])assert.equal((await readSalesReceiptPage({config,fetcher:async()=>({ok:true,json:async()=>({ok:true,data:bad})})})).ok,false);
+ assert.equal((await readSalesReceiptPage({config,limit:0,fetcher})).ok,false);assert.equal(calls.length,2);
+ assert.equal((await readSalesReceipt({config,receiptId:attachmentId,fetcher:async()=>({ok:false,status:403})})).ok,false);
+ assert.equal((await readSalesReceipt({config,receiptId:attachmentId,fetcher:async()=>({ok:true,json:async()=>({ok:true,data:{...detail,record:{...record,sales_receipt_id:periodId}}})})})).ok,false);
+});
 const scope={entity_id:entityId,period_id:periodId,entity_name:'Test company',entity_code:'TEST',base_currency:'USD',period_code:'2026-08',period_start:'2026-08-01',period_end:'2026-08-31',period_status:'OPEN'};
 const access={tenant_id:attachmentId,entity_id:entityId,actor_id:'oidc|maker',grant_set_version:1,permissions:['AP.BILL.CREATE','AR.INVOICE.CREATE','ATTACHMENT.CREATE'],configured_permissions:['AP.BILL.CREATE','AR.INVOICE.CREATE','ATTACHMENT.CREATE'],session_refresh_required:false};
 const account={period_id:periodId,period_code:scope.period_code,period_start:scope.period_start,period_end:scope.period_end,account_code:'610000',account_name:'Office expense',active:true,requires_member:false,required_member_type:null,currency:null,opening_balance:null,period_debit:null,period_credit:null,ending_balance:null,posted_ledger_line_count:'0'};
@@ -20,6 +35,24 @@ function fetchContext({currentAccess=access,currentScope=scope,currentAccounts=[
   assert.equal(options.method,'POST');return command(url,options);
 };}
 const receipt={business_document_id:entityId,journal_entry_id:periodId,document_kind:'AP_BILL',status:'DRAFT',revision:0,idempotent:false};
+test('Sales Receipt preparation and recovery preserve the original body, exact amount, actor and attachment',async()=>{
+ const saleAccess={...access,permissions:['AR.SALES_RECEIPT.CREATE','ATTACHMENT.CREATE'],configured_permissions:['AR.SALES_RECEIPT.CREATE','ATTACHMENT.CREATE']};
+ const saleDraft={number:'SALE-ENTRY-1',date:'2026-08-12',amount:'9007199254740993.1234',currency:'USD',reason:'Verified cash sale support'};
+ const choices=Object.fromEntries([['CUSTOMER','C-1'],['BANK','BANK-1'],['CASH_ACCOUNT','111000'],['CATEGORY_ACCOUNT','400000']].map(([kind,ref])=>[kind,{ref,label:kind,kind}]));
+ const prepared=await prepareSalesReceipt({config,draft:saleDraft,choices,attachmentId,expectedActorId:access.actor_id,cryptoApi:webcrypto,fetcher:fetchContext({currentAccess:saleAccess})});assert.equal(prepared.ok,true,prepared.message);
+ const command=prepared.command,recovery={config,actorId:access.actor_id};retainSalesReceipt(recovery,command);
+ const first=beginSalesReceiptAttempt(recovery,command);assert.equal(currentSalesReceiptAttempt(recovery,first),true);
+ const second=beginSalesReceiptAttempt(recovery,command);assert.equal(currentSalesReceiptAttempt(recovery,first),false);assert.equal(currentSalesReceiptAttempt(recovery,second),true);
+ const copy=recoverSalesReceipt(recovery);copy.body.amount='9';assert.equal(recoverSalesReceipt(recovery).body.amount,saleDraft.amount);
+ assert.equal(recoverSalesReceipt({...recovery,config:{...config,entityId:periodId}}),null);
+ const sent=[],fetcher=fetchContext({currentAccess:saleAccess,currentScope:{...scope,period_status:'SOFT_CLOSED'},command:async(url,options)=>{sent.push(options);if(sent.length===1)throw Error('Lost response');return ok({sales_receipt_id:entityId,journal_entry_id:periodId,status:'DRAFT',revision:0,idempotent:true});}});
+ const lost=await sendSalesReceipt({config,command,fetcher});assert.equal(lost.unconfirmed,true);
+ const replay=await sendSalesReceipt({config,command:recoverSalesReceipt(recovery),fetcher});assert.equal(replay.ok,true);assert.equal(sent.length,2);assert.equal(sent[0].body,sent[1].body);assert.equal(sent[0].headers['idempotency-key'],sent[1].headers['idempotency-key']);assert.equal(JSON.parse(sent[0].body).amount,saleDraft.amount);
+ const refused=await sendSalesReceipt({config,command,fetcher:fetchContext({currentAccess:{...saleAccess,actor_id:'other'},command:()=>{throw Error('Must not POST');}})});assert.equal(refused.ok,false);assert.equal(refused.attempted,undefined);
+ releaseSalesReceipt(recovery,command);assert.equal(recoverSalesReceipt(recovery),null);
+ for(const patch of [{amount:'0'},{amount:'1e3'},{amount:'1.00001'},{date:'2026-09-01'},{reason:'short'}])assert.equal(validateSalesReceiptDraft({config,scope,draft:{...saleDraft,...patch},choices,attachmentId}).ok,false);
+ const malformed=await sendSalesReceipt({config,command,fetcher:fetchContext({currentAccess:saleAccess,command:async()=>ok({sales_receipt_id:entityId,journal_entry_id:periodId,status:'POSTED',revision:1,idempotent:true})})});assert.equal(malformed.unconfirmed,true);
+});
 for(const kind of ['AP_BILL','AR_INVOICE'])test(kind+' prepared recovery preserves scoped body and attachment without repeating scope validation',async()=>{
  const prepared=await prepareNativeDocumentDraft({...args,kind,counterparty:{...vendor,member_type:kind==='AP_BILL'?'VENDOR':'CUSTOMER'},fetcher:fetchContext({command:()=>{throw Error('Preparation must not POST');}})});
  assert.equal(prepared.ok,true);const command=prepared.command,recovery={config,kind,actorId:access.actor_id};retainNativeDocument(recovery,command);
