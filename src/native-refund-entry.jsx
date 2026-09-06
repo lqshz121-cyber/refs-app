@@ -40,7 +40,7 @@ export function NativeRefundForm({id,config,kind='AR_REFUND',sourceAdjustmentId,
       if(!support){setMessage('Uploading supporting document…');const attempt=uploadAttempt+(uploadClosed?1:0);setUploadAttempt(attempt);setUploadClosed(false);support=await uploadNativeRefundSupport({config,kind,file,expectedActorId:access.actor_id,uploadAttempt:attempt,fetcher});if(!mounted.current)return;if(!support.ok){setUploadClosed(support.code==='ATTACHMENT_RESERVATION_CLOSED');setMessage(support.message);return;}setAttachment(support);}
       setMessage('Saving draft…');const result=await prepareNativeRefund({config,kind,sourceAdjustmentId,draft,bank,attachmentId:support.attachmentId,expectedActorId:access.actor_id,fetcher});if(!mounted.current)return;if(!result.ok){setMessage(result.message);return;}prepared=result.command;setCommand(prepared);
     }
-    retainNativeRefund(recoveryScope,prepared,{uncertain:attempted.current});
+    retainNativeRefund(recoveryScope,prepared,{uncertain:true});
     const result=await sendNativeRefund({config,command:prepared,fetcher});
     if(result.ok||!result.unconfirmed&&!attempted.current)releaseNativeRefund(recoveryScope,prepared);
     else retainNativeRefund(recoveryScope,prepared,{uncertain:true});
