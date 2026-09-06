@@ -1,4 +1,5 @@
 import {BusinessRecordEvidence} from '../src/business-record-detail.jsx';
+import {SalesReceiptWorkspace} from '../src/sales-receipt-workspace.jsx';
 import {retainNativeDocument,releaseNativeDocument} from '../src/native-document-recovery.js';
 import {ListedRecordJournal} from '../src/listed-record-journal.jsx';
 import {formatExactCurrency} from '../src/exact-currency.js';
@@ -14,6 +15,18 @@ import {NativeDocumentEntry,NativeDocumentEntryForm} from '../src/native-documen
 import {NativeSettlementEntry,NativeSettlementForm} from '../src/native-settlement-entry.jsx';
 import {AuthoritativeDocumentWorkspace} from '../src/authoritative-workspace.jsx';
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222'};
+{
+  const receiptAccess={entity_id:config.entityId,actor_id:'receipt-reader',session_refresh_required:false,permissions:['AR.VIEW']};
+  const receiptView=access=>renderToStaticMarkup(<SalesReceiptWorkspace config={config} access={access}/>);
+  assert.match(receiptView(receiptAccess),/Refresh sales receipts/);
+  const maker={...receiptAccess,permissions:['AR.SALES_RECEIPT.CREATE','ATTACHMENT.CREATE']},receiptScope={entity_id:config.entityId,period_id:config.periodId,period_status:'OPEN'};
+  const makerView=renderToStaticMarkup(<SalesReceiptWorkspace config={config} access={maker} scope={receiptScope}/>);
+  assert.match(makerView,/New sales receipt/);assert.doesNotMatch(makerView,/Refresh sales receipts/);
+  assert.doesNotMatch(renderToStaticMarkup(<SalesReceiptWorkspace config={config} access={maker} scope={{...receiptScope,period_status:'CLOSED'}}/>),/New sales receipt/);
+  for(const access of [null,{...receiptAccess,entity_id:config.periodId},{...receiptAccess,permissions:[]},{...receiptAccess,session_refresh_required:true}]){
+    assert.doesNotMatch(receiptView(access),/Refresh sales receipts/);assert.match(receiptView(access),/access is unavailable/);
+  }
+}
 assert.equal(formatExactCurrency('9007199254740993.1234','USD'),'$9,007,199,254,740,993.1234');
 assert.equal(formatExactCurrency('0.0001','USD'),'$0.0001');
 assert.equal(formatExactCurrency('-0.1234','USD'),'-$0.1234');
