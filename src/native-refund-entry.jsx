@@ -1,5 +1,6 @@
 import React,{useEffect,useId,useRef,useState} from 'react';
 import {refundContextAvailable} from './native-refund-contract.js';
+import {recoverNativeRefund,retainNativeRefund,releaseNativeRefund} from './native-refund-recovery.js';
 import {refreshAuthoritativeChartOfAccounts} from './accounting-api.js';
 import {nativeRefundAccess,readNativeRefundContext,readNativeRefundBanks,validateNativeRefundDraft,uploadNativeRefundSupport,prepareNativeRefund,sendNativeRefund} from './native-refund-entry.js';
 
@@ -18,12 +19,14 @@ export function NativeRefundEntry({config,kind='AR_REFUND',sourceAdjustmentId,ac
   </section>;
 }
 export function NativeRefundForm({id,config,kind='AR_REFUND',sourceAdjustmentId,access,accounts=[],fetcher=globalThis.fetch,onOpenDraft,onClose}){
+  const recoveryScope={config,sourceAdjustmentId,actorId:access.actor_id};
+  const recovered=useRef(recoverNativeRefund(recoveryScope));
   const [currentAccounts,setCurrentAccounts]=useState([]);
-  const [context,setContext]=useState(null),[page,setPage]=useState(null),[query,setQuery]=useState(''),[bank,setBank]=useState(null);
-  const [draft,setDraft]=useState({number:'',date:'',amount:'',cashAccountCode:'',reason:''}),[file,setFile]=useState(null),[attachment,setAttachment]=useState(null);
-  const [uploadAttempt,setUploadAttempt]=useState(0),[uploadClosed,setUploadClosed]=useState(false),[command,setCommand]=useState(null),[receipt,setReceipt]=useState(null);
+  const [context,setContext]=useState(null),[page,setPage]=useState(null),[query,setQuery]=useState(''),[bank,setBank]=useState(()=>recovered.current?{member_ref:recovered.current.command.body.bankMemberRef,member_type:'BANK'}:null);
+  const [draft,setDraft]=useState(()=>recovered.current?.command.body||{number:'',date:'',amount:'',cashAccountCode:'',reason:''}),[file,setFile]=useState(null),[attachment,setAttachment]=useState(null);
+  const [uploadAttempt,setUploadAttempt]=useState(0),[uploadClosed,setUploadClosed]=useState(false),[command,setCommand]=useState(()=>recovered.current?.command||null),[receipt,setReceipt]=useState(null);
   const [busy,setBusy]=useState(false),[message,setMessage]=useState('Loading refund details…');
-  const mounted=useRef(false),busyRef=useRef(false),heading=useRef(null),attempted=useRef(false);
+  const mounted=useRef(false),busyRef=useRef(false),heading=useRef(null),attempted=useRef(!!recovered.current);
   const run=async action=>{if(busyRef.current)return;busyRef.current=true;setBusy(true);try{await action();}catch{if(mounted.current)setMessage('The result could not be confirmed. Retry the same request.');}finally{busyRef.current=false;if(mounted.current)setBusy(false);}};
   const load=()=>run(async()=>{const [c,b,a]=await Promise.all([readNativeRefundContext({config,kind,sourceAdjustmentId,fetcher}),readNativeRefundBanks({config,kind,fetcher}),refreshAuthoritativeChartOfAccounts({config,fetcher})]);if(!mounted.current)return;setContext(c.ok?c.data:null);setCurrentAccounts(a.ok?a.rows:[]);if(b.ok)setPage(b.data);setMessage(!c.ok?c.message:!b.ok?b.message:!a.ok?a.message:refundContextAvailable(c.data)?'':'This document has no available balance in the selected open period.');});
   useEffect(()=>{mounted.current=true;heading.current?.focus();load();return()=>{mounted.current=false;};},[]);
@@ -37,7 +40,11 @@ export function NativeRefundForm({id,config,kind='AR_REFUND',sourceAdjustmentId,
       if(!support){setMessage('Uploading supporting document…');const attempt=uploadAttempt+(uploadClosed?1:0);setUploadAttempt(attempt);setUploadClosed(false);support=await uploadNativeRefundSupport({config,kind,file,expectedActorId:access.actor_id,uploadAttempt:attempt,fetcher});if(!mounted.current)return;if(!support.ok){setUploadClosed(support.code==='ATTACHMENT_RESERVATION_CLOSED');setMessage(support.message);return;}setAttachment(support);}
       setMessage('Saving draft…');const result=await prepareNativeRefund({config,kind,sourceAdjustmentId,draft,bank,attachmentId:support.attachmentId,expectedActorId:access.actor_id,fetcher});if(!mounted.current)return;if(!result.ok){setMessage(result.message);return;}prepared=result.command;setCommand(prepared);
     }
-    const result=await sendNativeRefund({config,command:prepared,fetcher});if(!mounted.current)return;
+    retainNativeRefund(recoveryScope,prepared,{uncertain:attempted.current});
+    const result=await sendNativeRefund({config,command:prepared,fetcher});
+    if(result.ok||!result.unconfirmed&&!attempted.current)releaseNativeRefund(recoveryScope,prepared);
+    else retainNativeRefund(recoveryScope,prepared,{uncertain:true});
+    if(!mounted.current)return;
     if(result.ok){setReceipt(result.data);setMessage('Draft saved. Open it to review and continue the approval workflow.');}
     else{if(result.unconfirmed)attempted.current=true;if(!attempted.current)setCommand(null);setMessage(result.message);}
   });
@@ -55,6 +62,7 @@ export function NativeRefundForm({id,config,kind='AR_REFUND',sourceAdjustmentId,
       <button type="button" className="btn btn-sm btn-ghost" disabled={!page?.next_ref} onClick={()=>search(page.next_ref)}>Next banks</button>
     </div><label>Description<textarea required minLength={8} maxLength={2000} value={draft.reason} onChange={event=>update('reason',event.target.value)}/></label>
     <label>Supporting document<input type="file" accept=".pdf,.png,.jpg,.jpeg,.csv" onChange={event=>{setFile(event.target.files?.[0]||null);setAttachment(null);setUploadAttempt(0);setUploadClosed(false);}}/></label><p className="muted sm">PDF, PNG, JPEG or CSV, up to 50 MB. Uploaded when you save.</p></fieldset>
+    {recovered.current&&command&&!receipt&&<p role="status">An earlier refund request is unconfirmed. Retry the same draft to check its result.</p>}
     {message&&<p role="status" aria-live="polite">{message}</p>}<div className="native-document-actions">
       {!receipt&&<button type="submit" className="btn" disabled={busy||!command&&(!file||!bank||!refundContextAvailable(context))}>{busy?'Working…':command?'Retry same draft':'Save draft'}</button>}
       {!command&&!receipt&&<button type="button" className="btn btn-ghost" disabled={busy} onClick={load}>Refresh balance</button>}

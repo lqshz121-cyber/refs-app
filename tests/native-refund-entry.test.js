@@ -1,4 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {webcrypto} from 'node:crypto';
+import {recoverNativeRefund,retainNativeRefund,releaseNativeRefund} from '../src/native-refund-recovery.js';
 import {nativeRefundAccess,readNativeRefundContext,readNativeRefundBanks,validateNativeRefundDraft,prepareNativeRefund,sendNativeRefund} from '../src/native-refund-entry.js';
 const entityId='11111111-1111-4111-8111-111111111111',periodId='22222222-2222-4222-8222-222222222222',sourceAdjustmentId='33333333-3333-4333-8333-333333333333';
 const config={baseUrl:'https://api.example',entityId,periodId,getAccessToken:async()=>'a'.repeat(48)};
@@ -10,6 +11,16 @@ const args={config,kind:'AR_REFUND',sourceAdjustmentId,draft,bank,accounts:[acco
 const receipt={business_adjustment_id:periodId,source_adjustment_id:sourceAdjustmentId,journal_entry_id:entityId,status:'DRAFT',revision:0,idempotent:false};
 const ok=(data,status=200)=>({ok:true,status,json:async()=>({ok:true,data})});
 const fixture=(command,currentAccess=access)=>async(url,options)=>{assert.equal(options.credentials,'include');assert.equal(options.cache,'no-store');if(url.endsWith('/access/self'))return ok(currentAccess);if(url.includes('/usage-context?')){assert.equal(new URL(url).searchParams.get('action'),'AR_REFUND');return ok(context);}if(url.includes('/chart-of-accounts?'))return ok([account]);return command(url,options);};
+test('refund recovery survives form replacement and isolates actor, company, period, credit and host',async()=>{
+  const prepared=await prepareNativeRefund({...args,fetcher:fixture(()=>{})});const scope={config,sourceAdjustmentId,actorId:access.actor_id};
+  retainNativeRefund(scope,prepared.command,{uncertain:true});
+  const saved=recoverNativeRefund(scope);assert.equal(saved.uncertain,true);assert.deepEqual(saved.command,prepared.command);
+  saved.command.body.amount='99';assert.equal(recoverNativeRefund(scope).command.body.amount,draft.amount);
+  for(const changed of [{...scope,actorId:'other'},{...scope,sourceAdjustmentId:entityId},...['entityId','periodId','baseUrl'].map(k=>({...scope,config:{...config,[k]:'other'}}))])assert.equal(recoverNativeRefund(changed),null);
+  assert.throws(()=>retainNativeRefund(scope,{...prepared.command,idempotencyKey:'different-key'}));
+  releaseNativeRefund(scope,{...prepared.command,idempotencyKey:'different-key'});assert.ok(recoverNativeRefund(scope));
+  releaseNativeRefund(scope,prepared.command);assert.equal(recoverNativeRefund(scope),null);
+});
 test('refund entry validates exact capacity, period, bank and actor without payment authority',async()=>{
   assert.equal(validateNativeRefundDraft(args).body.amount,draft.amount);assert.equal(nativeRefundAccess(config,'AR_REFUND',access),true);assert.equal(nativeRefundAccess(config,'AP_PAYMENT',access),false);
   for(const patch of [{amount:'9007199254740993.1235'},{amount:'1e3'},{amount:1},{amount:'-0.0001'},{date:'2026-02-30'},{date:'2026-09-01'}])assert.equal(validateNativeRefundDraft({...args,draft:{...draft,...patch}}).ok,false);
