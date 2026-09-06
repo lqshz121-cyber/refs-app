@@ -49,8 +49,8 @@ export async function proveSnapshotImportAtomicity(pool){
     // Population integrity is independent of file digest integrity. Every test
     // below has correct rows/bytes/hash and exercises the real multi-batch SQL.
     let sequence=0;
-    const source=async(domain,population)=>{
-      const name=`population-${suffix}-${sequence++}.ndjson`,bytes=population.map(JSON.stringify).join('\n');
+    const source=async(domain,population,raw)=>{
+      const name=`population-${suffix}-${sequence++}.ndjson`,bytes=raw??population.map(JSON.stringify).join('\n');
       await writeFile(join(root,name),bytes);
       return {path:name,domain,company_code:'R19_TEST',period:'2026-H1',rows:population.length,bytes:Buffer.byteLength(bytes),sha256:createHash('sha256').update(bytes).digest('hex')};
     };
@@ -60,8 +60,8 @@ export async function proveSnapshotImportAtomicity(pool){
       evidence:(await pool.query('SELECT * FROM wbs_h1_import.typed_source_row ORDER BY domain,stable_key')).rows,
       references:(await pool.query('SELECT * FROM wbs_h1_import.reference_row ORDER BY domain,stable_key')).rows
     });
-    const refuse=async(domain,population,pattern)=>{
-      const candidate=await source(domain,population),before=await completeState();
+    const refuse=async(domain,population,pattern,raw)=>{
+      const candidate=await source(domain,population,raw),before=await completeState();
       await assert.rejects(importSnapshotFile({pool,root,file:candidate,batchSize:1}),pattern);
       assert.deepEqual(await completeState(),before,'refused population must retain all old rows/receipts and no new partial batch');
     };
@@ -80,10 +80,14 @@ export async function proveSnapshotImportAtomicity(pool){
     assert.deepEqual((await snapshot()).rows,committed.rows,'same-content cross-file accounting replay does not mutate rows');
     await refuse('accounting_info',[{id:base+3,amount:'new'}, {...rows[0],amount:'changed'}],/population conflict/);
     await refuse('accounting_info',[{id:base+3,amount:'new'}, {...rows[0],unprojected_source_field:'changed'}],/population conflict/);
-    await refuse('accounting_info',[{id:base+3,amount:'1.2300'}, {id:base+5,amount:9007199254740992}],/lossless source text/);
-    const lossless=await source('accounting_info',[{id:base+5,amount:'9007199254740993',accounting_value:'1.2300'}]);
+    for(const number of ['9007199254740993','0.10000000000000001']){
+      const raw=`{"id":${base+3},"amount":"1.2300"}\n{"id":${base+5},"amount":${number}}`;
+      await refuse('accounting_info',raw.split('\n').map(JSON.parse),/lossless source text/,raw);
+    }
+    const lossless=await source('accounting_info',[{id:base+5,amount:'9007199254740993',accounting_value:'1.2300'},{id:base+6,amount:'0.10000000000000001',accounting_value:'-0.0000'}]);
     await importSnapshotFile({pool,root,file:lossless,batchSize:1});
     assert.deepEqual((await pool.query('SELECT amount,accounting_value FROM wbs_h1_import.accounting_line WHERE wbs_id=$1',[base+5])).rows,[{amount:'9007199254740993',accounting_value:'1.2300'}]);
+    assert.deepEqual((await pool.query('SELECT amount,accounting_value FROM wbs_h1_import.accounting_line WHERE wbs_id=$1',[base+6])).rows,[{amount:'0.10000000000000001',accounting_value:'-0.0000'}]);
     await refuse('accounting_info',[rows[0],{...rows[0],id:`0${rows[0].id}`}],/duplicate source identity/);
     await pool.query('INSERT INTO wbs_h1_import.accounting_line(wbs_id,company_code,amount) VALUES($1,$2,$3)',[base+4,'R19_TEST','legacy']);
     await refuse('accounting_info',[{id:base+4,com_code:'R19_TEST',amount:'legacy'}],/legacy reconciliation/);
