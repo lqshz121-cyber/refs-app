@@ -1,4 +1,6 @@
 import {DocumentSettlementHistory} from '../src/document-settlement-history.jsx';
+import {NativeRefundEntry,NativeRefundForm} from '../src/native-refund-entry.jsx';
+import {AuthoritativeAdjustmentDetail} from '../src/authoritative-workspace.jsx';
 import assert from 'node:assert/strict';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
@@ -9,6 +11,14 @@ const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222
 const access={entity_id:config.entityId,actor_id:'oidc|maker',session_refresh_required:false,permissions:['AP.BILL.CREATE','AR.INVOICE.CREATE','ATTACHMENT.CREATE']};
 const scope={entity_id:config.entityId,period_id:config.periodId,entity_name:'Scoped company',period_code:'2026-08',base_currency:'USD',period_start:'2026-08-01',period_end:'2026-08-31',period_status:'OPEN'};
 const accounts=[{period_id:config.periodId,account_code:'610000',account_name:'Office',active:true,requires_member:false},{period_id:config.periodId,account_code:'291001',account_name:'Control',active:true,requires_member:true}];
+const refundAccess={...access,permissions:['AR.REFUND.CREATE','ATTACHMENT.CREATE']};
+const credit={business_adjustment_id:config.periodId,adjustment_kind:'AR_CREDIT_MEMO',status:'POSTED',period_id:config.periodId,amount:'12.3400',currency:'USD',version:'1',accounting_date:'2026-08-01'};
+assert.equal(renderToStaticMarkup(<NativeRefundEntry config={config} sourceAdjustmentId={credit.business_adjustment_id} access={access}/>),'');
+assert.match(renderToStaticMarkup(<NativeRefundEntry config={config} sourceAdjustmentId={credit.business_adjustment_id} access={refundAccess} scopes={[scope]}/>),/Refund credit/);
+const refundForm=renderToStaticMarkup(<NativeRefundForm config={config} sourceAdjustmentId={credit.business_adjustment_id} access={refundAccess}/>);
+assert.match(refundForm,/Refund customer credit/);assert.match(refundForm,/inputMode="decimal"/);assert.match(refundForm,/Supporting document/);assert.match(refundForm,/disabled="">Save draft/);assert.doesNotMatch(refundForm,/Post journal|Approve|type="number"/);
+const creditView=row=>renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={row} side="AR" entityId={config.entityId} config={config} currentActorAccess={refundAccess} scopes={[scope]}/>);
+assert.match(creditView(credit),/Refund credit/);assert.doesNotMatch(creditView({...credit,status:'DRAFT'}),/Refund credit/);assert.doesNotMatch(creditView({...credit,adjustment_kind:'AR_REFUND'}),/Refund credit/);
 for(const kind of ['AP_BILL','AR_INVOICE']){
   assert.equal(renderToStaticMarkup(<NativeDocumentEntry config={config} kind={kind} scope={scope}/>),'');
   assert.equal(renderToStaticMarkup(<NativeDocumentEntry config={config} kind={kind} scope={{...scope,period_status:'CLOSED'}} access={access}/>),'');
