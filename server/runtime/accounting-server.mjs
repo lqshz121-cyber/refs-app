@@ -1,5 +1,6 @@
 import {createAccountingHttpServer} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from './context-issuer.mjs';
+import {createInitialReadSessionFactory} from './initial-read-session.mjs';
 import {PostgresAccountingKernel} from './kernel-repository.mjs';
 import {AttachmentEvidenceService} from './attachment-storage.mjs';
 import {createWbsInboundAutoRecHttpReadService} from './wbs-inbound-autorec-http-read-service.mjs';
@@ -104,7 +105,8 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
   if(aiGateway!=null&&typeof aiGateway.analyzeJson!=='function')throw new Error('AI gateway must expose analyzeJson when configured');
   if((stage1SelfGrant!=null||stage1SelfWbsReadUpgrade!=null||stage1SelfWbsOperatorUpgrade!=null||stage1SelfControlledTestWorkflowUpgrade!=null)&&!grantSyncPool)throw new Error('Stage 1 self-grant requires the isolated grant-sync pool');
   if(wbsTestImport&&!wbsLivePilotClient)throw new Error('WBS test import requires the configured live-pilot client');
-  const kernelFor=principal=>{const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>principal});return new PostgresAccountingKernel(runtimePool,{runtimeLoginAllowlist,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,sessionProvider:()=>issuer.issue({tenantId:principal.tenantId})});};
+  const initialReadSession=createInitialReadSessionFactory({tenantId:stage1SelfGrant?.tenantId,initializeReadAccess:stage1SelfGrant?({actorId,idempotencyKey})=>grantStage1SelfReadAccess(grantSyncPool,{...stage1SelfGrant,actorId,idempotencyKey}):undefined});
+  const kernelFor=principal=>{const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>principal});return new PostgresAccountingKernel(runtimePool,{runtimeLoginAllowlist,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,sessionProvider:initialReadSession({principal,issue:()=>issuer.issue({tenantId:principal.tenantId})})});};
   const aiAnalysisExplanationServiceFactory=aiGateway?principal=>{const kernel=kernelFor(principal);return createAiAnalysisExplanationService({gateway:aiGateway,auditRepository:kernel,summaryReader:async({tenantId,entityId})=>{
     if(tenantId!==principal.tenantId)throw new Error('AI analysis tenant scope does not match the authenticated principal');
     return kernel.readAiAccountingAnalysisSummary({tenantId,entityId});
