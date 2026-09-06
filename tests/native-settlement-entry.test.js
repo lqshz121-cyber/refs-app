@@ -1,6 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {recoverNativeSettlement,retainNativeSettlement,releaseNativeSettlement} from '../src/native-settlement-recovery.js';
 import {webcrypto} from 'node:crypto';
+for(const kind of ['AP_PAYMENT','AR_RECEIPT'])test(kind+' recovery isolates environments and replays the identical retained request',async()=>{
+  const currentAccess={...access,permissions:[kind==='AP_PAYMENT'?'AP.PAYMENT.CREATE':'AR.RECEIPT.CREATE','ATTACHMENT.CREATE']};
+  const currentContext={...context,settlement_kind:kind,document:{...context.document,document_kind:kind==='AP_PAYMENT'?'AP_BILL':'AR_INVOICE'}};
+  const reads=async url=>url.endsWith('/access/self')?ok(currentAccess):url.includes('/settlement-context?')?ok(currentContext):ok([account]);
+  const prepared=await prepareNativeSettlement({...args,kind,fetcher:reads});assert.equal(prepared.ok,true);assert.equal(prepared.command.baseUrl,config.baseUrl);
+  const scope={config,kind,businessDocumentId,actorId:access.actor_id};retainNativeSettlement(scope,prepared.command);
+  assert.equal(recoverNativeSettlement(scope).uncertain,true,'in-flight requests survive navigation as unresolved');
+  const clone=recoverNativeSettlement(scope);clone.command.body.amount='1';assert.equal(recoverNativeSettlement(scope).command.body.amount,draft.amount);
+  for(const patch of [{actorId:'another-reader'},{kind:kind==='AP_PAYMENT'?'AR_RECEIPT':'AP_PAYMENT'},{businessDocumentId:periodId},{config:{...config,baseUrl:'https://other.example'}},{config:{...config,periodId:businessDocumentId}}])assert.equal(recoverNativeSettlement({...scope,...patch}),null);
+  assert.throws(()=>retainNativeSettlement(scope,{...prepared.command,baseUrl:'https://other.example'}));
+  assert.throws(()=>retainNativeSettlement(scope,{...prepared.command,idempotencyKey:'different-key'}));
+  const sent=[];const fetcher=async(url,options)=>{if(url.endsWith('/access/self'))return ok(currentAccess);assert.equal(options.method,'POST');sent.push(options);if(sent.length===1)throw Error('response lost');return ok({...receipt,idempotent:true});};
+  assert.equal((await sendNativeSettlement({config,command:prepared.command,fetcher})).unconfirmed,true);
+  assert.equal((await sendNativeSettlement({config,command:recoverNativeSettlement(scope).command,fetcher})).ok,true);
+  assert.equal(sent.length,2);assert.equal(sent[0].body,sent[1].body);assert.equal(sent[0].headers['idempotency-key'],sent[1].headers['idempotency-key']);assert.deepEqual(JSON.parse(sent[1].body).attachmentIds,[periodId]);
+  assert.equal((await sendNativeSettlement({config:{...config,baseUrl:'https://other.example'},command:prepared.command,fetcher:()=>{throw Error('must not fetch');}})).code,'SETTLEMENT_INVALID');
+  releaseNativeSettlement(scope,{...prepared.command,idempotencyKey:'different-key'});assert.ok(recoverNativeSettlement(scope));releaseNativeSettlement(scope,prepared.command);assert.equal(recoverNativeSettlement(scope),null);
+});
 import {nativeSettlementAccess,readNativeSettlementContext,readNativeSettlementBanks,validateNativeSettlementDraft,prepareNativeSettlement,sendNativeSettlement} from '../src/native-settlement-entry.js';
 const entityId='11111111-1111-4111-8111-111111111111',periodId='22222222-2222-4222-8222-222222222222',businessDocumentId='33333333-3333-4333-8333-333333333333';
 const config={baseUrl:'https://api.example',entityId,periodId,getAccessToken:async()=>'a'.repeat(48)};
