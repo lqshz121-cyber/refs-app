@@ -3199,12 +3199,12 @@ pgTest('settlement bank members use scoped active BANK masters, literal search a
   assert.deepEqual(end.rows.map(r=>r.member_ref),['BULK-100001']);assert.equal(end.next_ref,null);
 });
 
-for(const native of [false,true])pgTest(`${native?'evidence-backed native':'legacy'} settlements refresh AP and AR capacity across periods, reservations, Post and concurrent Drafts`,async()=>{
+for(const native of [false,true])pgTest(`${native?'evidence-backed native':'legacy'} settlements refresh AP and AR capacity across periods, reservations, Post and concurrent Drafts`,async t=>{
   const ids=await seed({status:'DRAFT',extraAccounts:[{accountCode:'610000',accountName:'Expense'},{accountCode:'400000',accountName:'Revenue'}],extraMembers:[{memberRef:'CUSTOMER-1',memberType:'CUSTOMER',displayName:'Customer'}]});
   const other=await seed({status:'DRAFT',tenantId:ids.tenantId}),paymentPeriodId=randomUUID();
   await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[paymentPeriodId,ids.tenantId,ids.entityId]);
   const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;
-  const permissions={documentMaker:['AP.BILL.CREATE','AR.INVOICE.CREATE'],apMaker:['AP.PAYMENT.CREATE'],arMaker:['AR.RECEIPT.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST'],viewer:['AP.VIEW','AR.VIEW'],apOnly:['AP.PAYMENT.CREATE']};
+  const permissions={historyViewer:['READ'],documentMaker:['AP.BILL.CREATE','AR.INVOICE.CREATE'],apMaker:['AP.PAYMENT.CREATE'],arMaker:['AR.RECEIPT.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST'],viewer:['AP.VIEW','AR.VIEW'],apOnly:['AP.PAYMENT.CREATE']};
   const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})});
   const root=`/api/v1/entities/${ids.entityId}`;
   const send=(actor,path,body,key,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':key,...(revision==null?{}:{'if-match':`"${revision}"`})}});
@@ -3275,8 +3275,31 @@ for(const native of [false,true])pgTest(`${native?'evidence-backed native':'lega
     const before=await snapshot();assert.deepEqual((await read()).body.data,after);const refreshed=await snapshot();
     assert.equal(BigInt(refreshed.auth)-BigInt(before.auth),1n);
     assert.deepEqual({...refreshed,auth:before.auth},before,'refresh leaves non-authentication audit and business state unchanged');
+    const historyUrl=root+'/business-documents/'+documentId+'/settlements?kind='+kind+'&limit=1';
+    const h1=await read('historyViewer',historyUrl);assert.equal(h1.status,200,JSON.stringify(h1.body));assert.equal(h1.headers['cache-control'],'no-store');
+    assert.equal(h1.body.data.rows.length,1);assert.equal(h1.body.data.rows[0].period_id,paymentPeriodId);assert.equal(h1.body.data.rows[0].status,'DRAFT');assert.equal(h1.body.data.rows[0].amount,'40.0000');assert.ok(h1.body.data.next_id);
+    const h2=await read('historyViewer',historyUrl+'&afterId='+h1.body.data.next_id);assert.equal(h2.status,200,JSON.stringify(h2.body));assert.equal(h2.body.data.rows[0].payment_occurrence_id,first.body.data.payment_occurrence_id);assert.equal(h2.body.data.rows[0].status,'POSTED');assert.equal(h2.body.data.rows[0].journal_status,'POSTED');assert.equal(h2.body.data.rows[0].amount,'30.0000');assert.equal(h2.body.data.next_id,null);
+    assert.equal((await read('historyViewer',historyUrl+'&afterId='+randomUUID())).status,400);
+    assert.equal((await read('historyViewer',historyUrl.replace(documentId,randomUUID()))).status,404);
+    assert.equal((await read('historyViewer',historyUrl.replace(ids.entityId,other.entityId))).status,403);
+    const historyBefore=await snapshot();await read('historyViewer',historyUrl);const historyAfter=await snapshot();assert.equal(BigInt(historyAfter.auth)-BigInt(historyBefore.auth),1n);assert.deepEqual({...historyAfter,auth:historyBefore.auth},historyBefore);
+    if(native&&kind==='AR_RECEIPT'){
+      await adminPool.query(`INSERT INTO payment_occurrence(tenant_id,entity_id,business_document_id,occurrence_kind,amount,currency,accounting_date,period_id,status,idempotency_key,request_hash,created_by,created_at)
+        SELECT $1,$2,$3,'AR_RECEIPT',0.0001,'USD','2026-08-15',$4,'DRAFT','history-bulk-'||n,'sha256:'||repeat('0',64),'history-fixture',timestamptz '2020-01-01 00:00:00+00'+n*interval '1 microsecond'
+        FROM generate_series(1,100001) n`,[ids.tenantId,ids.entityId,documentId,paymentPeriodId]);
+      const cursor=(await adminPool.query("SELECT payment_occurrence_id FROM payment_occurrence WHERE tenant_id=$1 AND entity_id=$2 AND idempotency_key='history-bulk-51'",[ids.tenantId,ids.entityId])).rows[0].payment_occurrence_id;
+      const started=performance.now(),deep=await read('historyViewer',historyUrl.replace('limit=1','limit=25')+'&afterId='+cursor);
+      t.diagnostic('settlement history deep page over 100001 records: '+Math.round(performance.now()-started)+'ms');
+      assert.equal(deep.status,200,JSON.stringify(deep.body));assert.equal(deep.body.data.rows.length,25);assert.equal(deep.body.data.rows[0].created_at,'2020-01-01T00:00:00.000050Z');assert.equal(deep.body.data.rows[24].created_at,'2020-01-01T00:00:00.000026Z');assert.equal(deep.body.data.next_id,deep.body.data.rows[24].payment_occurrence_id);
+    }
+
+
   }
-  await migrateDownThrough(adminPool,'304_settlement_input_reads.sql');await migrateUp(adminPool);
+  await migrateDownThrough(adminPool,'304_settlement_input_reads.sql');
+  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_document_settlements(uuid,uuid,uuid,text,uuid,integer)') f,to_regclass('payment_occurrence_document_history_idx') i")).rows[0].f,null);
+  await migrateUp(adminPool);
+  for(const {read,documentId,kind} of contexts){const history=await read('historyViewer',root+'/business-documents/'+documentId+'/settlements?kind='+kind);assert.equal(history.status,200,JSON.stringify(history.body));assert.ok(history.body.data.rows.length>=2);}
+
   for(const {read} of contexts){const r=await read();assert.equal(r.status,200);assert.equal(r.body.data.available_amount,'30.0000');}
 });
 
