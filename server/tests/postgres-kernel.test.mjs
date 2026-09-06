@@ -4307,9 +4307,14 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
 });
 
 pgTest('AR credit memo posted first then partial and full apply updates invoice atomically',async()=>{
-  const ids=await seed({status:'APPROVED',extraAccounts:[{accountCode:'410000',accountName:'Sales returns'}]});const invoiceId=randomUUID();
-  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'CUSTOMER-1','CUSTOMER','Customer')",[ids.tenantId,ids.entityId]);
-  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by) VALUES($1,$2,$3,'AR_INVOICE','INV-CREDIT-1','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN','fixture')`,[invoiceId,ids.tenantId,ids.entityId]);
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+    extraAccounts:[{accountCode:'400000',accountName:'Revenue'},{accountCode:'410000',accountName:'Sales returns'}],
+    extraMembers:[{memberRef:'CUSTOMER-1',memberType:'CUSTOMER',displayName:'Customer'}],
+    journalLines:[{lineNo:1,accountCode:'120200',debit:100,credit:0,memberRef:'CUSTOMER-1'},{lineNo:2,accountCode:'400000',debit:0,credit:100}]});const invoiceId=randomUUID();
+  const source=await attachAutoSource(ids);
+  const sourcePoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-invoice-source-poster',['GL.JE.POST'])});
+  await sourcePoster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'credit-invoice-source-post'});
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by) VALUES($1,$2,$3,$4,'AR_INVOICE','INV-CREDIT-1','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[invoiceId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-maker',['AR.CREDIT_MEMO.CREATE'])});
   const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-submitter',['GL.JE.SUBMIT'])});
   await assert.rejects(maker.createArCreditMemo({...ids,memoNumber:'CM-CONTROL-BAD',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'120200',amount:100,member_ref:'CUSTOMER-1'}]),reason:'Reject control-account counterpart',idempotencyKey:'ar-credit-control-bad'}),error=>error.code==='23514');
