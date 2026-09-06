@@ -1739,6 +1739,12 @@ export class PostgresAccountingKernel{
     ),'SETTLEMENT_CONTEXT_UNAVAILABLE','Settlement context is unavailable').result);
   }
 
+  async readBusinessRecord({tenantId,entityId,recordId,recordKind}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_business_record($1,$2,$3,$4) AS result',[tenantId,entityId,recordId,recordKind]
+    ),'BUSINESS_RECORD_UNAVAILABLE','Business record is unavailable').result);
+  }
+
   async readCreditAllocationHistory({tenantId,entityId,subjectId,subjectKind,afterId=null,limit=50}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_credit_allocation_history($1,$2,$3,$4,$5,$6) AS result',
