@@ -1739,6 +1739,12 @@ export class PostgresAccountingKernel{
     ),'SETTLEMENT_CONTEXT_UNAVAILABLE','Settlement context is unavailable').result);
   }
 
+  async readSalesReceiptOptions({tenantId,entityId,optionKind,query='',afterRef=null,limit=50}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_sales_receipt_options($1,$2,$3,$4,$5,$6) AS result',[tenantId,entityId,optionKind,query,afterRef,limit]
+    ),'SALES_RECEIPT_OPTIONS_UNAVAILABLE','Sales receipt options are unavailable').result);
+  }
+
   async readSalesReceipt({tenantId,entityId,receiptId}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_sales_receipt($1,$2,$3) AS result',[tenantId,entityId,receiptId]

@@ -31,6 +31,7 @@ test('accounting OpenAPI is 3.1, authenticated and operation ids match the runti
   for(const id of ['createNativeApPayment','createNativeArReceipt','createNativeRefund','createNativeSalesReceipt'])assert.ok(operationIds.includes(id));
   assert.equal(contract.paths['/entities/{entityId}/ar/sales-receipts'].get.operationId,'listSalesReceipts');
   assert.equal(contract.paths['/entities/{entityId}/ar/sales-receipts/{receiptId}'].get.operationId,'readSalesReceipt');
+  assert.equal(contract.paths['/entities/{entityId}/ar/sales-receipt-options'].get.operationId,'readSalesReceiptOptions');
   assert.equal(new Set(operationIds).size,operationIds.length);
   assert.ok(operationIds.includes('decideWbsH1AccountingSettings'));
   for(const operationId of ['createWbsH1AccountingControlRun','appendWbsH1AccountingControlRunLines','finalizeWbsH1AccountingControlRun'])assert.ok(operationIds.includes(operationId));

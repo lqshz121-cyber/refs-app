@@ -1,5 +1,6 @@
 import {validBusinessRecordKind,validBusinessRecord} from '../runtime/business-record-detail.mjs';
 import {validSalesReceiptSelection,validSalesReceiptDetail,validSalesReceiptPage} from '../runtime/sales-receipt-reads.mjs';
+import {validSalesReceiptOptionSelection,validSalesReceiptOptions} from '../runtime/sales-receipt-options.mjs';
 import {validCreditHistorySelection,validCreditHistory} from '../runtime/credit-allocation-history.mjs';
 import {validSettlementHistorySelection,validSettlementHistory} from '../runtime/settlement-history.mjs';
 import {createServer} from 'node:http';
@@ -739,6 +740,18 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!kernel||typeof kernel.readSettlementContext!=='function')throw new AccountingApiError(503,'SETTLEMENT_CONTEXT_UNAVAILABLE','Settlement context is unavailable');
         result=await kernel.readSettlementContext({tenantId:principal.tenantId,entityId,...selection});
         if(!validSettlementContext(result,{entityId,...selection}))throw new AccountingApiError(500,'SETTLEMENT_CONTEXT_INVALID','Settlement context did not match its scope or balances');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='ar'&&parts[5]==='sales-receipt-options'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Option reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['optionKind','query','afterRef','limit']);
+        const selection={optionKind:parsedUrl.searchParams.get('optionKind'),query:parsedUrl.searchParams.get('query')??'',afterRef:parsedUrl.searchParams.get('afterRef'),limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):50};
+        if(!validSalesReceiptOptionSelection(selection)||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Invalid sales receipt option selection');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readSalesReceiptOptions!=='function')throw new AccountingApiError(503,'SALES_RECEIPT_OPTIONS_UNAVAILABLE','Sales receipt options are unavailable');
+        result=await kernel.readSalesReceiptOptions({tenantId:principal.tenantId,entityId,...selection});
+        if(!validSalesReceiptOptions(result,{entityId,...selection}))throw new AccountingApiError(500,'SALES_RECEIPT_OPTIONS_INVALID','Sales receipt options did not match the requested scope');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&[6,7].includes(parts.length)&&parts[4]==='ar'&&parts[5]==='sales-receipts'){
