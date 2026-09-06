@@ -1715,6 +1715,13 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async readDocumentSettlements({tenantId,entityId,businessDocumentId,settlementKind,afterId=null,limit=50}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_document_settlements($1,$2,$3,$4,$5,$6) AS result',
+      [tenantId,entityId,businessDocumentId,settlementKind,afterId,limit]
+    ),'SETTLEMENT_HISTORY_UNAVAILABLE','Settlement history is unavailable').result);
+  }
+
   async readSettlementBankMembers({tenantId,entityId,settlementKind,query='',afterRef=null,limit=50}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_settlement_bank_members($1,$2,$3,$4,$5,$6) AS result',
