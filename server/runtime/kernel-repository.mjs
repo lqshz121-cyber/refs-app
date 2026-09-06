@@ -1700,6 +1700,13 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async readBusinessDocumentCounterparties({tenantId,entityId,documentKind,query='',afterRef=null,limit=50}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_business_document_counterparties($1,$2,$3,$4,$5,$6) AS result',
+      [tenantId,entityId,documentKind,query,afterRef,limit]
+    ),'BUSINESS_DOCUMENT_COUNTERPARTIES_UNAVAILABLE','Counterparty choices are unavailable').result);
+  }
+
   async listBusinessDocuments({tenantId,entityId,documentKind,periodId,limit=100,offset=0}){
     if(!['AP_BILL','AR_INVOICE'].includes(documentKind))throw new KernelError('BUSINESS_DOCUMENT_KIND_INVALID','Unsupported business document kind');
     return this.inSession(async client=>{

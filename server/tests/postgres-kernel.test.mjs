@@ -3136,6 +3136,53 @@ pgTest('authenticated HTTP refreshes durable AP and AR adjustments with linked w
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/ap/adjustments?periodId=${other.periodId}`,headers:{},body:null})).status,403);
 });
 
+pgTest('native document counterparties are scoped, active, permission-gated and keyset-paged across 100001 master rows',async t=>{
+  const ids=await seed({status:'DRAFT'});
+  await adminPool.query(`INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name,active) VALUES
+    ($1,$2,'V-01','VENDOR','Alpha 50%_ vendor',true),($1,$2,'V-02','VENDOR','Beta vendor',true),
+    ($1,$2,'V-OFF','VENDOR','Inactive vendor',false),($1,$2,'C-01','CUSTOMER','Customer',true),
+    ($1,$2,'A-01','AFFILIATE','Affiliate',true)`,[ids.tenantId,ids.entityId]);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'counterparty-maker',['AP.BILL.CREATE','AR.INVOICE.CREATE'])});
+  const base={tenantId:ids.tenantId,entityId:ids.entityId,documentKind:'AP_BILL',query:'',afterRef:null,limit:2};
+  const before=(await adminPool.query(`SELECT (SELECT count(*) FROM business_document) documents,
+    (SELECT count(*) FROM journal_entry) journals,(SELECT count(*) FROM ledger_line) ledger,
+    (SELECT count(*) FROM outbox_event) outbox`)).rows[0];
+  const first=await maker.readBusinessDocumentCounterparties(base);
+  assert.deepEqual(first,{schema_version:'BUSINESS_DOCUMENT_COUNTERPARTIES_V1',entity_id:ids.entityId,document_kind:'AP_BILL',query:'',after_ref:null,limit:2,
+    rows:[{member_ref:'V-01',member_type:'VENDOR',display_name:'Alpha 50%_ vendor'},{member_ref:'V-02',member_type:'VENDOR',display_name:'Beta vendor'}],next_ref:'V-02'});
+  const last=await maker.readBusinessDocumentCounterparties({...base,afterRef:first.next_ref});
+  assert.deepEqual(last.rows.map(row=>row.member_ref),['VENDOR-1']);assert.equal(last.next_ref,null);
+  const ar=await maker.readBusinessDocumentCounterparties({...base,documentKind:'AR_INVOICE'});
+  assert.deepEqual(ar.rows.map(row=>[row.member_ref,row.member_type]),[['A-01','AFFILIATE'],['C-01','CUSTOMER']]);
+  assert.equal(ar.next_ref,null);
+  const literal=await maker.readBusinessDocumentCounterparties({...base,query:'50%_'});
+  assert.deepEqual(literal.rows.map(row=>row.member_ref),['V-01']);
+  assert.deepEqual((await maker.readBusinessDocumentCounterparties({...base,query:'ALPHA'})).rows,literal.rows);
+  assert.deepEqual((await maker.readBusinessDocumentCounterparties({...base,query:'not found'})).rows,[]);
+  const apOnly=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ap-only-counterparty-maker',['AP.BILL.CREATE'])});
+  await assert.rejects(apOnly.readBusinessDocumentCounterparties({...base,documentKind:'AR_INVOICE'}),error=>error.code==='42501');
+  await assert.rejects(maker.readBusinessDocumentCounterparties({...base,entityId:randomUUID()}),error=>error.code==='42501');
+  await assert.rejects(maker.readBusinessDocumentCounterparties({...base,tenantId:randomUUID()}),error=>error.code==='42501');
+  for(const patch of [{limit:101},{limit:0},{documentKind:'UNKNOWN'},{query:' bad'},{afterRef:''}]){
+    await assert.rejects(maker.readBusinessDocumentCounterparties({...base,...patch}),error=>error.code==='22023');
+  }
+  assert.deepEqual((await adminPool.query(`SELECT (SELECT count(*) FROM business_document) documents,
+    (SELECT count(*) FROM journal_entry) journals,(SELECT count(*) FROM ledger_line) ledger,
+    (SELECT count(*) FROM outbox_event) outbox`)).rows[0],before,'master reads must not mutate business or accounting state');
+  await migrateDownThrough(adminPool,'302_business_document_counterparty_read.sql');
+  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_business_document_counterparties(uuid,uuid,text,text,text,integer)') AS f")).rows[0].f,null);
+  await migrateUp(adminPool);
+  assert.deepEqual(await maker.readBusinessDocumentCounterparties(base),first,'upgrade restores the reader without rewriting masters');
+  await adminPool.query(`INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name)
+    SELECT $1,$2,'BULK-'||lpad(n::text,6,'0'),'VENDOR','Bulk vendor '||n FROM generate_series(1,100001) n`,[ids.tenantId,ids.entityId]);
+  const started=performance.now();
+  const bulk=await maker.readBusinessDocumentCounterparties({...base,query:'BULK-',afterRef:'BULK-099950',limit:25});
+  t.diagnostic(`counterparty keyset lookup with 100001 bulk masters: ${Math.round(performance.now()-started)}ms`);
+  assert.equal(bulk.rows.length,25);assert.equal(bulk.rows[0].member_ref,'BULK-099951');assert.equal(bulk.next_ref,'BULK-099975');
+  const end=await maker.readBusinessDocumentCounterparties({...base,query:'BULK-',afterRef:'BULK-100000',limit:25});
+  assert.deepEqual(end.rows.map(row=>row.member_ref),['BULK-100001']);assert.equal(end.next_ref,null);
+});
+
 pgTest('authenticated HTTP creates AP Bills and AR Invoices only as evidence-backed Draft JEs, then posts both atomically',async()=>{
   const ids=await seed({status:'APPROVED',extraAccounts:[{accountCode:'610000',accountName:'Expense'},{accountCode:'400000',accountName:'Revenue'}]});
   await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'CUSTOMER-1','CUSTOMER','Customer')",[ids.tenantId,ids.entityId]);
