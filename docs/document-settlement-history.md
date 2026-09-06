@@ -2,7 +2,7 @@
 
 GET /api/v1/entities/{entityId}/business-documents/{businessDocumentId}/settlements?kind=AP_PAYMENT|AR_RECEIPT&limit=50&afterId=<optional occurrence UUID>
 
-Requires company READ access. Returns payments or receipts for one source document across payment periods, ordered by immutable creation time and UUID descending. Each record retains amount/currency, occurrence state/revision, payment-period identity and linked journal number/state/revision. The cursor is resolved only inside the exact company, document and kind; a foreign or nonexistent cursor is rejected. Read bodies, command headers and unknown query fields are rejected.
+Requires AP.VIEW for payments or AR.VIEW for receipts in the company. Returns payments or receipts for one source document across payment periods, ordered by immutable creation time and UUID descending. Each record retains amount/currency, occurrence state/revision, payment-period identity and linked journal number/state/revision. The cursor is resolved only inside the exact company, document and kind; a foreign or nonexistent cursor is rejected. Read bodies, command headers and unknown query fields are rejected.
 
 The last visible occurrence is the next-page cursor when another row exists. A later insertion appears after refreshing the first page. Status changes are current database facts, not a multi-page immutable snapshot. Amounts and revisions remain strings; the response is no-store. History grants no accounting actions.
 

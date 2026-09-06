@@ -7,10 +7,10 @@ CREATE FUNCTION refs_read_document_settlements(p_tenant uuid,p_entity uuid,p_doc
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE cursor_time timestamptz;result_rows jsonb;next_id uuid;
 BEGIN
-  PERFORM refs_assert_scope(p_tenant,p_entity,'READ');
   IF p_kind IS NULL OR p_kind NOT IN ('AP_PAYMENT','AR_RECEIPT') OR p_limit IS NULL OR p_limit NOT BETWEEN 1 AND 100 THEN
     RAISE EXCEPTION 'Invalid settlement history selection' USING ERRCODE='22023';
   END IF;
+  PERFORM refs_assert_scope(p_tenant,p_entity,CASE p_kind WHEN 'AP_PAYMENT' THEN 'AP.VIEW' ELSE 'AR.VIEW' END);
   IF NOT EXISTS(SELECT 1 FROM business_document WHERE tenant_id=p_tenant AND entity_id=p_entity
       AND business_document_id=p_document AND document_kind=(CASE p_kind WHEN 'AP_PAYMENT' THEN 'AP_BILL' ELSE 'AR_INVOICE' END)) THEN
     RAISE EXCEPTION 'Source document is not available in this company' USING ERRCODE='P0002';
