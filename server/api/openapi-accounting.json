@@ -15,6 +15,217 @@
     }
   ],
   "paths": {
+    "/entities/{entityId}/business-adjustments/{businessAdjustmentId}/usage-context": {
+      "get": {
+        "operationId": "readCreditUsageContext",
+        "summary": "Read scoped posted credit and occupied amounts before allocation or refund",
+        "description": "Requires AP.VENDOR_CREDIT.APPLY, AR.CREDIT_MEMO.APPLY or AR.REFUND.CREATE for the selected action. A single database snapshot includes PENDING/ACTIVE allocations and all non-rejected/non-cancelled refunds. Requires one correctly directed Posted control line identifying the counterparty. Negative remaining capacity is preserved. A closed selected period is returned, not opened. This read reserves nothing; the existing command locks and rechecks all invariants. No body or command headers.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "businessAdjustmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "AP_CREDIT_APPLY",
+                "AR_CREDIT_APPLY",
+                "AR_REFUND"
+              ]
+            }
+          },
+          {
+            "name": "periodId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scoped credit usage context at one snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schema_version",
+                        "entity_id",
+                        "action",
+                        "period",
+                        "credit",
+                        "allocated_amount",
+                        "refund_amount",
+                        "available_amount"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "CREDIT_USAGE_CONTEXT_V1"
+                        },
+                        "entity_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "action": {
+                          "enum": [
+                            "AP_CREDIT_APPLY",
+                            "AR_CREDIT_APPLY",
+                            "AR_REFUND"
+                          ]
+                        },
+                        "period": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "period_id",
+                            "starts_on",
+                            "ends_on",
+                            "status",
+                            "revision"
+                          ],
+                          "properties": {
+                            "period_id": {
+                              "$ref": "#/components/schemas/Uuid"
+                            },
+                            "starts_on": {
+                              "type": "string",
+                              "format": "date"
+                            },
+                            "ends_on": {
+                              "type": "string",
+                              "format": "date"
+                            },
+                            "status": {
+                              "enum": [
+                                "OPEN",
+                                "SOFT_CLOSED",
+                                "CLOSED"
+                              ]
+                            },
+                            "revision": {
+                              "type": "string",
+                              "pattern": "^(0|[1-9][0-9]{0,18})$"
+                            }
+                          }
+                        },
+                        "credit": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "business_adjustment_id",
+                            "adjustment_kind",
+                            "journal_entry_id",
+                            "number",
+                            "counterparty_ref",
+                            "currency",
+                            "amount",
+                            "revision"
+                          ],
+                          "properties": {
+                            "business_adjustment_id": {
+                              "$ref": "#/components/schemas/Uuid"
+                            },
+                            "adjustment_kind": {
+                              "enum": [
+                                "AP_VENDOR_CREDIT",
+                                "AR_CREDIT_MEMO"
+                              ]
+                            },
+                            "journal_entry_id": {
+                              "$ref": "#/components/schemas/Uuid"
+                            },
+                            "number": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "counterparty_ref": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "currency": {
+                              "type": "string",
+                              "pattern": "^[A-Z]{3}$"
+                            },
+                            "amount": {
+                              "type": "string",
+                              "pattern": "^-?(0|[1-9][0-9]{0,39})\\.[0-9]{4}$"
+                            },
+                            "revision": {
+                              "type": "string",
+                              "pattern": "^(0|[1-9][0-9]{0,18})$"
+                            }
+                          }
+                        },
+                        "allocated_amount": {
+                          "type": "string",
+                          "pattern": "^-?(0|[1-9][0-9]{0,39})\\.[0-9]{4}$"
+                        },
+                        "refund_amount": {
+                          "type": "string",
+                          "pattern": "^-?(0|[1-9][0-9]{0,39})\\.[0-9]{4}$"
+                        },
+                        "available_amount": {
+                          "type": "string",
+                          "pattern": "^-?(0|[1-9][0-9]{0,39})\\.[0-9]{4}$"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/entities/{entityId}/business-documents/{businessDocumentId}/settlements": {"get":{"operationId":"readDocumentSettlements","summary":"Read retained payment or receipt history across payment periods","description":"Requires AP.VIEW for payments or AR.VIEW for receipts in the source company. Newest created record first with stable created_at and UUID keyset ordering. The afterId cursor must belong to the same company, source document and kind. Includes current persisted occurrence and linked journal state, exact monetary strings, and payment-period identity. Read-only; does not create or post. Rejects body, command headers and unknown query fields. Later lifecycle changes appear on refresh; this is not a retained multi-page snapshot.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"businessDocumentId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"name":"kind","in":"query","required":true,"schema":{"enum":["AP_PAYMENT","AR_RECEIPT"]}},{"name":"afterId","in":"query","schema":{"$ref":"#/components/schemas/Uuid"}},{"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":100,"default":50}}],"responses":{"200":{"description":"Scoped settlement history","headers":{"Cache-Control":{"schema":{"type":"string","const":"no-store"}}},"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"DOCUMENT_SETTLEMENT_HISTORY_V1"},"entity_id":{"$ref":"#/components/schemas/Uuid"},"business_document_id":{"$ref":"#/components/schemas/Uuid"},"settlement_kind":{"enum":["AP_PAYMENT","AR_RECEIPT"]},"after_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"limit":{"type":"integer","minimum":1,"maximum":100},"rows":{"type":"array","maxItems":100,"items":{"type":"object","additionalProperties":false,"properties":{"payment_occurrence_id":{"$ref":"#/components/schemas/Uuid"},"business_document_id":{"$ref":"#/components/schemas/Uuid"},"settlement_kind":{"enum":["AP_PAYMENT","AR_RECEIPT"]},"amount":{"type":"string","pattern":"^(0|[1-9][0-9]{0,15})\\.[0-9]{4}$"},"currency":{"type":"string","pattern":"^[A-Z]{3}$"},"accounting_date":{"type":"string","format":"date"},"period_id":{"$ref":"#/components/schemas/Uuid"},"period_code":{"type":"string","pattern":"^[0-9]{4}-[0-9]{2}$"},"status":{"enum":["DRAFT","PENDING_POST","POSTED","REVERSAL_PENDING","REVERSED"]},"revision":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$"},"created_at":{"type":"string","format":"date-time"},"draft_journal_entry_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"posted_journal_entry_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"journal_number":{"type":["string","null"]},"journal_status":{"enum":["DRAFT","PENDING_REVIEW","PENDING_APPROVAL","APPROVED","POSTED",null]},"journal_revision":{"type":["string","null"],"pattern":"^(0|[1-9][0-9]{0,18})$"}},"required":["payment_occurrence_id","business_document_id","settlement_kind","amount","currency","accounting_date","period_id","period_code","status","revision","created_at","draft_journal_entry_id","posted_journal_entry_id","journal_number","journal_status","journal_revision"]}},"next_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]}},"required":["schema_version","entity_id","business_document_id","settlement_kind","after_id","limit","rows","next_id"]}}}}}},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"500":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
     "/entities/{entityId}/ap/bills/{businessDocumentId}/native-payments":{"post":{"operationId":"createNativeApPayment","summary":"Create an evidence-backed native AP_PAYMENT Draft","description":"Requires AP.PAYMENT.CREATE. Creates a new MANUAL Draft JE with verified clean company-scoped attachments, payment occurrence and PENDING allocation in one database transaction. The source must have posted journal lineage and positive available balance in this company; the intended payment period must be OPEN and contain date. Requires active BANK-controlled GL and active BANK member. No transfer or automatic Post. Existing AUTO commands remain unchanged. Server derives identity and canonical request hash; idempotency is actor-bound and includes attachment identities. Same-intent replay returns the retained Draft receipt even after subsequent lifecycle changes. Rejects unknown/query fields and If-Match.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"businessDocumentId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["periodId","number","date","cashAccountCode","bankMemberRef","amount","reason","attachmentIds"],"properties":{"periodId":{"$ref":"#/components/schemas/Uuid"},"number":{"type":"string","minLength":1,"maxLength":128},"date":{"type":"string","format":"date"},"cashAccountCode":{"type":"string","minLength":1,"maxLength":64},"bankMemberRef":{"type":"string","minLength":1,"maxLength":128},"amount":{"type":"string","pattern":"^(0|[1-9][0-9]{0,15})(\\.[0-9]{1,4})?$","description":"Strictly positive exact decimal string, at most 16 integer and four fractional digits."},"reason":{"type":"string","minLength":8,"maxLength":2000},"attachmentIds":{"type":"array","minItems":1,"maxItems":25,"uniqueItems":true,"items":{"$ref":"#/components/schemas/Uuid"}}}}}}},"responses":{"200":{"description":"Retained receipt replay","content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"object","additionalProperties":false,"required":["payment_occurrence_id","business_allocation_id","business_document_id","journal_entry_id","status","allocation_status","revision","idempotent"],"properties":{"payment_occurrence_id":{"$ref":"#/components/schemas/Uuid"},"business_allocation_id":{"$ref":"#/components/schemas/Uuid"},"business_document_id":{"$ref":"#/components/schemas/Uuid"},"journal_entry_id":{"$ref":"#/components/schemas/Uuid"},"status":{"const":"DRAFT"},"allocation_status":{"const":"PENDING"},"revision":{"const":0},"idempotent":{"type":"boolean"}}}}}}},"headers":{"Cache-Control":{"schema":{"type":"string","const":"no-store"}}}},"201":{"description":"New evidence-backed Draft","content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"object","additionalProperties":false,"required":["payment_occurrence_id","business_allocation_id","business_document_id","journal_entry_id","status","allocation_status","revision","idempotent"],"properties":{"payment_occurrence_id":{"$ref":"#/components/schemas/Uuid"},"business_allocation_id":{"$ref":"#/components/schemas/Uuid"},"business_document_id":{"$ref":"#/components/schemas/Uuid"},"journal_entry_id":{"$ref":"#/components/schemas/Uuid"},"status":{"const":"DRAFT"},"allocation_status":{"const":"PENDING"},"revision":{"const":0},"idempotent":{"type":"boolean"}}}}}}},"headers":{"Cache-Control":{"schema":{"type":"string","const":"no-store"}}}},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"500":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
     "/entities/{entityId}/ar/invoices/{businessDocumentId}/native-receipts":{"post":{"operationId":"createNativeArReceipt","summary":"Create an evidence-backed native AR_RECEIPT Draft","description":"Requires AR.RECEIPT.CREATE. Creates a new MANUAL Draft JE with verified clean company-scoped attachments, payment occurrence and PENDING allocation in one database transaction. The source must have posted journal lineage and positive available balance in this company; the intended payment period must be OPEN and contain date. Requires active BANK-controlled GL and active BANK member. No transfer or automatic Post. Existing AUTO commands remain unchanged. Server derives identity and canonical request hash; idempotency is actor-bound and includes attachment identities. Same-intent replay returns the retained Draft receipt even after subsequent lifecycle changes. Rejects unknown/query fields and If-Match.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"businessDocumentId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["periodId","number","date","cashAccountCode","bankMemberRef","amount","reason","attachmentIds"],"properties":{"periodId":{"$ref":"#/components/schemas/Uuid"},"number":{"type":"string","minLength":1,"maxLength":128},"date":{"type":"string","format":"date"},"cashAccountCode":{"type":"string","minLength":1,"maxLength":64},"bankMemberRef":{"type":"string","minLength":1,"maxLength":128},"amount":{"type":"string","pattern":"^(0|[1-9][0-9]{0,15})(\\.[0-9]{1,4})?$","description":"Strictly positive exact decimal string, at most 16 integer and four fractional digits."},"reason":{"type":"string","minLength":8,"maxLength":2000},"attachmentIds":{"type":"array","minItems":1,"maxItems":25,"uniqueItems":true,"items":{"$ref":"#/components/schemas/Uuid"}}}}}}},"responses":{"200":{"description":"Retained receipt replay","content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"object","additionalProperties":false,"required":["payment_occurrence_id","business_allocation_id","business_document_id","journal_entry_id","status","allocation_status","revision","idempotent"],"properties":{"payment_occurrence_id":{"$ref":"#/components/schemas/Uuid"},"business_allocation_id":{"$ref":"#/components/schemas/Uuid"},"business_document_id":{"$ref":"#/components/schemas/Uuid"},"journal_entry_id":{"$ref":"#/components/schemas/Uuid"},"status":{"const":"DRAFT"},"allocation_status":{"const":"PENDING"},"revision":{"const":0},"idempotent":{"type":"boolean"}}}}}}},"headers":{"Cache-Control":{"schema":{"type":"string","const":"no-store"}}}},"201":{"description":"New evidence-backed Draft","content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"object","additionalProperties":false,"required":["payment_occurrence_id","business_allocation_id","business_document_id","journal_entry_id","status","allocation_status","revision","idempotent"],"properties":{"payment_occurrence_id":{"$ref":"#/components/schemas/Uuid"},"business_allocation_id":{"$ref":"#/components/schemas/Uuid"},"business_document_id":{"$ref":"#/components/schemas/Uuid"},"journal_entry_id":{"$ref":"#/components/schemas/Uuid"},"status":{"const":"DRAFT"},"allocation_status":{"const":"PENDING"},"revision":{"const":0},"idempotent":{"type":"boolean"}}}}}}},"headers":{"Cache-Control":{"schema":{"type":"string","const":"no-store"}}}},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"500":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
