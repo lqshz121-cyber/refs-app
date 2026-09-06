@@ -2516,7 +2516,18 @@ export async function createAuthoritativeSettlement({config,kind,businessDocumen
   if(!config||typeof fetcher!=='function'||!UUID.test(businessDocumentId||'')||!['AP_PAYMENT','AR_RECEIPT'].includes(kind)||typeof config.cashAccountCode!=='string'||!config.cashAccountCode.trim()||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>200)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Settlement requires authoritative cash-account configuration.'};
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();const path=kind==='AP_PAYMENT'?`/ap/bills/${businessDocumentId}/payments`:`/ar/invoices/${businessDocumentId}/receipts`;
   const body=kind==='AP_PAYMENT'?{periodId:config.periodId,paymentNumber:idempotencyKey,paymentDate:accountingDate,cashAccountCode:config.cashAccountCode,bankMemberRef:null,amount,reason:'UI-authoritative AP payment'}:{periodId:config.periodId,receiptNumber:idempotencyKey,receiptDate:accountingDate,cashAccountCode:config.cashAccountCode,bankMemberRef:null,amount,reason:'UI-authoritative AR receipt'};
-  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});if(!response.ok)return await failure(response);const result=await response.json();if(result?.ok!==true||!result.data)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid settlement envelope.'};return {ok:true,data:result.data,idempotent:response.status===200};}catch{return unreachable('The browser could not complete the authoritative settlement command; no HTTP response was produced.');}
+  const unconfirmed=()=>({ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'The API did not return a confirmed payment, allocation and Draft journal receipt. Check the saved payment or receipt, or retry with the same request key.'});
+  let response;
+  try{response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});}
+  catch{return unreachable('The browser could not confirm the settlement command. Check the saved payment or receipt, or retry with the same request key.');}
+  if(!response.ok)return await failure(response);
+  let result;try{result=await response.json();}catch{return unconfirmed();}
+  const receipt=result?.data;
+  if(![200,201].includes(response.status)||result?.ok!==true||!receipt||Array.isArray(receipt)
+    ||!['payment_occurrence_id','business_allocation_id','journal_entry_id'].every(field=>UUID.test(receipt[field]||''))
+    ||receipt.business_document_id!==businessDocumentId||receipt.status!=='DRAFT'||receipt.allocation_status!=='PENDING'
+    ||receipt.revision!==0||receipt.idempotent!==(response.status===200))return unconfirmed();
+  return {ok:true,data:receipt,idempotent:receipt.idempotent};
 }
 
 export async function createAuthoritativeAdjustment({config,kind,adjustment,idempotencyKey,fetcher=globalThis.fetch}={}){

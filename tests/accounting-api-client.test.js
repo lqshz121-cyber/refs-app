@@ -255,8 +255,22 @@ const periodEnvelope=data=>({ok:true,data,scope:periodScope(data)});
     assert.equal(malformed.code,'ACCOUNTING_API_PROTOCOL');assert.equal(calls,1,'uncertain responses must not trigger another mutation');
     assert.match(malformed.message,/same request key/);
   }
-  const paid=await createAuthoritativeSettlement({config,kind:'AP_PAYMENT',businessDocumentId:entityId,accountingDate:'2026-08-02',amount:7.25,idempotencyKey:'AP-PAY-request-0001',fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{status:'DRAFT'}})};}});
+  const settlementReceipt={payment_occurrence_id:periodId,business_allocation_id:'44444444-4444-4444-8444-444444444444',business_document_id:entityId,journal_entry_id:'55555555-5555-4555-8555-555555555555',status:'DRAFT',allocation_status:'PENDING',revision:0,idempotent:false};
+  const paid=await createAuthoritativeSettlement({config,kind:'AP_PAYMENT',businessDocumentId:entityId,accountingDate:'2026-08-02',amount:7.25,idempotencyKey:'AP-PAY-request-0001',fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:settlementReceipt})};}});
   assert.equal(paid.ok,true);assert.match(call.url,/\/ap\/bills\/.+\/payments$/);assert.equal(JSON.parse(call.options.body).cashAccountCode,'111000');assert.equal(JSON.parse(call.options.body).bankMemberRef,null);
+  for(const kind of ['AP_PAYMENT','AR_RECEIPT']){
+    const request={config,kind,businessDocumentId:entityId,accountingDate:'2026-08-02',amount:'9007199254740993.1234',idempotencyKey:`${kind}-receipt-test`};
+    for(const changed of [{status:'DRAFT'},{...settlementReceipt,payment_occurrence_id:null},{...settlementReceipt,business_allocation_id:'bad'},{...settlementReceipt,business_document_id:periodId},{...settlementReceipt,journal_entry_id:null},{...settlementReceipt,status:'POSTED'},{...settlementReceipt,allocation_status:'ACTIVE'},{...settlementReceipt,revision:1},{...settlementReceipt,revision:'0'},{...settlementReceipt,idempotent:true}]){
+      let calls=0;const malformed=await createAuthoritativeSettlement({...request,fetcher:async()=>{calls++;return {ok:true,status:201,json:async()=>({ok:true,data:changed})};}});
+      assert.equal(malformed.ok,false,`${kind} must reject incomplete, cross-document or non-Draft receipts`);assert.equal(malformed.code,'ACCOUNTING_API_PROTOCOL');assert.equal(calls,1);assert.match(malformed.message,/same request key/);
+    }
+    const replay=await createAuthoritativeSettlement({...request,fetcher:async(url,options)=>{assert.match(url,kind==='AP_PAYMENT'?/\/payments$/:/\/receipts$/);assert.equal(JSON.parse(options.body).amount,request.amount);assert.equal(options.headers['idempotency-key'],request.idempotencyKey);return {ok:true,status:200,json:async()=>({ok:true,data:{...settlementReceipt,idempotent:true}})};}});
+    assert.equal(replay.ok,true);assert.equal(replay.idempotent,true);
+    for(const response of [{ok:true,status:200,json:async()=>({ok:true,data:settlementReceipt})},{ok:true,status:202,json:async()=>({ok:true,data:settlementReceipt})},{ok:true,status:201,json:async()=>{throw Error('truncated JSON');}}]){
+      const result=await createAuthoritativeSettlement({...request,fetcher:async()=>response});assert.equal(result.code,'ACCOUNTING_API_PROTOCOL');
+    }
+    let calls=0;const unknown=await createAuthoritativeSettlement({...request,fetcher:async()=>{calls++;throw Error('response lost');}});assert.equal(unknown.code,'ACCOUNTING_API_UNREACHABLE');assert.equal(calls,1);assert.match(unknown.message,/same request key/);
+  }
   const credit=await createAuthoritativeAdjustment({config,kind:'AP_VENDOR_CREDIT',idempotencyKey:'AP-CREDIT-request-0001',adjustment:{number:'VC-100',date:'2026-08-02',counterpartyRef:'V-1',counterpartyName:'Vendor',amount:10,lines:[{line_no:1,account_code:'610000',amount:10}],reason:'Approved vendor credit'},fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{business_adjustment_id:entityId,status:'DRAFT'}})};}});
   assert.equal(credit.ok,true);assert.match(call.url,/\/ap\/vendor-credits$/);assert.equal(JSON.parse(call.options.body).creditNumber,'VC-100');
   const memo=await createAuthoritativeAdjustment({config,kind:'AR_CREDIT_MEMO',idempotencyKey:'AR-CREDIT-request-0001',adjustment:{number:'CM-100',date:'2026-08-02',counterpartyRef:'C-1',counterpartyName:'Customer',amount:4,lines:[{line_no:1,account_code:'411100',amount:4}],reason:'Approved customer credit'},fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{business_adjustment_id:entityId,status:'DRAFT'}})};}});
