@@ -309,4 +309,6 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"301_deployment_identity_attestation.sql",up:"bff1221f5936102d8c4f1752fad16ec7b7ea02caaf626dc11ca2e803fe7afc75",down:"9f9317fc60a8cb4a21c04d63ad8bcb301d1d616d32d6f585eb8654ee566e6caa"}),
   Object.freeze({name:"302_business_document_counterparty_read.sql",up:"0a7c70f5212e34e115c73f22ce76868d5e26e9508648cf9874f10fb6ed4efe2e",down:"e90bcd537d6cb5fc2507330eaa3ed67aaa3011dc36f9c48abcb5b803444cfdae"}),
   Object.freeze({name:"303_attachment_reservation_recovery.sql",up:"aac73ac3241dd6b48f38e8c7a08251bf8d7fd3dd4f0e4c66e1ae3c6243fffefd",down:"5f95fccff5d55e17e1692f14e68f2ba8c3cb15c46867cb352544fb7ea0d4a69a"}),
+  Object.freeze({name:"304_settlement_input_reads.sql",up:"aac3e88d18a0eb02a61e6d6ae637daa3a10d56bd05ba7c7a4d34fef37dc21417",down:"c02867430af9f0f4d31f4749a3074a2bce6b794a963b87e6cb6b5f2ced0e8e00"}),
+  Object.freeze({name:"305_native_settlement_command.sql",up:"e7300c321a1ea9c6ca1ffa1145d264600681c2f075522b775d478eed3238f259",down:"f51d42aa9ed32b0128ac3933061a62b94ca435120c9d7712c016e9db10083a09"}),
 ]);

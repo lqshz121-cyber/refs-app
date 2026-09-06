@@ -1,4 +1,5 @@
 import {createServer} from 'node:http';
+import {validSettlementKind,validSettlementBankSelection,validSettlementBankPage,validSettlementContext} from '../runtime/settlement-input-reads.mjs';
 import {validBusinessDocumentCounterpartySelection,validBusinessDocumentCounterpartyPage} from '../runtime/business-document-counterparties.mjs';
 import {WbsReadContractError,assertWbsControlReadOnlyResult,assertWbsReadOnlyResult,parseWbsAutoRecReviewSelection,parseWbsControlReconciliationSelection} from './wbs-read-contract.mjs';
 import {WbsLivePilotError,assertWbsLivePilotResult,parseWbsLivePilotSelection} from '../runtime/wbs-live-pilot-read-service.mjs';
@@ -693,6 +694,30 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.getWbsProviderSignedSourceEvidence!=='function')throw new AccountingApiError(503,'WBS_PROVIDER_SIGNED_SOURCE_EVIDENCE_UNAVAILABLE','Provider-signed source evidence read is unavailable');
         try{result=await kernel.getWbsProviderSignedSourceEvidence({tenantId:principal.tenantId,entityId,sourceDocumentId:requireUuid(parts[8],'sourceDocumentId')});}
         catch(error){if(error?.code==='WBS_PROVIDER_SIGNED_SOURCE_EVIDENCE_NOT_AVAILABLE')throw new AccountingApiError(404,'WBS_PROVIDER_SIGNED_SOURCE_EVIDENCE_NOT_AVAILABLE','Exact formally admitted provider-signed source evidence is not available');throw error;}
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='settlements'&&parts[5]==='draft-bank-members'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Bank member reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['kind','query','afterRef','limit']);
+        const selection={settlementKind:parsedUrl.searchParams.get('kind'),query:parsedUrl.searchParams.get('query')??'',afterRef:parsedUrl.searchParams.get('afterRef'),limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):50};
+        if(!validSettlementBankSelection(selection)||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Settlement kind, search, cursor or page size is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readSettlementBankMembers!=='function')throw new AccountingApiError(503,'SETTLEMENT_BANK_MEMBERS_UNAVAILABLE','Bank member choices are unavailable');
+        result=await kernel.readSettlementBankMembers({tenantId:principal.tenantId,entityId,...selection});
+        if(!validSettlementBankPage(result,{entityId,...selection}))throw new AccountingApiError(500,'SETTLEMENT_BANK_MEMBERS_INVALID','Bank member choices did not match the requested scope');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===7&&parts[4]==='business-documents'&&parts[6]==='settlement-context'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Settlement context reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['kind','periodId']);
+        const selection={settlementKind:parsedUrl.searchParams.get('kind'),businessDocumentId:requireUuid(parts[5],'businessDocumentId'),periodId:requireUuid(parsedUrl.searchParams.get('periodId'),'periodId')};
+        if(!validSettlementKind(selection.settlementKind))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Settlement kind is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readSettlementContext!=='function')throw new AccountingApiError(503,'SETTLEMENT_CONTEXT_UNAVAILABLE','Settlement context is unavailable');
+        result=await kernel.readSettlementContext({tenantId:principal.tenantId,entityId,...selection});
+        if(!validSettlementContext(result,{entityId,...selection}))throw new AccountingApiError(500,'SETTLEMENT_CONTEXT_INVALID','Settlement context did not match its scope or balances');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='business-documents'&&parts[5]==='draft-counterparties'){
@@ -2183,6 +2208,23 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['periodId','journalNumber','journalDate','reason']);
         result=await kernel.createApBillVoid({tenantId:principal.tenantId,entityId,businessDocumentId:requireUuid(parts[6],'businessDocumentId'),periodId:requireUuid(payload.periodId,'periodId'),expectedVersion:requireRevision(headers),journalNumber:payload.journalNumber,journalDate:payload.journalDate,reason:payload.reason,idempotencyKey});
+      }else if(parts.length===8&&((parts[4]==='ap'&&parts[5]==='bills'&&parts[7]==='native-payments')||(parts[4]==='ar'&&parts[5]==='invoices'&&parts[7]==='native-receipts'))){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','A new settlement uses an idempotency key; source capacity is locked by the command');
+        allowOnly(payload,['periodId','number','date','cashAccountCode','bankMemberRef','amount','reason','attachmentIds']);
+        const amount=requireDecimalAmount(payload.amount,'amount');
+        if(amount.startsWith('-')||!/[1-9]/.test(amount))throw new AccountingApiError(400,'INVALID_AMOUNT','Settlement amount must be positive');
+        if([payload.number,payload.bankMemberRef].some(value=>!boundedText(value,128)||value!==value.trim()||/[\u0000-\u001f\u007f]/.test(value)))throw new AccountingApiError(400,'INVALID_SETTLEMENT_INPUT','Number and bank member reference must be trimmed nonempty text of at most 128 characters');
+        const businessDocumentId=requireUuid(parts[6],'businessDocumentId');
+        const args={tenantId:principal.tenantId,entityId,businessDocumentId,settlementKind:parts[4]==='ap'?'AP_PAYMENT':'AR_RECEIPT',
+          periodId:requireUuid(payload.periodId,'periodId'),number:payload.number,date:requireIsoDate(payload.date,'date'),cashAccountCode:requireAccountCode(payload.cashAccountCode),
+          bankMemberRef:payload.bankMemberRef,amount,reason:requireReviewReason(payload.reason),attachmentIds:requireAttachmentIds(requireAttachmentIds(payload.attachmentIds).map(id=>id.toLowerCase())),idempotencyKey};
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.createNativeSettlement!=='function')throw new AccountingApiError(503,'NATIVE_SETTLEMENT_UNAVAILABLE','Native settlement creation is unavailable');
+        result=await kernel.createNativeSettlement(args);
+        if(!exactKeys(result,['payment_occurrence_id','business_allocation_id','business_document_id','journal_entry_id','status','allocation_status','revision','idempotent'].sort())
+          ||!UUID.test(result.payment_occurrence_id||'')||!UUID.test(result.business_allocation_id||'')||!UUID.test(result.journal_entry_id||'')
+          ||result.business_document_id!==businessDocumentId||result.status!=='DRAFT'||result.allocation_status!=='PENDING'||result.revision!==0||typeof result.idempotent!=='boolean')throw new AccountingApiError(500,'NATIVE_SETTLEMENT_RECEIPT_INVALID','Native settlement creation returned an unconfirmed receipt');
       }else if(parts.length===8&&parts[4]==='ap'&&parts[5]==='bills'&&parts[7]==='payments'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['periodId','paymentNumber','paymentDate','cashAccountCode','bankMemberRef','amount','reason']);

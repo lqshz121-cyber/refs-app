@@ -1636,6 +1636,14 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async createNativeSettlement(args){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_create_native_settlement($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) AS result',
+      [args.tenantId,args.entityId,args.settlementKind,args.businessDocumentId,args.periodId,args.number,args.date,
+        args.cashAccountCode,args.bankMemberRef,args.amount,args.reason,args.attachmentIds,args.idempotencyKey]
+    ),'NATIVE_SETTLEMENT_FAILED','Native settlement Draft creation did not return a result').result);
+  }
+
   async createApPayment(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
@@ -1705,6 +1713,20 @@ export class PostgresAccountingKernel{
       )).rows.map(row=>({...row,document_revision:Number(row.document_revision),posted_journal_revision:Number(row.posted_journal_revision),accounting_date:publicDate(row.accounting_date),due_date:row.due_date==null?null:publicDate(row.due_date),aging_date:publicDate(row.aging_date),days_past_due:Number(row.days_past_due)}));
       return {rows,scope:{...scope,as_of_date:publicDate(scope.as_of_date),snapshot_version:Number(scope.snapshot_version),total_count:Number(scope.total_count),limit,offset}};
     });
+  }
+
+  async readSettlementBankMembers({tenantId,entityId,settlementKind,query='',afterRef=null,limit=50}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_settlement_bank_members($1,$2,$3,$4,$5,$6) AS result',
+      [tenantId,entityId,settlementKind,query,afterRef,limit]
+    ),'SETTLEMENT_BANK_MEMBERS_UNAVAILABLE','Bank member choices are unavailable').result);
+  }
+
+  async readSettlementContext({tenantId,entityId,settlementKind,businessDocumentId,periodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_settlement_context($1,$2,$3,$4,$5) AS result',
+      [tenantId,entityId,settlementKind,businessDocumentId,periodId]
+    ),'SETTLEMENT_CONTEXT_UNAVAILABLE','Settlement context is unavailable').result);
   }
 
   async readBusinessDocumentCounterparties({tenantId,entityId,documentKind,query='',afterRef=null,limit=50}){
