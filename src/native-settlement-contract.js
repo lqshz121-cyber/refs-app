@@ -2,7 +2,8 @@ const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&
 const text=(value,max,empty=false)=>typeof value==='string'&&value===value.trim()&&value.length<=max&&(empty||value.length>0)&&!/[\u0000-\u001f\u007f]/.test(value);
 const compare=(left,right)=>{const a=Array.from(left),b=Array.from(right);for(let i=0;i<Math.min(a.length,b.length);i++){const d=a[i].codePointAt(0)-b[i].codePointAt(0);if(d)return d;}return a.length-b.length;};
 export const validSettlementKind=kind=>['AP_PAYMENT','AR_RECEIPT'].includes(kind);
-export const validSettlementBankSelection=({settlementKind,query='',afterRef=null,limit=50})=>validSettlementKind(settlementKind)
+export const validSettlementBankKind=kind=>validSettlementKind(kind)||kind==='AR_REFUND';
+export const validSettlementBankSelection=({settlementKind,query='',afterRef=null,limit=50})=>validSettlementBankKind(settlementKind)
   &&text(query,128,true)&&(afterRef===null||text(afterRef,128))&&Number.isInteger(limit)&&limit>=1&&limit<=100;
 
 export function validSettlementBankPage(value,{entityId,settlementKind,query='',afterRef=null,limit=50}){
