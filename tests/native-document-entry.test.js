@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readSalesReceiptPage,readSalesReceipt} from '../src/sales-receipt-api.js';
+import {readSalesReceiptForWorkflow} from '../src/sales-receipt-workflow.js';
 import {prepareSalesReceipt,sendSalesReceipt,validateSalesReceiptDraft,uploadSalesReceiptSupport} from '../src/sales-receipt-entry.js';
 import {recoverSalesReceipt,retainSalesReceipt,releaseSalesReceipt,beginSalesReceiptAttempt,currentSalesReceiptAttempt} from '../src/sales-receipt-recovery.js';
 import {webcrypto} from 'node:crypto';
@@ -19,6 +20,11 @@ test('Sales Receipt client preserves exact persisted data and rejects stale scop
  assert.equal((await readSalesReceiptPage({config,limit:0,fetcher})).ok,false);assert.equal(calls.length,2);
  assert.equal((await readSalesReceipt({config,receiptId:attachmentId,fetcher:async()=>({ok:false,status:403})})).ok,false);
  assert.equal((await readSalesReceipt({config,receiptId:attachmentId,fetcher:async()=>({ok:true,json:async()=>({ok:true,data:{...detail,record:{...record,sales_receipt_id:periodId}}})})})).ok,false);
+ assert.deepEqual(await readSalesReceiptForWorkflow({config,record,fetcher}),{ok:true,record});
+ for(const patch of [{revision:'1'},{journal_revision:'1'},{journal_entry_id:periodId},{journal_status:'APPROVED'},{period_id:entityId}]){
+   const result=await readSalesReceiptForWorkflow({config,record,fetcher:async()=>({ok:true,json:async()=>({ok:true,data:{...detail,record:{...record,...patch}}})})});assert.equal(result.ok,false,JSON.stringify(patch));
+ }
+ assert.equal((await readSalesReceiptForWorkflow({config,record:{...record,journal_status:'APPROVED'},fetcher:()=>{throw Error('Do not read a non-Draft workflow');}})).ok,false);
 });
 const scope={entity_id:entityId,period_id:periodId,entity_name:'Test company',entity_code:'TEST',base_currency:'USD',period_code:'2026-08',period_start:'2026-08-01',period_end:'2026-08-31',period_status:'OPEN'};
 const access={tenant_id:attachmentId,entity_id:entityId,actor_id:'oidc|maker',grant_set_version:1,permissions:['AP.BILL.CREATE','AR.INVOICE.CREATE','ATTACHMENT.CREATE'],configured_permissions:['AP.BILL.CREATE','AR.INVOICE.CREATE','ATTACHMENT.CREATE'],session_refresh_required:false};
