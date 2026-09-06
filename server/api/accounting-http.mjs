@@ -1,3 +1,4 @@
+import {validCreditHistorySelection,validCreditHistory} from '../runtime/credit-allocation-history.mjs';
 import {validSettlementHistorySelection,validSettlementHistory} from '../runtime/settlement-history.mjs';
 import {createServer} from 'node:http';
 import {reportAccessFailure} from './access-failure-diagnostics.mjs';
@@ -736,6 +737,18 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!kernel||typeof kernel.readSettlementContext!=='function')throw new AccountingApiError(503,'SETTLEMENT_CONTEXT_UNAVAILABLE','Settlement context is unavailable');
         result=await kernel.readSettlementContext({tenantId:principal.tenantId,entityId,...selection});
         if(!validSettlementContext(result,{entityId,...selection}))throw new AccountingApiError(500,'SETTLEMENT_CONTEXT_INVALID','Settlement context did not match its scope or balances');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===7&&['business-adjustments','business-documents'].includes(parts[4])&&parts[6]==='credit-allocations'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','History reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['subjectKind','afterId','limit']);
+        const selection={subjectId:requireUuid(parts[5],'subjectId').toLowerCase(),subjectKind:parsedUrl.searchParams.get('subjectKind'),afterId:parsedUrl.searchParams.has('afterId')?requireUuid(parsedUrl.searchParams.get('afterId'),'afterId').toLowerCase():null,limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):50};
+        if(!validCreditHistorySelection(selection)||(parts[4]==='business-adjustments')!==['AP_VENDOR_CREDIT','AR_CREDIT_MEMO'].includes(selection.subjectKind)||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Credit history selection is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readCreditAllocationHistory!=='function')throw new AccountingApiError(503,'CREDIT_HISTORY_UNAVAILABLE','Credit history is unavailable');
+        result=await kernel.readCreditAllocationHistory({tenantId:principal.tenantId,entityId,...selection});
+        if(!validCreditHistory(result,{entityId,...selection}))throw new AccountingApiError(500,'CREDIT_HISTORY_INVALID','Credit history did not match its scope');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===7&&parts[4]==='business-adjustments'&&parts[6]==='allocation-targets'){

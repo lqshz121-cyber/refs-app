@@ -15,6 +15,598 @@
     }
   ],
   "paths": {
+    "/entities/{entityId}/business-adjustments/{subjectId}/credit-allocations": {
+      "get": {
+        "operationId": "readCreditAllocationHistory",
+        "summary": "Read recorded credit allocations with source journal trace",
+        "description": "Requires AP.VIEW or AR.VIEW in the subject company. Includes recorded allocation states across all periods. Orders by created timestamp and UUID descending, validates the cursor belongs to this subject, and returns exact decimal amounts. No body, command headers, reservation or write authority.",
+        "parameters": [
+          null,
+          {
+            "name": "subjectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          },
+          {
+            "name": "subjectKind",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "AP_VENDOR_CREDIT",
+                "AR_CREDIT_MEMO"
+              ]
+            }
+          },
+          {
+            "name": "afterId",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scoped credit allocation history",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schema_version",
+                        "entity_id",
+                        "subject_id",
+                        "subject_kind",
+                        "after_id",
+                        "limit",
+                        "rows",
+                        "next_id"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "CREDIT_ALLOCATION_HISTORY_V1"
+                        },
+                        "entity_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "subject_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "subject_kind": {
+                          "enum": [
+                            "AP_VENDOR_CREDIT",
+                            "AR_CREDIT_MEMO"
+                          ]
+                        },
+                        "after_id": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/Uuid"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 100
+                        },
+                        "rows": {
+                          "type": "array",
+                          "maxItems": 100,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "business_allocation_id",
+                              "business_adjustment_id",
+                              "adjustment_kind",
+                              "credit_number",
+                              "business_document_id",
+                              "document_number",
+                              "amount",
+                              "currency",
+                              "status",
+                              "revision",
+                              "created_at",
+                              "reversed_by_allocation_id",
+                              "journal_entry_id",
+                              "journal_number",
+                              "journal_status",
+                              "journal_revision",
+                              "journal_period_id"
+                            ],
+                            "properties": {
+                              "business_allocation_id": {
+                                "$ref": "#/components/schemas/Uuid"
+                              },
+                              "business_adjustment_id": {
+                                "$ref": "#/components/schemas/Uuid"
+                              },
+                              "adjustment_kind": {
+                                "enum": [
+                                  "AP_VENDOR_CREDIT",
+                                  "AR_CREDIT_MEMO"
+                                ]
+                              },
+                              "credit_number": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 128
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "business_document_id": {
+                                "$ref": "#/components/schemas/Uuid"
+                              },
+                              "document_number": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "amount": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]{0,15})\\.[0-9]{4}$"
+                              },
+                              "currency": {
+                                "type": "string",
+                                "pattern": "^[A-Z]{3}$"
+                              },
+                              "status": {
+                                "enum": [
+                                  "PENDING",
+                                  "ACTIVE",
+                                  "REVERSED"
+                                ]
+                              },
+                              "revision": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]{0,18})$"
+                              },
+                              "created_at": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "reversed_by_allocation_id": {
+                                "anyOf": [
+                                  {
+                                    "$ref": "#/components/schemas/Uuid"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "journal_entry_id": {
+                                "anyOf": [
+                                  {
+                                    "$ref": "#/components/schemas/Uuid"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "journal_number": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 128
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "journal_status": {
+                                "anyOf": [
+                                  {
+                                    "const": "POSTED"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "journal_revision": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "pattern": "^(0|[1-9][0-9]{0,18})$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "journal_period_id": {
+                                "anyOf": [
+                                  {
+                                    "$ref": "#/components/schemas/Uuid"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "next_id": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/Uuid"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/business-documents/{subjectId}/credit-allocations": {
+      "get": {
+        "operationId": "readDocumentCreditAllocations",
+        "summary": "Read recorded credit allocations with source journal trace",
+        "description": "Requires AP.VIEW or AR.VIEW in the subject company. Includes recorded allocation states across all periods. Orders by created timestamp and UUID descending, validates the cursor belongs to this subject, and returns exact decimal amounts. No body, command headers, reservation or write authority.",
+        "parameters": [
+          null,
+          {
+            "name": "subjectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          },
+          {
+            "name": "subjectKind",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "AP_BILL",
+                "AR_INVOICE"
+              ]
+            }
+          },
+          {
+            "name": "afterId",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scoped credit allocation history",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schema_version",
+                        "entity_id",
+                        "subject_id",
+                        "subject_kind",
+                        "after_id",
+                        "limit",
+                        "rows",
+                        "next_id"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "CREDIT_ALLOCATION_HISTORY_V1"
+                        },
+                        "entity_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "subject_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "subject_kind": {
+                          "enum": [
+                            "AP_BILL",
+                            "AR_INVOICE"
+                          ]
+                        },
+                        "after_id": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/Uuid"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 100
+                        },
+                        "rows": {
+                          "type": "array",
+                          "maxItems": 100,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "business_allocation_id",
+                              "business_adjustment_id",
+                              "adjustment_kind",
+                              "credit_number",
+                              "business_document_id",
+                              "document_number",
+                              "amount",
+                              "currency",
+                              "status",
+                              "revision",
+                              "created_at",
+                              "reversed_by_allocation_id",
+                              "journal_entry_id",
+                              "journal_number",
+                              "journal_status",
+                              "journal_revision",
+                              "journal_period_id"
+                            ],
+                            "properties": {
+                              "business_allocation_id": {
+                                "$ref": "#/components/schemas/Uuid"
+                              },
+                              "business_adjustment_id": {
+                                "$ref": "#/components/schemas/Uuid"
+                              },
+                              "adjustment_kind": {
+                                "enum": [
+                                  "AP_VENDOR_CREDIT",
+                                  "AR_CREDIT_MEMO"
+                                ]
+                              },
+                              "credit_number": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 128
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "business_document_id": {
+                                "$ref": "#/components/schemas/Uuid"
+                              },
+                              "document_number": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "amount": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]{0,15})\\.[0-9]{4}$"
+                              },
+                              "currency": {
+                                "type": "string",
+                                "pattern": "^[A-Z]{3}$"
+                              },
+                              "status": {
+                                "enum": [
+                                  "PENDING",
+                                  "ACTIVE",
+                                  "REVERSED"
+                                ]
+                              },
+                              "revision": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]{0,18})$"
+                              },
+                              "created_at": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "reversed_by_allocation_id": {
+                                "anyOf": [
+                                  {
+                                    "$ref": "#/components/schemas/Uuid"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "journal_entry_id": {
+                                "anyOf": [
+                                  {
+                                    "$ref": "#/components/schemas/Uuid"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "journal_number": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 128
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "journal_status": {
+                                "anyOf": [
+                                  {
+                                    "const": "POSTED"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "journal_revision": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "pattern": "^(0|[1-9][0-9]{0,18})$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "journal_period_id": {
+                                "anyOf": [
+                                  {
+                                    "$ref": "#/components/schemas/Uuid"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "next_id": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/Uuid"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/entities/{entityId}/business-adjustments/{businessAdjustmentId}/allocation-targets": {
       "get": {
         "operationId": "readCreditAllocationTargets",
