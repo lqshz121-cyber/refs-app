@@ -48,6 +48,6 @@ assert.match(source,/AuthoritativeLineageDrill/,'the created Draft must reuse th
 assert.match(appSource,/refreshAuthoritativeJournalEntries\(\{config,fetcher:boundFetcher\}\)/,'continuing from WBS must re-read the authoritative Journal register');
 assert.match(appSource,/row\.journal_entry_id===receipt\.journal_entry_id&&row\.status==='DRAFT'/,'the WBS handoff must find the exact created Draft in the same company-period Journal register');
 assert.match(appSource,/onOpenJournalWorkflow=\{openWbsH1DraftWorkflow\}/,'the Integration Hub must hand the exact Draft to the standard Journal workflow route');
-assert.match(appSource,/initialJournalEntryId=\{workflowJournalId\}/,'the Journal register must open filtered to the exact Draft created from WBS or AI');
+assert.match(appSource,/<SingleJournalWorkflow[^>]*journalEntryId=\{workflowJournalId\}/,'the workflow must open the exact Draft created from WBS or AI');
 assert.doesNotMatch(source,/wbs_uuid|Post journal|localStorage|seed\.js/);
 verifyClient().then(()=>console.log('authoritative WBS H1 import workspace: real company source inventory remains read only')).catch(error=>{console.error(error);process.exitCode=1;});
