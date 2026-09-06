@@ -6501,14 +6501,22 @@ pgTest('sales receipt detail and keyset pages are scoped and remain bounded over
   assert.equal((await get(`${root}?periodId=${ids.periodId}&afterId=${foreign.journalId}`)).status,400);
   await assert.rejects(runtimePool.query('SELECT * FROM sales_receipt_detail_read'),e=>e.code==='42501');
   // Synthetic persisted records test read volume only; the API-created record above proves the command/read chain.
-  await adminPool.query(`WITH generated AS MATERIALIZED (
-    SELECT gen_random_uuid() journal_id,('00000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid receipt_id,n FROM generate_series(1,100001) n
-  ), journals AS (
-    INSERT INTO journal_entry(journal_entry_id,tenant_id,entity_id,period_id,journal_number,journal_type,status,journal_date,currency,description,created_by)
-    SELECT journal_id,$1,$2,$3,'PERF-SALE-'||n,'MANUAL','DRAFT','2026-07-18','USD','Synthetic pagination fixture','fixture-maker' FROM generated RETURNING journal_entry_id
-  ) INSERT INTO sales_receipt(sales_receipt_id,tenant_id,entity_id,period_id,receipt_number,customer_ref,customer_name,bank_member_ref,cash_account_code,category_account_code,accounting_date,currency,amount,description,journal_entry_id,created_by)
-    SELECT g.receipt_id,$1,$2,$3,'PERF-SALE-'||g.n,'CUSTOMER-SALE','Cash customer','BANK-1','111000','400000','2026-07-18','USD',1.2345,'Synthetic pagination fixture',g.journal_id,'fixture-maker'
-    FROM generated g JOIN journals j ON j.journal_entry_id=g.journal_id`,[ids.tenantId,ids.entityId,ids.periodId]);
+  const fixture=await adminPool.connect();
+  try{
+    await fixture.query('BEGIN');
+    await fixture.query(`CREATE TEMP TABLE receipt_read_fixture ON COMMIT DROP AS SELECT gen_random_uuid() journal_id,
+      ('00000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid receipt_id,n FROM generate_series(1,100001) n`);
+    for(let first=1;first<=100001;first+=10000){
+      const args=[ids.tenantId,ids.entityId,ids.periodId,first,Math.min(first+9999,100001)];
+      await fixture.query(`INSERT INTO journal_entry(journal_entry_id,tenant_id,entity_id,period_id,journal_number,journal_type,status,journal_date,currency,description,created_by)
+        SELECT journal_id,$1,$2,$3,'PERF-SALE-'||n,'MANUAL','DRAFT','2026-07-18','USD','Synthetic pagination fixture','fixture-maker'
+        FROM receipt_read_fixture WHERE n BETWEEN $4 AND $5`,args);
+      await fixture.query(`INSERT INTO sales_receipt(sales_receipt_id,tenant_id,entity_id,period_id,receipt_number,customer_ref,customer_name,bank_member_ref,cash_account_code,category_account_code,accounting_date,currency,amount,description,journal_entry_id,created_by)
+        SELECT receipt_id,$1,$2,$3,'PERF-SALE-'||n,'CUSTOMER-SALE','Cash customer','BANK-1','111000','400000','2026-07-18','USD',1.2345,'Synthetic pagination fixture',journal_id,'fixture-maker'
+        FROM receipt_read_fixture WHERE n BETWEEN $4 AND $5`,args);
+    }
+    await fixture.query('COMMIT');
+  }catch(error){await fixture.query('ROLLBACK');throw error;}finally{fixture.release();}
   await adminPool.query('ANALYZE sales_receipt');await adminPool.query('ANALYZE journal_entry');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM sales_receipt WHERE entity_id=$1',[ids.entityId])).rows[0].n,100002);
   const started=Date.now(),first=await get(`${root}?periodId=${ids.periodId}&limit=100`);
