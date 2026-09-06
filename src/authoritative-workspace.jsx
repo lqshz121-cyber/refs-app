@@ -1,3 +1,4 @@
+import {formatExactCurrency} from './exact-currency.js';
 import {CreditAllocationHistory} from './credit-allocation-history.jsx';
 import {NativeRefundEntry} from './native-refund-entry.jsx';
 import {NativeCreditAllocationEntry} from './native-credit-allocation.jsx';
@@ -20,7 +21,7 @@ import {
   paginateAuthoritativeRows,
 } from './authoritative-list-context.js';
 
-const money=(value,currency)=>new Intl.NumberFormat('en-US',{style:'currency',currency:/^[A-Z]{3}$/.test(currency||'')?currency:'USD'}).format(Number(value)||0);
+const money=formatExactCurrency;
 const date=/^\d{4}-\d{2}-\d{2}$/;
 const amount=/^(?:0|[1-9]\d{0,15})(?:\.\d{1,4})?$/;
 const account=/^[A-Za-z0-9._-]{1,64}$/;

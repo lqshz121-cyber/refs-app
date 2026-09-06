@@ -1,4 +1,5 @@
 import {BusinessRecordEvidence} from '../src/business-record-detail.jsx';
+import {formatExactCurrency} from '../src/exact-currency.js';
 import {CreditAllocationHistory} from '../src/credit-allocation-history.jsx';
 import {DocumentSettlementHistory} from '../src/document-settlement-history.jsx';
 import {NativeRefundEntry,NativeRefundForm} from '../src/native-refund-entry.jsx';
@@ -11,6 +12,15 @@ import {NativeDocumentEntry,NativeDocumentEntryForm} from '../src/native-documen
 import {NativeSettlementEntry,NativeSettlementForm} from '../src/native-settlement-entry.jsx';
 import {AuthoritativeDocumentWorkspace} from '../src/authoritative-workspace.jsx';
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222'};
+assert.equal(formatExactCurrency('9007199254740993.1234','USD'),'$9,007,199,254,740,993.1234');
+assert.equal(formatExactCurrency('0.0001','USD'),'$0.0001');
+assert.equal(formatExactCurrency('-0.1234','USD'),'-$0.1234');
+assert.equal(formatExactCurrency('-1234.5000','USD'),'-$1,234.50');
+assert.equal(formatExactCurrency('12.0000','JPY'),'¥12');
+assert.equal(formatExactCurrency('12.1234','JPY'),'¥12.1234');
+assert.equal(formatExactCurrency('12.1000','KWD'),'KWD 12.100');
+assert.equal(formatExactCurrency(null,'USD'),'Not available');
+assert.equal(formatExactCurrency('1e20','USD'),'Not available');
 const access={entity_id:config.entityId,actor_id:'oidc|maker',session_refresh_required:false,permissions:['AP.BILL.CREATE','AR.INVOICE.CREATE','ATTACHMENT.CREATE']};
 const scope={entity_id:config.entityId,period_id:config.periodId,entity_name:'Scoped company',period_code:'2026-08',base_currency:'USD',period_start:'2026-08-01',period_end:'2026-08-31',period_status:'OPEN'};
 const accounts=[{period_id:config.periodId,account_code:'610000',account_name:'Office',active:true,requires_member:false},{period_id:config.periodId,account_code:'291001',account_name:'Control',active:true,requires_member:true}];
