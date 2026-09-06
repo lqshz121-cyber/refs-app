@@ -194,3 +194,36 @@ assert.match(appSource,/if \(!routeRequiresSharedAccountingBootstrap\(route,work
 assert.match(appSource,/phase === 'READY' && routeRequiresSharedAccountingBootstrap\(route,workflowJournalId\) && !sharedAccountingLoaded/,'later navigation to a shared-data page must still load AP\/AR and Journal evidence exactly when needed');
 
 console.log('authoritative-bank-workspace: scoped full-page read-only SSR contract passed');
+
+// Execute the application's actual handoff callback with isolated state setters.
+// This covers its async orchestration, not browser rendering or real identity.
+async function verifySettlementHandoff(){
+ const start=appSource.indexOf('const openNativeSettlementDraft=useCallback(');
+ const end=appSource.indexOf('const selectEntityScope=',start);
+ assert.ok(start>0&&end>start);
+ const callbackSource=appSource.slice(start,end);
+ const target={entity_id:config.entityId,period_id:'22222222-2222-4222-8222-222222222222'};
+ const origin={...config,periodId:'33333333-3333-4333-8333-333333333333'};
+ const receipt={journal_entry_id:'44444444-4444-4444-8444-444444444444'};
+ const make=({response={ok:true,journal:{status:'DRAFT'}},duringRead=()=>{},catalog=[target]}={})=>{
+  const events=[],reads=[],originRef={current:origin};let current=true;
+  const bindings={useCallback:fn=>fn,config:origin,scopeCatalog:catalog,boundFetcher:()=>{},accountingReadGeneration:1,
+   accountingReadGuard:{current:{begin:()=>()=>current}},nativeDraftOriginRef:originRef,
+   readAuthoritativeJournalEntryDetail:async args=>{reads.push(args);duringRead({invalidate:()=>current=false,originRef});return response;},
+   applyScope:value=>events.push(['scope',value]),setError:value=>events.push(['error',value]),setSharedAccountingLoaded:value=>events.push(['loaded',value]),setRoute:value=>events.push(['route',value]),setWorkflowJournalId:value=>events.push(['journal',value])};
+  const run=Function(...Object.keys(bindings),callbackSource+';return openNativeSettlementDraft;')(...Object.values(bindings));
+  return {run,events,reads};
+ };
+ const success=make();await success.run(receipt,target);
+ assert.equal(success.reads.length,1);assert.equal(success.reads[0].config.periodId,target.period_id);assert.equal(success.reads[0].config.entityId,origin.entityId);assert.equal(success.reads[0].journalEntryId,receipt.journal_entry_id);
+ assert.deepEqual(success.events,[['scope',target],['loaded',false],['error',null],['route','journals'],['journal',receipt.journal_entry_id]]);
+ for(const options of [{response:{ok:false,code:'DENIED'}},{response:{ok:true,journal:{status:'POSTED'}}},{catalog:[{...target,entity_id:'foreign'}]}]){
+  const rejected=make(options);await rejected.run(receipt,target);assert.equal(rejected.events.length,1);assert.equal(rejected.events[0][0],'error');
+  if(options.catalog)assert.equal(rejected.reads.length,0);
+ }
+ for(const duringRead of [({invalidate})=>invalidate(),({originRef})=>originRef.current={...origin}]){
+  const stale=make({duringRead});await stale.run(receipt,target);assert.deepEqual(stale.events,[],'late handoff must not navigate or overwrite current scope');
+ }
+ console.log('settlement handoff: target period, exact point read, denial, changed status and stale scope verified');
+}
+verifySettlementHandoff().catch(error=>{console.error(error);process.exitCode=1;});
