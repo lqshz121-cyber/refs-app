@@ -33,16 +33,20 @@ export function NativeDocumentEntryForm({id,config,kind,access,scope,accounts=[]
     if(!mounted.current)return;
     if(result.ok){setPage(result.data);setCounterparty(null);}else setMessage(result.message);
   });
-  const upload=()=>run(async()=>{
-    const attempt=uploadAttempt+(uploadClosed?1:0);setUploadAttempt(attempt);setUploadClosed(false);
-    const result=await uploadNativeDocumentSupport({config,kind,file,expectedActorId:access.actor_id,uploadAttempt:attempt,fetcher});
-    if(!mounted.current)return;
-    if(result.ok){setAttachment(result);setMessage('Supporting document verified.');}else{setUploadClosed(result.code==='ATTACHMENT_RESERVATION_CLOSED');setMessage(result.code==='ATTACHMENT_RESERVATION_CLOSED'?'The previous upload is closed. You can start a new upload for this file.':result.message);}
-  });
   const create=()=>run(async()=>{
     const valid=validateNativeDocumentDraft({config,kind,draft,counterparty,attachmentId:attachment?.attachmentId,scope,accounts});
-    if(!valid.ok){setMessage(valid.message);return;}
-    const result=await createNativeDocumentDraft({config,kind,draft,counterparty,attachmentId:attachment.attachmentId,expectedActorId:access.actor_id,fetcher});
+    if(!valid.ok&&valid.code!=='ATTACHMENT_REQUIRED'){setMessage(valid.message);return;}
+    let support=attachment;
+    if(!support){
+      setMessage('Uploading supporting document…');
+      const attempt=uploadAttempt+(uploadClosed?1:0);setUploadAttempt(attempt);setUploadClosed(false);
+      support=await uploadNativeDocumentSupport({config,kind,file,expectedActorId:access.actor_id,uploadAttempt:attempt,fetcher});
+      if(!mounted.current)return;
+      if(!support.ok){setUploadClosed(support.code==='ATTACHMENT_RESERVATION_CLOSED');setMessage(support.message);return;}
+      setAttachment(support);
+    }
+    setMessage('Saving draft…');
+    const result=await createNativeDocumentDraft({config,kind,draft,counterparty,attachmentId:support.attachmentId,expectedActorId:access.actor_id,fetcher});
     if(!mounted.current)return;
     if(result.ok){setReceipt(result.data);setLocked(true);setMessage('Draft saved. Open the draft to review its journal and continue the approval workflow.');}
     else{if(result.unconfirmed)setLocked(true);setMessage(result.unconfirmed?'The draft could not be confirmed. Keep these details and retry the same draft. Check saved drafts before leaving this page.':result.message);}
@@ -70,12 +74,11 @@ export function NativeDocumentEntryForm({id,config,kind,access,scope,accounts=[]
         </div>
         <label>Description<textarea maxLength={2000} value={draft.description} onChange={event=>update('description',event.target.value)}/></label>
         <label>Supporting document<input type="file" accept=".pdf,.png,.jpg,.jpeg,.csv" onChange={event=>{setFile(event.target.files?.[0]||null);setAttachment(null);setUploadAttempt(0);setUploadClosed(false);}}/></label>
-        <p className="muted sm">PDF, PNG, JPEG or CSV, up to 50 MB.</p>
-        <button type="button" className="btn btn-sm" disabled={!file||!!attachment} onClick={upload}>{attachment?'Support verified':uploadClosed?'Start a new upload':'Upload and verify support'}</button>
+        <p className="muted sm">PDF, PNG, JPEG or CSV, up to 50 MB. Uploaded when you save.</p>
       </fieldset>
       {message&&<p role="status" aria-live="polite">{message}</p>}
       <div className="native-document-actions">
-        {!receipt&&<button className="btn" type="submit" disabled={busy||!attachment||!counterparty}>{busy?'Working…':locked?'Retry same draft':'Create draft'}</button>}
+        {!receipt&&<button className="btn" type="submit" disabled={busy||!file&&!attachment||!counterparty}>{busy?'Working…':locked?'Retry same draft':'Create draft'}</button>}
         {receipt&&<button className="btn" type="button" disabled={busy||!onOpenDraft} onClick={()=>run(()=>onOpenDraft(receipt))}>Open saved draft</button>}
         <button className="btn btn-ghost" type="button" disabled={busy||locked&&!receipt} onClick={()=>onClose?.(!!receipt)}>{receipt?'Close and refresh list':'Close'}</button>
       </div>
