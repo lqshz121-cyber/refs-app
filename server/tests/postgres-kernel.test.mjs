@@ -3205,7 +3205,13 @@ pgTest('settlement context refreshes native AP and AR capacity across periods, r
   await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[paymentPeriodId,ids.tenantId,ids.entityId]);
   const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;
   const permissions={documentMaker:['AP.BILL.CREATE','AR.INVOICE.CREATE'],apMaker:['AP.PAYMENT.CREATE'],arMaker:['AR.RECEIPT.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST'],viewer:['AP.VIEW','AR.VIEW'],apOnly:['AP.PAYMENT.CREATE']};
-  const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})});
+  // Reuse each actor's issued context: reissuing fixture grants on every GET
+  // legitimately creates grant audit events and obscures read-only assertions.
+  const sessions=new Map();
+  const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),kernelFactory:async principal=>{
+    if(!sessions.has(principal.actorId))sessions.set(principal.actorId,await trustedSession(ids,principal.actorId,permissions[principal.actorId]||[]));
+    return new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>sessions.get(principal.actorId)});
+  }});
   const root=`/api/v1/entities/${ids.entityId}`;
   const send=(actor,path,body,key,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':key,...(revision==null?{}:{'if-match':`"${revision}"`})}});
   const post=async(journalId,periodId,key)=>{
