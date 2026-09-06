@@ -4233,8 +4233,8 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'vendor-credit-control-reader',['AP.VIEW'])});
   assert.deepEqual(await reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'0.0000',control_balance:'0.0000',in_balance:true}]);
   assert.deepEqual(await reader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'100.0000',days_31_60:'-100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
-  const allocationSession=await trustedSession(ids,randomUUID(),['AP.VENDOR_CREDIT.APPLY']);
-  const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>allocationSession});
+  const allocationActor=randomUUID();
+  const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,allocationActor,['AP.VENDOR_CREDIT.APPLY'])});
   const usageArgs={...ids,action:'AP_CREDIT_APPLY',businessAdjustmentId:credit.business_adjustment_id};
   const beforeUsage=await applier.readCreditUsageContext(usageArgs);
   assert.equal(beforeUsage.available_amount,'100.0000');
@@ -4247,22 +4247,25 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   const guardedArgs={...ids,businessAdjustmentId:credit.business_adjustment_id,businessDocumentId:billId,amount:'1.2345',reason:'Verify allocation capacity',idempotencyKey:'AP-capacity-invalid'};
   const capacityCounts=async()=> (await adminPool.query(`SELECT
     (SELECT count(*)::int FROM business_allocation WHERE tenant_id=$1) allocations,
-    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1) audits,
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') audits,
     (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) events,
     (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1) receipts,
     (SELECT open_balance::text FROM business_document WHERE business_document_id=$2) balance`,[ids.tenantId,billId])).rows[0];
-  const beforeInvalid=await capacityCounts();
+  const issuedContexts=async()=> (await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND actor_id=$2 AND event_type='RUNTIME_CONTEXT_ISSUED'",[ids.tenantId,allocationActor])).rows[0].n;
+  const beforeInvalid=await capacityCounts(),beforeContexts=await issuedContexts();
   for(const amount of [null,'1.23456','NaN'])await assert.rejects(applier.applyApVendorCredit({...guardedArgs,amount}),error=>['22023','23514'].includes(error.code));
   // Alter only a test fixture to exercise a same-company, same-currency wrong party.
   await adminPool.query('UPDATE business_document SET counterparty_ref=$1 WHERE business_document_id=$2',['OTHER-PARTY',billId]);
   await assert.rejects(applier.applyApVendorCredit(guardedArgs),error=>error.code==='23514');
   await adminPool.query('UPDATE business_document SET counterparty_ref=$1 WHERE business_document_id=$2',['VENDOR-1',billId]);
   assert.deepEqual(await capacityCounts(),beforeInvalid);
+  assert.equal(await issuedContexts(),beforeContexts+4);
   const paymentMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'AP-capacity-payment-maker',['AP.PAYMENT.CREATE'])});
   const reservation=await paymentMaker.createApPayment({...ids,businessDocumentId:billId,paymentNumber:'CAPACITY-80',paymentDate:'2026-07-18',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:80,reason:'Reserve target balance',idempotencyKey:'AP-capacity-payment'});
-  const beforeReserved=await capacityCounts();
+  const beforeReserved=await capacityCounts(),reservedContexts=await issuedContexts();
   await assert.rejects(applier.applyApVendorCredit({...guardedArgs,amount:21}),error=>error.code==='23514');
   assert.deepEqual(await capacityCounts(),beforeReserved);
+  assert.equal(await issuedContexts(),reservedContexts+1);
   // Remove the fixture reservation before the existing independent full-apply assertions.
   await adminPool.query('DELETE FROM business_allocation WHERE payment_occurrence_id=$1',[reservation.payment_occurrence_id]);
   await migrateDownThrough(adminPool,'313_credit_allocation_capacity.sql');
@@ -4312,8 +4315,8 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   await poster.postJournal({...ids,journalEntryId:memo.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'ar-credit-post'});
   const agingReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-aging-reader',['AR.VIEW'])});
   assert.deepEqual(await agingReader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'100.0000',days_31_60:'-100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
-  const allocationSession=await trustedSession(ids,randomUUID(),['AR.CREDIT_MEMO.APPLY']);
-  const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>allocationSession});
+  const allocationActor=randomUUID();
+  const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,allocationActor,['AR.CREDIT_MEMO.APPLY'])});
   const usageArgs={...ids,action:'AR_CREDIT_APPLY',businessAdjustmentId:memo.business_adjustment_id};
   const beforeUsage=await applier.readCreditUsageContext(usageArgs);
   assert.equal(beforeUsage.available_amount,'100.0000');
@@ -4326,22 +4329,25 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   const guardedArgs={...ids,businessAdjustmentId:memo.business_adjustment_id,businessDocumentId:invoiceId,amount:'1.2345',reason:'Verify allocation capacity',idempotencyKey:'AR-capacity-invalid'};
   const capacityCounts=async()=> (await adminPool.query(`SELECT
     (SELECT count(*)::int FROM business_allocation WHERE tenant_id=$1) allocations,
-    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1) audits,
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') audits,
     (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) events,
     (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1) receipts,
     (SELECT open_balance::text FROM business_document WHERE business_document_id=$2) balance`,[ids.tenantId,invoiceId])).rows[0];
-  const beforeInvalid=await capacityCounts();
+  const issuedContexts=async()=> (await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND actor_id=$2 AND event_type='RUNTIME_CONTEXT_ISSUED'",[ids.tenantId,allocationActor])).rows[0].n;
+  const beforeInvalid=await capacityCounts(),beforeContexts=await issuedContexts();
   for(const amount of [null,'1.23456','NaN'])await assert.rejects(applier.applyArCreditMemo({...guardedArgs,amount}),error=>['22023','23514'].includes(error.code));
   // Alter only a test fixture to exercise a same-company, same-currency wrong party.
   await adminPool.query('UPDATE business_document SET counterparty_ref=$1 WHERE business_document_id=$2',['OTHER-PARTY',invoiceId]);
   await assert.rejects(applier.applyArCreditMemo(guardedArgs),error=>error.code==='23514');
   await adminPool.query('UPDATE business_document SET counterparty_ref=$1 WHERE business_document_id=$2',['CUSTOMER-1',invoiceId]);
   assert.deepEqual(await capacityCounts(),beforeInvalid);
+  assert.equal(await issuedContexts(),beforeContexts+4);
   const paymentMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'AR-capacity-payment-maker',['AR.RECEIPT.CREATE'])});
   const reservation=await paymentMaker.createArReceipt({...ids,businessDocumentId:invoiceId,receiptNumber:'CAPACITY-80',receiptDate:'2026-07-18',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:80,reason:'Reserve target balance',idempotencyKey:'AR-capacity-payment'});
-  const beforeReserved=await capacityCounts();
+  const beforeReserved=await capacityCounts(),reservedContexts=await issuedContexts();
   await assert.rejects(applier.applyArCreditMemo({...guardedArgs,amount:21}),error=>error.code==='23514');
   assert.deepEqual(await capacityCounts(),beforeReserved);
+  assert.equal(await issuedContexts(),reservedContexts+1);
   // Remove the fixture reservation before the existing independent full-apply assertions.
   await adminPool.query('DELETE FROM business_allocation WHERE payment_occurrence_id=$1',[reservation.payment_occurrence_id]);
   await migrateDownThrough(adminPool,'313_credit_allocation_capacity.sql');
