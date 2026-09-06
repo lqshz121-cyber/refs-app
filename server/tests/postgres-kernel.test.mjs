@@ -4300,8 +4300,8 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   assert.deepEqual(await agingReader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'0.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
 });
 
-pgTest('AR refund posts against available posted credit and rejects over-refund atomically',async()=>{
-  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+for(const native of [false,true])pgTest(`${native?'native':'legacy'} AR refund posts against available posted credit and rejects over-refund atomically`,async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:native?'VERIFIED_CLEAN':null,
     extraAccounts:[{accountCode:'400000',accountName:'Revenue'},{accountCode:'410000',accountName:'Sales returns'}],
     extraMembers:[{memberRef:'CUSTOMER-1',memberType:'CUSTOMER',displayName:'Customer'}],
     journalLines:[{lineNo:1,accountCode:'120200',debit:100,credit:0,memberRef:'CUSTOMER-1'},{lineNo:2,accountCode:'400000',debit:0,credit:100}]});const invoiceId=randomUUID();
@@ -4329,10 +4329,17 @@ pgTest('AR refund posts against available posted credit and rejects over-refund 
   const usageArgs={...ids,action:'AR_REFUND',businessAdjustmentId:memo.business_adjustment_id};
   assert.equal((await refundMaker.readCreditUsageContext(usageArgs)).available_amount,'100.0000');
   await assert.rejects(refundMaker.readCreditUsageContext({...usageArgs,action:'AR_CREDIT_APPLY'}),error=>error.code==='42501');
+  const attachmentId=native?(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id:null;
+  const createRefund=(kernel,args)=>native?kernel.createNativeRefund({...args,number:args.refundNumber,date:args.refundDate,cashAccountCode:'111000',bankMemberRef:'BANK-1',attachmentIds:[attachmentId]}):kernel.createArRefund(args);
+  if(native){
+    const args={...ids,sourceAdjustmentId:memo.business_adjustment_id,number:'BAD-REF',date:'2026-07-17',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:'1.2345',reason:'Native refund failure rollback',attachmentIds:[attachmentId],idempotencyKey:'native-refund-bad'};
+    for(const patch of [{bankMemberRef:'VENDOR-1'},{cashAccountCode:'220000'},{attachmentIds:[randomUUID()]}])await assert.rejects(refundMaker.createNativeRefund({...args,...patch}),error=>['23514','23503'].includes(error.code));
+    assert.equal((await adminPool.query("SELECT count(*)::int n FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key='native-refund-bad'",[ids.tenantId])).rows[0].n,0);
+  }
   const competingRefundMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-maker-2',['AR.REFUND.CREATE'])});
   const attempts=await Promise.allSettled([
-    refundMaker.createArRefund({...ids,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'REF-60-A',refundDate:'2026-07-17',cashAccountCode:'220000',amount:60,reason:'Return customer credit funds',idempotencyKey:'refund-60-a'}),
-    competingRefundMaker.createArRefund({...ids,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'REF-60-B',refundDate:'2026-07-17',cashAccountCode:'220000',amount:60,reason:'Return customer credit funds',idempotencyKey:'refund-60-b'})
+    createRefund(refundMaker,{...ids,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'REF-60-A',refundDate:'2026-07-17',cashAccountCode:'220000',amount:60,reason:'Return customer credit funds',idempotencyKey:'refund-60-a'}),
+    createRefund(competingRefundMaker,{...ids,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'REF-60-B',refundDate:'2026-07-17',cashAccountCode:'220000',amount:60,reason:'Return customer credit funds',idempotencyKey:'refund-60-b'})
   ]);
   assert.equal(attempts.filter(result=>result.status==='fulfilled').length,1);
   assert.equal(attempts.filter(result=>result.status==='rejected').length,1);
@@ -4342,8 +4349,11 @@ pgTest('AR refund posts against available posted credit and rejects over-refund 
   assert.equal(draftUsage.refund_amount,'60.0000');
   assert.equal(draftUsage.available_amount,'40.0000');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE source_adjustment_id=$1 AND adjustment_kind='AR_REFUND'",[memo.business_adjustment_id])).rows[0].n,1);
-  assert.equal((await adminPool.query("SELECT count(*)::int n FROM idempotency_receipt WHERE tenant_id=$1 AND operation_scope='AR_REFUND:'||$2::text AND idempotency_key IN ('refund-60-a','refund-60-b')",[ids.tenantId,ids.entityId])).rows[0].n,1);
-  await attachAutoSource({...ids,journalId:refund.journal_entry_id},{reuseApprovedSnapshots:true});
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM idempotency_receipt WHERE tenant_id=$1 AND operation_scope=$3||$2::text AND idempotency_key IN ('refund-60-a','refund-60-b')",[ids.tenantId,ids.entityId,native?'NATIVE_AR_REFUND:':'AR_REFUND:'])).rows[0].n,1);
+  if(native){
+    assert.equal((await adminPool.query('SELECT journal_type FROM journal_entry WHERE journal_entry_id=$1',[refund.journal_entry_id])).rows[0].journal_type,'MANUAL');
+    assert.equal((await adminPool.query("SELECT count(*)::int n FROM source_link WHERE journal_entry_id=$1 AND attachment_id=$2",[refund.journal_entry_id,attachmentId])).rows[0].n,1);
+  }else await attachAutoSource({...ids,journalId:refund.journal_entry_id},{reuseApprovedSnapshots:true});
   await submitter.transitionJournal({...ids,journalEntryId:refund.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'refund-submit'});
   await reviewer.transitionJournal({...ids,journalEntryId:refund.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'refund-review'});
   await approver.transitionJournal({...ids,journalEntryId:refund.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'refund-approve'});
@@ -4354,10 +4364,30 @@ pgTest('AR refund posts against available posted credit and rejects over-refund 
   await migrateUp(adminPool);
   assert.deepEqual(await refundMaker.readCreditUsageContext(usageArgs),draftUsage);
   assert.equal((await adminPool.query('SELECT status FROM business_adjustment WHERE business_adjustment_id=$1',[refund.business_adjustment_id])).rows[0].status,'POSTED');
-  assert.deepEqual((await adminPool.query('SELECT account_code,debit_amount,credit_amount,member_ref FROM journal_line WHERE journal_entry_id=$1 ORDER BY line_no',[refund.journal_entry_id])).rows,[{account_code:'120200',debit_amount:'60.0000',credit_amount:'0.0000',member_ref:'CUSTOMER-1'},{account_code:'220000',debit_amount:'0.0000',credit_amount:'60.0000',member_ref:null}]);
+  assert.deepEqual((await adminPool.query('SELECT account_code,debit_amount,credit_amount,member_ref FROM journal_line WHERE journal_entry_id=$1 ORDER BY line_no',[refund.journal_entry_id])).rows,[{account_code:'120200',debit_amount:'60.0000',credit_amount:'0.0000',member_ref:'CUSTOMER-1'},{account_code:native?'111000':'220000',debit_amount:'0.0000',credit_amount:'60.0000',member_ref:native?'BANK-1':null}]);
   assert.deepEqual(await reader.getArControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'60.0000',control_balance:'60.0000',in_balance:true}]);
   assert.deepEqual(await reader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'100.0000',days_31_60:'-40.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'60.0000'}]);
-  await assert.rejects(refundMaker.createArRefund({...ids,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'REF-50',refundDate:'2026-07-18',cashAccountCode:'220000',amount:50,reason:'Over available customer credit',idempotencyKey:'refund-50'}),error=>error.code==='23514');
+  await assert.rejects(createRefund(refundMaker,{...ids,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'REF-50',refundDate:'2026-07-18',cashAccountCode:'220000',amount:50,reason:'Over available customer credit',idempotencyKey:'refund-50'}),error=>error.code==='23514');
+  if(native){
+    const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'refund-maker'}),kernelFactory:async()=>refundMaker});
+    const body={periodId:ids.periodId,number:'REF-EXACT',date:'2026-07-18',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:'1.2345',reason:'Exact native refund evidence',attachmentIds:[attachmentId]};
+    const request={method:'POST',url:`/api/v1/entities/${ids.entityId}/ar/credit-memos/${memo.business_adjustment_id}/native-refunds`,body,headers:{'idempotency-key':'native-refund-exact'}};
+    const saved=await api(request);assert.equal(saved.status,201,JSON.stringify(saved.body));
+    assert.equal((await refundMaker.readCreditUsageContext(usageArgs)).available_amount,'38.7655');
+    assert.equal((await adminPool.query('SELECT amount FROM business_adjustment WHERE business_adjustment_id=$1',[saved.body.data.business_adjustment_id])).rows[0].amount,'1.2345');
+    const mixed=await Promise.allSettled([
+      refundMaker.createNativeRefund({...ids,...body,number:'NATIVE-MIXED',amount:'20.0000',sourceAdjustmentId:memo.business_adjustment_id,idempotencyKey:'native-mixed-refund'}),
+      competingRefundMaker.createArRefund({...ids,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'LEGACY-MIXED',refundDate:body.date,cashAccountCode:'220000',amount:'20.0000',reason:body.reason,idempotencyKey:'legacy-mixed-refund'})
+    ]);
+    assert.equal(mixed.filter(r=>r.status==='fulfilled').length,1);
+    assert.equal(mixed.find(r=>r.status==='rejected').reason.code,'23514');
+    assert.equal((await refundMaker.readCreditUsageContext(usageArgs)).available_amount,'18.7655');
+    await adminPool.query("UPDATE accounting_period SET status='CLOSED',closed_by='fixture',closed_at=clock_timestamp() WHERE period_id=$1",[ids.periodId]);
+    const replay=await api(request);assert.equal(replay.status,200);assert.deepEqual(replay.body.data,{...saved.body.data,idempotent:true});
+    assert.equal((await api({...request,body:{...body,amount:'1.2346'}})).status,409);
+    await assert.rejects(competingRefundMaker.createNativeRefund({...ids,...body,sourceAdjustmentId:memo.business_adjustment_id,idempotencyKey:'native-refund-exact'}),error=>error.code==='42501');
+    assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE tenant_id=$1 AND idempotency_key='native-refund-exact'",[ids.tenantId])).rows[0].n,1);
+  }
 });
 
 pgTest('AP bill void posts in a new open period and leaves the original Posted JE immutable',async()=>{
