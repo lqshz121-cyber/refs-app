@@ -15,6 +15,202 @@
     }
   ],
   "paths": {
+    "/entities/{entityId}/ar/sales-receipt-options": {
+  "get": {
+    "operationId": "readSalesReceiptOptions",
+    "summary": "Read eligible customer, bank or account choices for a cash sale",
+    "description": "Requires AR.SALES_RECEIPT.CREATE. Reads active company-scoped customers/affiliates, bank members, BANK-controlled cash accounts or non-member-controlled category accounts. Literal case-insensitive search and C-collated keyset pagination; no wildcard syntax. The create command revalidates all selected masters. No command body or command headers.",
+    "parameters": [
+      {
+        "$ref": "#/components/parameters/EntityId"
+      },
+      {
+        "name": "optionKind",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "enum": [
+            "CUSTOMER",
+            "BANK",
+            "CASH_ACCOUNT",
+            "CATEGORY_ACCOUNT"
+          ]
+        }
+      },
+      {
+        "name": "query",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "maxLength": 128,
+          "default": ""
+        }
+      },
+      {
+        "name": "afterRef",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "Eligible company-scoped choices",
+        "headers": {
+          "Cache-Control": {
+            "schema": {
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "ok",
+                "data"
+              ],
+              "properties": {
+                "ok": {
+                  "const": true
+                },
+                "data": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "schema_version",
+                    "entity_id",
+                    "option_kind",
+                    "query",
+                    "after_ref",
+                    "limit",
+                    "rows",
+                    "next_ref"
+                  ],
+                  "properties": {
+                    "schema_version": {
+                      "const": "SALES_RECEIPT_OPTIONS_V1"
+                    },
+                    "entity_id": {
+                      "$ref": "#/components/schemas/Uuid"
+                    },
+                    "option_kind": {
+                      "enum": [
+                        "CUSTOMER",
+                        "BANK",
+                        "CASH_ACCOUNT",
+                        "CATEGORY_ACCOUNT"
+                      ]
+                    },
+                    "query": {
+                      "type": "string",
+                      "maxLength": 128
+                    },
+                    "after_ref": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    },
+                    "rows": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "ref",
+                          "label",
+                          "kind"
+                        ],
+                        "properties": {
+                          "ref": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "label": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "kind": {
+                            "enum": [
+                              "CUSTOMER",
+                              "BANK",
+                              "CASH_ACCOUNT",
+                              "CATEGORY_ACCOUNT",
+                              "AFFILIATE"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "next_ref": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "$ref": "#/components/responses/Problem"
+      },
+      "401": {
+        "$ref": "#/components/responses/Problem"
+      },
+      "403": {
+        "$ref": "#/components/responses/Problem"
+      },
+      "404": {
+        "$ref": "#/components/responses/Problem"
+      },
+      "500": {
+        "$ref": "#/components/responses/Problem"
+      },
+      "503": {
+        "$ref": "#/components/responses/Problem"
+      }
+    }
+  }
+},
     "/entities/{entityId}/ar/sales-receipts/{receiptId}": {
   "get": {
     "operationId": "readSalesReceipt",

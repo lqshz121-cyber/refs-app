@@ -6523,3 +6523,37 @@ pgTest('sales receipt detail and keyset pages are scoped and remain bounded over
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM sales_receipt WHERE entity_id=$1',[ids.entityId])).rows[0].n,100002);
   await migrateUp(adminPool);assert.equal((await get(`${root}/${receiptId}`)).status,200);
 });
+
+pgTest('sales receipt choices enforce current company and eligible masters with literal paginated search',async()=>{
+  await migrateUp(adminPool);
+  const ids=await seed({status:'DRAFT',extraAccounts:[{accountCode:'400000',accountName:'Sale category'}],extraMembers:[{memberRef:'CUSTOMER-SALE',memberType:'CUSTOMER',displayName:'Cash customer'},{memberRef:'AFFILIATE-SALE',memberType:'AFFILIATE',displayName:'Affiliate customer'},{memberRef:'INACTIVE-CUSTOMER',memberType:'CUSTOMER',displayName:'Inactive customer'}]});
+  await seed({status:'DRAFT',tenantId:ids.tenantId,extraAccounts:[{accountCode:'FOREIGN-ACCOUNT',accountName:'Foreign category'}],extraMembers:[{memberRef:'FOREIGN-CUSTOMER',memberType:'CUSTOMER',displayName:'Foreign customer'}]});
+  await adminPool.query('UPDATE member_master SET active=false WHERE entity_id=$1 AND member_ref=$2',[ids.entityId,'INACTIVE-CUSTOMER']);
+  await adminPool.query('UPDATE member_master SET display_name=$2 WHERE entity_id=$1 AND member_ref=$3',[ids.entityId,'Literal % Bank','BANK-1']);
+  const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']||'sale-option-maker'}),kernelFactory:async p=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,p.actorId,p.actorId==='sale-option-maker'?['AR.SALES_RECEIPT.CREATE']:['AR.VIEW'])})});
+  const get=(optionKind,query='',actor='sale-option-maker')=>api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ar/sales-receipt-options?optionKind=${optionKind}${query}`,headers:{'x-test-actor':actor}});
+  const customers=await get('CUSTOMER');assert.equal(customers.status,200,JSON.stringify(customers.body));
+  assert.deepEqual(customers.body.data.rows.map(r=>r.ref),['AFFILIATE-SALE','CUSTOMER-SALE']);
+  for(const [kind,ref] of [['BANK','BANK-1'],['CASH_ACCOUNT','111000'],['CATEGORY_ACCOUNT','400000']]){
+    const result=await get(kind);assert.equal(result.status,200,JSON.stringify(result.body));assert.deepEqual(result.body.data.rows.map(r=>r.ref),[ref]);
+  }
+  assert.equal((await get('CUSTOMER','','sale-read-only')).status,403);
+  assert.equal((await get('BANK','&query=%25')).body.data.rows.length,1);
+  assert.equal((await get('CUSTOMER','&query=%25')).body.data.rows.length,0);
+  await adminPool.query(`INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name)
+    SELECT $1,$2,'PF'||lpad(n::text,6,'0'),'CUSTOMER','Perf customer '||n FROM generate_series(1,100001) n`,[ids.tenantId,ids.entityId]);
+  await adminPool.query(`INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member)
+    SELECT $1,$2,'PF'||lpad(n::text,6,'0'),'Perf category '||n,false FROM generate_series(1,100001) n`,[ids.tenantId,ids.entityId]);
+  await adminPool.query('ANALYZE member_master');await adminPool.query('ANALYZE account_master');
+  const started=Date.now();
+  for(const kind of ['CUSTOMER','CATEGORY_ACCOUNT']){
+    const first=await get(kind,'&query=Perf&limit=100');assert.equal(first.status,200,JSON.stringify(first.body));
+    assert.equal(first.body.data.rows.length,100);assert.equal(first.body.data.next_ref,'PF000100');
+    const tail=await get(kind,'&query=Perf&limit=100&afterRef=PF100000');assert.equal(tail.status,200);
+    assert.deepEqual(tail.body.data.rows.map(r=>r.ref),['PF100001']);assert.equal(tail.body.data.next_ref,null);
+  }
+  assert.ok(Date.now()-started<5000,'Four bounded option reads over 100001 customers and categories must finish within five seconds');
+  await migrateDownThrough(adminPool,'319_sales_receipt_options.sql');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM member_master WHERE entity_id=$1',[ids.entityId])).rows[0].n,100006);
+  await migrateUp(adminPool);assert.equal((await get('BANK')).status,200);
+});
