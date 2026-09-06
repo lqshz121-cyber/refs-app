@@ -29,7 +29,7 @@ export function NativeCreditAllocationForm({id,config,kind,sourceAdjustmentId,ac
       const valid=validateNativeCreditAllocation(input);if(!valid.ok){setMessage(valid.message);return;}
       const result=await prepareNativeCreditAllocation({...input,expectedActorId:access.actor_id,fetcher});if(!mounted.current)return;if(!result.ok){setMessage(result.message);return;}prepared=result.command;setCommand(prepared);
     }
-    retainNativeCreditAllocation(scope,prepared,{uncertain:uncertain.current});
+    retainNativeCreditAllocation(scope,prepared,{uncertain:true});
     const result=await sendNativeCreditAllocation({config,command:prepared,fetcher});
     if(result.ok||!result.unconfirmed&&!uncertain.current)releaseNativeCreditAllocation(scope,prepared);else retainNativeCreditAllocation(scope,prepared,{uncertain:true});
     if(!mounted.current)return;
