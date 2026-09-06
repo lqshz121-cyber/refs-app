@@ -3386,9 +3386,23 @@ for(const native of [false,true])pgTest(`${native?'evidence-backed native':'lega
     assert.equal((await read('historyViewer',historyUrl.replace(ids.entityId,other.entityId))).status,403);
     const historyBefore=await snapshot();await read('historyViewer',historyUrl);const historyAfter=await snapshot();assert.equal(BigInt(historyAfter.auth)-BigInt(historyBefore.auth),1n);assert.deepEqual({...historyAfter,auth:historyBefore.auth},historyBefore);
     if(native&&kind==='AR_RECEIPT'){
-      await adminPool.query(`INSERT INTO payment_occurrence(tenant_id,entity_id,business_document_id,occurrence_kind,amount,currency,accounting_date,period_id,status,idempotency_key,request_hash,created_by,created_at)
-        SELECT $1,$2,$3,'AR_RECEIPT',0.0001,'USD','2026-08-15',$4,'DRAFT','history-bulk-'||n,'sha256:'||repeat('0',64),'history-fixture',timestamptz '2020-01-01 00:00:00+00'+n*interval '1 microsecond'
-        FROM generate_series(1,100001) n`,[ids.tenantId,ids.entityId,documentId,paymentPeriodId]);
+      // Bound fixture INSERTs separately from the authenticated deep-page read.
+      // The full data set commits atomically; database statement limits stay unchanged.
+      const fixtureClient=await adminPool.connect();
+      try{
+        await fixtureClient.query('BEGIN');
+        for(let firstRow=1;firstRow<=100001;firstRow+=10000){
+          const lastRow=Math.min(firstRow+9999,100001);
+          const inserted=await fixtureClient.query(`INSERT INTO payment_occurrence(tenant_id,entity_id,business_document_id,occurrence_kind,amount,currency,accounting_date,period_id,status,idempotency_key,request_hash,created_by,created_at)
+            SELECT $1,$2,$3,'AR_RECEIPT',0.0001,'USD','2026-08-15',$4,'DRAFT','history-bulk-'||n,'sha256:'||repeat('0',64),'history-fixture',timestamptz '2020-01-01 00:00:00+00'+n*interval '1 microsecond'
+            FROM generate_series($5::integer,$6::integer) n`,[ids.tenantId,ids.entityId,documentId,paymentPeriodId,firstRow,lastRow]);
+          assert.equal(inserted.rowCount,lastRow-firstRow+1);
+        }
+        const fixtureCount=await fixtureClient.query("SELECT count(*)::integer AS rows FROM payment_occurrence WHERE tenant_id=$1 AND entity_id=$2 AND business_document_id=$3 AND created_by='history-fixture'",[ids.tenantId,ids.entityId,documentId]);
+        assert.equal(fixtureCount.rows[0].rows,100001);
+        await fixtureClient.query('COMMIT');
+      }catch(error){await fixtureClient.query('ROLLBACK');throw error;}
+      finally{fixtureClient.release();}
       const cursor=(await adminPool.query("SELECT payment_occurrence_id FROM payment_occurrence WHERE tenant_id=$1 AND entity_id=$2 AND idempotency_key='history-bulk-51'",[ids.tenantId,ids.entityId])).rows[0].payment_occurrence_id;
       const started=performance.now(),deep=await read('historyViewer',historyUrl.replace('limit=1','limit=25')+'&afterId='+cursor);
       t.diagnostic('settlement history deep page over 100001 records: '+Math.round(performance.now()-started)+'ms');
