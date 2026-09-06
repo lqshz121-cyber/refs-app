@@ -3205,13 +3205,7 @@ pgTest('settlement context refreshes native AP and AR capacity across periods, r
   await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[paymentPeriodId,ids.tenantId,ids.entityId]);
   const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;
   const permissions={documentMaker:['AP.BILL.CREATE','AR.INVOICE.CREATE'],apMaker:['AP.PAYMENT.CREATE'],arMaker:['AR.RECEIPT.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST'],viewer:['AP.VIEW','AR.VIEW'],apOnly:['AP.PAYMENT.CREATE']};
-  // Reuse each actor's issued context: reissuing fixture grants on every GET
-  // legitimately creates grant audit events and obscures read-only assertions.
-  const sessions=new Map();
-  const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),kernelFactory:async principal=>{
-    if(!sessions.has(principal.actorId))sessions.set(principal.actorId,await trustedSession(ids,principal.actorId,permissions[principal.actorId]||[]));
-    return new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>sessions.get(principal.actorId)});
-  }});
+  const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})});
   const root=`/api/v1/entities/${ids.entityId}`;
   const send=(actor,path,body,key,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':key,...(revision==null?{}:{'if-match':`"${revision}"`})}});
   const post=async(journalId,periodId,key)=>{
@@ -3263,8 +3257,14 @@ pgTest('settlement context refreshes native AP and AR capacity across periods, r
     const concurrent=await Promise.all([create('40.0000',`context-${kind}-race1`),create('40.0000',`context-${kind}-race2`)]);
     assert.deepEqual(concurrent.map(r=>r.status).sort(),[201,422]);
     const after=(await read()).body.data;assert.equal(after.document.open_balance,'70.0000');assert.equal(after.pending_allocation_amount,'40.0000');assert.equal(after.available_amount,'30.0000');
-    const snapshot=async()=>(await adminPool.query(`SELECT (SELECT count(*) FROM audit_event) audit,(SELECT count(*) FROM outbox_event) outbox,(SELECT count(*) FROM ledger_line) ledger,(SELECT count(*) FROM business_allocation) allocations`)).rows[0];
-    const before=await snapshot();assert.deepEqual((await read()).body.data,after);assert.deepEqual(await snapshot(),before,'refresh is read-only');
+    // Each request requires a fresh one-use context and records RUNTIME_CONTEXT_ISSUED.
+    // Assert that authentication is audited while all other audit/business state stays unchanged.
+    const snapshot=async()=>(await adminPool.query(`SELECT (SELECT count(*) FROM audit_event WHERE object_type<>'RUNTIME_AUTH_CONTEXT') audit,
+      (SELECT count(*) FROM audit_event WHERE object_type='RUNTIME_AUTH_CONTEXT') auth,
+      (SELECT count(*) FROM outbox_event) outbox,(SELECT count(*) FROM ledger_line) ledger,(SELECT count(*) FROM business_allocation) allocations`)).rows[0];
+    const before=await snapshot();assert.deepEqual((await read()).body.data,after);const refreshed=await snapshot();
+    assert.equal(BigInt(refreshed.auth)-BigInt(before.auth),1n);
+    assert.deepEqual({...refreshed,auth:before.auth},before,'refresh leaves non-authentication audit and business state unchanged');
   }
   await migrateDownThrough(adminPool,'304_settlement_input_reads.sql');await migrateUp(adminPool);
   for(const {read} of contexts){const r=await read();assert.equal(r.status,200);assert.equal(r.body.data.available_amount,'30.0000');}
