@@ -312,4 +312,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"304_settlement_input_reads.sql",up:"aac3e88d18a0eb02a61e6d6ae637daa3a10d56bd05ba7c7a4d34fef37dc21417",down:"c02867430af9f0f4d31f4749a3074a2bce6b794a963b87e6cb6b5f2ced0e8e00"}),
   Object.freeze({name:"305_native_settlement_command.sql",up:"e7300c321a1ea9c6ca1ffa1145d264600681c2f075522b775d478eed3238f259",down:"f51d42aa9ed32b0128ac3933061a62b94ca435120c9d7712c016e9db10083a09"}),
   Object.freeze({"name":"306_document_settlement_history.sql","up":"726fd1208040e55816d7d7089d3f24a89d7afd6f99b99eb6422a4a5b7a7e71d7","down":"da566179b1244f423734f1bfc62d50a6d1893a3f0cc12927783be418e7b02a0e"}),
+  Object.freeze({"name":"307_runtime_context_grant_membership.sql","up":"341e50c300543a1ce608450bca8cabe67638db951f2ca19abeacd63bffdcd01f","down":"bbb633f2eac5a740be0be1159b1f2a4df0eec2b4a01f30d861f27ca478096997"}),
 ]);
