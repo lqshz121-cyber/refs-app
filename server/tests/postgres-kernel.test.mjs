@@ -2231,6 +2231,36 @@ pgTest('manual Journal risk retains a HIGH no-attachment finding when ordinary s
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE tenant_id=$1 AND event_type='AI_MANUAL_JOURNAL_RISK_MATERIALIZED'",[ids.tenantId])).rows[0].n,1);
 });
 
+pgTest('expired write grants do not poison valid read contexts across upgrade and rollback',async()=>{
+  const ids=await seed(),actor='auth0|reader-with-expired-write';
+  await adminPool.query(`INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission,authority_class,valid_until)
+    VALUES($1,$2,$3,'AP.VIEW','ANALYSIS',clock_timestamp()+interval '1 hour'),
+          ($1,$2,$3,'GL.JE.POST','POST',clock_timestamp()-interval '1 hour')`,[ids.tenantId,actor,ids.entityId]);
+  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor})});
+  const checkReadOnly=async()=>{
+    const issued=await issuer.issue({tenantId:ids.tenantId});
+    const client=await runtimePool.connect();
+    try{
+      await client.query('BEGIN');await client.query('SET LOCAL ROLE refs_app');
+      await client.query('SELECT refs_bootstrap_context($1)',[issued.contextToken]);
+      const result=(await client.query("SELECT refs_entity_has_permission($1,'AP.VIEW') can_read,refs_entity_has_permission($1,'GL.JE.POST') can_post",[ids.entityId])).rows[0];
+      assert.deepEqual(result,{can_read:true,can_post:false});
+    }finally{await client.query('ROLLBACK');client.release();}
+  };
+  await checkReadOnly();
+  const down=await readFile(new URL('../db/migrations/down/307_runtime_context_grant_membership.sql',import.meta.url),'utf8');
+  const up=await readFile(new URL('../db/migrations/307_runtime_context_grant_membership.sql',import.meta.url),'utf8');
+  try{
+    await adminPool.query(down);
+    await assert.rejects(issuer.issue({tenantId:ids.tenantId}),error=>error.code==='42501'&&error.message==='Human write authority requires a finite exact-role grant');
+  }finally{await adminPool.query(up);}
+  await checkReadOnly();
+  await adminPool.query("UPDATE runtime_actor_grant SET authority_class='LEGACY',valid_until=NULL WHERE tenant_id=$1 AND actor_id=$2 AND permission='GL.JE.POST'",[ids.tenantId,actor]);
+  await assert.rejects(issuer.issue({tenantId:ids.tenantId}),error=>error.code==='42501'&&error.message==='Human write authority requires a finite exact-role grant');
+  await adminPool.query("UPDATE runtime_actor_grant SET revoked_at=clock_timestamp() WHERE tenant_id=$1 AND actor_id=$2 AND permission='GL.JE.POST'",[ids.tenantId,actor]);
+  await checkReadOnly();
+});
+
 pgTest('finite human role sync enforces exact replacement, service-only deny, expiry, and context SoD',async()=>{
   const ids=await seed(),actor='auth0|finite-human-role',validUntil=new Date(Date.now()+60*60*1000).toISOString();
   const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
