@@ -3628,11 +3628,6 @@ pgTest('authenticated HTTP posts an AR credit memo, applies it and refunds only 
   await advance(refund.journal_entry_id,'refund');
   assert.deepEqual((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[invoiceId])).rows[0],{open_balance:'60.0000',status:'PARTIALLY_PAID'});
   assert.equal((await adminPool.query('SELECT status FROM business_adjustment WHERE business_adjustment_id=$1',[refund.business_adjustment_id])).rows[0].status,'POSTED');
-  assert.deepEqual(await refundMaker.readCreditUsageContext(usageArgs),draftUsage);
-  await migrateDownThrough(adminPool,'310_credit_usage_context.sql');
-  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_credit_usage_context(uuid,uuid,text,uuid,uuid)') AS fn")).rows[0].fn,null);
-  await migrateUp(adminPool);
-  assert.deepEqual(await refundMaker.readCreditUsageContext(usageArgs),draftUsage);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[refund.journal_entry_id])).rows[0].n,2);
   const over=await send(refundMakerId,`${root}/ar/refunds`,{periodId:ids.periodId,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'RF-HTTP-01',refundDate:'2026-07-18',cashAccountCode:'220000',amount:1,reason:'Over refund must fail atomically'},'http-refund-over');
   assert.equal(over.status,422);
@@ -4353,6 +4348,11 @@ pgTest('AR refund posts against available posted credit and rejects over-refund 
   await reviewer.transitionJournal({...ids,journalEntryId:refund.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'refund-review'});
   await approver.transitionJournal({...ids,journalEntryId:refund.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'refund-approve'});
   await poster.postJournal({...ids,journalEntryId:refund.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'refund-post'});
+  assert.deepEqual(await refundMaker.readCreditUsageContext(usageArgs),draftUsage);
+  await migrateDownThrough(adminPool,'310_credit_usage_context.sql');
+  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_credit_usage_context(uuid,uuid,text,uuid,uuid)') AS fn")).rows[0].fn,null);
+  await migrateUp(adminPool);
+  assert.deepEqual(await refundMaker.readCreditUsageContext(usageArgs),draftUsage);
   assert.equal((await adminPool.query('SELECT status FROM business_adjustment WHERE business_adjustment_id=$1',[refund.business_adjustment_id])).rows[0].status,'POSTED');
   assert.deepEqual((await adminPool.query('SELECT account_code,debit_amount,credit_amount,member_ref FROM journal_line WHERE journal_entry_id=$1 ORDER BY line_no',[refund.journal_entry_id])).rows,[{account_code:'120200',debit_amount:'60.0000',credit_amount:'0.0000',member_ref:'CUSTOMER-1'},{account_code:'220000',debit_amount:'0.0000',credit_amount:'60.0000',member_ref:null}]);
   assert.deepEqual(await reader.getArControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'60.0000',control_balance:'60.0000',in_balance:true}]);
