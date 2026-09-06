@@ -25,7 +25,7 @@ BEGIN
         ELSE l.credit_amount=c.amount AND l.debit_amount=0 END);
   SELECT * INTO d FROM business_document WHERE tenant_id=p_tenant AND entity_id=p_entity AND business_document_id=p_document FOR UPDATE;
   IF NOT FOUND OR party_ref IS NULL OR d.counterparty_ref IS DISTINCT FROM party_ref OR d.currency<>c.currency
-    OR d.document_kind<>CASE c.adjustment_kind WHEN 'AP_VENDOR_CREDIT' THEN 'AP_BILL' ELSE 'AR_INVOICE' END
+    OR d.document_kind<>(CASE c.adjustment_kind WHEN 'AP_VENDOR_CREDIT' THEN 'AP_BILL' ELSE 'AR_INVOICE' END)
     OR d.status NOT IN ('APPROVED','OPEN','PARTIALLY_PAID') THEN
     RAISE EXCEPTION 'Credit allocation requires matching party, currency and open target document' USING ERRCODE='23514';
   END IF;
