@@ -4294,6 +4294,27 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   assert.equal(replay.idempotent,true);assert.equal(replay.status,'ACTIVE');
   const second=await applier.applyApVendorCredit({...ids,businessAdjustmentId:credit.business_adjustment_id,businessDocumentId:billId,amount:60,reason:'Full apply',idempotencyKey:'vendor-credit-apply-60'});
   assert.equal(second.status,'ACTIVE');
+  const creditHistoryArgs={tenantId:ids.tenantId,entityId:ids.entityId,subjectId:credit.business_adjustment_id,subjectKind:'AP_VENDOR_CREDIT',limit:1};
+  const historyPage=await reader.readCreditAllocationHistory(creditHistoryArgs);
+  const {validCreditHistory}=await import('../runtime/credit-allocation-history.mjs');
+  assert.equal(validCreditHistory(historyPage,creditHistoryArgs),true);
+  assert.equal(historyPage.rows[0].business_allocation_id,second.business_allocation_id);
+  assert.equal(historyPage.rows[0].amount,'60.0000');assert.equal(historyPage.rows[0].journal_entry_id,credit.journal_entry_id);
+  assert.equal(historyPage.next_id,second.business_allocation_id);
+  const historyNext=await reader.readCreditAllocationHistory({...creditHistoryArgs,afterId:historyPage.next_id});
+  assert.equal(historyNext.rows[0].business_allocation_id,first.business_allocation_id);assert.equal(historyNext.next_id,null);
+  const documentHistoryArgs={...creditHistoryArgs,subjectId:billId,subjectKind:'AP_BILL',limit:50};
+  const documentHistory=await reader.readCreditAllocationHistory(documentHistoryArgs);
+  assert.equal(validCreditHistory(documentHistory,documentHistoryArgs),true);assert.deepEqual(documentHistory.rows.map(r=>r.amount),['60.0000','40.0000']);
+  await assert.rejects(applier.readCreditAllocationHistory(creditHistoryArgs),error=>error.code==='42501');
+  await assert.rejects(reader.readCreditAllocationHistory({...creditHistoryArgs,entityId:randomUUID()}),error=>error.code==='42501');
+  await assert.rejects(reader.readCreditAllocationHistory({...creditHistoryArgs,subjectId:randomUUID()}),error=>error.code==='P0002');
+  await assert.rejects(reader.readCreditAllocationHistory({...creditHistoryArgs,afterId:randomUUID()}),error=>error.code==='22023');
+  await migrateDownThrough(adminPool,'315_credit_allocation_history.sql');
+  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_credit_allocation_history(uuid,uuid,uuid,text,uuid,integer)') fn")).rows[0].fn,null);
+  await migrateUp(adminPool);
+  assert.deepEqual(await reader.readCreditAllocationHistory(creditHistoryArgs),historyPage);
+
   const fullUsage=await applier.readCreditUsageContext(usageArgs);
   assert.equal(fullUsage.allocated_amount,'100.0000');
   assert.equal(fullUsage.refund_amount,'0.0000');
@@ -4388,6 +4409,27 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   assert.deepEqual(await agingReader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'60.0000',days_31_60:'-60.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
   const second=await applier.applyArCreditMemo({...ids,businessAdjustmentId:memo.business_adjustment_id,businessDocumentId:invoiceId,amount:60,reason:'Full apply',idempotencyKey:'ar-credit-apply-60'});
   assert.equal(second.status,'ACTIVE');
+  const creditHistoryArgs={tenantId:ids.tenantId,entityId:ids.entityId,subjectId:memo.business_adjustment_id,subjectKind:'AR_CREDIT_MEMO',limit:1};
+  const historyPage=await agingReader.readCreditAllocationHistory(creditHistoryArgs);
+  const {validCreditHistory}=await import('../runtime/credit-allocation-history.mjs');
+  assert.equal(validCreditHistory(historyPage,creditHistoryArgs),true);
+  assert.equal(historyPage.rows[0].business_allocation_id,second.business_allocation_id);
+  assert.equal(historyPage.rows[0].amount,'60.0000');assert.equal(historyPage.rows[0].journal_entry_id,memo.journal_entry_id);
+  assert.equal(historyPage.next_id,second.business_allocation_id);
+  const historyNext=await agingReader.readCreditAllocationHistory({...creditHistoryArgs,afterId:historyPage.next_id});
+  assert.equal(historyNext.rows[0].business_allocation_id,first.business_allocation_id);assert.equal(historyNext.next_id,null);
+  const documentHistoryArgs={...creditHistoryArgs,subjectId:invoiceId,subjectKind:'AR_INVOICE',limit:50};
+  const documentHistory=await agingReader.readCreditAllocationHistory(documentHistoryArgs);
+  assert.equal(validCreditHistory(documentHistory,documentHistoryArgs),true);assert.deepEqual(documentHistory.rows.map(r=>r.amount),['60.0000','40.0000']);
+  await assert.rejects(applier.readCreditAllocationHistory(creditHistoryArgs),error=>error.code==='42501');
+  await assert.rejects(agingReader.readCreditAllocationHistory({...creditHistoryArgs,entityId:randomUUID()}),error=>error.code==='42501');
+  await assert.rejects(agingReader.readCreditAllocationHistory({...creditHistoryArgs,subjectId:randomUUID()}),error=>error.code==='P0002');
+  await assert.rejects(agingReader.readCreditAllocationHistory({...creditHistoryArgs,afterId:randomUUID()}),error=>error.code==='22023');
+  await migrateDownThrough(adminPool,'315_credit_allocation_history.sql');
+  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_credit_allocation_history(uuid,uuid,uuid,text,uuid,integer)') fn")).rows[0].fn,null);
+  await migrateUp(adminPool);
+  assert.deepEqual(await agingReader.readCreditAllocationHistory(creditHistoryArgs),historyPage);
+
   const fullUsage=await applier.readCreditUsageContext(usageArgs);
   assert.equal(fullUsage.allocated_amount,'100.0000');
   assert.equal(fullUsage.refund_amount,'0.0000');
@@ -4536,6 +4578,67 @@ pgTest('refund and credit allocation serialize against the same available credit
   assert.equal(attempts.find(r=>r.status==='rejected').reason.code,'23514');
   const usage=await refundMaker.readCreditUsageContext(usageArgs);assert.equal(usage.available_amount,'40.0000');
   assert.equal(BigInt(usage.allocated_amount.replace('.',''))+BigInt(usage.refund_amount.replace('.','')),600000n);
+});
+
+pgTest('credit allocation history retains states and keyset-pages 100001 recorded fixtures',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+    extraAccounts:[{accountCode:'610000',accountName:'Expense'}],
+    journalLines:[{lineNo:1,accountCode:'610000',debit:100,credit:0},{lineNo:2,accountCode:'291001',debit:0,credit:100,memberRef:'VENDOR-1'}]});const billId=randomUUID();
+  const source=await attachAutoSource(ids);
+  const sourcePoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'vendor-credit-bill-source-poster',['GL.JE.POST'])});
+  await sourcePoster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'vendor-credit-bill-source-post'});
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by) VALUES($1,$2,$3,$4,'AP_BILL','BILL-CREDIT-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[billId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-maker',['AP.VENDOR_CREDIT.CREATE'])});
+  const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-submitter',['GL.JE.SUBMIT'])});
+  await assert.rejects(maker.createApVendorCredit({...ids,creditNumber:'VC-CONTROL-BAD',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1'}],reason:'Reject control-account counterpart',idempotencyKey:'vendor-credit-control-bad'}),error=>error.code==='23514');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE adjustment_kind='AP_VENDOR_CREDIT'",[])).rows[0].n,0);
+  const credit=await maker.createApVendorCredit({...ids,creditNumber:'VC-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Credit'}],reason:'Vendor credit',idempotencyKey:'vendor-credit-100'});
+  await attachAutoSource({...ids,journalId:credit.journal_entry_id},{reuseApprovedSnapshots:true});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-reviewer',['GL.JE.REVIEW'])});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-approver',['GL.JE.APPROVE'])});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-poster',['GL.JE.POST'])});
+  await submitter.transitionJournal({...ids,journalEntryId:credit.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'vendor-credit-submit'});
+  await reviewer.transitionJournal({...ids,journalEntryId:credit.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'vendor-credit-review'});
+  await approver.transitionJournal({...ids,journalEntryId:credit.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'vendor-credit-approve'});
+  await poster.postJournal({...ids,journalEntryId:credit.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'vendor-credit-post'});
+  assert.deepEqual((await adminPool.query('SELECT account_code,debit_amount,credit_amount,member_ref FROM journal_line WHERE journal_entry_id=$1 ORDER BY line_no',[credit.journal_entry_id])).rows,[{account_code:'291001',debit_amount:'100.0000',credit_amount:'0.0000',member_ref:'VENDOR-1'},{account_code:'610000',debit_amount:'0.0000',credit_amount:'100.0000',member_ref:null}]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'vendor-credit-control-reader',['AP.VIEW'])});
+  assert.deepEqual(await reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'0.0000',control_balance:'0.0000',in_balance:true}]);
+  assert.deepEqual(await reader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'100.0000',days_31_60:'-100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
+  const allocationActor=randomUUID();
+  const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,allocationActor,['AP.VENDOR_CREDIT.APPLY'])});
+  const usageArgs={...ids,action:'AP_CREDIT_APPLY',businessAdjustmentId:credit.business_adjustment_id};
+
+
+  const {validCreditHistory}=await import('../runtime/credit-allocation-history.mjs');
+  const args={tenantId:ids.tenantId,entityId:ids.entityId,subjectId:credit.business_adjustment_id,subjectKind:'AP_VENDOR_CREDIT',limit:1};
+  assert.deepEqual((await reader.readCreditAllocationHistory(args)).rows,[]);
+  // Synthetic read population, not 100001 independent business postings.
+  // Equal timestamps force UUID tie-breaking; total fixture amount is 10.0001.
+  for(let first=1;first<=100001;first+=5000)await adminPool.query(
+    "INSERT INTO business_allocation(tenant_id,entity_id,business_document_id,business_adjustment_id,amount,currency,status,posted_journal_entry_id,created_by,created_at) SELECT $1,$2,$3,$4,0.0001,'USD','ACTIVE',$5,'history-scale-fixture','2026-07-20T12:00:00.123456Z'::timestamptz FROM generate_series($6::int,$7::int)",
+    [ids.tenantId,ids.entityId,billId,credit.business_adjustment_id,credit.journal_entry_id,first,Math.min(first+4999,100001)]);
+  await adminPool.query('ANALYZE business_allocation');
+  const expected=(await adminPool.query("SELECT business_allocation_id FROM business_allocation WHERE tenant_id=$1 AND created_by='history-scale-fixture' ORDER BY created_at DESC,business_allocation_id DESC OFFSET 99998 LIMIT 3",[ids.tenantId])).rows;
+  const started=Date.now();
+  for(const selection of [args,{...args,subjectId:billId,subjectKind:'AP_BILL'}]){
+    const page=await reader.readCreditAllocationHistory({...selection,afterId:expected[0].business_allocation_id});
+    assert.equal(validCreditHistory(page,{...selection,afterId:expected[0].business_allocation_id}),true);
+    assert.equal(page.rows[0].business_allocation_id,expected[1].business_allocation_id);assert.equal(page.next_id,expected[1].business_allocation_id);
+    const final=await reader.readCreditAllocationHistory({...selection,afterId:page.next_id});
+    assert.equal(final.rows[0].business_allocation_id,expected[2].business_allocation_id);assert.equal(final.next_id,null);
+  }
+  assert.ok(Date.now()-started<10000,'four deep history pages must complete within ten seconds');
+  // State history is returned as recorded; these controlled mutations only test reads.
+  try{
+    await adminPool.query("UPDATE business_allocation SET status='REVERSED',reversed_by_allocation_id=$2 WHERE business_allocation_id=$1",[expected[1].business_allocation_id,expected[2].business_allocation_id]);
+    let page=await reader.readCreditAllocationHistory({...args,afterId:expected[0].business_allocation_id});assert.equal(page.rows[0].status,'REVERSED');assert.equal(page.rows[0].reversed_by_allocation_id,expected[2].business_allocation_id);assert.equal(validCreditHistory(page,{...args,afterId:expected[0].business_allocation_id}),true);
+    await adminPool.query("UPDATE business_allocation SET status='PENDING',posted_journal_entry_id=NULL,reversed_by_allocation_id=NULL WHERE business_allocation_id=$1",[expected[1].business_allocation_id]);
+    page=await reader.readCreditAllocationHistory({...args,afterId:expected[0].business_allocation_id});assert.equal(page.rows[0].status,'PENDING');assert.equal(page.rows[0].journal_entry_id,null);assert.equal(validCreditHistory(page,{...args,afterId:expected[0].business_allocation_id}),true);
+  }finally{await adminPool.query("UPDATE business_allocation SET status='ACTIVE',posted_journal_entry_id=$2,reversed_by_allocation_id=NULL WHERE business_allocation_id=$1",[expected[1].business_allocation_id,credit.journal_entry_id]);}
+  const otherBill=randomUUID();await adminPool.query("INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,gross_amount,open_balance,status,created_by) SELECT $2,tenant_id,entity_id,document_kind,'HISTORY-OTHER',counterparty_ref,counterparty_name,currency,accounting_date,gross_amount,open_balance,status,'fixture' FROM business_document WHERE business_document_id=$1",[billId,otherBill]);
+  await assert.rejects(reader.readCreditAllocationHistory({...args,subjectId:otherBill,subjectKind:'AP_BILL',afterId:expected[0].business_allocation_id}),error=>error.code==='22023');
+  assert.deepEqual((await reader.readCreditAllocationHistory({...args,subjectId:otherBill,subjectKind:'AP_BILL'})).rows,[]);
 });
 
 pgTest('credit target lookup searches all source periods and keyset-pages 100001 eligible fixtures',async()=>{
