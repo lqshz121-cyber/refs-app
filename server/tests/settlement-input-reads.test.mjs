@@ -16,6 +16,15 @@ const context=(kind='AP_PAYMENT')=>({schema_version:'SETTLEMENT_CONTEXT_V1',enti
 const apiFor=kernel=>createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel});
 const get=(api,url,patch={})=>api({method:'GET',url,body:null,headers:{},...patch});
 
+test('refund bank selection is scoped independently from invoice receipt context',async()=>{
+  const calls=[],api=apiFor({readSettlementBankMembers:async args=>(calls.push(args),page(args))});
+  const result=await get(api,bankPath+'?kind=AR_REFUND');
+  assert.equal(result.status,200);assert.equal(result.body.data.settlement_kind,'AR_REFUND');
+  assert.deepEqual(calls,[{tenantId,entityId,settlementKind:'AR_REFUND',query:'',afterRef:null,limit:50}]);
+  assert.equal((await get(api,contextPath+`?kind=AR_REFUND&periodId=${periodId}`)).status,400);
+  assert.equal((await get(apiFor({readSettlementBankMembers:async args=>page({...args,settlementKind:'AR_RECEIPT'})}),bankPath+'?kind=AR_REFUND')).status,500);
+});
+
 test('settlement input GETs derive tenant identity and preserve exact selection without accepting command inputs',async()=>{
   const calls=[],api=apiFor({readSettlementBankMembers:async args=>(calls.push(args),page(args)),readSettlementContext:async args=>(calls.push(args),context(args.settlementKind))});
   const response=await get(api,bankPath+'?kind=AP_PAYMENT&query=50%25_&afterRef=B-1&limit=25');
