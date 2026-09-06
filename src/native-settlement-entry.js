@@ -55,11 +55,11 @@ export async function prepareNativeSettlement({config,kind,businessDocumentId,dr
   const [context,accounts]=await Promise.all([readNativeSettlementContext({config,kind,businessDocumentId,fetcher}),refreshAuthoritativeChartOfAccounts({config,fetcher})]);
   if(!context.ok)return context;if(!accounts.ok)return accounts;
   const valid=validateNativeSettlementDraft({config,kind,businessDocumentId,draft,bank,context:context.data,accounts:accounts.rows});if(!valid.ok)return valid;
-  const body={...valid.body,attachmentIds:[attachmentId]};const idempotencyKey=`native-settlement-${await hash(JSON.stringify([config.entityId,kind,businessDocumentId,actor.actorId,body]),cryptoApi)}`;
-  return {ok:true,command:{entityId:config.entityId,periodId:config.periodId,actorId:actor.actorId,kind,businessDocumentId,body,idempotencyKey}};
+  const body={...valid.body,attachmentIds:[attachmentId]};const idempotencyKey=`native-settlement-${await hash(JSON.stringify([config.baseUrl,config.entityId,kind,businessDocumentId,actor.actorId,body]),cryptoApi)}`;
+  return {ok:true,command:{baseUrl:config.baseUrl,entityId:config.entityId,periodId:config.periodId,actorId:actor.actorId,kind,businessDocumentId,body,idempotencyKey}};
 }
 export async function sendNativeSettlement({config,command,fetcher=globalThis.fetch}={}){
-  if(!configured(config)||command?.entityId!==config.entityId||command?.periodId!==config.periodId||!validSettlementKind(command?.kind)||!uuid(command.businessDocumentId))return fail('SETTLEMENT_INVALID','The selected company changed. Return to the document list.');
+  if(!configured(config)||command?.baseUrl!==config.baseUrl||command?.entityId!==config.entityId||command?.periodId!==config.periodId||!validSettlementKind(command?.kind)||!uuid(command.businessDocumentId))return fail('SETTLEMENT_INVALID','The selected company changed. Return to the document list.');
   const actor=await actorContext(config,command.kind,command.actorId,fetcher);if(!actor.ok)return actor;
   const auth=await authoritativeBearerHeaders(config);if(!auth)return fail('AUTHENTICATION_REQUIRED','Sign in to continue.');
   const path=command.kind==='AP_PAYMENT'?`ap/bills/${command.businessDocumentId}/native-payments`:`ar/invoices/${command.businessDocumentId}/native-receipts`;
