@@ -42,6 +42,8 @@ import {detectManualJournalRisks} from '../runtime/ai-manual-journal-risk.mjs';
 import {detectCrossEntityPaymentInvoiceReviews} from '../runtime/ai-cross-entity-payment-invoice-review.mjs';
 import {analyzeAttestedConstructionLoanDrawCwip} from '../runtime/ai-construction-loan-cwip-population-attestation.mjs';
 import {AUTHORITATIVE_WORKFLOW_ROLES} from '../runtime/workflow-role-grant.mjs';
+import {productionIamAttestationFixture} from './helpers/production-iam-attestation-fixture.mjs';
+import {productionIamSealRaceFixture} from './helpers/production-iam-seal-race-fixture.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -67,6 +69,14 @@ before(async()=>{
     if(adminPool)await adminPool.end().catch(()=>{});
     adminPool=null;runtimePool=null;issuerPool=null;
   }
+});
+
+pgTest('production IAM ceremony attests immutable installation before OIDC and preserves zero-effect denials',async()=>{
+  await productionIamAttestationFixture({adminPool,ids:await seed({status:'DRAFT'})});
+});
+
+pgTest('production IAM seal and staging grant serialize across physical connections and stale snapshots',async()=>{
+  await productionIamSealRaceFixture({adminPool,config});
 });
 
 pgTest('AI vendor monthly spend reads one complete signed current-source population across the approved history window',async()=>{
