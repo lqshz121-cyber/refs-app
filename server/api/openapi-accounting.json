@@ -15,6 +15,378 @@
     }
   ],
   "paths": {
+    "/entities/{entityId}/business-adjustments/{businessAdjustmentId}/allocation-targets": {
+      "get": {
+        "operationId": "readCreditAllocationTargets",
+        "summary": "Search posted same-party documents with unreserved balances across source periods",
+        "description": "Derives permission, counterparty and currency from the selected posted credit. Returns posted-ledger-backed documents across source periods using literal search and UUID keyset pagination. Pending payments/receipts reduce available amounts. Context and rows are read under one stable database snapshot. No reservation or command authority; save must recheck current state. No body or command headers.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "businessAdjustmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "AP_CREDIT_APPLY",
+                "AR_CREDIT_APPLY"
+              ]
+            }
+          },
+          {
+            "name": "periodId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 128,
+              "default": ""
+            }
+          },
+          {
+            "name": "afterId",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scoped eligible document page and credit context",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schema_version",
+                        "context",
+                        "query",
+                        "after_id",
+                        "limit",
+                        "rows",
+                        "next_id"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "CREDIT_ALLOCATION_TARGETS_V1"
+                        },
+                        "context": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schema_version",
+                            "entity_id",
+                            "action",
+                            "period",
+                            "credit",
+                            "allocated_amount",
+                            "refund_amount",
+                            "available_amount"
+                          ],
+                          "properties": {
+                            "schema_version": {
+                              "const": "CREDIT_USAGE_CONTEXT_V1"
+                            },
+                            "entity_id": {
+                              "$ref": "#/components/schemas/Uuid"
+                            },
+                            "action": {
+                              "enum": [
+                                "AP_CREDIT_APPLY",
+                                "AR_CREDIT_APPLY"
+                              ]
+                            },
+                            "period": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "period_id",
+                                "starts_on",
+                                "ends_on",
+                                "status",
+                                "revision"
+                              ],
+                              "properties": {
+                                "period_id": {
+                                  "$ref": "#/components/schemas/Uuid"
+                                },
+                                "starts_on": {
+                                  "type": "string",
+                                  "format": "date"
+                                },
+                                "ends_on": {
+                                  "type": "string",
+                                  "format": "date"
+                                },
+                                "status": {
+                                  "enum": [
+                                    "OPEN",
+                                    "SOFT_CLOSED",
+                                    "CLOSED"
+                                  ]
+                                },
+                                "revision": {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]{0,18})$"
+                                }
+                              }
+                            },
+                            "credit": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "business_adjustment_id",
+                                "adjustment_kind",
+                                "journal_entry_id",
+                                "number",
+                                "counterparty_ref",
+                                "currency",
+                                "amount",
+                                "revision"
+                              ],
+                              "properties": {
+                                "business_adjustment_id": {
+                                  "$ref": "#/components/schemas/Uuid"
+                                },
+                                "adjustment_kind": {
+                                  "enum": [
+                                    "AP_VENDOR_CREDIT",
+                                    "AR_CREDIT_MEMO"
+                                  ]
+                                },
+                                "journal_entry_id": {
+                                  "$ref": "#/components/schemas/Uuid"
+                                },
+                                "number": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "counterparty_ref": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "currency": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z]{3}$"
+                                },
+                                "amount": {
+                                  "type": "string",
+                                  "pattern": "^-?(0|[1-9][0-9]{0,39})\\.[0-9]{4}$"
+                                },
+                                "revision": {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]{0,18})$"
+                                }
+                              }
+                            },
+                            "allocated_amount": {
+                              "type": "string",
+                              "pattern": "^-?(0|[1-9][0-9]{0,39})\\.[0-9]{4}$"
+                            },
+                            "refund_amount": {
+                              "type": "string",
+                              "pattern": "^-?(0|[1-9][0-9]{0,39})\\.[0-9]{4}$"
+                            },
+                            "available_amount": {
+                              "type": "string",
+                              "pattern": "^-?(0|[1-9][0-9]{0,39})\\.[0-9]{4}$"
+                            }
+                          }
+                        },
+                        "query": {
+                          "type": "string",
+                          "maxLength": 128
+                        },
+                        "after_id": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/Uuid"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 100
+                        },
+                        "rows": {
+                          "type": "array",
+                          "maxItems": 100,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "business_document_id",
+                              "document_number",
+                              "counterparty_ref",
+                              "currency",
+                              "accounting_date",
+                              "due_date",
+                              "gross_amount",
+                              "open_balance",
+                              "pending_amount",
+                              "available_amount",
+                              "revision",
+                              "status",
+                              "period_id",
+                              "journal_entry_id"
+                            ],
+                            "properties": {
+                              "business_document_id": {
+                                "$ref": "#/components/schemas/Uuid"
+                              },
+                              "document_number": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "counterparty_ref": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "currency": {
+                                "type": "string",
+                                "pattern": "^[A-Z]{3}$"
+                              },
+                              "accounting_date": {
+                                "type": "string",
+                                "format": "date"
+                              },
+                              "due_date": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "gross_amount": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]{0,39})\\.[0-9]{4}$"
+                              },
+                              "open_balance": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]{0,39})\\.[0-9]{4}$"
+                              },
+                              "pending_amount": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]{0,39})\\.[0-9]{4}$"
+                              },
+                              "available_amount": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]{0,39})\\.[0-9]{4}$"
+                              },
+                              "revision": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]{0,18})$"
+                              },
+                              "status": {
+                                "enum": [
+                                  "APPROVED",
+                                  "OPEN",
+                                  "PARTIALLY_PAID"
+                                ]
+                              },
+                              "period_id": {
+                                "$ref": "#/components/schemas/Uuid"
+                              },
+                              "journal_entry_id": {
+                                "$ref": "#/components/schemas/Uuid"
+                              }
+                            }
+                          }
+                        },
+                        "next_id": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/Uuid"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/entities/{entityId}/ar/credit-memos/{sourceAdjustmentId}/native-refunds": {
       "post": {
         "operationId": "createNativeRefund",

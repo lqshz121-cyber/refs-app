@@ -4237,6 +4237,13 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,allocationActor,['AP.VENDOR_CREDIT.APPLY'])});
   const usageArgs={...ids,action:'AP_CREDIT_APPLY',businessAdjustmentId:credit.business_adjustment_id};
   const beforeUsage=await applier.readCreditUsageContext(usageArgs);
+  const targetArgs={...usageArgs,query:'',afterId:null,limit:1};
+  const firstTarget=await applier.readCreditAllocationTargets(targetArgs);
+  assert.equal(firstTarget.rows.length,1);assert.equal(firstTarget.rows[0].business_document_id,billId);
+  assert.equal(firstTarget.rows[0].available_amount,'100.0000');assert.equal(firstTarget.next_id,null);
+  await assert.rejects(applier.readCreditAllocationTargets({...targetArgs,action:'AR_REFUND'}),error=>error.code==='22023');
+  await assert.rejects(applier.readCreditAllocationTargets({...targetArgs,entityId:randomUUID()}),error=>error.code==='42501');
+
   assert.equal(beforeUsage.available_amount,'100.0000');
   assert.equal(beforeUsage.credit.journal_entry_id,credit.journal_entry_id);
   assert.equal(beforeUsage.credit.counterparty_ref,'VENDOR-1');
@@ -4262,6 +4269,8 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   assert.equal(await issuedContexts(),beforeContexts+4);
   const paymentMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'AP-capacity-payment-maker',['AP.PAYMENT.CREATE'])});
   const reservation=await paymentMaker.createApPayment({...ids,businessDocumentId:billId,paymentNumber:'CAPACITY-80',paymentDate:'2026-07-18',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:80,reason:'Reserve target balance',idempotencyKey:'AP-capacity-payment'});
+  const reservedTarget=await applier.readCreditAllocationTargets(targetArgs);
+  assert.equal(reservedTarget.rows[0].pending_amount,'80.0000');assert.equal(reservedTarget.rows[0].available_amount,'20.0000');
   const beforeReserved=await capacityCounts(),reservedContexts=await issuedContexts();
   await assert.rejects(applier.applyApVendorCredit({...guardedArgs,amount:21}),error=>error.code==='23514');
   assert.deepEqual(await capacityCounts(),beforeReserved);
@@ -4289,6 +4298,7 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   assert.equal(fullUsage.allocated_amount,'100.0000');
   assert.equal(fullUsage.refund_amount,'0.0000');
   assert.equal(fullUsage.available_amount,'0.0000');
+  assert.deepEqual((await applier.readCreditAllocationTargets(targetArgs)).rows,[]);
   assert.equal((await adminPool.query('SELECT status FROM business_allocation WHERE business_allocation_id=$1',[second.business_allocation_id])).rows[0].status,'ACTIVE');
   assert.deepEqual((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[billId])).rows[0],{open_balance:'0.0000',status:'PAID'});
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_allocation WHERE business_adjustment_id=$1 AND status='ACTIVE'",[credit.business_adjustment_id])).rows[0].n,2);
@@ -4297,9 +4307,14 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
 });
 
 pgTest('AR credit memo posted first then partial and full apply updates invoice atomically',async()=>{
-  const ids=await seed({status:'APPROVED',extraAccounts:[{accountCode:'410000',accountName:'Sales returns'}]});const invoiceId=randomUUID();
-  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'CUSTOMER-1','CUSTOMER','Customer')",[ids.tenantId,ids.entityId]);
-  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by) VALUES($1,$2,$3,'AR_INVOICE','INV-CREDIT-1','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN','fixture')`,[invoiceId,ids.tenantId,ids.entityId]);
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+    extraAccounts:[{accountCode:'400000',accountName:'Revenue'},{accountCode:'410000',accountName:'Sales returns'}],
+    extraMembers:[{memberRef:'CUSTOMER-1',memberType:'CUSTOMER',displayName:'Customer'}],
+    journalLines:[{lineNo:1,accountCode:'120200',debit:100,credit:0,memberRef:'CUSTOMER-1'},{lineNo:2,accountCode:'400000',debit:0,credit:100}]});const invoiceId=randomUUID();
+  const source=await attachAutoSource(ids);
+  const sourcePoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-invoice-source-poster',['GL.JE.POST'])});
+  await sourcePoster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'credit-invoice-source-post'});
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by) VALUES($1,$2,$3,$4,'AR_INVOICE','INV-CREDIT-1','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[invoiceId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-maker',['AR.CREDIT_MEMO.CREATE'])});
   const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-submitter',['GL.JE.SUBMIT'])});
   await assert.rejects(maker.createArCreditMemo({...ids,memoNumber:'CM-CONTROL-BAD',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'120200',amount:100,member_ref:'CUSTOMER-1'}]),reason:'Reject control-account counterpart',idempotencyKey:'ar-credit-control-bad'}),error=>error.code==='23514');
@@ -4319,6 +4334,13 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,allocationActor,['AR.CREDIT_MEMO.APPLY'])});
   const usageArgs={...ids,action:'AR_CREDIT_APPLY',businessAdjustmentId:memo.business_adjustment_id};
   const beforeUsage=await applier.readCreditUsageContext(usageArgs);
+  const targetArgs={...usageArgs,query:'',afterId:null,limit:1};
+  const firstTarget=await applier.readCreditAllocationTargets(targetArgs);
+  assert.equal(firstTarget.rows.length,1);assert.equal(firstTarget.rows[0].business_document_id,invoiceId);
+  assert.equal(firstTarget.rows[0].available_amount,'100.0000');assert.equal(firstTarget.next_id,null);
+  await assert.rejects(applier.readCreditAllocationTargets({...targetArgs,action:'AR_REFUND'}),error=>error.code==='22023');
+  await assert.rejects(applier.readCreditAllocationTargets({...targetArgs,entityId:randomUUID()}),error=>error.code==='42501');
+
   assert.equal(beforeUsage.available_amount,'100.0000');
   assert.equal(beforeUsage.credit.journal_entry_id,memo.journal_entry_id);
   assert.equal(beforeUsage.credit.counterparty_ref,'CUSTOMER-1');
@@ -4344,6 +4366,8 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   assert.equal(await issuedContexts(),beforeContexts+4);
   const paymentMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'AR-capacity-payment-maker',['AR.RECEIPT.CREATE'])});
   const reservation=await paymentMaker.createArReceipt({...ids,businessDocumentId:invoiceId,receiptNumber:'CAPACITY-80',receiptDate:'2026-07-18',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:80,reason:'Reserve target balance',idempotencyKey:'AR-capacity-payment'});
+  const reservedTarget=await applier.readCreditAllocationTargets(targetArgs);
+  assert.equal(reservedTarget.rows[0].pending_amount,'80.0000');assert.equal(reservedTarget.rows[0].available_amount,'20.0000');
   const beforeReserved=await capacityCounts(),reservedContexts=await issuedContexts();
   await assert.rejects(applier.applyArCreditMemo({...guardedArgs,amount:21}),error=>error.code==='23514');
   assert.deepEqual(await capacityCounts(),beforeReserved);
@@ -4368,6 +4392,7 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   assert.equal(fullUsage.allocated_amount,'100.0000');
   assert.equal(fullUsage.refund_amount,'0.0000');
   assert.equal(fullUsage.available_amount,'0.0000');
+  assert.deepEqual((await applier.readCreditAllocationTargets(targetArgs)).rows,[]);
   assert.equal((await adminPool.query('SELECT status FROM business_allocation WHERE business_allocation_id=$1',[second.business_allocation_id])).rows[0].status,'ACTIVE');
   assert.deepEqual((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[invoiceId])).rows[0],{open_balance:'0.0000',status:'PAID'});
   assert.deepEqual(await agingReader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'0.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
@@ -4511,6 +4536,64 @@ pgTest('refund and credit allocation serialize against the same available credit
   assert.equal(attempts.find(r=>r.status==='rejected').reason.code,'23514');
   const usage=await refundMaker.readCreditUsageContext(usageArgs);assert.equal(usage.available_amount,'40.0000');
   assert.equal(BigInt(usage.allocated_amount.replace('.',''))+BigInt(usage.refund_amount.replace('.','')),600000n);
+});
+
+pgTest('credit target lookup searches all source periods and keyset-pages 100001 eligible fixtures',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+    extraAccounts:[{accountCode:'610000',accountName:'Expense'}],
+    journalLines:[{lineNo:1,accountCode:'610000',debit:100,credit:0},{lineNo:2,accountCode:'291001',debit:0,credit:100,memberRef:'VENDOR-1'}]});const billId=randomUUID();
+  const source=await attachAutoSource(ids);
+  const sourcePoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'vendor-credit-bill-source-poster',['GL.JE.POST'])});
+  await sourcePoster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'vendor-credit-bill-source-post'});
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by) VALUES($1,$2,$3,$4,'AP_BILL','BILL-CREDIT-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[billId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-maker',['AP.VENDOR_CREDIT.CREATE'])});
+  const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-submitter',['GL.JE.SUBMIT'])});
+  await assert.rejects(maker.createApVendorCredit({...ids,creditNumber:'VC-CONTROL-BAD',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1'}],reason:'Reject control-account counterpart',idempotencyKey:'vendor-credit-control-bad'}),error=>error.code==='23514');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE adjustment_kind='AP_VENDOR_CREDIT'",[])).rows[0].n,0);
+  const credit=await maker.createApVendorCredit({...ids,creditNumber:'VC-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Credit'}],reason:'Vendor credit',idempotencyKey:'vendor-credit-100'});
+  await attachAutoSource({...ids,journalId:credit.journal_entry_id},{reuseApprovedSnapshots:true});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-reviewer',['GL.JE.REVIEW'])});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-approver',['GL.JE.APPROVE'])});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-poster',['GL.JE.POST'])});
+  await submitter.transitionJournal({...ids,journalEntryId:credit.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'vendor-credit-submit'});
+  await reviewer.transitionJournal({...ids,journalEntryId:credit.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'vendor-credit-review'});
+  await approver.transitionJournal({...ids,journalEntryId:credit.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'vendor-credit-approve'});
+  await poster.postJournal({...ids,journalEntryId:credit.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'vendor-credit-post'});
+  assert.deepEqual((await adminPool.query('SELECT account_code,debit_amount,credit_amount,member_ref FROM journal_line WHERE journal_entry_id=$1 ORDER BY line_no',[credit.journal_entry_id])).rows,[{account_code:'291001',debit_amount:'100.0000',credit_amount:'0.0000',member_ref:'VENDOR-1'},{account_code:'610000',debit_amount:'0.0000',credit_amount:'100.0000',member_ref:null}]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'vendor-credit-control-reader',['AP.VIEW'])});
+  assert.deepEqual(await reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'0.0000',control_balance:'0.0000',in_balance:true}]);
+  assert.deepEqual(await reader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'100.0000',days_31_60:'-100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
+  const allocationActor=randomUUID();
+  const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,allocationActor,['AP.VENDOR_CREDIT.APPLY'])});
+  const usageArgs={...ids,action:'AP_CREDIT_APPLY',businessAdjustmentId:credit.business_adjustment_id};
+
+  const august=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[august,ids.tenantId,ids.entityId]);
+  const args={...usageArgs,periodId:august,query:'',afterId:null,limit:1};
+  const crossPeriod=await applier.readCreditAllocationTargets(args);
+  assert.equal(crossPeriod.context.period.period_id,august);assert.equal(crossPeriod.rows[0].period_id,ids.periodId);
+  // Synthetic read-performance population shares one posted fixture journal.
+  // It does not establish 100001 independently posted business transactions.
+  for(let first=1;first<=100001;first+=5000)await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by)
+    SELECT gen_random_uuid(),tenant_id,entity_id,document_kind,'TARGET-'||n,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,'fixture'
+    FROM business_document CROSS JOIN generate_series($2::int,$3::int) n WHERE business_document_id=$1`,[billId,first,Math.min(first+4999,100001)]);
+  await adminPool.query('ANALYZE business_document');
+  const expected=(await adminPool.query("SELECT business_document_id FROM business_document WHERE tenant_id=$1 AND document_number LIKE 'TARGET-%' ORDER BY business_document_id OFFSET 99998 LIMIT 3",[ids.tenantId])).rows;
+  const page=await applier.readCreditAllocationTargets({...args,query:'TARGET-',afterId:expected[0].business_document_id,limit:1});
+  assert.equal(page.rows[0].business_document_id,expected[1].business_document_id);assert.equal(page.next_id,expected[1].business_document_id);
+  const final=await applier.readCreditAllocationTargets({...args,query:'TARGET-',afterId:page.next_id,limit:1});
+  assert.equal(final.rows[0].business_document_id,expected[2].business_document_id);assert.equal(final.next_id,null);
+  await adminPool.query("UPDATE business_document SET document_number='literal_%' WHERE business_document_id=$1",[expected[2].business_document_id]);
+  assert.equal((await applier.readCreditAllocationTargets({...args,query:'literal_%'})).rows[0].business_document_id,expected[2].business_document_id);
+  assert.deepEqual((await applier.readCreditAllocationTargets({...args,query:'NO-MATCH'})).rows,[]);
+  for(const update of ["counterparty_ref='OTHER-PARTY'","status='PAID',open_balance=0","posted_journal_entry_id=NULL"]){
+    try{await adminPool.query('UPDATE business_document SET '+update+' WHERE business_document_id=$1',[expected[2].business_document_id]);
+      assert.deepEqual((await applier.readCreditAllocationTargets({...args,query:'literal_%'})).rows,[]);
+    }finally{await adminPool.query("UPDATE business_document SET counterparty_ref='VENDOR-1',status='OPEN',open_balance=100,posted_journal_entry_id=$2 WHERE business_document_id=$1",[expected[2].business_document_id,ids.journalId]);}
+  }
+  await migrateDownThrough(adminPool,'314_credit_allocation_targets.sql');
+  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_credit_allocation_targets(uuid,uuid,text,uuid,uuid,text,uuid,integer)') fn")).rows[0].fn,null);
+  await migrateUp(adminPool);
+  assert.equal((await applier.readCreditAllocationTargets({...args,query:'literal_%'})).rows.length,1);
 });
 pgTest('AP bill void posts in a new open period and leaves the original Posted JE immutable',async()=>{
   const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null});

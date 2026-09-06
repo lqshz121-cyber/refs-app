@@ -1739,6 +1739,13 @@ export class PostgresAccountingKernel{
     ),'SETTLEMENT_CONTEXT_UNAVAILABLE','Settlement context is unavailable').result);
   }
 
+  async readCreditAllocationTargets({tenantId,entityId,action,businessAdjustmentId,periodId,query='',afterId=null,limit=50}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_credit_allocation_targets($1,$2,$3,$4,$5,$6,$7,$8) AS result',
+      [tenantId,entityId,action,businessAdjustmentId,periodId,query,afterId,limit]
+    ),'CREDIT_TARGETS_UNAVAILABLE','Credit allocation targets are unavailable').result);
+  }
+
   async readCreditUsageContext({tenantId,entityId,action,businessAdjustmentId,periodId}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_credit_usage_context($1,$2,$3,$4,$5) AS result',
