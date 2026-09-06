@@ -79,8 +79,8 @@ const SHARED_ACCOUNTING_BOOTSTRAP_ROUTES = new Set(['overview', 'payables', 'rec
 // and must be allowed to mount before that unrelated bundle is requested. In
 // particular, a slow AP or Journal request must never hold a direct Bank or
 // Reconciliation reload in a global Loading screen.
-export const routeRequiresSharedAccountingBootstrap = route =>
-  SHARED_ACCOUNTING_BOOTSTRAP_ROUTES.has(route);
+export const routeRequiresSharedAccountingBootstrap = (route,workflowJournalId=null) =>
+  SHARED_ACCOUNTING_BOOTSTRAP_ROUTES.has(route) && !(route==='journals'&&workflowJournalId);
 
 export const readRetainedRoute = (environment = globalThis) => {
   const fragment = String((environment && environment.location && environment.location.hash) || '').replace(/^#\/?/, '');
@@ -379,7 +379,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     const isCurrent = accountingReadGuard.current.begin('refresh', accountingReadGeneration);
     if (!isCurrent()) return;
     setDocumentDetail(null); setAdjustmentDetail(null);
-    if (!routeRequiresSharedAccountingBootstrap(route)) {
+    if (!routeRequiresSharedAccountingBootstrap(route,workflowJournalId)) {
       setError(null);
       setWorkspaceRefreshVersion(current => current + 1);
       setPhase('READY');
@@ -400,7 +400,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     setSharedAccountingLoaded(true);
     setWorkspaceRefreshVersion(current => current + 1);
     setPhase('READY');
-  }, [config, boundFetcher, route, accountingReadGeneration]);
+  }, [config, boundFetcher, route, accountingReadGeneration, workflowJournalId]);
 
   const refreshAfterControlledTestWorkflow = useCallback(async () => {
     if (!config) return;
@@ -475,7 +475,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   // AP/AR/Journal page later. Fetch that bundle exactly when it becomes needed;
   // the loaded flag prevents READY from retriggering the same read forever.
   useEffect(() => {
-    if (phase === 'READY' && routeRequiresSharedAccountingBootstrap(route) && !sharedAccountingLoaded && !(route==='journals'&&workflowJournalId)) void refresh();
+    if (phase === 'READY' && routeRequiresSharedAccountingBootstrap(route,workflowJournalId) && !sharedAccountingLoaded) void refresh();
   }, [phase, route, sharedAccountingLoaded, refresh, workflowJournalId]);
 
   useEffect(() => {
@@ -542,12 +542,12 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     const target=scopeCatalog.find(row=>row.entity_id===config?.entityId&&row.period_id===paymentScope?.period_id);
     if(!target||!receipt?.journal_entry_id){setError({code:'NATIVE_SETTLEMENT_SCOPE_UNCONFIRMED',message:'Refresh the company periods before opening the saved draft.'});return;}
     const targetConfig={...config,periodId:target.period_id};
-    const [documents,journals]=await Promise.all([refreshAuthoritativeDocuments({config:targetConfig,fetcher:boundFetcher}),refreshAuthoritativeJournalEntries({config:targetConfig,fetcher:boundFetcher})]);
+    const detail=await readAuthoritativeJournalEntryDetail({config:targetConfig,journalEntryId:receipt.journal_entry_id,fetcher:boundFetcher});
     if(!isCurrent()||nativeDraftOriginRef.current!==origin)return;
-    if(!documents.ok||!journals.ok){setError(!documents.ok?documents:journals);return;}
-    if(!journals.journals.some(row=>row.journal_entry_id===receipt.journal_entry_id&&row.status==='DRAFT')){setError({code:'NATIVE_SETTLEMENT_DRAFT_NOT_FOUND',message:'The saved draft was not returned by its payment-period journal register. Refresh before continuing.'});return;}
+    if(!detail.ok){setError(detail);return;}
+    if(detail.journal.status!=='DRAFT'){setError({code:'NATIVE_SETTLEMENT_DRAFT_NOT_FOUND',message:'The saved journal is no longer Draft. Refresh before continuing.'});return;}
     applyScope(target);
-    setData({ap:documents.ap,ar:documents.ar,journals:journals.journals});setSharedAccountingLoaded(true);setError(null);setRoute('journals');setWorkflowJournalId(receipt.journal_entry_id);
+    setSharedAccountingLoaded(false);setError(null);setRoute('journals');setWorkflowJournalId(receipt.journal_entry_id);
   },[config,scopeCatalog,boundFetcher,applyScope,setRoute,accountingReadGeneration]);
   const selectEntityScope=useCallback(entityId=>{
     const choices=scopeCatalog.filter(row=>row.entity_id===entityId).sort((a,b)=>b.period_start.localeCompare(a.period_start));
@@ -651,7 +651,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'amortization' && <AuthoritativeAmortizationWorkspace key={`amortization-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onBack={()=>setRoute('overview')}/>}
         {phase === 'READY' && route === 'intercompany' && <AuthoritativeReportsWorkspace key={`intercompany-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'GROUP_AND_COMPARISON',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Intercompany" workspaceDescription="Intercompany reconciliation reads existing OIDC-authenticated, aligned-period evidence for two explicitly scoped entities. Elimination, adjustment, and intercompany posting workflows remain unavailable until server contracts exist."/>}
         {phase === 'READY' && route === 'consolidation' && <AuthoritativeReportsWorkspace key={`consolidation-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'GROUP_AND_COMPARISON',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE - GENERAL LEDGER" workspaceTitle="Consolidation" workspaceDescription="Consolidation evidence is read from existing OIDC-authenticated approved group snapshots and POSTED ledger evidence. Elimination creation, group maintenance, and browser-side consolidation workbooks remain unavailable until server contracts exist."/>}
-        {phase === 'READY' && route === 'journals' && (workflowJournalId?<SingleJournalWorkflow key={`${config.entityId}:${config.periodId}:${accessState.row?.actor_id}:${workflowJournalId}`} journalEntryId={workflowJournalId} config={displayConfig} fetcher={boundFetcher} environment={environment} onChanged={()=>setSharedAccountingLoaded(false)} onBack={()=>{setWorkflowJournalId(null);setSharedAccountingLoaded(false);}}/>:<AuthoritativeJournalWorkspace journals={data.journals} config={displayConfig} fetcher={boundFetcher} environment={environment}/>)}
+        {phase === 'READY' && route === 'journals' && (workflowJournalId?<SingleJournalWorkflow key={`${config.entityId}:${config.periodId}:${accessState.row?.actor_id}:${workflowJournalId}:${workspaceRefreshVersion}`} journalEntryId={workflowJournalId} config={displayConfig} fetcher={boundFetcher} environment={environment} onChanged={()=>setSharedAccountingLoaded(false)} onBack={()=>{setWorkflowJournalId(null);setSharedAccountingLoaded(false);}}/>:<AuthoritativeJournalWorkspace journals={data.journals} config={displayConfig} fetcher={boundFetcher} environment={environment}/>)}
         {phase === 'READY' && route === 'source-documents' && <AuthoritativeSourceDocumentsWorkspace key={`source-documents-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && ['chart-of-accounts','account-inquiry'].includes(route) && <AuthoritativeChartOfAccountsWorkspace key={`coa-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'general-ledger' && <AuthoritativeGeneralLedgerWorkspace key={`general-ledger-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} onBack={reportGeneralLedgerDetail?closeReportGeneralLedger:null}/>}

@@ -23,7 +23,7 @@ assert.match(decisionSource,/phase:'BLOCKED',data:null,error:result,runNonce/,'a
 assert.match(decisionSource,/if\(result\.ok\).*await load\(0\)/,'a successful retain command must refresh the authoritative queue from its first page');
 const appSource=fs.readFileSync('src/authoritative-app.jsx','utf8');
 assert.match(appSource,/onOpenJournalWorkflow=\{openAiDraftWorkflow\}/,'the AI workbench must receive the exact Draft-to-Journal bridge');
-assert.match(appSource,/row\.journal_entry_id===receipt\.journal_entry_id&&row\.status==='DRAFT'/,'the bridge must re-read and match the exact Draft in the current company-period Journal register');
+assert.match(appSource,/readAuthoritativeJournalEntryDetail\(\{config,journalEntryId:receipt\.journal_entry_id,fetcher:boundFetcher\}\)/,'the bridge must read the exact Draft in the current company and period');
 assert.match(appSource,/AI_DRAFT_JOURNAL_NOT_FOUND/,'an absent or changed AI Draft must fail closed before navigation');
 assert.match(appSource,/<SingleJournalWorkflow[^>]*journalEntryId=\{workflowJournalId\}/,'the workflow must open the exact re-read Draft');
 assert.doesNotMatch(decisionSource,/Math\.random|Date\.now|randomUUID|localStorage|sessionStorage/i);

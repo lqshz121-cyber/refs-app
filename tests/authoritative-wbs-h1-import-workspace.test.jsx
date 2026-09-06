@@ -46,7 +46,7 @@ assert.match(source,/readAuthoritativeJournalEntryDetail\(\{config,journalEntryI
 assert.match(source,/restoreAuthoritativeReturnContext\(environment,config,context/,'Back from the created Draft must restore the originating WBS row, page scroll, and table position');
 assert.match(source,/AuthoritativeLineageDrill/,'the created Draft must reuse the standard full-page Journal lineage reader');
 assert.match(appSource,/refreshAuthoritativeJournalEntries\(\{config,fetcher:boundFetcher\}\)/,'continuing from WBS must re-read the authoritative Journal register');
-assert.match(appSource,/row\.journal_entry_id===receipt\.journal_entry_id&&row\.status==='DRAFT'/,'the WBS handoff must find the exact created Draft in the same company-period Journal register');
+assert.match(appSource,/readAuthoritativeJournalEntryDetail\(\{config,journalEntryId:receipt\.journal_entry_id,fetcher:boundFetcher\}\)/,'the WBS handoff must read the exact created Draft in the same company and period');
 assert.match(appSource,/onOpenJournalWorkflow=\{openWbsH1DraftWorkflow\}/,'the Integration Hub must hand the exact Draft to the standard Journal workflow route');
 assert.match(appSource,/<SingleJournalWorkflow[^>]*journalEntryId=\{workflowJournalId\}/,'the workflow must open the exact Draft created from WBS or AI');
 assert.doesNotMatch(source,/wbs_uuid|Post journal|localStorage|seed\.js/);

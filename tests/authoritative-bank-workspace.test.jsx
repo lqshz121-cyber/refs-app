@@ -12,6 +12,9 @@ assert.equal(routeRequiresSharedAccountingBootstrap('reconciliation'),false,'a d
 assert.equal(routeRequiresSharedAccountingBootstrap('bank'),false);
 assert.equal(routeRequiresSharedAccountingBootstrap('overview'),true);
 assert.equal(routeRequiresSharedAccountingBootstrap('payables'),true);
+assert.equal(routeRequiresSharedAccountingBootstrap('journals'),true,'the full register still loads its accounting bundle');
+assert.equal(routeRequiresSharedAccountingBootstrap('journals','11111111-1111-4111-8111-111111111111'),false,'a saved journal handoff owns its detail read across period initialization');
+assert.equal(routeRequiresSharedAccountingBootstrap('payables','11111111-1111-4111-8111-111111111111'),true,'a stale handoff ID cannot suppress another accounting workspace');
 const bankRow={bank_source_id:'11111111-1111-4111-8111-111111111111',bank_account_ref:'BANK-1',external_bank_line_id:'BANK-LINE-1',transaction_date:'2026-07-15',currency:'USD',amount:'-125.2500',version:3,source_ref:'SOURCE-1',document_type:'BANK_TRANSACTION',match_status:null,journal_entry_id:null};
 const activeMatchRow={...bankRow,bank_match_id:'22222222-2222-4222-8222-222222222222',match_status:'ACTIVE',business_source_document_id:'33333333-3333-4333-8333-333333333333',journal_entry_id:'44444444-4444-4444-8444-444444444444',journal_line_id:'55555555-5555-4555-8555-555555555555',candidate_rule_code:'EXACT_POSTED_CASH',amount_delta:'0.0000',currency_match:true,date_delta_days:0,match_version:4,matched_by:'controller@example.test',matched_at:'2026-07-16T10:00:00.000Z'};
 const historicalMatchRow={...activeMatchRow,match_status:'REVERSED'};
@@ -187,7 +190,7 @@ assert.match(css,/\.authoritative-admitted-statements-table\{max-height:60vh;ove
 assert.match(css,/@media \(max-width:430px\)\{\.authoritative-admitted-statements\{padding:16px;/,'Signed statement controls must stack at phone widths');
 assert.match(css,/\.authoritative-admitted-actions \.btn,[^\n]*min-height:44px/,'Signed statement controls must keep WCAG-sized touch targets');
 const appSource=readFileSync('src/authoritative-app.jsx','utf8');
-assert.match(appSource,/if \(!routeRequiresSharedAccountingBootstrap\(route\)\) \{[\s\S]*setPhase\('READY'\);[\s\S]*return;/,'self-loading routes must enter READY without awaiting the shared accounting bundle');
-assert.match(appSource,/phase === 'READY' && routeRequiresSharedAccountingBootstrap\(route\) && !sharedAccountingLoaded/,'later navigation to a shared-data page must still load AP\/AR and Journal evidence exactly when needed');
+assert.match(appSource,/if \(!routeRequiresSharedAccountingBootstrap\(route,workflowJournalId\)\) \{[\s\S]*setPhase\('READY'\);[\s\S]*return;/,'self-loading routes must enter READY without awaiting the shared accounting bundle');
+assert.match(appSource,/phase === 'READY' && routeRequiresSharedAccountingBootstrap\(route,workflowJournalId\) && !sharedAccountingLoaded/,'later navigation to a shared-data page must still load AP\/AR and Journal evidence exactly when needed');
 
 console.log('authoritative-bank-workspace: scoped full-page read-only SSR contract passed');
