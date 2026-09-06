@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { accountingApiConfig, activateAuthoritativeReadAccess, refreshAuthoritativeChartOfAccounts, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries, refreshAuthoritativeScope, refreshAuthoritativeScopeCatalog, refreshCurrentActorAccess } from './accounting-api.js';
+import { accountingApiConfig, refreshAuthoritativeChartOfAccounts, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries, refreshAuthoritativeScope, refreshAuthoritativeScopeCatalog, refreshCurrentActorAccess } from './accounting-api.js';
 import { AuthoritativeSourceDocumentsWorkspace } from './authoritative-source-documents-workspace.jsx';
 import { BrowserOidcClient, RENEWAL_MIN_INTERVAL_MS, oidcRuntimeConfig, silentRenewalSchedule } from './oidc-client.js';
 import { AuthoritativeBankWorkspace, AuthoritativeReconciliationWorkspace } from './authoritative-bank-workspace.jsx';
@@ -340,11 +340,13 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     setWorkflowJournalId(null);
     if (next === 'reports') setReportsNavigationVersion(current => current + 1);
     setRouteState(next); retainRoute(environment, next);
+    setPhase(current => current === 'ACCESS_DENIED' ? 'AUTHENTICATED' : current);
   }, [environment]);
   useEffect(() => watchRetainedRoute(environment, next => {
     setDocumentDetail(null); setAdjustmentDetail(null); setAgingDetail(null); setReportAgingDetail(null); setReportGeneralLedgerDetail(null); setReportReconciliationDetail(null); setReportCatalogReturn(null);
     if (next === 'reports') setReportsNavigationVersion(current => current + 1);
     setRouteState(next);
+    setPhase(current => current === 'ACCESS_DENIED' ? 'AUTHENTICATED' : current);
     retainRoute(environment, next);
     const group = AUTHORITATIVE_NAVIGATION.find(entry => entry.items.some(item => item.route === next));
     if (group) setExpandedNavigationGroups(current => current.includes(group.label) ? current : [...current, group.label]);
@@ -507,19 +509,11 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     try { await oidcClient.startLogin(); }
     catch { setError({ code:'OIDC_CONFIGURATION_REQUIRED', message:'The configured OIDC provider could not start a secure PKCE login.' }); setPhase('IDENTITY_FAILED'); }
   };
-  const activateReadAccess = async () => {
-    if(!config) return;
-    setError(null);
-    const idempotencyKey=`reader-activation-${globalThis.crypto?.randomUUID?.()||Date.now().toString(36)}`;
-    const result=await activateAuthoritativeReadAccess({config,fetcher:boundFetcher,idempotencyKey});
-    if(result.ok){ setPhase('AUTHENTICATED'); return; }
-    setError(result);
-  };
   const logout = () => { accountingReadGuard.current.invalidate(); oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setDocumentDetail(null); setAdjustmentDetail(null); setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}}); setError(null); setRenewalFailure(null); setSessionExpired(false); setPhase('LOGIN_REQUIRED'); };
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeChartOfAccounts({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeRows(result.ok?result.rows:[]);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeScope({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeMetadata(result.ok?result.row:null);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};setAccessState({status:'LOADING'});refreshCurrentActorAccess({config,fetcher:boundFetcher}).then(result=>{if(current)setAccessState(result.ok?{status:'READY',row:result.row}:{status:'ERROR',code:result.code,message:result.message});});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
-  useEffect(()=>{let current=true;if(phase!=='READY'||!baseConfig)return()=>{current=false;};refreshAuthoritativeScopeCatalog({config:baseConfig,fetcher:boundFetcher}).then(result=>{if(current&&result.ok)setScopeCatalog([...result.rows]);});return()=>{current=false;};},[phase,baseConfig,boundFetcher]);
+  useEffect(()=>{let current=true;if(!['READY','ACCESS_DENIED'].includes(phase)||!baseConfig)return()=>{current=false;};refreshAuthoritativeScopeCatalog({config:baseConfig,fetcher:boundFetcher}).then(result=>{if(current&&result.ok)setScopeCatalog([...result.rows]);});return()=>{current=false;};},[phase,baseConfig,boundFetcher]);
   const applyScope=useCallback(next=>{
     if(!next||next.entity_id===config?.entityId&&next.period_id===config?.periodId)return;
     accountingReadGuard.current.invalidate();
@@ -558,11 +552,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     <RuntimeErrorPanel code={error?.code || 'OIDC_LOGIN_REQUIRED'} detail={error?.message} onSignIn={startLogin}/>
     <button type="button" className="btn btn-primary login-btn" onClick={startLogin}>Continue with secure sign-in</button>
   </section></main>;
-  // An authenticated principal that this entity refuses is not a sign-in
-  // problem, so it does not offer a sign-in retry. Switching identity is the
-  // only action that could change the outcome, and it is offered as itself.
-  if (phase === 'ACCESS_DENIED') return <RuntimeErrorPage code="AUTHORIZATION_DENIED" detail={error?.message}
-    extraActions={<><button type="button" className="btn btn-sm btn-primary" onClick={activateReadAccess}>Activate read access</button><button type="button" className="btn btn-sm btn-ghost" onClick={logout}>Sign out</button></>}/>;
+  // A refused page must leave company selection and navigation reachable.
+  // First-reader setup is handled by the configured server on the initial read.
   if (phase === 'LOAD_FAILED' && !data.journals.length && !data.ap.bills.length && !data.ar.invoices.length) {
     return <RuntimeErrorPage code={error?.code} detail={error?.message} onRetry={refresh} onSignIn={startLogin}
       extraActions={<button type="button" className="btn btn-sm btn-ghost" onClick={logout}>Sign out</button>}/>;
@@ -622,7 +613,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
           code={sessionExpired ? 'OIDC_SESSION_EXPIRED' : 'OIDC_SESSION_EXPIRING'}
           detail={renewalFailure ? `${renewalFailure.code}: ${renewalFailure.message}` : undefined}
           onSignIn={startLogin}/>}
-        {error && <RuntimeErrorPanel code={error.code} detail={error.message} onRetry={refresh} onSignIn={startLogin}/>}
+        {error && <RuntimeErrorPanel code={error.code} detail={error.message} onRetry={refresh} onSignIn={error.code === 'AUTHORIZATION_DENIED' ? undefined : startLogin}/>}
         {phase === 'LOADING_ACCOUNTING' && <StateBlock tone="loading">Loading authoritative accounting records...</StateBlock>}
         {phase === 'READY' && route === 'overview' && <AuthoritativeOverview counts={counts} onNavigate={setRoute} scope={{entityId:config.entityId,periodId:config.periodId}} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'payables' && (agingDetail?.side==='AP'?<AuthoritativeAgingWorkspace config={displayConfig} side="ap" fetcher={boundFetcher} onBack={closeAgingEvidence} backLabel="Back to bills & expenses" returnContext={agingDetail.returnContext} expectedOrigin="PAYABLES"/>:documentDetail?.kind==='AP'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AP" entityId={config.entityId} config={displayConfig} returnContext={documentDetail.returnContext} onBack={closeDocumentEvidence} currentActorAccess={accessState.status==='READY'?accessState.row:null} accounts={scopeRows} scopes={scopeCatalog} fetcher={boundFetcher} onOpenDraft={openNativeSettlementDraft} onRefresh={()=>{closeDocumentEvidence();refresh();}}/>:adjustmentDetail?.side==='AP'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AP" entityId={config.entityId} config={displayConfig} returnContext={adjustmentDetail.returnContext} onBack={closeAdjustmentEvidence}/>:<AuthoritativeDocumentWorkspace kind="AP" onRefresh={refresh} currentActorAccess={accessState.status==='READY'?accessState.row:null} scope={scopeMetadata} accounts={scopeRows} onOpenDraft={receipt=>openDraftJournalWorkflow(receipt,'NATIVE_DOCUMENT_DRAFT_NOT_FOUND')} documents={data.ap.bills} adjustments={data.ap.adjustments} readScopes={{documents:data.ap.scope,adjustments:data.ap.adjustmentsScope}} view={listViews.AP} onViewChange={view=>updateListView('AP',view)} onOpenDocument={(row,focusId,tableX)=>openDocumentEvidence('AP',row,focusId,tableX)} onOpenAdjustment={(row,focusId,tableX)=>openAdjustmentEvidence('AP',row,focusId,tableX)} onOpenAging={()=>openAgingEvidence('AP','authoritative-ap-aging-launch','PAYABLES')} config={displayConfig} fetcher={boundFetcher}/>)}
