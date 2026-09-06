@@ -1707,6 +1707,20 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async readSettlementBankMembers({tenantId,entityId,settlementKind,query='',afterRef=null,limit=50}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_settlement_bank_members($1,$2,$3,$4,$5,$6) AS result',
+      [tenantId,entityId,settlementKind,query,afterRef,limit]
+    ),'SETTLEMENT_BANK_MEMBERS_UNAVAILABLE','Bank member choices are unavailable').result);
+  }
+
+  async readSettlementContext({tenantId,entityId,settlementKind,businessDocumentId,periodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_settlement_context($1,$2,$3,$4,$5) AS result',
+      [tenantId,entityId,settlementKind,businessDocumentId,periodId]
+    ),'SETTLEMENT_CONTEXT_UNAVAILABLE','Settlement context is unavailable').result);
+  }
+
   async readBusinessDocumentCounterparties({tenantId,entityId,documentKind,query='',afterRef=null,limit=50}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_business_document_counterparties($1,$2,$3,$4,$5,$6) AS result',
