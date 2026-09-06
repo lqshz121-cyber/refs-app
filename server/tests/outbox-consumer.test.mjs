@@ -1,4 +1,5 @@
 import test from 'node:test';
+import '../outbox-consumer/refs-outbox-shared-instance-preflight.test.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
