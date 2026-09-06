@@ -2498,7 +2498,18 @@ export async function createAuthoritativeBusinessDocument({config,kind,document,
   if(!attachmentIds?.length||attachmentIds.some(attachmentId=>!UUID.test(attachmentId||'')))return {ok:false,code:'ATTACHMENT_REQUIRED',message:'An authoritative business document requires at least one verified attachment.'};
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();const path=kind==='AP_BILL'?'/ap/bills':'/ar/invoices';
   const body={periodId:config.periodId,documentNumber:document.documentNumber,counterpartyRef:String(document.counterpartyRef),counterpartyName:document.counterpartyName,currency:document.currency,accountingDate:document.accountingDate,dueDate:document.dueDate,amount:document.amount,offsetAccountCode:document.offsetAccountCode,description:document.description||null,attachmentIds};
-  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});if(!response.ok)return await failure(response);const result=await response.json();if(result?.ok!==true||!result.data)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid command envelope.'};return {ok:true,data:result.data,idempotent:response.status===200};}catch{return unreachable('The browser could not complete the authoritative accounting command; no HTTP response was produced.');}
+  const unconfirmed=()=>({ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'The API did not return a confirmed document and Draft journal receipt. Check the saved document or retry with the same request key.'});
+  let response;
+  try{response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});}
+  catch{return unreachable('The browser could not confirm the accounting command. Check the saved document or retry with the same request key.');}
+  if(!response.ok)return await failure(response);
+  let result;try{result=await response.json();}catch{return unconfirmed();}
+  const receipt=result?.data;
+  if(![200,201].includes(response.status)||result?.ok!==true||!receipt||Array.isArray(receipt)
+    ||!UUID.test(receipt.business_document_id||'')||!UUID.test(receipt.journal_entry_id||'')
+    ||receipt.document_kind!==kind||receipt.status!=='DRAFT'||receipt.revision!==0
+    ||receipt.idempotent!==(response.status===200))return unconfirmed();
+  return {ok:true,data:receipt,idempotent:receipt.idempotent};
 }
 
 export async function createAuthoritativeSettlement({config,kind,businessDocumentId,accountingDate,amount,idempotencyKey,fetcher=globalThis.fetch}={}){
