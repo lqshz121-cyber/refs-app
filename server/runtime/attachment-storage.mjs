@@ -26,9 +26,10 @@ export class S3AttachmentStorage{
   bucketUrl(){const url=new URL(this.endpoint);url.pathname=`${url.pathname.replace(/\/$/,'')}/${encode(this.bucket)}`;return url;}
   storageRef(key){return `s3://${this.bucket}/${key}`;}
   parseRef(storageRef){const match=new RegExp(`^s3://${this.bucket}/(.+)$`).exec(storageRef||'');if(!match)throw new Error('Storage reference is outside configured bucket');const key=match[1];if(!key.startsWith(`${this.prefix}/`)||key.split('/').some(part=>!part||part==='.'||part==='..'))throw new Error('Storage reference is outside configured prefix');return key;}
-  presignPut(key,{mediaType,contentHash}){
-    const now=this.clock(),amzDate=timestamp(now),date=dateStamp(now),scope=`${date}/${this.region}/s3/aws4_request`,url=this.objectUrl(key);
-    url.searchParams.set('X-Amz-Algorithm','AWS4-HMAC-SHA256');url.searchParams.set('X-Amz-Credential',`${this.accessKeyId}/${scope}`);url.searchParams.set('X-Amz-Date',amzDate);url.searchParams.set('X-Amz-Expires',String(this.uploadTtlSeconds));url.searchParams.set('X-Amz-SignedHeaders','content-type;host;x-amz-meta-sha256');if(this.sessionToken)url.searchParams.set('X-Amz-Security-Token',this.sessionToken);
+  presignPut(key,{mediaType,contentHash,expiresInSeconds=this.uploadTtlSeconds,issuedAt=this.clock()}){
+    if(!Number.isInteger(expiresInSeconds)||expiresInSeconds<1||expiresInSeconds>this.uploadTtlSeconds)throw new Error('Upload URL lifetime is invalid');
+    const now=issuedAt,amzDate=timestamp(now),date=dateStamp(now),scope=`${date}/${this.region}/s3/aws4_request`,url=this.objectUrl(key);
+    url.searchParams.set('X-Amz-Algorithm','AWS4-HMAC-SHA256');url.searchParams.set('X-Amz-Credential',`${this.accessKeyId}/${scope}`);url.searchParams.set('X-Amz-Date',amzDate);url.searchParams.set('X-Amz-Expires',String(expiresInSeconds));url.searchParams.set('X-Amz-SignedHeaders','content-type;host;x-amz-meta-sha256');if(this.sessionToken)url.searchParams.set('X-Amz-Security-Token',this.sessionToken);
     const headers=`content-type:${mediaType.trim().toLowerCase()}\nhost:${url.host}\nx-amz-meta-sha256:${contentHash.toLowerCase()}\n`;
     const canonical=`PUT\n${url.pathname}\n${canonicalQuery(url.searchParams)}\n${headers}\ncontent-type;host;x-amz-meta-sha256\nUNSIGNED-PAYLOAD`;
     const stringToSign=`AWS4-HMAC-SHA256\n${amzDate}\n${scope}\n${sha256(canonical)}`;url.searchParams.set('X-Amz-Signature',hmac(this.deriveKey(date),stringToSign,'hex'));
@@ -46,6 +47,13 @@ export class S3AttachmentStorage{
     const objectId=deterministic?`${deterministic.slice(0,8)}-${deterministic.slice(8,12)}-4${deterministic.slice(13,16)}-8${deterministic.slice(17,20)}-${deterministic.slice(20,32)}`:randomUUID();
     const key=`${this.prefix}/${safeSegment(tenantId)}/${safeSegment(entityId)}/${objectId}`;const reservationId=objectId;
     return {storageRef:this.storageRef(key),storageVersion:`pending:${reservationId}`,uploadUrl:this.presignPut(key,{mediaType,contentHash}),requiredHeaders:{'content-type':mediaType.toLowerCase(),'x-amz-meta-sha256':contentHash.toLowerCase()},expiresAt:new Date(this.clock().getTime()+this.uploadTtlSeconds*1000).toISOString()};
+  }
+  async resumeUpload({tenantId,entityId,storageRef,mediaType,contentHash,uploadExpiresAt}){
+    const key=this.parseRef(storageRef),prefix=`${this.prefix}/`,parts=key.startsWith(prefix)?key.slice(prefix.length).split('/'):[];
+    if(parts.length!==3||parts[0].toLowerCase()!==safeSegment(tenantId).toLowerCase()||parts[1].toLowerCase()!==safeSegment(entityId).toLowerCase()||!parts[2])throw storageFailure('ATTACHMENT_RESERVATION_SCOPE_INVALID','STORAGE');
+    const issuedAt=this.clock(),expiresInSeconds=Math.min(this.uploadTtlSeconds,Math.floor((Date.parse(uploadExpiresAt)-issuedAt.getTime())/1000));
+    if(!Number.isInteger(expiresInSeconds)||expiresInSeconds<1)throw storageFailure('ATTACHMENT_RESERVATION_CLOSED','STATE');
+    return {uploadUrl:this.presignPut(key,{mediaType,contentHash,expiresInSeconds,issuedAt}),requiredHeaders:{'content-type':mediaType,'x-amz-meta-sha256':contentHash},expiresAt:uploadExpiresAt};
   }
   async probe(){const url=this.bucketUrl();url.searchParams.set('location','');const response=await this.fetcher(url,{method:'GET',headers:this.signedHeaders('GET',url),redirect:'error'});if(!response.ok)throw storageFailure('STORAGE_READINESS_FAILED','STORAGE',response.status);return true;}
   async inspect(storageRef,{versionId=null}={}){
@@ -171,7 +179,23 @@ export class HttpVirusScanner{
 
 export class AttachmentEvidenceService{
   constructor({storage,scanner,uploaderKernelFactory,scannerKernelFactory}={}){if(!storage||!scanner||typeof uploaderKernelFactory!=='function'||typeof scannerKernelFactory!=='function')throw new Error('Attachment service dependencies are required');this.storage=storage;this.scanner=scanner;this.uploaderKernelFactory=uploaderKernelFactory;this.scannerKernelFactory=scannerKernelFactory;}
-  async reserve(principal,args){const reservation=await this.storage.reserveUpload({...args,idempotencyKey:null});try{const kernel=await this.uploaderKernelFactory(principal);const record=await kernel.reserveAttachment({...args,storageRef:reservation.storageRef,storageVersion:reservation.storageVersion});return {...record,upload_url:reservation.uploadUrl,required_headers:reservation.requiredHeaders,upload_expires_at:reservation.expiresAt};}catch(error){await this.storage.deleteReservation(reservation.storageRef).catch(()=>{});throw error;}}
+  async reserve(principal,args){
+    const kernel=await this.uploaderKernelFactory(principal);
+    if(typeof kernel.findAttachmentReservation!=='function')throw storageFailure('ATTACHMENT_RESERVATION_LOOKUP_UNAVAILABLE','STATE');
+    const existing=await kernel.findAttachmentReservation(args);
+    if(existing){
+      const receipt={attachment_id:existing.attachment_id,entity_id:existing.entity_id,status:existing.status,name:existing.name,media_type:existing.media_type,size_bytes:existing.size_bytes,content_hash:existing.content_hash,idempotent:true};
+      if(existing.status==='VERIFIED_CLEAN')return receipt;
+      if(existing.status!=='PENDING'||existing.cleanup_status!=='NONE')throw storageFailure('ATTACHMENT_RESERVATION_CLOSED','STATE');
+      const upload=await this.storage.resumeUpload({tenantId:args.tenantId,entityId:args.entityId,storageRef:existing.storage_ref,mediaType:existing.media_type,contentHash:existing.content_hash,uploadExpiresAt:existing.upload_expires_at});
+      return {...receipt,upload_url:upload.uploadUrl,required_headers:upload.requiredHeaders,upload_expires_at:upload.expiresAt};
+    }
+    const reservation=await this.storage.reserveUpload(args);
+    const record=await kernel.reserveAttachment({...args,storageRef:reservation.storageRef,storageVersion:reservation.storageVersion});
+    // Presigning does not create an object. A failed retry must never delete
+    // evidence uploaded after an earlier successful use of the same key.
+    return {...record,upload_url:reservation.uploadUrl,required_headers:reservation.requiredHeaders,upload_expires_at:reservation.expiresAt};
+  }
   async reserveWbsPayable(principal,args){const reservation=await this.storage.reserveUpload(args);try{const kernel=await this.uploaderKernelFactory(principal);const record=await kernel.reserveWbsPayableAttachment({...args,storageRef:reservation.storageRef,storageVersion:reservation.storageVersion});return {...record,upload_url:reservation.uploadUrl,required_headers:reservation.requiredHeaders,upload_expires_at:reservation.expiresAt};}catch(error){
     // A row-bound retry intentionally resolves to the same object key. Reserve
     // only creates a presigned contract; deleting here could erase a valid

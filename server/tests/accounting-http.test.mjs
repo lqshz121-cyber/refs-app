@@ -15,6 +15,13 @@ Object.assign(kernel,{
 const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel});
 const command=(path,body={},headers={})=>api({method:'POST',url:path,body,headers:{'Idempotency-Key':'idem-key-0001',...headers}});
 
+test('expired attachment reservation reports a closed upload without exposing internal storage details',async()=>{
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'uploader'}),kernelFactory:async()=>({}),attachmentServiceFactory:async()=>({reserve:async()=>{throw Object.assign(new Error('private storage URI'),{code:'ATTACHMENT_RESERVATION_CLOSED'});}})});
+  const response=await api({method:'POST',url:`/api/v1/entities/${entityId}/attachments/reservations`,headers:{'idempotency-key':'closed-upload-key'},body:{name:'support.pdf',mediaType:'application/pdf',sizeBytes:4,contentHash:'sha256:'+'a'.repeat(64)}});
+  assert.equal(response.status,409);assert.equal(response.body.code,'ATTACHMENT_RESERVATION_CLOSED');
+  assert.match(response.body.message,/new request key/);assert.doesNotMatch(JSON.stringify(response.body),/private storage URI/);
+});
+
 test('AI amortization schedule GET and Draft POST preserve exact scope, no-store, and Draft-only output',async()=>{
   const scheduleId=randomUUID(),scheduleLineId=randomUUID(),attachmentId=randomUUID(),draftEvidenceId=randomUUID(),observed=[];
   const schedule=[{ai_amortization_schedule_id:scheduleId,eligible_source_attachment_ids:[attachmentId],schedule_lines:[{ai_amortization_schedule_line_id:scheduleLineId}],can_create_draft:false,can_review:false,can_approve:false,can_post:false}];

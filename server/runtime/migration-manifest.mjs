@@ -308,4 +308,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"300_authoritative_paged_read_snapshots.sql",up:"6c9ee7ae68e00dc3c8b3f6a6696da147153df3f5654ad179a5c6f4c36ea0cfd3",down:"d95062f355f7af2d5598881f2deef0f92b8297ea3b1e6cb0596c2f15312fe152"}),
   Object.freeze({name:"301_deployment_identity_attestation.sql",up:"bff1221f5936102d8c4f1752fad16ec7b7ea02caaf626dc11ca2e803fe7afc75",down:"9f9317fc60a8cb4a21c04d63ad8bcb301d1d616d32d6f585eb8654ee566e6caa"}),
   Object.freeze({name:"302_business_document_counterparty_read.sql",up:"0a7c70f5212e34e115c73f22ce76868d5e26e9508648cf9874f10fb6ed4efe2e",down:"e90bcd537d6cb5fc2507330eaa3ed67aaa3011dc36f9c48abcb5b803444cfdae"}),
+  Object.freeze({name:"303_attachment_reservation_recovery.sql",up:"aac73ac3241dd6b48f38e8c7a08251bf8d7fd3dd4f0e4c66e1ae3c6243fffefd",down:"5f95fccff5d55e17e1692f14e68f2ba8c3cb15c46867cb352544fb7ea0d4a69a"}),
 ]);

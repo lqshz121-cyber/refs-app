@@ -32,6 +32,13 @@ export async function uploadVerifiedAttachment({config=accountingApiConfig(),fil
   let reservationResponse,reservationBody;
   const reservationPath=wbsInboundRowId?`/wbs/inbound/payables/${wbsInboundRowId}/attachments/reservations`:'/attachments/reservations';
   try{reservationResponse=await fetcher(`${authoritativeConfig.baseUrl}/api/v1/entities/${authoritativeConfig.entityId}${reservationPath}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify({...metadata,contentHash})});if(!reservationResponse.ok)return await responseFailure(reservationResponse);reservationBody=await reservationResponse.json();}catch{return fail('ATTACHMENT_API_UNAVAILABLE','Attachment reservation failed.');}
+  const retained=reservationBody?.ok===true?reservationBody.data:null;
+  if(!wbsInboundRowId&&retained?.status==='VERIFIED_CLEAN'){
+    const fields=['attachment_id','entity_id','status','name','media_type','size_bytes','content_hash','idempotent'];
+    const size=typeof retained.size_bytes==='number'||typeof retained.size_bytes==='string'&&/^\d+$/.test(retained.size_bytes)?Number(retained.size_bytes):null;
+    if(Object.keys(retained).length!==fields.length||fields.some(field=>!Object.hasOwn(retained,field))||reservationResponse.status!==200||retained.idempotent!==true||!UUID.test(retained.attachment_id||'')||retained.entity_id!==authoritativeConfig.entityId||retained.name!==metadata.name||retained.media_type!==metadata.mediaType||size!==metadata.sizeBytes||retained.content_hash!==contentHash)return fail('ATTACHMENT_API_PROTOCOL','The retained attachment did not match the selected file and company.');
+    return {ok:true,attachmentId:retained.attachment_id,status:'VERIFIED_CLEAN',idempotent:true};
+  }
   const reservation=reservationBody?.ok===true?validateAttachmentReservation(reservationBody.data,{mediaType:metadata.mediaType,contentHash}):null;if(!reservation)return fail('ATTACHMENT_API_PROTOCOL','Attachment reservation returned an invalid upload contract.');
   let uploadResponse;try{uploadResponse=await fetcher(reservation.uploadUrl,{method:'PUT',credentials:'omit',cache:'no-store',redirect:'error',headers:reservation.requiredHeaders,body:file});if(!uploadResponse.ok)return fail('ATTACHMENT_UPLOAD_FAILED','Object storage rejected the attachment upload.');}catch{return fail('ATTACHMENT_UPLOAD_FAILED','Object storage upload failed.');}
   const finalizeAuthorization=await authoritativeBearerHeaders(authoritativeConfig);if(!finalizeAuthorization)return fail('AUTHENTICATION_REQUIRED','A fresh OIDC access token is required to finalize the authoritative attachment.');
