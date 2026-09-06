@@ -15,7 +15,480 @@
     }
   ],
   "paths": {
+    "/entities/{entityId}/ar/sales-receipts/{receiptId}": {
+  "get": {
+    "operationId": "readSalesReceipt",
+    "summary": "Read one saved sales receipt",
+    "description": "Requires AR.VIEW in the selected company. Returns persisted Sales Receipt and linked journal data with exact decimal strings. No AR invoice or balance is manufactured. No command headers or request body. Lists use bounded UUID keyset pagination within one period; a cursor from another company or period is rejected.",
+    "parameters": [
+      {
+        "$ref": "#/components/parameters/EntityId"
+      },
+      {
+        "name": "receiptId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Uuid"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "Read one saved sales receipt",
+        "headers": {
+          "Cache-Control": {
+            "schema": {
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "ok",
+                "data"
+              ],
+              "properties": {
+                "ok": {
+                  "const": true
+                },
+                "data": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "schema_version",
+                    "entity_id",
+                    "record"
+                  ],
+                  "properties": {
+                    "schema_version": {
+                      "const": "SALES_RECEIPT_DETAIL_V1"
+                    },
+                    "entity_id": {
+                      "$ref": "#/components/schemas/Uuid"
+                    },
+                    "record": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "sales_receipt_id",
+                        "period_id",
+                        "receipt_number",
+                        "customer_ref",
+                        "customer_name",
+                        "bank_member_ref",
+                        "cash_account_code",
+                        "category_account_code",
+                        "accounting_date",
+                        "currency",
+                        "amount",
+                        "description",
+                        "status",
+                        "revision",
+                        "journal_entry_id",
+                        "journal_number",
+                        "journal_status",
+                        "journal_revision",
+                        "created_at",
+                        "posted_at"
+                      ],
+                      "properties": {
+                        "sales_receipt_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "period_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "receipt_number": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "customer_ref": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "customer_name": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "bank_member_ref": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "cash_account_code": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64
+                        },
+                        "category_account_code": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64
+                        },
+                        "accounting_date": {
+                          "type": "string",
+                          "format": "date"
+                        },
+                        "currency": {
+                          "type": "string",
+                          "pattern": "^[A-Z]{3}$"
+                        },
+                        "amount": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]{0,15})\\.[0-9]{4}$"
+                        },
+                        "description": {
+                          "type": "string",
+                          "minLength": 8,
+                          "maxLength": 2000
+                        },
+                        "status": {
+                          "enum": [
+                            "DRAFT",
+                            "POSTED"
+                          ]
+                        },
+                        "revision": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]{0,18})$"
+                        },
+                        "journal_entry_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "journal_number": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "journal_status": {
+                          "enum": [
+                            "DRAFT",
+                            "PENDING_REVIEW",
+                            "PENDING_APPROVAL",
+                            "APPROVED",
+                            "POSTED"
+                          ]
+                        },
+                        "journal_revision": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]{0,18})$"
+                        },
+                        "created_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "posted_at": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "400": {
+        "$ref": "#/components/responses/Problem"
+      },
+      "401": {
+        "$ref": "#/components/responses/Problem"
+      },
+      "403": {
+        "$ref": "#/components/responses/Problem"
+      },
+      "404": {
+        "$ref": "#/components/responses/Problem"
+      },
+      "500": {
+        "$ref": "#/components/responses/Problem"
+      },
+      "503": {
+        "$ref": "#/components/responses/Problem"
+      }
+    }
+  }
+},
     "/entities/{entityId}/ar/sales-receipts": {
+      "get": {
+  "operationId": "listSalesReceipts",
+  "summary": "List saved sales receipts in one accounting period",
+  "description": "Requires AR.VIEW in the selected company. Returns persisted Sales Receipt and linked journal data with exact decimal strings. No AR invoice or balance is manufactured. No command headers or request body. Lists use bounded UUID keyset pagination within one period; a cursor from another company or period is rejected.",
+  "parameters": [
+    {
+      "$ref": "#/components/parameters/EntityId"
+    },
+    {
+      "name": "periodId",
+      "in": "query",
+      "required": true,
+      "schema": {
+        "$ref": "#/components/schemas/Uuid"
+      }
+    },
+    {
+      "name": "afterId",
+      "in": "query",
+      "required": false,
+      "schema": {
+        "$ref": "#/components/schemas/Uuid"
+      }
+    },
+    {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 50
+      }
+    }
+  ],
+  "responses": {
+    "200": {
+      "description": "List saved sales receipts in one accounting period",
+      "headers": {
+        "Cache-Control": {
+          "schema": {
+            "const": "no-store"
+          }
+        }
+      },
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "ok",
+              "data"
+            ],
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "schema_version",
+                  "entity_id",
+                  "period_id",
+                  "after_id",
+                  "limit",
+                  "rows",
+                  "next_id"
+                ],
+                "properties": {
+                  "schema_version": {
+                    "const": "SALES_RECEIPT_PAGE_V1"
+                  },
+                  "entity_id": {
+                    "$ref": "#/components/schemas/Uuid"
+                  },
+                  "period_id": {
+                    "$ref": "#/components/schemas/Uuid"
+                  },
+                  "after_id": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/Uuid"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "rows": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "sales_receipt_id",
+                        "period_id",
+                        "receipt_number",
+                        "customer_ref",
+                        "customer_name",
+                        "bank_member_ref",
+                        "cash_account_code",
+                        "category_account_code",
+                        "accounting_date",
+                        "currency",
+                        "amount",
+                        "description",
+                        "status",
+                        "revision",
+                        "journal_entry_id",
+                        "journal_number",
+                        "journal_status",
+                        "journal_revision",
+                        "created_at",
+                        "posted_at"
+                      ],
+                      "properties": {
+                        "sales_receipt_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "period_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "receipt_number": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "customer_ref": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "customer_name": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "bank_member_ref": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "cash_account_code": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64
+                        },
+                        "category_account_code": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64
+                        },
+                        "accounting_date": {
+                          "type": "string",
+                          "format": "date"
+                        },
+                        "currency": {
+                          "type": "string",
+                          "pattern": "^[A-Z]{3}$"
+                        },
+                        "amount": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]{0,15})\\.[0-9]{4}$"
+                        },
+                        "description": {
+                          "type": "string",
+                          "minLength": 8,
+                          "maxLength": 2000
+                        },
+                        "status": {
+                          "enum": [
+                            "DRAFT",
+                            "POSTED"
+                          ]
+                        },
+                        "revision": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]{0,18})$"
+                        },
+                        "journal_entry_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "journal_number": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "journal_status": {
+                          "enum": [
+                            "DRAFT",
+                            "PENDING_REVIEW",
+                            "PENDING_APPROVAL",
+                            "APPROVED",
+                            "POSTED"
+                          ]
+                        },
+                        "journal_revision": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]{0,18})$"
+                        },
+                        "created_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "posted_at": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "next_id": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/Uuid"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "400": {
+      "$ref": "#/components/responses/Problem"
+    },
+    "401": {
+      "$ref": "#/components/responses/Problem"
+    },
+    "403": {
+      "$ref": "#/components/responses/Problem"
+    },
+    "404": {
+      "$ref": "#/components/responses/Problem"
+    },
+    "500": {
+      "$ref": "#/components/responses/Problem"
+    },
+    "503": {
+      "$ref": "#/components/responses/Problem"
+    }
+  }
+},
       "post": {
         "operationId": "createNativeSalesReceipt",
         "summary": "Create a supported cash-sale Draft journal",

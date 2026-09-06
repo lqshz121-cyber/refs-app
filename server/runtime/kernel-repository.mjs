@@ -1739,6 +1739,18 @@ export class PostgresAccountingKernel{
     ),'SETTLEMENT_CONTEXT_UNAVAILABLE','Settlement context is unavailable').result);
   }
 
+  async readSalesReceipt({tenantId,entityId,receiptId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_sales_receipt($1,$2,$3) AS result',[tenantId,entityId,receiptId]
+    ),'SALES_RECEIPT_UNAVAILABLE','Sales receipt is unavailable').result);
+  }
+
+  async listSalesReceipts({tenantId,entityId,periodId,afterId=null,limit=50}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_list_sales_receipts($1,$2,$3,$4,$5) AS result',[tenantId,entityId,periodId,afterId,limit]
+    ),'SALES_RECEIPT_UNAVAILABLE','Sales receipt page is unavailable').result);
+  }
+
   async readBusinessRecord({tenantId,entityId,recordId,recordKind}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_business_record($1,$2,$3,$4) AS result',[tenantId,entityId,recordId,recordKind]
