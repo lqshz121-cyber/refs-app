@@ -5098,6 +5098,21 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   assert.equal(created.status,'ACTIVE');assert.equal(created.idempotent,false);assert.equal(replay.idempotent,true);assert.equal(replay.bank_match_id,created.bank_match_id);
   const evidence=(await adminPool.query('SELECT payment_occurrence_id,journal_entry_id,journal_line_id,ledger_line_id FROM bank_match WHERE bank_match_id=$1',[created.bank_match_id])).rows[0];
   assert.equal(evidence.payment_occurrence_id,exact.payment.payment_occurrence_id);assert.equal(evidence.journal_entry_id,exact.payment.journal_entry_id);assert.ok(evidence.journal_line_id);assert.ok(evidence.ledger_line_id);
+  // Exercise real PostgreSQL -> API -> browser client readback with no imported
+  // business source. This fixture uses the existing legacy payment command;
+  // native commands share the same nullable occurrence/source match contract.
+  assert.equal((await adminPool.query('SELECT business_source_document_id FROM bank_match WHERE bank_match_id=$1',[created.bank_match_id])).rows[0].business_source_document_id,null);
+  const readApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'bank-null-source-reader'}),kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bank-null-source-reader',['BANK.VIEW'])})});
+  const clientConfig={baseUrl:'https://fixture.example',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>'fixture-token-'.repeat(4)};
+  const clientFetch=async(url,options)=>{const result=await readApi({method:options.method,url:new URL(url).pathname+new URL(url).search,body:null,headers:options.headers});return {ok:result.status>=200&&result.status<300,status:result.status,json:async()=>JSON.parse(JSON.stringify(result.body))};};
+  const {refreshAuthoritativeBankTransactions,refreshAuthoritativeReconciliationWorksheet}=await import('../../src/accounting-api.js');
+  const bankRead=await refreshAuthoritativeBankTransactions({config:clientConfig,bankAccountRef:'BANK-1',fetcher:clientFetch});
+  assert.equal(bankRead.ok,true,JSON.stringify(bankRead));assert.equal(bankRead.rows[0].business_source_document_id,null);assert.equal(bankRead.rows[0].journal_entry_id,exact.payment.journal_entry_id);
+  const readbackReconciliationId=randomUUID();
+  await adminPool.query(`INSERT INTO reconciliation(reconciliation_id,tenant_id,entity_id,bank_account_ref,statement_ending_date,statement_ending_balance,difference,status)
+    VALUES($1,$2,$3,'BANK-1','2026-07-31',-40,0,'DRAFT')`,[readbackReconciliationId,ids.tenantId,ids.entityId]);
+  const worksheetRead=await refreshAuthoritativeReconciliationWorksheet({config:clientConfig,reconciliationId:readbackReconciliationId,fetcher:clientFetch});
+  assert.equal(worksheetRead.ok,true,JSON.stringify(worksheetRead));assert.equal(worksheetRead.rows.length,1);assert.equal(worksheetRead.rows[0].business_source_document_id,null);assert.equal(worksheetRead.rows[0].journal_entry_id,exact.payment.journal_entry_id);
   const augustPeriod=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
   const reversalMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bank-payment-reversal',['AP.PAYMENT.REVERSE'])});
   await assert.rejects(reversalMaker.createApPaymentReversal({...ids,sourceOccurrenceId:exact.payment.payment_occurrence_id,periodId:augustPeriod,journalNumber:'PAY-BANK-40-REV',journalDate:'2026-08-02',reason:'Attempt reversal while actively matched',idempotencyKey:'bank-match-reversal-001'}),error=>error.code==='23514'&&/explicitly unmatched/i.test(error.message));
