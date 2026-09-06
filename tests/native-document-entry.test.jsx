@@ -1,3 +1,4 @@
+import {DocumentSettlementHistory} from '../src/document-settlement-history.jsx';
 import assert from 'node:assert/strict';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
@@ -30,3 +31,6 @@ for(const kind of ['AP_PAYMENT','AR_RECEIPT']){
 const paymentPeriods=[{entity_id:config.entityId,period_id:config.periodId,period_code:'2026-08',period_status:'CLOSED'},{entity_id:config.entityId,period_id:'33333333-3333-4333-8333-333333333333',period_code:'2026-09',period_status:'OPEN'},{entity_id:'44444444-4444-4444-8444-444444444444',period_id:'55555555-5555-4555-8555-555555555555',period_code:'OTHER COMPANY',period_status:'OPEN'}];
 const paymentPeriodView=renderToStaticMarkup(<NativeSettlementEntry config={config} kind="AP_PAYMENT" scopes={paymentPeriods} access={{...access,permissions:['AP.PAYMENT.CREATE','ATTACHMENT.CREATE']}}/>);
 assert.match(paymentPeriodView,/Payment period/);assert.match(paymentPeriodView,/2026-09/);assert.doesNotMatch(paymentPeriodView,/2026-08|OTHER COMPANY/);
+
+assert.equal(renderToStaticMarkup(<DocumentSettlementHistory config={config} kind="AP_PAYMENT" access={access}/>),'');
+for(const [kind,permission,label] of [['AP_PAYMENT','AP.VIEW','Payment history'],['AR_RECEIPT','AR.VIEW','Receipt history']]){const markup=renderToStaticMarkup(<DocumentSettlementHistory config={config} kind={kind} access={{...access,permissions:[permission]}}/>);assert.match(markup,new RegExp(label));assert.match(markup,/Refresh history/);assert.doesNotMatch(markup,/No payments|No receipts|Save draft/);}
