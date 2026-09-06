@@ -1,8 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createInitialReadSessionFactory} from '../runtime/initial-read-session.mjs';
+import {createInitialReadSessionFactory,issueAccountingReadContext} from '../runtime/initial-read-session.mjs';
 const principal={trusted:true,actorId:'reader',tenantId:'configured-tenant'};
 const missing=()=>Object.assign(new Error('Actor has no active DB authorization grant'),{code:'42501'});
+
+test('read fallback retains normal capabilities and never initializes an existing writer without read grants',async()=>{
+  const denied=Object.assign(new Error('Human write authority requires a finite exact-role grant'),{code:'42501'});
+  let initialized=0,calls=[];
+  const factory=createInitialReadSessionFactory({tenantId:principal.tenantId,initializeReadAccess:async()=>{initialized++;}});
+  const issuer={issue:async args=>{calls.push(args);if(args.readOnly)throw missing();throw denied;}};
+  await assert.rejects(factory({principal,issue:()=>issueAccountingReadContext(issuer,{tenantId:principal.tenantId,allowReadFallback:true})})(),error=>error===denied);
+  assert.equal(initialized,0);assert.deepEqual(calls,[{tenantId:principal.tenantId},{tenantId:principal.tenantId,readOnly:true}]);
+  calls=[];
+  await assert.rejects(issueAccountingReadContext(issuer,{tenantId:principal.tenantId}),error=>error===denied);assert.equal(calls.length,1);
+  assert.equal(await issueAccountingReadContext({issue:async()=> 'normal-role'},{tenantId:principal.tenantId,allowReadFallback:true}),'normal-role');
+  assert.equal(await issueAccountingReadContext({issue:async args=>{if(args.readOnly)return 'read-only';throw denied;}},{tenantId:principal.tenantId,allowReadFallback:true}),'read-only');
+});
 
 test('simultaneous first page reads initialize once and each receive a fresh context',async()=>{
   let ready=false,initializations=0,contexts=0;

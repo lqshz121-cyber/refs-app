@@ -1,6 +1,6 @@
 import {createAccountingHttpServer} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from './context-issuer.mjs';
-import {createInitialReadSessionFactory} from './initial-read-session.mjs';
+import {createInitialReadSessionFactory,issueAccountingReadContext} from './initial-read-session.mjs';
 import {PostgresAccountingKernel} from './kernel-repository.mjs';
 import {AttachmentEvidenceService} from './attachment-storage.mjs';
 import {createWbsInboundAutoRecHttpReadService} from './wbs-inbound-autorec-http-read-service.mjs';
@@ -106,7 +106,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
   if((stage1SelfGrant!=null||stage1SelfWbsReadUpgrade!=null||stage1SelfWbsOperatorUpgrade!=null||stage1SelfControlledTestWorkflowUpgrade!=null)&&!grantSyncPool)throw new Error('Stage 1 self-grant requires the isolated grant-sync pool');
   if(wbsTestImport&&!wbsLivePilotClient)throw new Error('WBS test import requires the configured live-pilot client');
   const initialReadSession=createInitialReadSessionFactory({tenantId:stage1SelfGrant?.tenantId,initializeReadAccess:stage1SelfGrant?({actorId,idempotencyKey})=>grantStage1SelfReadAccess(grantSyncPool,{...stage1SelfGrant,actorId,idempotencyKey}):undefined});
-  const kernelFor=(principal,{allowReadFallback=false}={})=>{const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>principal});return new PostgresAccountingKernel(runtimePool,{runtimeLoginAllowlist,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,sessionProvider:initialReadSession({principal,issue:async()=>{try{return await issuer.issue({tenantId:principal.tenantId});}catch(error){if(!allowReadFallback||error?.code!=='42501')throw error;return issuer.issue({tenantId:principal.tenantId,readOnly:true});}}})});};
+  const kernelFor=(principal,{allowReadFallback=false}={})=>{const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>principal});return new PostgresAccountingKernel(runtimePool,{runtimeLoginAllowlist,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,sessionProvider:initialReadSession({principal,issue:()=>issueAccountingReadContext(issuer,{tenantId:principal.tenantId,allowReadFallback})})});};
   const aiAnalysisExplanationServiceFactory=aiGateway?principal=>{const kernel=kernelFor(principal);return createAiAnalysisExplanationService({gateway:aiGateway,auditRepository:kernel,summaryReader:async({tenantId,entityId})=>{
     if(tenantId!==principal.tenantId)throw new Error('AI analysis tenant scope does not match the authenticated principal');
     return kernel.readAiAccountingAnalysisSummary({tenantId,entityId});
