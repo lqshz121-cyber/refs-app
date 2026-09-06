@@ -65,3 +65,26 @@ for(const kind of ['AP_VENDOR_CREDIT','AR_CREDIT_MEMO','AP_BILL','AR_INVOICE']){
 }
 
 const exactRecordMarkup=renderToStaticMarkup(<BusinessRecordEvidence config={config} record={{record_kind:'AP_BILL',record_id:config.periodId,number:'EXACT-1',status:'OPEN',revision:'0',accounting_date:'2026-08-01',amount:'9007199254740993.1234',open_balance:'1.2345',currency:'USD',journal_entry_id:null}}/>);assert.match(exactRecordMarkup,/9007199254740993\.1234/);assert.match(exactRecordMarkup,/Back to credit history/);
+const linkedRecord={record_id:config.periodId,number:'LINK-1',revision:'1',accounting_date:'2026-08-01',amount:'12.3400',open_balance:'1.2345',currency:'USD',journal_entry_id:null};
+const linkedAccess={...access,permissions:['AP.PAYMENT.CREATE','AR.RECEIPT.CREATE','AR.REFUND.CREATE','AP.VENDOR_CREDIT.APPLY','AR.CREDIT_MEMO.APPLY','ATTACHMENT.CREATE']};
+const linkedProps={config,access:linkedAccess,scopes:paymentPeriods,onOpenDraft:()=>{},onRefresh:()=>{}};
+const linkedView=(record,props={})=>renderToStaticMarkup(<BusinessRecordEvidence {...linkedProps} {...props} record={{...linkedRecord,...record}}/>);
+for(const [record_kind,label] of [['AP_BILL','Record payment'],['AR_INVOICE','Receive payment']]){
+  const row={record_kind,status:'OPEN'};
+  assert.match(linkedView(row),new RegExp(label));
+  assert.match(linkedView(row),/2026-09/);assert.doesNotMatch(linkedView(row),/OTHER COMPANY/);
+  for(const status of ['DRAFT','PAID','VOID'])assert.doesNotMatch(linkedView({...row,status}),new RegExp(label));
+  assert.doesNotMatch(linkedView({...row,open_balance:'0.0000'}),new RegExp(label));
+  for(const props of [{access},{onOpenDraft:undefined},{onRefresh:undefined}])assert.doesNotMatch(linkedView(row,props),new RegExp(label));
+}
+for(const record_kind of ['AP_VENDOR_CREDIT','AR_CREDIT_MEMO']){
+  const row={record_kind,status:'POSTED',open_balance:null};
+  assert.match(linkedView(row),/Apply credit/);
+  for(const props of [{access},{onRefresh:undefined}])assert.doesNotMatch(linkedView(row,props),/Apply credit|Refund credit/);
+  assert.doesNotMatch(linkedView({...row,status:'DRAFT'}),/Apply credit|Refund credit/);
+  if(record_kind==='AR_CREDIT_MEMO'){
+    assert.match(linkedView(row),/Refund credit/);
+    assert.doesNotMatch(linkedView(row,{onOpenDraft:undefined}),/Refund credit/);
+  }else assert.doesNotMatch(linkedView(row),/Refund credit/);
+}
+console.log('Linked record actions: AP/AR status, capability, callback and period gates passed.');
