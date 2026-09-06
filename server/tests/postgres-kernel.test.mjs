@@ -3171,14 +3171,15 @@ pgTest('settlement bank members use scoped active BANK masters, literal search a
     ($1,$2,'B-01','BANK','Alpha 50%_ bank',true),($1,$2,'B-02','BANK','Beta bank',true),
     ($1,$2,'B-OFF','BANK','Inactive bank',false),($1,$2,'B-CUSTOMER','CUSTOMER','Wrong type',true),
     ($1,$3,'B-OTHER','BANK','Other entity',true)`,[ids.tenantId,ids.entityId,other.entityId]);
-  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bank-reader',['AP.PAYMENT.CREATE','AR.RECEIPT.CREATE'])});
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ap-bank-reader',['AP.PAYMENT.CREATE'])});
+  const arMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ar-bank-reader',['AR.RECEIPT.CREATE'])});
   const base={tenantId:ids.tenantId,entityId:ids.entityId,settlementKind:'AP_PAYMENT',query:'',afterRef:null,limit:2};
   const first=await maker.readSettlementBankMembers(base);
   assert.deepEqual(first,{schema_version:'SETTLEMENT_BANK_MEMBERS_V1',entity_id:ids.entityId,settlement_kind:'AP_PAYMENT',query:'',after_ref:null,limit:2,
     rows:[{member_ref:'B-01',member_type:'BANK',display_name:'Alpha 50%_ bank'},{member_ref:'B-02',member_type:'BANK',display_name:'Beta bank'}],next_ref:'B-02'});
   const last=await maker.readSettlementBankMembers({...base,afterRef:first.next_ref});
   assert.deepEqual(last.rows.map(r=>r.member_ref),['BANK-1']);assert.equal(last.next_ref,null);
-  assert.deepEqual((await maker.readSettlementBankMembers({...base,settlementKind:'AR_RECEIPT'})).rows,first.rows);
+  assert.deepEqual((await arMaker.readSettlementBankMembers({...base,settlementKind:'AR_RECEIPT'})).rows,first.rows);
   assert.deepEqual((await maker.readSettlementBankMembers({...base,query:'50%_'})).rows,[first.rows[0]]);
   assert.deepEqual((await maker.readSettlementBankMembers({...base,query:'ALPHA'})).rows,[first.rows[0]]);
   const apOnly=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ap-bank-reader',['AP.PAYMENT.CREATE'])});
@@ -3203,7 +3204,7 @@ pgTest('settlement context refreshes native AP and AR capacity across periods, r
   const other=await seed({status:'DRAFT',tenantId:ids.tenantId}),paymentPeriodId=randomUUID();
   await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[paymentPeriodId,ids.tenantId,ids.entityId]);
   const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;
-  const permissions={maker:['AP.BILL.CREATE','AR.INVOICE.CREATE','AP.PAYMENT.CREATE','AR.RECEIPT.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST'],viewer:['AP.VIEW','AR.VIEW'],apOnly:['AP.PAYMENT.CREATE']};
+  const permissions={documentMaker:['AP.BILL.CREATE','AR.INVOICE.CREATE'],apMaker:['AP.PAYMENT.CREATE'],arMaker:['AR.RECEIPT.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST'],viewer:['AP.VIEW','AR.VIEW'],apOnly:['AP.PAYMENT.CREATE']};
   const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})});
   const root=`/api/v1/entities/${ids.entityId}`;
   const send=(actor,path,body,key,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':key,...(revision==null?{}:{'if-match':`"${revision}"`})}});
@@ -3216,28 +3217,29 @@ pgTest('settlement context refreshes native AP and AR capacity across periods, r
   };
   const contexts=[];
   for(const [kind,module,ref,name,offset] of [['AP_PAYMENT','ap/bills','VENDOR-1','Vendor','610000'],['AR_RECEIPT','ar/invoices','CUSTOMER-1','Customer','400000']]){
-    const r=await send('maker',`${root}/${module}`,{periodId:ids.periodId,documentNumber:`CONTEXT-${kind}`,counterpartyRef:ref,counterpartyName:name,currency:'USD',accountingDate:'2026-07-18',dueDate:null,amount:'100.0000',offsetAccountCode:offset,description:'Settlement context source',attachmentIds:[attachmentId]},`context-source-${kind}`);
+    const r=await send('documentMaker',`${root}/${module}`,{periodId:ids.periodId,documentNumber:`CONTEXT-${kind}`,counterpartyRef:ref,counterpartyName:name,currency:'USD',accountingDate:'2026-07-18',dueDate:null,amount:'100.0000',offsetAccountCode:offset,description:'Settlement context source',attachmentIds:[attachmentId]},`context-source-${kind}`);
     assert.equal(r.status,201,JSON.stringify(r.body));
     const documentId=r.body.data.business_document_id;
     const url=`${root}/business-documents/${documentId}/settlement-context?kind=${kind}&periodId=${paymentPeriodId}`;
-    const read=async(actor='maker',target=url)=>api({method:'GET',url:target,body:null,headers:{'x-test-actor':actor}});
+    const settlementActor=kind==='AP_PAYMENT'?'apMaker':'arMaker';
+    const read=async(actor=settlementActor,target=url)=>api({method:'GET',url:target,body:null,headers:{'x-test-actor':actor}});
     const draft=await read();assert.equal(draft.status,200,JSON.stringify(draft.body));assert.equal(draft.body.data.can_create_draft,false);assert.equal(draft.body.data.document.status,'DRAFT');
     await post(r.body.data.journal_entry_id,ids.periodId,`context-source-${kind}`);
-    contexts.push({kind,module,documentId,url,read});
+    contexts.push({kind,module,documentId,url,read,settlementActor});
   }
   await adminPool.query("UPDATE accounting_period SET status='CLOSED',closed_by='fixture',closed_at=clock_timestamp() WHERE period_id=$1",[ids.periodId]);
-  for(const {kind,module,documentId,url,read} of contexts){
+  for(const {kind,module,documentId,url,read,settlementActor} of contexts){
     const initial=await read();assert.equal(initial.status,200);assert.equal(initial.headers['cache-control'],'no-store');
     assert.equal(initial.body.data.document.accounting_date,'2026-07-18');assert.equal(initial.body.data.payment_period.starts_on,'2026-08-01');
     assert.equal(initial.body.data.can_create_draft,true);assert.equal(initial.body.data.available_amount,'100.0000');assert.equal(initial.body.data.pending_allocation_amount,'0.0000');
     assert.equal((await read('viewer')).status,403);
     if(kind==='AR_RECEIPT')assert.equal((await read('apOnly')).status,403);
-    assert.equal((await read('maker',url.replace(paymentPeriodId,other.periodId))).status,404);
-    assert.equal((await read('maker',url.replace(documentId,randomUUID()))).status,404);
-    assert.equal((await read('maker',url.replace(ids.entityId,other.entityId))).status,403);
-    assert.equal((await read('maker',url.replace(kind,kind==='AP_PAYMENT'?'AR_RECEIPT':'AP_PAYMENT'))).status,404);
-    const old=await read('maker',url.replace(paymentPeriodId,ids.periodId));assert.equal(old.status,200);assert.equal(old.body.data.can_create_draft,false);
-    const create=async(amount,key,bank='BANK-1')=>send('maker',`${root}/${module}/${documentId}/${kind==='AP_PAYMENT'?'payments':'receipts'}`,{
+    assert.equal((await read(settlementActor,url.replace(paymentPeriodId,other.periodId))).status,404);
+    assert.equal((await read(settlementActor,url.replace(documentId,randomUUID()))).status,404);
+    assert.equal((await read(settlementActor,url.replace(ids.entityId,other.entityId))).status,403);
+    assert.equal((await read(kind==='AP_PAYMENT'?'arMaker':'apMaker',url.replace(kind,kind==='AP_PAYMENT'?'AR_RECEIPT':'AP_PAYMENT'))).status,404);
+    const old=await read(settlementActor,url.replace(paymentPeriodId,ids.periodId));assert.equal(old.status,200);assert.equal(old.body.data.can_create_draft,false);
+    const create=async(amount,key,bank='BANK-1')=>send(settlementActor,`${root}/${module}/${documentId}/${kind==='AP_PAYMENT'?'payments':'receipts'}`,{
       periodId:paymentPeriodId,...(kind==='AP_PAYMENT'?{paymentNumber:key,paymentDate:'2026-08-15'}:{receiptNumber:key,receiptDate:'2026-08-15'}),cashAccountCode:'111000',bankMemberRef:bank,amount,reason:'Partial settlement context test'},key);
     for(const bank of ['VENDOR-1','missing-bank'])assert.equal((await create('30.0000',`context-${kind}-${bank}`,bank)).status,422);
     await adminPool.query("UPDATE member_master SET active=false WHERE tenant_id=$1 AND entity_id=$2 AND member_ref='BANK-1'",[ids.tenantId,ids.entityId]);
