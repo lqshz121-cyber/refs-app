@@ -2208,6 +2208,23 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['periodId','journalNumber','journalDate','reason']);
         result=await kernel.createApBillVoid({tenantId:principal.tenantId,entityId,businessDocumentId:requireUuid(parts[6],'businessDocumentId'),periodId:requireUuid(payload.periodId,'periodId'),expectedVersion:requireRevision(headers),journalNumber:payload.journalNumber,journalDate:payload.journalDate,reason:payload.reason,idempotencyKey});
+      }else if(parts.length===8&&((parts[4]==='ap'&&parts[5]==='bills'&&parts[7]==='native-payments')||(parts[4]==='ar'&&parts[5]==='invoices'&&parts[7]==='native-receipts'))){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','A new settlement uses an idempotency key; source capacity is locked by the command');
+        allowOnly(payload,['periodId','number','date','cashAccountCode','bankMemberRef','amount','reason','attachmentIds']);
+        const amount=requireDecimalAmount(payload.amount,'amount');
+        if(amount.startsWith('-')||!/[1-9]/.test(amount))throw new AccountingApiError(400,'INVALID_AMOUNT','Settlement amount must be positive');
+        if([payload.number,payload.bankMemberRef].some(value=>!boundedText(value,128)||value!==value.trim()||/[\u0000-\u001f\u007f]/.test(value)))throw new AccountingApiError(400,'INVALID_SETTLEMENT_INPUT','Number and bank member reference must be trimmed nonempty text of at most 128 characters');
+        const businessDocumentId=requireUuid(parts[6],'businessDocumentId');
+        const args={tenantId:principal.tenantId,entityId,businessDocumentId,settlementKind:parts[4]==='ap'?'AP_PAYMENT':'AR_RECEIPT',
+          periodId:requireUuid(payload.periodId,'periodId'),number:payload.number,date:requireIsoDate(payload.date,'date'),cashAccountCode:requireAccountCode(payload.cashAccountCode),
+          bankMemberRef:payload.bankMemberRef,amount,reason:requireReviewReason(payload.reason),attachmentIds:requireAttachmentIds(requireAttachmentIds(payload.attachmentIds).map(id=>id.toLowerCase())),idempotencyKey};
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.createNativeSettlement!=='function')throw new AccountingApiError(503,'NATIVE_SETTLEMENT_UNAVAILABLE','Native settlement creation is unavailable');
+        result=await kernel.createNativeSettlement(args);
+        if(!exactKeys(result,['payment_occurrence_id','business_allocation_id','business_document_id','journal_entry_id','status','allocation_status','revision','idempotent'].sort())
+          ||!UUID.test(result.payment_occurrence_id||'')||!UUID.test(result.business_allocation_id||'')||!UUID.test(result.journal_entry_id||'')
+          ||result.business_document_id!==businessDocumentId||result.status!=='DRAFT'||result.allocation_status!=='PENDING'||result.revision!==0||typeof result.idempotent!=='boolean')throw new AccountingApiError(500,'NATIVE_SETTLEMENT_RECEIPT_INVALID','Native settlement creation returned an unconfirmed receipt');
       }else if(parts.length===8&&parts[4]==='ap'&&parts[5]==='bills'&&parts[7]==='payments'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['periodId','paymentNumber','paymentDate','cashAccountCode','bankMemberRef','amount','reason']);

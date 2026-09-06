@@ -3199,7 +3199,7 @@ pgTest('settlement bank members use scoped active BANK masters, literal search a
   assert.deepEqual(end.rows.map(r=>r.member_ref),['BULK-100001']);assert.equal(end.next_ref,null);
 });
 
-pgTest('settlement context refreshes native AP and AR capacity across periods, reservations, Post and concurrent Drafts',async()=>{
+for(const native of [false,true])pgTest(`${native?'evidence-backed native':'legacy'} settlements refresh AP and AR capacity across periods, reservations, Post and concurrent Drafts`,async()=>{
   const ids=await seed({status:'DRAFT',extraAccounts:[{accountCode:'610000',accountName:'Expense'},{accountCode:'400000',accountName:'Revenue'}],extraMembers:[{memberRef:'CUSTOMER-1',memberType:'CUSTOMER',displayName:'Customer'}]});
   const other=await seed({status:'DRAFT',tenantId:ids.tenantId}),paymentPeriodId=randomUUID();
   await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[paymentPeriodId,ids.tenantId,ids.entityId]);
@@ -3239,8 +3239,13 @@ pgTest('settlement context refreshes native AP and AR capacity across periods, r
     assert.equal((await read(settlementActor,url.replace(ids.entityId,other.entityId))).status,403);
     assert.equal((await read(kind==='AP_PAYMENT'?'arMaker':'apMaker',url.replace(kind,kind==='AP_PAYMENT'?'AR_RECEIPT':'AP_PAYMENT'))).status,404);
     const old=await read(settlementActor,url.replace(paymentPeriodId,ids.periodId));assert.equal(old.status,200);assert.equal(old.body.data.can_create_draft,false);
-    const create=async(amount,key,bank='BANK-1')=>send(settlementActor,`${root}/${module}/${documentId}/${kind==='AP_PAYMENT'?'payments':'receipts'}`,{
-      periodId:paymentPeriodId,...(kind==='AP_PAYMENT'?{paymentNumber:key,paymentDate:'2026-08-15'}:{receiptNumber:key,receiptDate:'2026-08-15'}),cashAccountCode:'111000',bankMemberRef:bank,amount,reason:'Partial settlement context test'},key);
+    const create=async(amount,key,bank='BANK-1',attachmentIds=[attachmentId])=>send(settlementActor,`${root}/${module}/${documentId}/${native?'native-':''}${kind==='AP_PAYMENT'?'payments':'receipts'}`,{
+      periodId:paymentPeriodId,...(native?{number:key,date:'2026-08-15',attachmentIds}:kind==='AP_PAYMENT'?{paymentNumber:key,paymentDate:'2026-08-15'}:{receiptNumber:key,receiptDate:'2026-08-15'}),cashAccountCode:'111000',bankMemberRef:bank,amount,reason:'Partial settlement context test'},key);
+    if(native){
+      assert.equal((await create('30.0000',`context-${kind}-no-evidence`,'BANK-1',[])).status,400);
+      const foreignAttachment=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[other.journalId])).rows[0].attachment_id;
+      assert.equal((await create('30.0000',`context-${kind}-foreign-evidence`,'BANK-1',[foreignAttachment])).status,422);
+    }
     for(const bank of ['VENDOR-1','missing-bank'])assert.equal((await create('30.0000',`context-${kind}-${bank}`,bank)).status,422);
     await adminPool.query("UPDATE member_master SET active=false WHERE tenant_id=$1 AND entity_id=$2 AND member_ref='BANK-1'",[ids.tenantId,ids.entityId]);
     assert.equal((await create('30.0000',`context-${kind}-inactive`)).status,422);
@@ -3249,9 +3254,14 @@ pgTest('settlement context refreshes native AP and AR capacity across periods, r
     const reserved=(await read()).body.data;assert.equal(reserved.document.open_balance,'100.0000');assert.equal(reserved.pending_allocation_amount,'30.0000');assert.equal(reserved.available_amount,'70.0000');
     assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[first.body.data.journal_entry_id])).rows[0].n,0);
     const replay=await create('30.0000',`context-${kind}-first`);assert.equal(replay.status,200);assert.equal(replay.body.data.payment_occurrence_id,first.body.data.payment_occurrence_id);
+    if(native){
+      assert.equal((await create('31.0000',`context-${kind}-first`)).status,409);
+      assert.equal((await adminPool.query('SELECT journal_type FROM journal_entry WHERE journal_entry_id=$1',[first.body.data.journal_entry_id])).rows[0].journal_type,'MANUAL');
+      assert.deepEqual((await adminPool.query("SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND link_type='JE_ATTACHMENT'",[first.body.data.journal_entry_id])).rows.map(r=>r.attachment_id),[attachmentId]);
+    }
     // Existing settlement AUTO journals require admitted source trace before Post.
     // This isolated fixture exercises the reducer; it is not native payment evidence UI.
-    await attachAutoSource({...ids,periodId:paymentPeriodId,journalId:first.body.data.journal_entry_id},{reuseApprovedSnapshots:true});
+    if(!native)await attachAutoSource({...ids,periodId:paymentPeriodId,journalId:first.body.data.journal_entry_id},{reuseApprovedSnapshots:true});
     await post(first.body.data.journal_entry_id,paymentPeriodId,`context-payment-${kind}`);
     const active=(await read()).body.data;assert.equal(active.document.open_balance,'70.0000');assert.equal(active.pending_allocation_amount,'0.0000');assert.equal(active.available_amount,'70.0000');assert.equal(active.document.status,'PARTIALLY_PAID');
     const concurrent=await Promise.all([create('40.0000',`context-${kind}-race1`),create('40.0000',`context-${kind}-race2`)]);
