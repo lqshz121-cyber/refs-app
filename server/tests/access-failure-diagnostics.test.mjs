@@ -1,6 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {reportAccessFailure} from '../api/access-failure-diagnostics.mjs';
+import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
+
+test('database timeout diagnostics retain a closed stage and never raw database details',async()=>{
+  for(const stage of ['CONTEXT_ISSUE','CONTEXT_BIND','DATABASE_OPERATION']){
+    const failure=Object.assign(new Error('private query and token'),{code:'57014'});
+    const kernel=new PostgresAccountingKernel({connect:async()=>({
+      query:async sql=>{
+        if(sql.startsWith('SELECT session_user'))return {rowCount:1,rows:[{session_user:'refs_runtime',current_user:'refs_runtime',is_superuser:false}]};
+        if(sql.startsWith('SELECT refs_bootstrap_context')&&stage==='CONTEXT_BIND')throw failure;
+        return {rowCount:1,rows:[]};
+      },release(){}
+    })},{sessionProvider:async()=>{if(stage==='CONTEXT_ISSUE')throw failure;return {trusted:true,contextToken:'x'.repeat(40)};}});
+    await assert.rejects(kernel.inSession(async()=>{throw failure;}),error=>error===failure);
+    const events=[];reportAccessFailure(failure,event=>events.push(event));
+    assert.deepEqual(events,[{event:'accounting_database_timeout',sqlstate:'57014',stage}]);
+  }
+  const events=[];reportAccessFailure({code:'57014',accountingDatabaseStage:'private value'},event=>events.push(event));
+  assert.equal(events[0].stage,'UNKNOWN');
+});
 
 test('access diagnostics distinguish deployment, context, and grant failures without retaining sensitive details',()=>{
   const events=[];
