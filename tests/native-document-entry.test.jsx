@@ -1,3 +1,4 @@
+import {BusinessRecordEvidence} from '../src/business-record-detail.jsx';
 import {CreditAllocationHistory} from '../src/credit-allocation-history.jsx';
 import {DocumentSettlementHistory} from '../src/document-settlement-history.jsx';
 import {NativeRefundEntry,NativeRefundForm} from '../src/native-refund-entry.jsx';
@@ -62,3 +63,5 @@ for(const kind of ['AP_VENDOR_CREDIT','AR_CREDIT_MEMO','AP_BILL','AR_INVOICE']){
  assert.equal(renderToStaticMarkup(<CreditAllocationHistory config={config} kind={kind} subjectId={config.periodId} access={access}/>),'');
  assert.equal(renderToStaticMarkup(<CreditAllocationHistory config={config} kind={kind} subjectId={config.periodId} access={{...historyAccess,session_refresh_required:true}}/>),'');
 }
+
+const exactRecordMarkup=renderToStaticMarkup(<BusinessRecordEvidence config={config} record={{record_kind:'AP_BILL',record_id:config.periodId,number:'EXACT-1',status:'OPEN',revision:'0',accounting_date:'2026-08-01',amount:'9007199254740993.1234',open_balance:'1.2345',currency:'USD',journal_entry_id:null}}/>);assert.match(exactRecordMarkup,/9007199254740993\.1234/);assert.match(exactRecordMarkup,/Back to credit history/);
