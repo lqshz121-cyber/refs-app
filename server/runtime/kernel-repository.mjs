@@ -31,17 +31,26 @@ export class PostgresAccountingKernel{
   }
 
   async inSession(work){
+    let databaseStage='CONTEXT_ISSUE';
+    try{
     const session=assertTrustedSession(await this.sessionProvider());
-    return withSerializableRetry(this.pool,async client=>{
+    return await withSerializableRetry(this.pool,async client=>{
+      databaseStage='RUNTIME_IDENTITY';
       const identity=requireRow(await client.query(`SELECT session_user,current_user,
         COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname=session_user),false) AS is_superuser`),'DB_IDENTITY_MISSING','Database identity is unavailable');
       if(!this.runtimeLoginAllowlist.has(identity.session_user)||identity.current_user!==identity.session_user||identity.is_superuser){
         throw new KernelError('DB_RUNTIME_IDENTITY_DENIED','Runtime connection must use an approved non-superuser login');
       }
       await client.query('SET LOCAL ROLE refs_app');
+      databaseStage='CONTEXT_BIND';
       await client.query('SELECT refs_bootstrap_context($1)',[session.contextToken]);
+      databaseStage='DATABASE_OPERATION';
       return work(client,session);
     });
+    }catch(error){
+      if(error?.code==='57014'){try{error.accountingDatabaseStage=databaseStage;}catch{}}
+      throw error;
+    }
   }
 
   async readControlledDemoTenant({tenantId}){
@@ -51,28 +60,9 @@ export class PostgresAccountingKernel{
   }
 
   async listAccountingScopes({tenantId}){
-    // Resolve eligible companies before their periods. The lateral boundary
-    // keeps the period scan parameterized by company instead of evaluating
-    // its context-backed RLS policies across every period in the tenant.
-    // Both tables retain their RLS checks and no result limit hides companies.
-    return this.inSession(async client=>(await client.query(`
-      WITH visible_entities AS MATERIALIZED (
-        SELECT e.entity_id,e.name,e.entity_code,e.base_currency,e.source_entity_id
-        FROM entity e
-        WHERE e.tenant_id=$1 AND e.active AND refs_entity_allowed(e.entity_id) IS TRUE
-      )
-      SELECT e.entity_id,e.name AS entity_name,e.entity_code,e.base_currency,
-        e.source_entity_id,p.period_id,p.period_code,p.starts_on AS period_start,
-        p.ends_on AS period_end,p.status::text AS period_status
-      FROM visible_entities e
-      CROSS JOIN LATERAL (
-        SELECT period_id,period_code,starts_on,ends_on,status
-        FROM accounting_period
-        WHERE tenant_id=$1 AND entity_id=e.entity_id
-        OFFSET 0
-      ) p
-      ORDER BY e.name,e.entity_code,p.starts_on DESC,p.period_id
-    `,[tenantId])).rows.map(row=>({
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_accounting_scope_catalog($1)',[tenantId]
+    )).rows.map(row=>({
       ...row,
       period_start:publicDate(row.period_start),
       period_end:publicDate(row.period_end),
