@@ -53,6 +53,10 @@ CREATE TABLE IF NOT EXISTS wbs_h1_import.reference_row(
   domain text NOT NULL,stable_key text NOT NULL,company_code text,payload jsonb NOT NULL,
   PRIMARY KEY(domain,stable_key)
 );
+CREATE TABLE IF NOT EXISTS wbs_h1_import.typed_source_row(
+  domain text NOT NULL,stable_key text NOT NULL,source_payload jsonb NOT NULL,
+  PRIMARY KEY(domain,stable_key)
+);
 `);
 
 }
@@ -65,21 +69,43 @@ const specifications={
 };
 const referenceDomains=new Set(['accounting_setting','accounting_monthly_setting','costcode_account_relation','corpmastersub','mdm_company','mdm_entity','mdm_project','mdm_cost_code','mdm_account_book']);
 const text=value=>value===null||value===undefined?null:String(value).replaceAll('\u0000','');
-const closedJson=value=>JSON.parse(JSON.stringify(value).replace(/\\u0000/g,''));
+const sourceText=new WeakMap();
 
-async function insertBatch(client,domain,rows){
+export function snapshotRowIdentity(domain,row){
+  const spec=specifications[domain];
+  const value=spec?spec.map(row)[0]:(row.id??row.entity_id??row.uuid);
+  if((typeof value!=='string'&&typeof value!=='number')||(typeof value==='number'&&!Number.isSafeInteger(value))||String(value).trim()===''||/[\u0000-\u001f\u007f]/.test(String(value)))throw new Error('Snapshot source row requires an explicit stable identity');
+  if(spec?.columns[0]==='wbs_id'){
+    if(!/^-?\d+$/.test(String(value)))throw new Error('Snapshot source row requires an integer identity');
+    return BigInt(String(value)).toString();
+  }
+  return String(value);
+}
+
+async function insertBatch(client,domain,rows,{verifyOnly=false}={}){
   const spec=specifications[domain];
   if(spec){
+    const evidence=rows.map(row=>({stable_key:snapshotRowIdentity(domain,row),source_payload:sourceText.get(row)}));
+    const keyType=spec.columns[0]==='wbs_id'?'bigint':'text';
+    // Never manufacture raw-source evidence for already populated legacy rows.
+    const population=await client.query(`WITH input AS (SELECT stable_key,source_payload::jsonb AS source_payload FROM jsonb_to_recordset($2::jsonb) AS x(stable_key text,source_payload text)) SELECT count(*)::int AS exact_count FROM input LEFT JOIN wbs_h1_import.${spec.table} target ON target."${spec.columns[0]}"=input.stable_key::${keyType} LEFT JOIN wbs_h1_import.typed_source_row evidence ON evidence.domain=$1 AND evidence.stable_key=input.stable_key WHERE (target."${spec.columns[0]}" IS NULL AND evidence.stable_key IS NULL AND NOT $3::boolean) OR (target."${spec.columns[0]}" IS NOT NULL AND evidence.source_payload=input.source_payload)`,[domain,JSON.stringify(evidence),verifyOnly]);
+    if(population.rows[0]?.exact_count!==rows.length)throw new Error('Snapshot population conflict: raw source differs, is missing, or requires legacy reconciliation');
+    if(!verifyOnly)await client.query('INSERT INTO wbs_h1_import.typed_source_row(domain,stable_key,source_payload) SELECT $1,stable_key,source_payload::jsonb FROM jsonb_to_recordset($2::jsonb) AS x(stable_key text,source_payload text) ON CONFLICT DO NOTHING',[domain,JSON.stringify(evidence)]);
     const payload=rows.map(row=>Object.fromEntries(spec.columns.map((column,index)=>[column,text(spec.map(row)[index])])));
     const declaration=spec.columns.map(column=>`"${column}" text`).join(',');
-    const select=spec.columns.map(column=>column==='wbs_id'?`NULLIF(x."${column}",'')::bigint`:`x."${column}"`).join(',');
-    const updates=spec.columns.slice(1).map(column=>`"${column}"=EXCLUDED."${column}"`).join(',');
-    await client.query(`INSERT INTO wbs_h1_import.${spec.table}(${spec.columns.map(x=>`"${x}"`).join(',')}) SELECT ${select} FROM jsonb_to_recordset($1::jsonb) AS x(${declaration}) ON CONFLICT (${spec.columns[0]}) DO UPDATE SET ${updates}`,[JSON.stringify(payload)]);
+    const select=spec.columns.map(column=>column==='wbs_id'?`NULLIF(x."${column}",'')::bigint AS "${column}"`:`x."${column}"`).join(',');
+    const source=`SELECT ${select} FROM jsonb_to_recordset($1::jsonb) AS x(${declaration})`;
+    if(!verifyOnly)await client.query(`INSERT INTO wbs_h1_import.${spec.table}(${spec.columns.map(x=>`"${x}"`).join(',')}) ${source} ON CONFLICT (${spec.columns[0]}) DO NOTHING`,[JSON.stringify(payload)]);
+    const exact=await client.query(`WITH input AS (${source}) SELECT count(*)::int AS exact_count FROM (SELECT target."${spec.columns[0]}" FROM input JOIN wbs_h1_import.${spec.table} target ON target."${spec.columns[0]}"=input."${spec.columns[0]}" WHERE ${spec.columns.map(column=>`target."${column}" IS NOT DISTINCT FROM input."${column}"`).join(' AND ')} FOR SHARE OF target) verified`,[JSON.stringify(payload)]);
+    if(exact.rows[0]?.exact_count!==rows.length)throw new Error('Snapshot population conflict: retained row differs or is missing');
     return;
   }
   if(referenceDomains.has(domain)){
-    const payload=rows.map((row,index)=>({domain,stable_key:String(row.id??row.entity_id??row.uuid??`${row.company_code??'all'}:${index}`),company_code:text(row.company_code??row.com_code),payload:closedJson(row)}));
-    await client.query(`INSERT INTO wbs_h1_import.reference_row(domain,stable_key,company_code,payload) SELECT domain,stable_key,company_code,payload FROM jsonb_to_recordset($1::jsonb) AS x(domain text,stable_key text,company_code text,payload jsonb) ON CONFLICT DO NOTHING`,[JSON.stringify(payload)]);
+    const payload=rows.map(row=>({domain,stable_key:snapshotRowIdentity(domain,row),company_code:text(row.company_code??row.com_code),payload:sourceText.get(row)}));
+    const source='SELECT domain,stable_key,company_code,payload::jsonb AS payload FROM jsonb_to_recordset($1::jsonb) AS x(domain text,stable_key text,company_code text,payload text)';
+    if(!verifyOnly)await client.query(`INSERT INTO wbs_h1_import.reference_row(domain,stable_key,company_code,payload) ${source} ON CONFLICT DO NOTHING`,[JSON.stringify(payload)]);
+    const exact=await client.query(`WITH input AS (${source}) SELECT count(*)::int AS exact_count FROM (SELECT target.stable_key FROM input JOIN wbs_h1_import.reference_row target USING(domain,stable_key) WHERE target.company_code IS NOT DISTINCT FROM input.company_code AND target.payload=input.payload FOR SHARE OF target) verified`,[JSON.stringify(payload)]);
+    if(exact.rows[0]?.exact_count!==rows.length)throw new Error('Snapshot population conflict: retained reference differs or is missing');
   }
 }
 
@@ -109,18 +135,20 @@ export async function importSnapshotFile({pool,root,file,batchSize=1000}){
     input=createReadStream(sourcePath);
     input.on('data',chunk=>probe.observe(chunk));
     reader=createInterface({input,crlfDelay:Infinity});
-    let batch=[],count=0;
+    let batch=[],count=0;const identities=new Set();
     for await(const line of reader){
       if(!line)continue;
       const row=JSON.parse(line);
       if(!row||typeof row!=='object'||Array.isArray(row))throw new Error('Snapshot rows must be JSON objects');
+      sourceText.set(row,line);
+      const identity=snapshotRowIdentity(file.domain,row);
+      if(identities.has(identity))throw new Error('Snapshot population contains a duplicate source identity');
+      identities.add(identity);
       count++;
-      if(!prior){
-        batch.push(row);
-        if(batch.length===batchSize){await insertBatch(client,file.domain,batch);batch=[];}
-      }
+      batch.push(row);
+      if(batch.length===batchSize){await insertBatch(client,file.domain,batch,{verifyOnly:Boolean(prior)});batch=[];}
     }
-    if(batch.length)await insertBatch(client,file.domain,batch);
+    if(batch.length)await insertBatch(client,file.domain,batch,{verifyOnly:Boolean(prior)});
     probe.settle(count);
     // Replays verify bytes but perform no metadata or business-row updates.
     if(!prior)await client.query('UPDATE wbs_h1_import.snapshot_file SET imported_row_count=$2,imported_at=clock_timestamp() WHERE path=$1',[file.path,count]);

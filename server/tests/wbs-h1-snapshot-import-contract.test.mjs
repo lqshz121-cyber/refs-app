@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {importSnapshotFile} from '../tools/import-wbs-h1-snapshot.mjs';
+import {importSnapshotFile,snapshotRowIdentity} from '../tools/import-wbs-h1-snapshot.mjs';
 import {resolveSnapshotEntryPath,createSnapshotIntegrityProbe} from '../runtime/wbs-h1-snapshot-manifest.mjs';
 
 const digest=value=>createHash('sha256').update(value).digest('hex');
@@ -12,13 +12,13 @@ const claims=body=>({path:'C:\\provider\\snapshot.ndjson',domain:'accounting_inf
 const body='{"id":1,"amount":"1"}\n{"id":2,"amount":"2"}';
 function connection(prior){
   const calls=[];
-  const client={async query(sql,args){calls.push({sql,args});return {rows:sql.startsWith('SELECT *')&&prior?[prior]:[]};},release(){calls.push({sql:'RELEASE'});}};
+  const client={async query(sql,args){calls.push({sql,args});return {rows:sql.startsWith('WITH input')?[{exact_count:JSON.parse(args.length===3?args[1]:args[0]).length}]:sql.startsWith('SELECT *')&&prior?[prior]:[]};},release(){calls.push({sql:'RELEASE'});}};
   return {calls,pool:{async connect(){return client;},query(){assert.fail('A file transaction must never use pool.query');}}};
 }
-async function fixture(t){
+async function fixture(t,content=body){
   const root=await mkdtemp(join(tmpdir(),'refs-r19-unit-'));
   t.after(()=>rm(root,{recursive:true,force:true}));
-  await writeFile(join(root,'snapshot.ndjson'),body);
+  await writeFile(join(root,'snapshot.ndjson'),content);
   return root;
 }
 
@@ -50,11 +50,36 @@ test('late integrity failure rolls back after executed batches and never marks i
   assert.equal(calls.some(x=>x.sql.startsWith('UPDATE')||x.sql==='COMMIT'),false);
   assert.deepEqual(calls.slice(-2).map(x=>x.sql),['ROLLBACK','RELEASE']);
 });
-test('verified replay performs no DML and preserves the existing completion receipt',async t=>{
+test('verified replay checks stored population without DML and preserves the existing completion receipt',async t=>{
   const root=await fixture(t),file=claims(body),prior={domain:file.domain,company_code:file.company_code,period_code:file.period,row_count:2,byte_count:file.bytes,sha256:file.sha256,imported_at:new Date(),imported_row_count:2};
   const {pool,calls}=connection(prior);
   assert.deepEqual(await importSnapshotFile({pool,root,file}),{rows:2,replayed:true});
   assert.equal(calls.some(x=>/^(INSERT|UPDATE|DELETE)/.test(x.sql)),false);
+  assert.ok(calls.some(x=>x.sql.startsWith('WITH input')));
+});
+
+test('source identities never use batch indexes or unsafe numeric coercion',()=>{
+  for(const row of [{},{id:''},{id:{}},{id:9007199254740992},{id:'\u0000'}])assert.throws(()=>snapshotRowIdentity('accounting_setting',row),/stable identity/);
+  assert.equal(snapshotRowIdentity('accounting_setting',{id:12}),'12');
+  assert.equal(snapshotRowIdentity('mdm_entity',{entity_id:'entity-1'}),'entity-1');
+  assert.equal(snapshotRowIdentity('mdm_company',{uuid:'source-uuid'}),'source-uuid');
+  assert.equal(snapshotRowIdentity('accounting_info',{id:'0012'}),'12');
+});
+
+test('duplicate identities across batches reject and roll back instead of reducing the population',async t=>{
+  const content='{"id":1}\n{"id":2}\n{"id":1}',root=await fixture(t,content),{pool,calls}=connection();
+  await assert.rejects(importSnapshotFile({pool,root,file:{...claims(content),domain:'accounting_setting',rows:3},batchSize:1}),/duplicate source identity/);
+  assert.deepEqual(calls.slice(-2).map(x=>x.sql),['ROLLBACK','RELEASE']);
+  assert.equal(calls.filter(x=>x.sql.startsWith('INSERT INTO wbs_h1_import.reference_row')).length,2);
+});
+
+test('mismatched retained population is refused even with a matching completed receipt',async t=>{
+  const root=await fixture(t),file=claims(body),prior={domain:file.domain,company_code:file.company_code,period_code:file.period,row_count:2,byte_count:file.bytes,sha256:file.sha256,imported_at:new Date(),imported_row_count:2};
+  const {pool,calls}=connection(prior),client=await pool.connect(),query=client.query;
+  client.query=async(sql,args)=>sql.startsWith('WITH input')?{rows:[{exact_count:1}]}:query.call(client,sql,args);
+  await assert.rejects(importSnapshotFile({pool,root,file}),/population conflict/);
+  assert.equal(calls.some(x=>/^(INSERT|UPDATE|DELETE)/.test(x.sql)),false);
+  assert.deepEqual(calls.slice(-2).map(x=>x.sql),['ROLLBACK','RELEASE']);
 });
 test('changed or legacy-incomplete receipts fail closed without DML',async t=>{
   const root=await fixture(t),file=claims(body),prior={domain:file.domain,company_code:file.company_code,period_code:file.period,row_count:2,byte_count:file.bytes,sha256:file.sha256,imported_at:new Date(),imported_row_count:2};
