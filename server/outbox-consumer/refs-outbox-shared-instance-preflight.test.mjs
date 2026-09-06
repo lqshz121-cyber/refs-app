@@ -11,7 +11,8 @@ const snapshot = { target_matches: true, consumer_database_exists: false, consum
 
 test('configuration validates exact target and separate proposed names before connection', () => {
   for (const patch of [{ SHARED_PREFLIGHT_CONFIRM: 'production' }, { SHARED_PREFLIGHT_ACCOUNTING_DATABASE: 'other' },
-    { SHARED_PREFLIGHT_CONSUMER_LOGIN: 'refs_outbox_consumer_runtime' }, { SHARED_PREFLIGHT_PROVIDER_CONNECTION_LIMIT: '' }]) {
+    { SHARED_PREFLIGHT_CONSUMER_LOGIN: 'refs_outbox_consumer_runtime' }, { SHARED_PREFLIGHT_CONSUMER_DATABASE: `refs_outbox_consumer_${'a'.repeat(64)}` },
+    { SHARED_PREFLIGHT_CONSUMER_LOGIN: `refs_outbox_consumer_${'a'.repeat(64)}` }, { SHARED_PREFLIGHT_PROVIDER_CONNECTION_LIMIT: '' }]) {
     assert.throws(() => configuration({ ...env, ...patch }));
   }
   assert.equal(configuration(env).proposedPeak, 50);

@@ -24,7 +24,7 @@ export function configuration(env) {
   const consumerDatabase = env.SHARED_PREFLIGHT_CONSUMER_DATABASE;
   const consumerLogin = env.SHARED_PREFLIGHT_CONSUMER_LOGIN;
   if (!['postgres:', 'postgresql:'].includes(url.protocol) || !database || decodeURIComponent(url.pathname.slice(1)) !== database) throw new Error('Exact accounting database required');
-  if (!/^refs_outbox_consumer_[a-z0-9_]+$/.test(consumerDatabase ?? '') || !/^refs_outbox_consumer_[a-z0-9_]+$/.test(consumerLogin ?? '') || consumerDatabase === database || consumerLogin === 'refs_outbox_consumer_runtime') throw new Error('Distinct proposed consumer database/login required');
+  if (!/^refs_outbox_consumer_[a-z0-9_]+$/.test(consumerDatabase ?? '') || !/^refs_outbox_consumer_[a-z0-9_]+$/.test(consumerLogin ?? '') || consumerDatabase.length > 63 || consumerLogin.length > 63 || consumerDatabase === database || consumerLogin === 'refs_outbox_consumer_runtime') throw new Error('Distinct proposed consumer database/login required');
   return { connectionString: url.href, database, consumerDatabase, consumerLogin,
     providerLimit: integer(env.SHARED_PREFLIGHT_PROVIDER_CONNECTION_LIMIT, 1, 'provider connection limit'),
     existingPeak: env.SHARED_PREFLIGHT_EXISTING_PEAK_CONNECTIONS === undefined ? null : integer(env.SHARED_PREFLIGHT_EXISTING_PEAK_CONNECTIONS, 0, 'existing configured peak'),
