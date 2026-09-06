@@ -502,6 +502,32 @@ async function trustedSession(ids,actorId='poster',permissions=['GL.JE.POST']){
 
 const sessionProvider=(ids,actorId='poster',permissions=['GL.JE.POST'])=>()=>trustedSession(ids,actorId,permissions);
 
+pgTest('company catalog returns every allowed period in a 120-company tenant and respects revocation',async()=>{
+  const ids=await seed({status:'DRAFT'}),actor='company-catalog-reader';
+  const companies=(await adminPool.query(`INSERT INTO entity(tenant_id,entity_code,source_entity_id,name,base_currency)
+    SELECT $1,'CAT-'||n,'CAT-'||n,'Catalog company '||lpad(n::text,3,'0'),'USD'
+    FROM generate_series(1,119) n RETURNING entity_id`,[ids.tenantId])).rows;
+  await adminPool.query(`INSERT INTO accounting_period(tenant_id,entity_id,period_code,starts_on,ends_on,status)
+    SELECT e.tenant_id,e.entity_id,to_char(month,'YYYY-MM'),month::date,
+      (month+interval '1 month - 1 day')::date,'OPEN'
+    FROM entity e CROSS JOIN generate_series('2026-01-01'::date,'2026-12-01'::date,interval '1 month') month
+    WHERE e.tenant_id=$1 ON CONFLICT DO NOTHING`,[ids.tenantId]);
+  const second=companies[0].entity_id,inactive=companies[1].entity_id;
+  await trustedSession({...ids,entityId:second},actor,['GL.JE.VIEW']);
+  await trustedSession({...ids,entityId:inactive},actor,['GL.JE.VIEW']);
+  await adminPool.query('UPDATE entity SET active=false WHERE entity_id=$1',[inactive]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actor,['GL.JE.VIEW'])});
+  const rows=await reader.listAccountingScopes({tenantId:ids.tenantId});
+  assert.equal(rows.length,24);
+  assert.deepEqual([...new Set(rows.map(row=>row.entity_id))].sort(),[ids.entityId,second].sort());
+  for(const entityId of [ids.entityId,second])assert.deepEqual(rows.filter(row=>row.entity_id===entityId).map(row=>row.period_code),Array.from({length:12},(_,index)=>`2026-${String(12-index).padStart(2,'0')}`));
+  await adminPool.query('UPDATE runtime_actor_grant SET revoked_at=clock_timestamp() WHERE tenant_id=$1 AND actor_id=$2 AND entity_id=$3',[ids.tenantId,actor,second]);
+  const after=await reader.listAccountingScopes({tenantId:ids.tenantId});
+  assert.equal(after.length,12);assert.ok(after.every(row=>row.entity_id===ids.entityId));
+  const foreign=await seed({status:'DRAFT'});
+  assert.deepEqual(await reader.listAccountingScopes({tenantId:foreign.tenantId}),[]);
+});
+
 pgTest('controlled test AI source bridge is private, fixed-permission, and rejects non-WBS-test parents with zero writes',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null,extraAccounts:[{accountCode:'610000',accountName:'Operating expense'}]});
   const ordinary=await attachAutoSource(ids,{linkJournal:false,sourceModule:'payable',sourceRecordPrefix:'ORDINARY-NON-TEST'});
