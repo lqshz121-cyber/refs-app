@@ -46,7 +46,8 @@ BEGIN
         AND (m.bank_source_id=p_bank_source OR m.sales_receipt_id=s.sales_receipt_id))
     ORDER BY s.sales_receipt_id LIMIT p_limit+1
   ), page AS (SELECT * FROM candidates ORDER BY sales_receipt_id LIMIT p_limit)
-  SELECT jsonb_build_object('bank_source_id',p_bank_source,'bank_revision',bank_row.version::text,
+  SELECT jsonb_build_object('schema_version','SALES_RECEIPT_BANK_CANDIDATES_V1','entity_id',p_entity,
+    'bank_source_id',p_bank_source,'bank_revision',bank_row.version::text,'after_id',p_after,'limit',p_limit,
     'rows',COALESCE((SELECT jsonb_agg(to_jsonb(page) ORDER BY sales_receipt_id) FROM page),'[]'::jsonb),
     'next_id',CASE WHEN (SELECT count(*) FROM candidates)>p_limit THEN (SELECT sales_receipt_id FROM page ORDER BY sales_receipt_id DESC LIMIT 1) ELSE NULL END)
   INTO result;

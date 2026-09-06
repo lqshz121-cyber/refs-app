@@ -6477,6 +6477,19 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   assert.equal(postedDetail.status,200,JSON.stringify(postedDetail.body));
   assert.equal(postedDetail.body.data.record.status,'POSTED');assert.equal(postedDetail.body.data.record.journal_status,'POSTED');
   assert.equal(postedDetail.body.data.record.revision,'1');assert.equal(postedDetail.body.data.record.amount,'1.2345');assert.ok(postedDetail.body.data.record.posted_at);
+  const bankTrace=await attachAutoSource(ids),saleBankId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-1','NATIVE-SALE-BANK','2026-07-18','USD',1.2345)`,[saleBankId,ids.tenantId,ids.entityId,bankTrace.documentId]);
+  const bankCandidateApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'sale-bank-matcher'}),kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'sale-bank-matcher',['BANK.MATCH.CREATE'])})});
+  const candidateUrl=`${root}/bank/transactions/${saleBankId}/sales-receipt-candidates`;
+  const candidateRead=await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}});
+  assert.equal(candidateRead.status,200,JSON.stringify(candidateRead.body));assert.equal(candidateRead.body.data.rows.length,1);
+  const saleCandidate=candidateRead.body.data.rows[0];assert.equal(saleCandidate.sales_receipt_id,receipt.sales_receipt_id);assert.equal(saleCandidate.amount,'1.2345');assert.equal(saleCandidate.journal_entry_id,receipt.journal_entry_id);assert.ok(saleCandidate.ledger_line_id);
+  assert.equal((await postedReadApi({method:'GET',url:candidateUrl,headers:{}})).status,403);
+  assert.equal((await bankCandidateApi({method:'GET',url:candidateUrl+'?afterId='+foreign.journalId,headers:{}})).status,400);
+  await adminPool.query('UPDATE bank_source SET amount=2 WHERE bank_source_id=$1',[saleBankId]);
+  assert.equal((await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.rows.length,0);
+  await adminPool.query('UPDATE bank_source SET amount=1.2345 WHERE bank_source_id=$1',[saleBankId]);
   assert.deepEqual(await counts(),{sales:1,documents:0,allocations:0});
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type=ANY($2::text[])',[receipt.sales_receipt_id,['SALES_RECEIPT_DRAFT_CREATED','SALES_RECEIPT_POSTED']])).rows[0].n,2);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type=ANY($2::text[])',[receipt.sales_receipt_id,['SALES_RECEIPT_DRAFT_CREATED','SALES_RECEIPT_POSTED']])).rows[0].n,2);
