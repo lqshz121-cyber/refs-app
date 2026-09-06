@@ -1,5 +1,15 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
 const contract=JSON.parse(await readFile(new URL('../api/openapi-accounting.json',import.meta.url),'utf8'));
+test('credit history and direct record GET paths declare concrete resolvable path parameters',()=>{
+  for(const path of ['/entities/{entityId}/business-adjustments/{subjectId}/credit-allocations','/entities/{entityId}/business-documents/{subjectId}/credit-allocations','/entities/{entityId}/business-records/{recordId}']){
+    const parameters=contract.paths[path].get.parameters.map(parameter=>{
+      assert.ok(parameter&&typeof parameter==='object',path+' must not contain null parameters');
+      if(!parameter.$ref)return parameter;
+      const resolved=parameter.$ref.slice(2).split('/').reduce((value,key)=>value?.[key],contract);assert.ok(resolved,path+' parameter reference must resolve');return resolved;
+    });
+    for(const [,name] of path.matchAll(/\{([^}]+)\}/g))assert.ok(parameters.some(parameter=>parameter.name===name&&parameter.in==='path'&&parameter.required===true),path+' must declare '+name);
+  }
+});
 assert.deepEqual(contract.components.schemas.AuthoritativeScopeReadRow.properties.period_status.enum,['OPEN','SOFT_CLOSED','CLOSED'],'authoritative scope status must match the PostgreSQL period_status enum');
 const operations=Object.values(contract.paths).flatMap(path=>path.post?[path.post]:[]);
 const accountingCommands=operations.filter(operation=>!['explainAiAccountingAnalysis','runAiFullControllerModel'].includes(operation.operationId));
