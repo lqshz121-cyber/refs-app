@@ -42,7 +42,7 @@ BEGIN
     RAISE EXCEPTION 'Native settlement date must belong to the selected OPEN payment period' USING ERRCODE='55000';
   END IF;
   SELECT * INTO document_row FROM business_document WHERE tenant_id=p_tenant AND entity_id=p_entity AND business_document_id=p_document FOR UPDATE;
-  IF NOT FOUND OR document_row.document_kind<>CASE p_kind WHEN 'AP_PAYMENT' THEN 'AP_BILL' ELSE 'AR_INVOICE' END
+  IF NOT FOUND OR document_row.document_kind<>(CASE p_kind WHEN 'AP_PAYMENT' THEN 'AP_BILL' ELSE 'AR_INVOICE' END)
      OR document_row.open_balance<=0 OR NOT ((p_kind='AP_PAYMENT' AND document_row.status IN ('APPROVED','OPEN','PARTIALLY_PAID'))
        OR (p_kind='AR_RECEIPT' AND document_row.status IN ('OPEN','PARTIALLY_PAID')))
      OR NOT EXISTS(SELECT 1 FROM journal_entry j WHERE j.tenant_id=p_tenant AND j.entity_id=p_entity
