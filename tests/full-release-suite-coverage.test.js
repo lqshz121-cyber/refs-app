@@ -1,9 +1,47 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 
 const packageJson=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
 const serverPackageJson=JSON.parse(await readFile(new URL('../server/package.json',import.meta.url),'utf8'));
+
+function untrackedScriptSources(scripts,prefix,tracked){
+  const missing=[];
+  for(const [name,command] of Object.entries(scripts)){
+    const generated=new Set();
+    for(const raw of command.split(/\s+/)){
+      const token=raw.replace(/^['"]|['"]$/g,'');
+      if(token.startsWith('--outfile=')){
+        generated.add(prefix+token.slice('--outfile='.length).replace(/^\.\//,''));
+        continue;
+      }
+      if(token.startsWith('-')||! /\.(?:mjs|cjs|jsx|js)$/.test(token))continue;
+      const path=prefix+token.replace(/^\.\//,'');
+      if(!tracked.has(path)&&!generated.has(path))missing.push(`${name}: ${path}`);
+    }
+  }
+  return missing;
+}
+
+test('every root and server script source exists in the exact-case Git inventory',()=>{
+  // Node 22 can silently ignore a missing --test argument when another file exists.
+  // Check Git, not the working directory: untracked files must not hide CI omissions.
+  const root=fileURLToPath(new URL('../',import.meta.url));
+  const tracked=new Set(execFileSync('git',['ls-files','-z'],{cwd:root,encoding:'utf8'}).split('\0'));
+  const missing=[...untrackedScriptSources(packageJson.scripts,'',tracked),...untrackedScriptSources(serverPackageJson.scripts,'server/',tracked)];
+  assert.deepEqual(missing,[],`script sources absent from Git (or case-mismatched): ${missing.join(', ')}`);
+});
+
+test('script inventory rejects missing, untracked and case-mismatched sources but permits earlier bundle outputs',()=>{
+  const tracked=new Set(['tests/existing.test.mjs','src/input.jsx']);
+  assert.deepEqual(untrackedScriptSources({test:'node --test tests/missing.test.mjs tests/existing.test.mjs'},'',tracked),['test: tests/missing.test.mjs']);
+  assert.deepEqual(untrackedScriptSources({test:'node tests/Existing.test.mjs'},'',tracked),['test: tests/Existing.test.mjs']);
+  assert.deepEqual(untrackedScriptSources({test:'node tests/local-only.test.mjs'},'',tracked),['test: tests/local-only.test.mjs']);
+  assert.deepEqual(untrackedScriptSources({test:'esbuild ./src/input.jsx --outfile=tests/output.cjs && node tests/output.cjs'},'',tracked),[]);
+  assert.deepEqual(untrackedScriptSources({test:'node tests/output.cjs && esbuild ./src/input.jsx --outfile=tests/output.cjs'},'',tracked),['test: tests/output.cjs']);
+});
 
 test('the reachable audit mutation harness uses the cross-platform esbuild API, never a guessed CLI entry',async()=>{
   const source=await readFile(new URL('../tools/analysis/audit-mutation-harness.mjs',import.meta.url),'utf8');

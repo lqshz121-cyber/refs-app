@@ -1,10 +1,67 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {productionWorkflowRoleGrantConfig,grantProductionWorkflowRole} from '../runtime/production-workflow-role-grant.mjs';
+import {runtimeConfig} from '../runtime/config.mjs';
+import {grantStagingWorkflowRole} from '../runtime/workflow-role-grant.mjs';
+import {readFile} from 'node:fs/promises';
+import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
 import {AUTHORITATIVE_WORKFLOW_ROLES,WORKFLOW_SOD_GROUPS,assertWorkflowRoleSafety,authoritativeWorkflowRoleGrantConfig,grantAuthenticatedWorkflowRole,grantConfiguredServiceWorkflowRole} from '../runtime/workflow-role-grant.mjs';
 
 const validUntil='2026-08-24T00:00:00.000Z';
 const base={NODE_ENV:'production',REFS_DEPLOYMENT_ENV:'staging',REFS_WORKFLOW_ROLE_CONFIRM:'AUTHORITATIVE_WORKFLOW_ROLE_ONLY',REFS_STAGE1_TENANT_ID:'11111111-1111-4111-8111-111111111111',REFS_STAGE1_ENTITY_ID:'22222222-2222-4222-8222-222222222222',REFS_WORKFLOW_ROLE:'WBS_PAYABLE_MAKER',REFS_WORKFLOW_GRANT_VALID_UNTIL:validUntil,REFS_WORKFLOW_GRANT_EXPECTED_VERSION:'2',REFS_WORKFLOW_GRANT_IDEMPOTENCY_KEY:'workflow-maker-0001',REFS_AUTHENTICATED_ACCESS_TOKEN:'opaque',OIDC_ISSUER:'https://issuer.example',OIDC_AUDIENCE:'refs',OIDC_JWKS_URI:'https://issuer.example/jwks'};
 const permissions=role=>AUTHORITATIVE_WORKFLOW_ROLES[role].permissions;
+
+test('production and staging ceremonies reassert inside the grant transaction after OIDC',async()=>{
+  const config=authoritativeWorkflowRoleGrantConfig(base);
+  for(const run of [grantProductionWorkflowRole,grantStagingWorkflowRole]){
+    let preflight=0,auth=0,transactionGuard=0,mutations=0;
+    const pool={query:async()=>{preflight++;return {rows:[{asserted:true}]};},connect:async()=>({release(){},query:async sql=>{
+      if(sql==='SELECT session_user,current_user')return {rowCount:1,rows:[{session_user:'refs_grant_sync',current_user:'refs_grant_sync'}]};
+      if(sql.includes('refs_assert_')){transactionGuard++;assert.equal(auth,1);throw Object.assign(new Error('sealed while OIDC was in flight'),{code:'42501'});}
+      if(sql.includes('refs_grant_request_hash')||sql.includes('refs_reconcile_actor_grants'))mutations++;
+      return {rowCount:0,rows:[]};
+    }})};
+    await assert.rejects(run(pool,config,{authenticator:{authenticate:async()=>{auth++;return {tenantId:config.tenantId,actorId:'fixture|oidc-race'};}}}),{code:'42501'});
+    assert.equal(preflight,1);assert.equal(transactionGuard,1);assert.equal(mutations,0);
+  }
+});
+
+test('grant transaction guard reruns on serialization retry and protects revision reads',async()=>{
+  let guards=0,hashes=0;
+  const pool={connect:async()=>({release(){},query:async sql=>{
+    if(sql==='SELECT session_user,current_user')return {rowCount:1,rows:[{session_user:'refs_grant_sync',current_user:'refs_grant_sync'}]};
+    if(sql.includes('refs_grant_request_hash')){hashes++;return {rowCount:1,rows:[{request_hash:'sha256:fixture'}]};}
+    if(sql.includes('refs_reconcile_actor_grants'))return {rowCount:1,rows:[{result:{version:1}}]};
+    if(sql.includes('refs_current_actor_grant_set_version'))return {rowCount:1,rows:[{version:1}]};
+    return {rowCount:0,rows:[]};
+  }})};
+  const sync=new PostgresGrantSync(pool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'}),transactionGuard:async()=>{guards++;if(guards===1)throw Object.assign(new Error('stale snapshot'),{code:'40001'});}});
+  assert.equal((await sync.reconcile({authorityClass:'ANALYSIS',validUntil})).version,1);assert.equal(guards,2);assert.equal(hashes,1);
+  assert.equal(await sync.currentVersion({}),1);assert.equal(guards,3);
+});
+
+test('staging ceremony demands successful database guard before authentication or grant reservation',async()=>{
+  const config=authoritativeWorkflowRoleGrantConfig(base);let calls=0;
+  for(const rows of [[],[{asserted:false}],[{asserted:null}]])await assert.rejects(grantStagingWorkflowRole({query:async sql=>{assert.match(sql,/refs_assert_staging_deployment_target/);return {rows};}},config,{authenticator:{authenticate:async()=>{calls++;}}}),{code:'DEPLOYMENT_IDENTITY_DENIED'});
+  assert.equal(calls,0);
+});
+
+test('every executable legacy grant entry attests before OIDC, automatic reconciliation or HTTP listen',async()=>{
+  const cli=await readFile(new URL('../tools/stage1-bootstrap.mjs',import.meta.url),'utf8');
+  assert.ok(cli.indexOf('await assertStagingDeploymentTarget(')<cli.indexOf('await grantStage1AuthenticatedReadAccess('));
+  const startup=await readFile(new URL('../runtime/start-accounting-server.mjs',import.meta.url),'utf8');
+  const guarded=startup.indexOf('if(grantSyncPool)await assertStagingDeploymentTarget(');assert.ok(guarded>0);
+  for(const operation of ['await reconcileWbsTestImportActorGrants(','await reconcileControlledTestAiWorkflowActorGrants(','server.listen('])assert.ok(guarded<startup.indexOf(operation));
+});
+
+test('production ceremony requires exact deployment identity and retains four URL isolation',async()=>{
+  const urls=runtimeConfig({}),env={...base,REFS_DEPLOYMENT_ENV:'production',REFS_WORKFLOW_ROLE_CONFIRM:'PRODUCTION_WORKFLOW_ROLE_ONLY',REFS_EXPECTED_INSTALLATION_ID:'33333333-3333-4333-8333-333333333333',REFS_EXPECTED_DATABASE_NAME:'refs_kernel_test',DATABASE_URL:urls.databaseUrl,MIGRATION_DATABASE_URL:urls.migrationDatabaseUrl,CONTEXT_ISSUER_DATABASE_URL:urls.contextIssuerDatabaseUrl,GRANT_SYNC_DATABASE_URL:urls.grantSyncDatabaseUrl};
+  const config=productionWorkflowRoleGrantConfig(env);
+  for(const change of [{REFS_EXPECTED_INSTALLATION_ID:''},{REFS_EXPECTED_DATABASE_NAME:'other'},{REFS_DEPLOYMENT_ENV:'staging'},{REFS_WORKFLOW_ROLE_CONFIRM:base.REFS_WORKFLOW_ROLE_CONFIRM},{DATABASE_URL:urls.grantSyncDatabaseUrl},{CONTEXT_ISSUER_DATABASE_URL:urls.contextIssuerDatabaseUrl.replace('55432','55433')}])assert.throws(()=>productionWorkflowRoleGrantConfig({...env,...change}));
+  let authCalls=0,writes=0;
+  await assert.rejects(grantProductionWorkflowRole({query:async(sql,args)=>{assert.match(sql,/refs_assert_deployment_identity/);assert.deepEqual(args,[config.installationId,'production',config.expectedDatabase]);throw Object.assign(new Error('denied'),{code:'42501'});},connect:async()=>{writes++;} },config,{authenticator:{authenticate:async()=>{authCalls++;}}}),{code:'42501'});
+  assert.equal(authCalls,0);assert.equal(writes,0);
+});
 
 test('workflow roles are frozen single-authority exact replacements and exclude service permissions',()=>{
   const config=authoritativeWorkflowRoleGrantConfig(base);

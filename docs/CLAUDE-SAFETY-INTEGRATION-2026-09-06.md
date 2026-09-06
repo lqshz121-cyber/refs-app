@@ -42,6 +42,27 @@ does not relabel evidence. No live WBS ingestion or production execution is auth
 
 ## Evidence boundaries
 
+PR #510 exact 67c0bc static job 101396079939 exposed eight root scripts naming
+the nonexistent server/tests/migration-manifest.test.mjs. The file was absent both
+from Git and the local checkout; a direct local Node 22 invocation with that missing
+path plus an existing test nevertheless exited 0 and silently ran only the latter.
+The actual normalized up/down checksum contract already lives in the tracked
+server/tests/postgres-runtime-contract.test.mjs. All eight references now run that
+complete suite; no manifest or accounting assertions were removed.
+
+All 98 root and 115 server scripts were checked for JavaScript input paths against
+the exact-case Git index, allowing only bundle outputs generated earlier in the
+same script. The new pretest guard failed with all eight missing references before
+the repair (exit 1); afterward the guard and real runtime/manifest suite pass 63/63,
+zero skip. It also mutation-tests missing, untracked, wrong-case and not-yet-produced
+bundle inputs, preventing local files or Node-version behavior from hiding omissions.
+Path-fix verification: root npm test exit 0 (1540 pass/0 fail/0 skip, including
+all eight previously omitted manifest-suite invocations), server npm test exit 0
+(1508 pass/0 fail/162 PG skips), SSR 29/0 and audit 40/40 mutations proved. A build
+started concurrently with root tests encountered their shared dist output rewrite;
+the required sequential build after root completed passed, including runtime-asset
+verification. No code was changed to bypass that assertion. Linux remains a CI gate.
+
 PR #510's exact-69be Linux static job 101395273572 caught that npm can replace
 esbuild/bin/esbuild with an ELF executable; invoking that path through Node was
 invalid despite passing on Windows. The follow-up uses the public JavaScript API
