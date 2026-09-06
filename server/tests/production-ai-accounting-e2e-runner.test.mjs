@@ -84,3 +84,19 @@ test('journal revision drift stops before Submit or any later write',async()=>{c
 test('same-total queue replacement between pages fails closed on the population hash',async()=>{const mock=happyPathFetcher(),config=productionAiAccountingE2eConfig(writeEnvironment,scenario);let replaced=false;await assert.rejects(()=>runProductionAiAccountingE2e({config,fetcher:async(url,options)=>{if(!replaced&&options.method==='GET'&&url.includes('/accounting-decision-queue?')&&new URL(url).searchParams.get('offset')==='200'){replaced=true;const body=await (await mock.fetcher(url,options)).json();return response({ok:true,data:{...body.data,population_hash:hash('f'),snapshot_token:hash('f')}});}return mock.fetcher(url,options);}}),error=>error.code==='POPULATION_DRIFT');assert.equal(replaced,true);assert.equal(mock.effects.size,1);});
 test('same-total GL replacement between pages fails closed on the population hash',async()=>{const mock=happyPathFetcher(),config=productionAiAccountingE2eConfig(writeEnvironment,scenario);let replaced=false;await assert.rejects(()=>runProductionAiAccountingE2e({config,fetcher:async(url,options)=>{if(!replaced&&options.method==='GET'&&url.includes('/general-ledger/snapshot-entries?')&&new URL(url).searchParams.get('offset')==='200'){replaced=true;const body=await (await mock.fetcher(url,options)).json();return response({ok:true,data:{...body.data,population_hash:hash('f'),snapshot_token:hash('f')}});}return mock.fetcher(url,options);}}),error=>error.code==='POPULATION_DRIFT');assert.equal(replaced,true);assert.equal(mock.effects.size,10);});
 test('full happy path uses exact states, complete queue/GL pages, and safely resumes by replay',async()=>{const mock=happyPathFetcher(),config=productionAiAccountingE2eConfig(writeEnvironment,scenario),first=await runProductionAiAccountingE2e({config,fetcher:mock.fetcher});assert.equal(first.mode,'AUTHORIZED_ACCOUNTING_WRITES_COMPLETED');assert.deepEqual({decision:first.decision_id,journal:first.journal_entry_id,snapshot:first.financial_statement_snapshot_id,outcome:first.posted_outcome_review_id},{decision:mock.ids.decisionId,journal:mock.ids.journalId,snapshot:mock.ids.snapshotId,outcome:mock.ids.outcomeId});assert.equal(mock.effects.size,10);assert.ok([...mock.effects.values()].every(count=>count===1));const second=await runProductionAiAccountingE2e({config,fetcher:mock.fetcher});assert.equal(second.journal_entry_id,first.journal_entry_id);assert.equal(second.posted_outcome_review_id,first.posted_outcome_review_id);assert.ok([...mock.effects.values()].every(count=>count===1),'resume must replay receipts without repeating effects');});
+for(const enabledOnRead of [2,3])test(`an accessor enabling on read ${enabledOnRead} remains GET-only with one write-switch observation`,async()=>{
+  const safe=productionAiAccountingE2eConfig(environment,scenario),mock=happyPathFetcher();
+  let reads=0,writes=0;
+  const forged=Object.create(null);
+  for(const key of Object.keys(safe))if(key!=='writeEnabled')Object.defineProperty(forged,key,{value:safe[key],enumerable:true});
+  Object.defineProperty(forged,'writeEnabled',{enumerable:true,get(){reads++;return reads>=enabledOnRead;}});
+  const result=await runProductionAiAccountingE2e({config:forged,fetcher:async(url,options)=>{
+    if(options?.method==='POST')writes++;
+    return mock.fetcher(url,options);
+  }});
+  assert.equal(result.mode,'PREFLIGHT_ONLY');
+  assert.equal(result.write_enabled,false);
+  assert.equal(reads,1);
+  assert.equal(writes,0);
+  assert.equal(mock.effects.size,0);
+});

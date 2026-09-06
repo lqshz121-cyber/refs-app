@@ -4,7 +4,7 @@ import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTE
 
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the formal navigation must retain the full product taxonomy');
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'every formal route needs a stable unique identity');
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry','accounting-analysis-report','ai-audit','ai-je-workbench','amortization','bank','bank-batch-pipeline','chart-of-accounts','consolidation','construction-loan','general-ledger','integration-hub','intercompany','journals','overview','payables','project-cost-cwip','property-ops-pickup','receivables','reconciliation','reports','source-documents','unit-cost-ledger','wbs-autorec-evidence','wbs-payable-review'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry','accounting-analysis-report','ai-audit','ai-je-workbench','amortization','audit-log','bank','bank-batch-pipeline','chart-of-accounts','consolidation','construction-loan','general-ledger','integration-hub','intercompany','journals','mapping','overview','payables','period-management','project-cost-cwip','property-ops-pickup','receivables','reconciliation','reports','settings','source-documents','unit-cost-ledger','wbs-autorec-evidence','wbs-payable-review'].sort());
 for (const group of AUTHORITATIVE_NAVIGATION) {
   assert.ok(group.items.length > 0, `${group.label} may not be empty`);
   for (const item of group.items) assert.ok(AUTHORITATIVE_ROUTES.includes(item.route));
@@ -23,6 +23,15 @@ assert.equal(navigationItemForRoute('wbs-payable-review').availability, 'API_REA
 assert.equal(navigationItemForRoute('bank-batch-pipeline').availability, 'API_READ');
 assert.equal(navigationItemForRoute('bank').availability, 'API_READ');
 assert.equal(navigationItemForRoute('accounting-analysis-report').availability, 'API_READ');
+assert.equal(navigationItemForRoute('audit-log').availability, 'API_READ');
+assert.equal(navigationItemForRoute('mapping').availability, 'API_READ');
+assert.equal(navigationItemForRoute('period-management').availability, 'API_READ');
+assert.equal(navigationItemForRoute('settings').availability, 'API_READ');
+for (const route of AUTHORITATIVE_API_ROUTES) {
+  const item = navigationItemForRoute(route);
+  assert.ok(item, `every API-backed route ${route} must resolve to a navigation item`);
+  assert.equal(item.availability, 'API_READ', `${route} is listed as API-backed so it must declare API_READ availability`);
+}
 const sourceDocuments = navigationItemForRoute('source-documents');
 assert.equal(sourceDocuments.availability, 'API_READ');
 assert.equal(sourceDocuments.requirements.length, 2, 'source documents retain the separate attachment-read boundary');

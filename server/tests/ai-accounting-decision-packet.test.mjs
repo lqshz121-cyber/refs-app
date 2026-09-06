@@ -69,7 +69,7 @@ test('an end-to-end property tax invoice reaches the packet as an exception with
     asset_useful_life_months:null,capitalization_threshold:'5000.0000'
   });
   assert.equal(classified.classification,'BLOCKED');
-  assert.equal(classified.rule_id,'TAX_OBLIGATION_REQUIRES_TAX_STATEMENT_SOURCE');
+  assert.equal(classified.rule_id,'AI_PAYABLE_DOCUMENT_KIND_EVIDENCE_REQUIRED_V1');
   const packet=buildAiAccountingDecisionPacket({entityId:entity,accountingPeriodId:period,source:row,classification:classified,settings});
   assert.equal(packet.status,'EXCEPTION');
   assert.equal(packet.proposed_journal.lines.length,0);
@@ -138,7 +138,7 @@ test('production classification service sends common statutory property-tax docu
   assert.deepEqual(result.decision_counts,{ready_for_human_review:0,exception:34});
   for(const packet of result.packets){
     assert.equal(packet.classification,'BLOCKED');
-    assert.equal(packet.rule_id,'TAX_OBLIGATION_REQUIRES_TAX_STATEMENT_SOURCE');
+    assert.equal(packet.rule_id,'AI_PAYABLE_DOCUMENT_KIND_EVIDENCE_REQUIRED_V1');
     assert.equal(packet.status,'EXCEPTION');
     assert.deepEqual(packet.proposed_journal.lines,[]);
     assert.equal(packet.proposed_journal.balanced,false);
