@@ -519,6 +519,14 @@ pgTest('company catalog returns every allowed period in a 120-company tenant and
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actor,['GL.JE.VIEW'])});
   const rows=await reader.listAccountingScopes({tenantId:ids.tenantId});
   assert.equal(rows.length,24);
+  await reader.inSession(async client=>{
+    const actual=(await client.query('SELECT entity_id,period_id FROM refs_read_accounting_scope_catalog($1)',[ids.tenantId])).rows;
+    const policyRows=(await client.query(`SELECT e.entity_id,p.period_id FROM entity e
+      JOIN accounting_period p ON p.tenant_id=e.tenant_id AND p.entity_id=e.entity_id
+      WHERE e.tenant_id=$1 AND e.active AND refs_entity_allowed(e.entity_id) IS TRUE`,[ids.tenantId])).rows;
+    const keys=values=>values.map(row=>`${row.entity_id}:${row.period_id}`).sort();
+    assert.deepEqual(keys(actual),keys(policyRows),'catalog must match the existing table RLS scope');
+  });
   assert.deepEqual([...new Set(rows.map(row=>row.entity_id))].sort(),[ids.entityId,second].sort());
   for(const entityId of [ids.entityId,second])assert.deepEqual(rows.filter(row=>row.entity_id===entityId).map(row=>row.period_code),Array.from({length:12},(_,index)=>`2026-${String(12-index).padStart(2,'0')}`));
   await adminPool.query('UPDATE runtime_actor_grant SET revoked_at=clock_timestamp() WHERE tenant_id=$1 AND actor_id=$2 AND entity_id=$3',[ids.tenantId,actor,second]);
@@ -526,6 +534,17 @@ pgTest('company catalog returns every allowed period in a 120-company tenant and
   assert.equal(after.length,12);assert.ok(after.every(row=>row.entity_id===ids.entityId));
   const foreign=await seed({status:'DRAFT'});
   assert.deepEqual(await reader.listAccountingScopes({tenantId:foreign.tenantId}),[]);
+  const unbound=await runtimePool.connect();
+  try{
+    await unbound.query('BEGIN');await unbound.query('SET LOCAL ROLE refs_app');
+    assert.deepEqual((await unbound.query('SELECT * FROM refs_read_accounting_scope_catalog($1)',[ids.tenantId])).rows,[]);
+  }finally{await unbound.query('ROLLBACK');unbound.release();}
+  const down=await readFile(new URL('../db/migrations/down/309_accounting_scope_catalog_read.sql',import.meta.url),'utf8');
+  const up=await readFile(new URL('../db/migrations/309_accounting_scope_catalog_read.sql',import.meta.url),'utf8');
+  await adminPool.query(down);
+  try{assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_accounting_scope_catalog(uuid)') AS fn")).rows[0].fn,null);}
+  finally{await adminPool.query(up);}
+  assert.equal((await reader.listAccountingScopes({tenantId:ids.tenantId})).length,12);
 });
 
 pgTest('controlled test AI source bridge is private, fixed-permission, and rejects non-WBS-test parents with zero writes',async()=>{

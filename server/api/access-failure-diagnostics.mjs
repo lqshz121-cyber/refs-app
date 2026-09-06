@@ -17,6 +17,11 @@ const reasons=new Map([
 // Only fixed classifications reach logs. Never log tokens, SQL parameters,
 // request URLs, database connection strings, or arbitrary database messages.
 export function reportAccessFailure(error,write=record=>console.error(JSON.stringify(record))){
+  if(error?.code==='57014'){
+    const stage=['CONTEXT_ISSUE','RUNTIME_IDENTITY','CONTEXT_BIND','DATABASE_OPERATION'].includes(error.accountingDatabaseStage)?error.accountingDatabaseStage:'UNKNOWN';
+    try{write({event:'accounting_database_timeout',sqlstate:'57014',stage});}catch{}
+    return;
+  }
   if(error?.code!=='42501')return;
   let reason=reasons.get(error.message);
   if(!reason&&/^Permission [A-Z][A-Z0-9_.]* denied$/.test(error.message||''))reason='ENTITY_PERMISSION';
