@@ -6414,3 +6414,63 @@ pgTest('WBS H1 paged import replays retained Payables as human Drafts without le
   const replay=[];for(const command of commands)replay.push(await service.importRange(command));assert.deepEqual(replay.reduce((totals,row)=>({imported:totals.imported+row.payables.imported_count,replayed:totals.replayed+row.payables.replayed_count,posted:totals.posted+row.payables.posted_count}),{imported:0,replayed:0,posted:0}),{imported:0,replayed:9,posted:0});
   assert.deepEqual((await adminPool.query(`SELECT count(*)::int h1_ap,(SELECT count(*)::int FROM business_document WHERE tenant_id=$1 AND entity_id=$2 AND accounting_date BETWEEN '2026-07-01' AND '2026-07-31') july_ap FROM business_document WHERE tenant_id=$1 AND entity_id=$2 AND accounting_date BETWEEN '2026-01-01' AND '2026-06-30'`,[ids.tenantId,ids.entityId])).rows[0],{h1_ap:9,july_ap:0});
 });
+
+pgTest('native sales receipt creates and posts without AR and rejects mismatched journal posting atomically',async()=>{
+  await migrateDownThrough(adminPool,'317_native_sales_receipt.sql');
+  assert.equal((await adminPool.query('SELECT to_regclass($1) AS relation',['public.sales_receipt'])).rows[0].relation,null);
+  await migrateUp(adminPool);
+  const ids=await seed({status:'DRAFT',extraAccounts:[{accountCode:'400000',accountName:'Cash sale category'}]});
+  await adminPool.query('INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,$3,$4,$5)',[ids.tenantId,ids.entityId,'CUSTOMER-SALE','CUSTOMER','Cash customer']);
+  const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;
+  const permissions={'sale-maker':['AR.SALES_RECEIPT.CREATE'],'sale-submit':['GL.JE.SUBMIT'],'sale-review':['GL.JE.REVIEW'],'sale-approve':['GL.JE.APPROVE'],'sale-post':['GL.JE.POST']};
+  const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})});
+  const root=`/api/v1/entities/${ids.entityId}`,url=`${root}/ar/sales-receipts`;
+  const body={periodId:ids.periodId,number:'NATIVE-SALE-1',customerRef:'CUSTOMER-SALE',bankMemberRef:'BANK-1',cashAccountCode:'111000',categoryAccountCode:'400000',date:'2026-07-18',currency:'USD',amount:'1.2345',reason:'Verified cash sale evidence',attachmentIds:[attachmentId]};
+  const send=(actor,path,payload,key,revision)=>api({method:'POST',url:path,body:payload,headers:{'x-test-actor':actor,'idempotency-key':key,...(revision==null?{}:{'if-match':String.fromCharCode(34)+revision+String.fromCharCode(34)})}});
+  const counts=async()=> (await adminPool.query('SELECT (SELECT count(*)::int FROM sales_receipt WHERE tenant_id=$1 AND entity_id=$2) sales,(SELECT count(*)::int FROM business_document WHERE tenant_id=$1 AND entity_id=$2) documents,(SELECT count(*)::int FROM business_allocation WHERE tenant_id=$1 AND entity_id=$2) allocations',[ids.tenantId,ids.entityId])).rows[0];
+  assert.equal((await send('sale-reader',url,body,'sale-denied-001')).status,403);
+  for(const [index,patch] of [{customerRef:'MISSING-CUSTOMER'},{customerRef:'VENDOR-1'},{bankMemberRef:'VENDOR-1'},{cashAccountCode:'400000'},{categoryAccountCode:'111000'},{attachmentIds:[ids.journalId]}].entries())assert.equal((await send('sale-maker',url,{...body,...patch},`sale-invalid-${index}`)).status,422,JSON.stringify(patch));
+  assert.deepEqual(await counts(),{sales:0,documents:0,allocations:0});
+  const foreign=await seed({status:'DRAFT',tenantId:ids.tenantId,extraMembers:[{memberRef:'FOREIGN-CUSTOMER',memberType:'CUSTOMER',displayName:'Other company customer'}]});
+  const foreignAttachment=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[foreign.journalId])).rows[0].attachment_id;
+  for(const [index,patch] of [{customerRef:'FOREIGN-CUSTOMER'},{attachmentIds:[foreignAttachment]}].entries()){
+    const rejected=await send('sale-maker',url,{...body,...patch},`sale-foreign-${index}`);
+    assert.equal(rejected.status,422,JSON.stringify(rejected.body));
+  }
+  await adminPool.query('UPDATE member_master SET active=false WHERE tenant_id=$1 AND entity_id=$2 AND member_ref=$3',[ids.tenantId,ids.entityId,'CUSTOMER-SALE']);
+  try{assert.equal((await send('sale-maker',url,body,'sale-inactive-customer')).status,422);}
+  finally{await adminPool.query('UPDATE member_master SET active=true WHERE tenant_id=$1 AND entity_id=$2 AND member_ref=$3',[ids.tenantId,ids.entityId,'CUSTOMER-SALE']);}
+  assert.deepEqual(await counts(),{sales:0,documents:0,allocations:0});
+  const created=await Promise.all([send('sale-maker',url,body,'sale-concurrent-001'),send('sale-maker',url,body,'sale-concurrent-001')]);
+  assert.deepEqual(created.map(r=>r.status).sort(),[200,201],JSON.stringify(created));
+  const receipt=created[0].body.data;assert.equal(created[1].body.data.sales_receipt_id,receipt.sales_receipt_id);assert.equal(receipt.status,'DRAFT');
+  assert.deepEqual(await counts(),{sales:1,documents:0,allocations:0});
+  assert.equal((await send('sale-maker',url,{...body,amount:'2.0000'},'sale-concurrent-001')).status,409);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[receipt.journal_entry_id])).rows[0].n,0);
+  assert.equal((await adminPool.query('SELECT customer_name FROM sales_receipt WHERE sales_receipt_id=$1',[receipt.sales_receipt_id])).rows[0].customer_name,'Cash customer');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM source_link WHERE journal_entry_id=$1 AND attachment_id=$2',[receipt.journal_entry_id,attachmentId])).rows[0].n,1);
+  await assert.rejects(runtimePool.query('SELECT * FROM sales_receipt'),e=>e.code==='42501');
+  const advance=async(journalId,key)=>{for(const [action,actor] of [['submit','sale-submit'],['review','sale-review'],['approve','sale-approve']]){const revision=(await adminPool.query('SELECT revision FROM journal_entry WHERE journal_entry_id=$1',[journalId])).rows[0].revision;const r=await send(actor,`${root}/journal-entries/${journalId}/transitions/${action}`,{},`${key}-${action}`,revision);assert.equal(r.status,201,JSON.stringify(r.body));}};
+  await advance(receipt.journal_entry_id,'sale-good');
+  const revision=(await adminPool.query('SELECT revision FROM journal_entry WHERE journal_entry_id=$1',[receipt.journal_entry_id])).rows[0].revision;
+  const posted=await send('sale-post',`${root}/journal-entries/${receipt.journal_entry_id}/post`,{periodId:ids.periodId},'sale-good-post',revision);assert.equal(posted.status,201,JSON.stringify(posted.body));
+  assert.deepEqual((await adminPool.query('SELECT status,amount,version FROM sales_receipt WHERE sales_receipt_id=$1',[receipt.sales_receipt_id])).rows[0],{status:'POSTED',amount:'1.2345',version:'1'});
+  const lines=(await adminPool.query('SELECT account_code,member_ref,debit_amount,credit_amount FROM ledger_line WHERE journal_entry_id=$1 ORDER BY account_code',[receipt.journal_entry_id])).rows;
+  assert.deepEqual(lines,[{account_code:'111000',member_ref:'BANK-1',debit_amount:'1.2345',credit_amount:'0.0000'},{account_code:'400000',member_ref:'CUSTOMER-SALE',debit_amount:'0.0000',credit_amount:'1.2345'}]);
+  assert.deepEqual(await counts(),{sales:1,documents:0,allocations:0});
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type=ANY($2::text[])',[receipt.sales_receipt_id,['SALES_RECEIPT_DRAFT_CREATED','SALES_RECEIPT_POSTED']])).rows[0].n,2);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type=ANY($2::text[])',[receipt.sales_receipt_id,['SALES_RECEIPT_DRAFT_CREATED','SALES_RECEIPT_POSTED']])).rows[0].n,2);
+  const replay=await send('sale-maker',url,body,'sale-concurrent-001');assert.equal(replay.status,200);assert.equal(replay.body.data.sales_receipt_id,receipt.sales_receipt_id);
+  const bad=await send('sale-maker',url,{...body,number:'NATIVE-SALE-TAMPER'},'sale-tamper-create');assert.equal(bad.status,201,JSON.stringify(bad.body));const badReceipt=bad.body.data;
+  await adminPool.query('UPDATE journal_line SET debit_amount=CASE WHEN debit_amount>0 THEN 2 ELSE 0 END,credit_amount=CASE WHEN credit_amount>0 THEN 2 ELSE 0 END WHERE journal_entry_id=$1',[badReceipt.journal_entry_id]);
+  await advance(badReceipt.journal_entry_id,'sale-tamper');
+  const before=(await adminPool.query('SELECT count(*)::int n FROM outbox_event WHERE aggregate_id IN ($1,$2)',[badReceipt.sales_receipt_id,badReceipt.journal_entry_id])).rows[0].n;
+  const badRevision=(await adminPool.query('SELECT revision FROM journal_entry WHERE journal_entry_id=$1',[badReceipt.journal_entry_id])).rows[0].revision;
+  const failedPost=await send('sale-post',`${root}/journal-entries/${badReceipt.journal_entry_id}/post`,{periodId:ids.periodId},'sale-tamper-post',badRevision);assert.equal(failedPost.status,422,JSON.stringify(failedPost.body));
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[badReceipt.journal_entry_id])).rows[0].n,0);
+  assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[badReceipt.journal_entry_id])).rows[0].status,'APPROVED');
+  assert.equal((await adminPool.query('SELECT status FROM sales_receipt WHERE sales_receipt_id=$1',[badReceipt.sales_receipt_id])).rows[0].status,'DRAFT');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM outbox_event WHERE aggregate_id IN ($1,$2)',[badReceipt.sales_receipt_id,badReceipt.journal_entry_id])).rows[0].n,before);
+  await assert.rejects(migrateDownThrough(adminPool,'317_native_sales_receipt.sql'),/Cannot remove sales receipt schema while business records exist/);
+  assert.equal((await counts()).sales,2);
+});
