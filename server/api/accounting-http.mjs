@@ -2,6 +2,7 @@ import {validSettlementHistorySelection,validSettlementHistory} from '../runtime
 import {createServer} from 'node:http';
 import {reportAccessFailure} from './access-failure-diagnostics.mjs';
 import {validSettlementKind,validSettlementBankSelection,validSettlementBankPage,validSettlementContext} from '../runtime/settlement-input-reads.mjs';
+import {validCreditAction,validCreditUsageContext} from '../runtime/credit-usage-context.mjs';
 import {validBusinessDocumentCounterpartySelection,validBusinessDocumentCounterpartyPage} from '../runtime/business-document-counterparties.mjs';
 import {WbsReadContractError,assertWbsControlReadOnlyResult,assertWbsReadOnlyResult,parseWbsAutoRecReviewSelection,parseWbsControlReconciliationSelection} from './wbs-read-contract.mjs';
 import {WbsLivePilotError,assertWbsLivePilotResult,parseWbsLivePilotSelection} from '../runtime/wbs-live-pilot-read-service.mjs';
@@ -734,6 +735,18 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!kernel||typeof kernel.readSettlementContext!=='function')throw new AccountingApiError(503,'SETTLEMENT_CONTEXT_UNAVAILABLE','Settlement context is unavailable');
         result=await kernel.readSettlementContext({tenantId:principal.tenantId,entityId,...selection});
         if(!validSettlementContext(result,{entityId,...selection}))throw new AccountingApiError(500,'SETTLEMENT_CONTEXT_INVALID','Settlement context did not match its scope or balances');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===7&&parts[4]==='business-adjustments'&&parts[6]==='usage-context'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Credit reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['action','periodId']);
+        const selection={action:parsedUrl.searchParams.get('action'),businessAdjustmentId:requireUuid(parts[5],'businessAdjustmentId'),periodId:requireUuid(parsedUrl.searchParams.get('periodId'),'periodId')};
+        if(!validCreditAction(selection.action))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Credit action is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readCreditUsageContext!=='function')throw new AccountingApiError(503,'CREDIT_USAGE_CONTEXT_UNAVAILABLE','Credit availability is unavailable');
+        result=await kernel.readCreditUsageContext({tenantId:principal.tenantId,entityId,...selection});
+        if(!validCreditUsageContext(result,{entityId,...selection}))throw new AccountingApiError(500,'CREDIT_USAGE_CONTEXT_INVALID','Credit availability did not match its scope or balances');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='business-documents'&&parts[5]==='draft-counterparties'){
