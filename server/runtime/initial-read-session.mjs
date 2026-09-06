@@ -1,5 +1,19 @@
 import {randomUUID} from 'node:crypto';
 
+export async function issueAccountingReadContext(issuer,{tenantId,allowReadFallback=false}){
+  try{return await issuer.issue({tenantId});}
+  catch(error){
+    if(!allowReadFallback||error?.code!=='42501'||error.message==='Actor has no active DB authorization grant')throw error;
+    try{return await issuer.issue({tenantId,readOnly:true});}
+    catch(readError){
+      // A writer with no read grant must not look like an uninitialized actor.
+      // Preserve its original denial so first-reader setup cannot replace roles.
+      if(readError?.code==='42501')throw error;
+      throw readError;
+    }
+  }
+}
+
 // The existing deployment-approved reader setup runs only when PostgreSQL
 // confirms this actor has no active grant. Existing roles are never replaced.
 export function createInitialReadSessionFactory({initializeReadAccess,tenantId}={}){
