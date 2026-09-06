@@ -51,13 +51,26 @@ export class PostgresAccountingKernel{
   }
 
   async listAccountingScopes({tenantId}){
+    // Resolve eligible companies before their periods. The lateral boundary
+    // keeps the period scan parameterized by company instead of evaluating
+    // its context-backed RLS policies across every period in the tenant.
+    // Both tables retain their RLS checks and no result limit hides companies.
     return this.inSession(async client=>(await client.query(`
+      WITH visible_entities AS MATERIALIZED (
+        SELECT e.entity_id,e.name,e.entity_code,e.base_currency,e.source_entity_id
+        FROM entity e
+        WHERE e.tenant_id=$1 AND e.active AND refs_entity_allowed(e.entity_id) IS TRUE
+      )
       SELECT e.entity_id,e.name AS entity_name,e.entity_code,e.base_currency,
         e.source_entity_id,p.period_id,p.period_code,p.starts_on AS period_start,
         p.ends_on AS period_end,p.status::text AS period_status
-      FROM entity e
-      JOIN accounting_period p ON p.tenant_id=e.tenant_id AND p.entity_id=e.entity_id
-      WHERE e.tenant_id=$1 AND e.active AND refs_entity_allowed(e.entity_id) IS TRUE
+      FROM visible_entities e
+      CROSS JOIN LATERAL (
+        SELECT period_id,period_code,starts_on,ends_on,status
+        FROM accounting_period
+        WHERE tenant_id=$1 AND entity_id=e.entity_id
+        OFFSET 0
+      ) p
       ORDER BY e.name,e.entity_code,p.starts_on DESC,p.period_id
     `,[tenantId])).rows.map(row=>({
       ...row,
