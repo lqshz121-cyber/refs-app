@@ -42,6 +42,7 @@ import {detectManualJournalRisks} from '../runtime/ai-manual-journal-risk.mjs';
 import {detectCrossEntityPaymentInvoiceReviews} from '../runtime/ai-cross-entity-payment-invoice-review.mjs';
 import {analyzeAttestedConstructionLoanDrawCwip} from '../runtime/ai-construction-loan-cwip-population-attestation.mjs';
 import {AUTHORITATIVE_WORKFLOW_ROLES} from '../runtime/workflow-role-grant.mjs';
+import {proveSnapshotImportAtomicity} from './helpers/wbs-h1-snapshot-atomicity-fixture.mjs';
 import {productionIamAttestationFixture} from './helpers/production-iam-attestation-fixture.mjs';
 import {productionIamSealRaceFixture} from './helpers/production-iam-seal-race-fixture.mjs';
 
@@ -69,6 +70,10 @@ before(async()=>{
     if(adminPool)await adminPool.end().catch(()=>{});
     adminPool=null;runtimePool=null;issuerPool=null;
   }
+});
+
+pgTest('WBS H1 local snapshot import atomically rejects drift and replays immutable receipts',async()=>{
+  await proveSnapshotImportAtomicity(adminPool);
 });
 
 pgTest('production IAM ceremony attests immutable installation before OIDC and preserves zero-effect denials',async()=>{
