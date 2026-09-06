@@ -1,30 +1,37 @@
 import React,{useEffect,useId,useRef,useState} from 'react';
+import {refreshAuthoritativeChartOfAccounts} from './accounting-api.js';
 import {nativeSettlementAccess,readNativeSettlementContext,readNativeSettlementBanks,validateNativeSettlementDraft,uploadNativeSettlementSupport,prepareNativeSettlement,sendNativeSettlement} from './native-settlement-entry.js';
 
-export function NativeSettlementEntry({config,kind,businessDocumentId,access,accounts=[],fetcher=globalThis.fetch,onOpenDraft,onRefresh}){
+export function NativeSettlementEntry({config,kind,businessDocumentId,access,accounts=[],scopes=[],fetcher=globalThis.fetch,onOpenDraft,onRefresh}){
+  const [periodId,setPeriodId]=useState('');
+  const choices=scopes.filter(row=>row.entity_id===config?.entityId&&row.period_status==='OPEN');
+  const selected=choices.find(row=>row.period_id===(periodId||config?.periodId))||choices[0]||{entity_id:config?.entityId,period_id:config?.periodId};
+  const paymentConfig={...config,periodId:selected.period_id};
   const [open,setOpen]=useState(false),trigger=useRef(null),wasOpen=useRef(false),id=useId();
   useEffect(()=>{if(wasOpen.current&&!open)trigger.current?.focus();wasOpen.current=open;},[open]);
   if(!nativeSettlementAccess(config,kind,access))return null;
   return <section className="card native-document-entry" aria-label={kind==='AP_PAYMENT'?'Bill payment':'Invoice receipt'}>
-    <button type="button" className="btn" ref={trigger} disabled={open} aria-expanded={open} aria-controls={id} onClick={()=>setOpen(true)}>{kind==='AP_PAYMENT'?'Record payment':'Receive payment'}</button>
-    {open&&<NativeSettlementForm key={`${config.entityId}:${config.periodId}:${businessDocumentId}:${access.actor_id}`} id={id} config={config} kind={kind} businessDocumentId={businessDocumentId} access={access} accounts={accounts} fetcher={fetcher} onOpenDraft={onOpenDraft} onClose={saved=>{setOpen(false);if(saved)onRefresh?.();}}/>}
+    <button type="button" className="btn" ref={trigger} disabled={open||scopes.length>0&&!choices.length} aria-expanded={open} aria-controls={id} onClick={()=>setOpen(true)}>{kind==='AP_PAYMENT'?'Record payment':'Receive payment'}</button>
+    {scopes.length>0&&<label>Payment period<select disabled={open||!choices.length} value={selected.period_id} onChange={event=>setPeriodId(event.target.value)}>{!choices.length&&<option value={config.periodId}>No open payment period</option>}{choices.map(row=><option key={row.period_id} value={row.period_id}>{row.period_code}</option>)}</select></label>}
+    {open&&<NativeSettlementForm key={`${config.entityId}:${selected.period_id}:${businessDocumentId}:${access.actor_id}`} id={id} config={paymentConfig} kind={kind} businessDocumentId={businessDocumentId} access={access} accounts={accounts} fetcher={fetcher} onOpenDraft={receipt=>onOpenDraft?.(receipt,selected)} onClose={saved=>{setOpen(false);if(saved)onRefresh?.();}}/>}
   </section>;
 }
 export function NativeSettlementForm({id,config,kind,businessDocumentId,access,accounts=[],fetcher=globalThis.fetch,onOpenDraft,onClose}){
+  const [currentAccounts,setCurrentAccounts]=useState([]);
   const [context,setContext]=useState(null),[page,setPage]=useState(null),[query,setQuery]=useState(''),[bank,setBank]=useState(null);
   const [draft,setDraft]=useState({number:'',date:'',amount:'',cashAccountCode:'',reason:''}),[file,setFile]=useState(null),[attachment,setAttachment]=useState(null);
   const [uploadAttempt,setUploadAttempt]=useState(0),[uploadClosed,setUploadClosed]=useState(false),[command,setCommand]=useState(null),[receipt,setReceipt]=useState(null);
   const [busy,setBusy]=useState(false),[message,setMessage]=useState('Loading payment details…');
   const mounted=useRef(false),busyRef=useRef(false),heading=useRef(null),attempted=useRef(false);
   const run=async action=>{if(busyRef.current)return;busyRef.current=true;setBusy(true);try{await action();}catch{if(mounted.current)setMessage('The result could not be confirmed. Retry the same request.');}finally{busyRef.current=false;if(mounted.current)setBusy(false);}};
-  const load=()=>run(async()=>{const [c,b]=await Promise.all([readNativeSettlementContext({config,kind,businessDocumentId,fetcher}),readNativeSettlementBanks({config,kind,fetcher})]);if(!mounted.current)return;if(c.ok)setContext(c.data);if(b.ok)setPage(b.data);setMessage(!c.ok?c.message:!b.ok?b.message:c.data.can_create_draft?'':'This document has no available balance in the selected open period.');});
+  const load=()=>run(async()=>{const [c,b,a]=await Promise.all([readNativeSettlementContext({config,kind,businessDocumentId,fetcher}),readNativeSettlementBanks({config,kind,fetcher}),refreshAuthoritativeChartOfAccounts({config,fetcher})]);if(!mounted.current)return;setContext(c.ok?c.data:null);setCurrentAccounts(a.ok?a.rows:[]);if(b.ok)setPage(b.data);setMessage(!c.ok?c.message:!b.ok?b.message:!a.ok?a.message:c.data.can_create_draft?'':'This document has no available balance in the selected open period.');});
   useEffect(()=>{mounted.current=true;heading.current?.focus();load();return()=>{mounted.current=false;};},[]);
   useEffect(()=>{if(!command||receipt)return;const warn=event=>{event.preventDefault();event.returnValue='';};globalThis.addEventListener?.('beforeunload',warn);return()=>globalThis.removeEventListener?.('beforeunload',warn);},[command,receipt]);
   const search=afterRef=>run(async()=>{const result=await readNativeSettlementBanks({config,kind,query:query.trim(),afterRef,fetcher});if(!mounted.current)return;if(result.ok){setPage(result.data);setBank(null);setMessage('');}else setMessage(result.message);});
   const save=()=>run(async()=>{
     let prepared=command;
     if(!prepared){
-      const valid=validateNativeSettlementDraft({config,kind,businessDocumentId,draft,bank,context,accounts});if(!valid.ok){setMessage(valid.message);return;}
+      const valid=validateNativeSettlementDraft({config,kind,businessDocumentId,draft,bank,context,accounts:currentAccounts});if(!valid.ok){setMessage(valid.message);return;}
       let support=attachment;
       if(!support){setMessage('Uploading supporting document…');const attempt=uploadAttempt+(uploadClosed?1:0);setUploadAttempt(attempt);setUploadClosed(false);support=await uploadNativeSettlementSupport({config,kind,file,expectedActorId:access.actor_id,uploadAttempt:attempt,fetcher});if(!mounted.current)return;if(!support.ok){setUploadClosed(support.code==='ATTACHMENT_RESERVATION_CLOSED');setMessage(support.message);return;}setAttachment(support);}
       setMessage('Saving draft…');const result=await prepareNativeSettlement({config,kind,businessDocumentId,draft,bank,attachmentId:support.attachmentId,expectedActorId:access.actor_id,fetcher});if(!mounted.current)return;if(!result.ok){setMessage(result.message);return;}prepared=result.command;setCommand(prepared);
@@ -34,7 +41,7 @@ export function NativeSettlementForm({id,config,kind,businessDocumentId,access,a
     else{if(result.unconfirmed)attempted.current=true;if(!attempted.current)setCommand(null);setMessage(result.message);}
   });
   const update=(key,value)=>setDraft(current=>({...current,[key]:value}));
-  const eligible=accounts.filter(row=>row.active===true&&row.requires_member===true&&row.required_member_type==='BANK'&&row.period_id===config.periodId&&(!row.entity_id||row.entity_id===config.entityId));
+  const eligible=currentAccounts.filter(row=>row.active===true&&row.requires_member===true&&row.required_member_type==='BANK'&&row.period_id===config.periodId&&(!row.entity_id||row.entity_id===config.entityId));
   return <div id={id} className="native-document-form"><h3 ref={heading} tabIndex={-1}>{kind==='AP_PAYMENT'?'Record bill payment':'Receive invoice payment'}</h3>
     {context&&<p>{context.document.document_number} · {context.document.counterparty_name} · {context.document.currency}<br/>Open balance {context.document.open_balance} · Pending drafts {context.pending_allocation_amount} · Available {context.available_amount}</p>}
     <form aria-busy={busy} onSubmit={event=>{event.preventDefault();save();}}><fieldset disabled={busy||!!command||!!receipt||!context?.can_create_draft}><legend>Payment details</legend><div className="native-document-grid">

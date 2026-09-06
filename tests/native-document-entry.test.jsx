@@ -26,3 +26,7 @@ for(const kind of ['AP_PAYMENT','AR_RECEIPT']){
   const entry=renderToStaticMarkup(<NativeSettlementEntry config={config} kind={kind} access={settlementAccess}/>);assert.match(entry,/Record payment|Receive payment/);assert.match(entry,/aria-expanded="false"/);
   const form=renderToStaticMarkup(<NativeSettlementForm config={config} kind={kind} access={settlementAccess} accounts={accounts}/>);assert.match(form,/inputMode="decimal"/);assert.match(form,/Uploaded when you save/);assert.doesNotMatch(form,/Upload and verify|type="number"|Post journal/);assert.match(form,/disabled="">Save draft/);
 }
+
+const paymentPeriods=[{entity_id:config.entityId,period_id:config.periodId,period_code:'2026-08',period_status:'CLOSED'},{entity_id:config.entityId,period_id:'33333333-3333-4333-8333-333333333333',period_code:'2026-09',period_status:'OPEN'},{entity_id:'44444444-4444-4444-8444-444444444444',period_id:'55555555-5555-4555-8555-555555555555',period_code:'OTHER COMPANY',period_status:'OPEN'}];
+const paymentPeriodView=renderToStaticMarkup(<NativeSettlementEntry config={config} kind="AP_PAYMENT" scopes={paymentPeriods} access={{...access,permissions:['AP.PAYMENT.CREATE','ATTACHMENT.CREATE']}}/>);
+assert.match(paymentPeriodView,/Payment period/);assert.match(paymentPeriodView,/2026-09/);assert.doesNotMatch(paymentPeriodView,/2026-08|OTHER COMPANY/);
