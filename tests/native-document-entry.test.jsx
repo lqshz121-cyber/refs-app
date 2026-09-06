@@ -1,5 +1,6 @@
 import {DocumentSettlementHistory} from '../src/document-settlement-history.jsx';
 import {NativeRefundEntry,NativeRefundForm} from '../src/native-refund-entry.jsx';
+import {NativeCreditAllocationEntry,NativeCreditAllocationForm} from '../src/native-credit-allocation.jsx';
 import {AuthoritativeAdjustmentDetail} from '../src/authoritative-workspace.jsx';
 import assert from 'node:assert/strict';
 import React from 'react';
@@ -13,6 +14,15 @@ const scope={entity_id:config.entityId,period_id:config.periodId,entity_name:'Sc
 const accounts=[{period_id:config.periodId,account_code:'610000',account_name:'Office',active:true,requires_member:false},{period_id:config.periodId,account_code:'291001',account_name:'Control',active:true,requires_member:true}];
 const refundAccess={...access,permissions:['AR.REFUND.CREATE','ATTACHMENT.CREATE']};
 const credit={business_adjustment_id:config.periodId,adjustment_kind:'AR_CREDIT_MEMO',status:'POSTED',period_id:config.periodId,amount:'12.3400',currency:'USD',version:'1',accounting_date:'2026-08-01'};
+for(const [kind,side,permission] of [['AP_VENDOR_CREDIT','AP','AP.VENDOR_CREDIT.APPLY'],['AR_CREDIT_MEMO','AR','AR.CREDIT_MEMO.APPLY']]){
+  const allocationAccess={...access,permissions:[permission]},adjustment={...credit,adjustment_kind:kind};
+  assert.equal(renderToStaticMarkup(<NativeCreditAllocationEntry config={config} kind={kind} sourceAdjustmentId={credit.business_adjustment_id} access={access}/>),'');
+  const detail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail config={config} entityId={config.entityId} adjustment={adjustment} side={side} currentActorAccess={allocationAccess}/>);
+  assert.match(detail,/Apply credit/);
+  assert.doesNotMatch(renderToStaticMarkup(<AuthoritativeAdjustmentDetail config={config} entityId={config.entityId} adjustment={{...adjustment,status:'DRAFT'}} side={side} currentActorAccess={allocationAccess}/>),/Apply credit/);
+  const form=renderToStaticMarkup(<NativeCreditAllocationForm config={config} kind={kind} sourceAdjustmentId={credit.business_adjustment_id} access={allocationAccess}/>);
+  assert.match(form,/applies existing posted credit immediately/);assert.match(form,/inputMode="decimal"/);assert.doesNotMatch(form,/Save draft|Open saved draft/);
+}
 assert.equal(renderToStaticMarkup(<NativeRefundEntry config={config} sourceAdjustmentId={credit.business_adjustment_id} access={access}/>),'');
 assert.match(renderToStaticMarkup(<NativeRefundEntry config={config} sourceAdjustmentId={credit.business_adjustment_id} access={refundAccess} scopes={[scope]}/>),/Refund credit/);
 const refundForm=renderToStaticMarkup(<NativeRefundForm config={config} sourceAdjustmentId={credit.business_adjustment_id} access={refundAccess}/>);
