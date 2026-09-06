@@ -3,6 +3,7 @@ import {createServer} from 'node:http';
 import {reportAccessFailure} from './access-failure-diagnostics.mjs';
 import {validSettlementKind,validSettlementBankSelection,validSettlementBankPage,validSettlementContext} from '../runtime/settlement-input-reads.mjs';
 import {validCreditAction,validCreditUsageContext} from '../runtime/credit-usage-context.mjs';
+import {validCreditTargetSelection,validCreditTargets} from '../runtime/credit-allocation-targets.mjs';
 import {validBusinessDocumentCounterpartySelection,validBusinessDocumentCounterpartyPage} from '../runtime/business-document-counterparties.mjs';
 import {WbsReadContractError,assertWbsControlReadOnlyResult,assertWbsReadOnlyResult,parseWbsAutoRecReviewSelection,parseWbsControlReconciliationSelection} from './wbs-read-contract.mjs';
 import {WbsLivePilotError,assertWbsLivePilotResult,parseWbsLivePilotSelection} from '../runtime/wbs-live-pilot-read-service.mjs';
@@ -735,6 +736,18 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!kernel||typeof kernel.readSettlementContext!=='function')throw new AccountingApiError(503,'SETTLEMENT_CONTEXT_UNAVAILABLE','Settlement context is unavailable');
         result=await kernel.readSettlementContext({tenantId:principal.tenantId,entityId,...selection});
         if(!validSettlementContext(result,{entityId,...selection}))throw new AccountingApiError(500,'SETTLEMENT_CONTEXT_INVALID','Settlement context did not match its scope or balances');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===7&&parts[4]==='business-adjustments'&&parts[6]==='allocation-targets'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Credit target reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['action','periodId','query','afterId','limit']);
+        const selection={action:parsedUrl.searchParams.get('action'),businessAdjustmentId:requireUuid(parts[5],'businessAdjustmentId'),periodId:requireUuid(parsedUrl.searchParams.get('periodId'),'periodId'),query:parsedUrl.searchParams.get('query')??'',afterId:parsedUrl.searchParams.has('afterId')?requireUuid(parsedUrl.searchParams.get('afterId'),'afterId').toLowerCase():null,limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):50};
+        if(!validCreditTargetSelection(selection)||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Credit target search or page size is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readCreditAllocationTargets!=='function')throw new AccountingApiError(503,'CREDIT_TARGETS_UNAVAILABLE','Credit targets are unavailable');
+        result=await kernel.readCreditAllocationTargets({tenantId:principal.tenantId,entityId,...selection});
+        if(!validCreditTargets(result,{entityId,...selection}))throw new AccountingApiError(500,'CREDIT_TARGETS_INVALID','Credit targets did not match their scope or balances');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===7&&parts[4]==='business-adjustments'&&parts[6]==='usage-context'){
