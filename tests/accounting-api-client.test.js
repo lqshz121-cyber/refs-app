@@ -224,8 +224,37 @@ const periodEnvelope=data=>({ok:true,data,scope:periodScope(data)});
   assert.equal((await refreshAuthoritativeBankTransactions({config,bankAccountRef:'',fetcher:async()=>{throw new Error('must not call');}})).code,'ACCOUNTING_API_SCOPE_INVALID');
   assert.equal((await refreshAuthoritativeBankTransactions({config,bankAccountRef:'BANK-1',from:'2026-08-01',through:'2026-07-31',fetcher:async()=>{throw new Error('must not call');}})).code,'ACCOUNTING_API_SCOPE_INVALID');
   assert.equal((await refreshAuthoritativeReconciliation({config,bankAccountRef:'BANK-1',statementEndingDate:'2026-02-30',fetcher:async()=>{throw new Error('must not call');}})).code,'ACCOUNTING_API_SCOPE_INVALID');
-  const attachmentId='44444444-4444-4444-8444-444444444444';const created=await createAuthoritativeBusinessDocument({config,kind:'AP_BILL',idempotencyKey:'AP-BILL-request-0001',document:{documentNumber:'B-2',counterpartyRef:'V-2',counterpartyName:'Vendor 2',currency:'USD',accountingDate:'2026-08-01',dueDate:'2026-08-31',amount:3,offsetAccountCode:'641600',attachmentIds:[attachmentId]},fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{business_document_id:entityId,status:'DRAFT'}})};}});
+  const attachmentId='44444444-4444-4444-8444-444444444444';const created=await createAuthoritativeBusinessDocument({config,kind:'AP_BILL',idempotencyKey:'AP-BILL-request-0001',document:{documentNumber:'B-2',counterpartyRef:'V-2',counterpartyName:'Vendor 2',currency:'USD',accountingDate:'2026-08-01',dueDate:'2026-08-31',amount:3,offsetAccountCode:'641600',attachmentIds:[attachmentId]},fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{business_document_id:entityId,journal_entry_id:periodId,document_kind:'AP_BILL',status:'DRAFT',revision:0,idempotent:false}})};}});
   assert.equal(created.ok,true);assert.match(call.url,/\/ap\/bills$/);assert.equal(call.options.credentials,'include');assert.equal(call.options.headers.authorization,`Bearer ${accessToken}`);assert.equal(call.options.headers['idempotency-key'],'AP-BILL-request-0001');assert.equal(JSON.parse(call.options.body).periodId,periodId);assert.deepEqual(JSON.parse(call.options.body).attachmentIds,[attachmentId]);
+  for(const kind of ['AP_BILL','AR_INVOICE']){
+    const document={documentNumber:'NATIVE-RECEIPT',counterpartyRef:'MEMBER-1',counterpartyName:'Member',currency:'USD',accountingDate:'2026-08-01',amount:'1234567890123456.1234',offsetAccountCode:'641600',attachmentIds:[attachmentId]};
+    const receipt={business_document_id:entityId,journal_entry_id:periodId,document_kind:kind,status:'DRAFT',revision:0,idempotent:false};
+    const send=(status,data)=>createAuthoritativeBusinessDocument({config,kind,document,idempotencyKey:'native-receipt-stable-key',fetcher:async(url,options)=>{
+      assert.match(url,kind==='AP_BILL'?/\/ap\/bills$/:/\/ar\/invoices$/);
+      assert.equal(options.method,'POST');assert.equal(options.cache,'no-store');
+      assert.equal(JSON.parse(options.body).amount,document.amount,'decimal text must survive unchanged');
+      assert.equal(options.headers['idempotency-key'],'native-receipt-stable-key');
+      return {ok:status<400,status,json:async()=>({ok:true,data})};
+    }});
+    assert.deepEqual(await send(201,receipt),{ok:true,data:receipt,idempotent:false});
+    const replay={...receipt,idempotent:true};
+    assert.deepEqual(await send(200,replay),{ok:true,data:replay,idempotent:true});
+    for(const data of [true,'accepted',[],{},
+      {...receipt,business_document_id:undefined},{...receipt,journal_entry_id:undefined},
+      {...receipt,business_document_id:'not-a-uuid'},{...receipt,journal_entry_id:'not-a-uuid'},
+      {...receipt,document_kind:kind==='AP_BILL'?'AR_INVOICE':'AP_BILL'},
+      {...receipt,status:'OPEN'},{...receipt,status:'POSTED'},
+      {...receipt,revision:undefined},{...receipt,revision:'0'},{...receipt,revision:1},
+      {...receipt,idempotent:undefined},{...receipt,idempotent:true}]){
+      assert.equal((await send(201,data)).code,'ACCOUNTING_API_PROTOCOL');
+    }
+    assert.equal((await send(200,receipt)).code,'ACCOUNTING_API_PROTOCOL','replay status must match the retained receipt');
+    for(const status of [202,204,206])assert.equal((await send(status,receipt)).code,'ACCOUNTING_API_PROTOCOL');
+    let calls=0;
+    const malformed=await createAuthoritativeBusinessDocument({config,kind,document,idempotencyKey:'native-receipt-stable-key',fetcher:async()=>{calls++;return {ok:true,status:201,json:async()=>{throw new SyntaxError('truncated response');}};}});
+    assert.equal(malformed.code,'ACCOUNTING_API_PROTOCOL');assert.equal(calls,1,'uncertain responses must not trigger another mutation');
+    assert.match(malformed.message,/same request key/);
+  }
   const paid=await createAuthoritativeSettlement({config,kind:'AP_PAYMENT',businessDocumentId:entityId,accountingDate:'2026-08-02',amount:7.25,idempotencyKey:'AP-PAY-request-0001',fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{status:'DRAFT'}})};}});
   assert.equal(paid.ok,true);assert.match(call.url,/\/ap\/bills\/.+\/payments$/);assert.equal(JSON.parse(call.options.body).cashAccountCode,'111000');assert.equal(JSON.parse(call.options.body).bankMemberRef,null);
   const credit=await createAuthoritativeAdjustment({config,kind:'AP_VENDOR_CREDIT',idempotencyKey:'AP-CREDIT-request-0001',adjustment:{number:'VC-100',date:'2026-08-02',counterpartyRef:'V-1',counterpartyName:'Vendor',amount:10,lines:[{line_no:1,account_code:'610000',amount:10}],reason:'Approved vendor credit'},fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{business_adjustment_id:entityId,status:'DRAFT'}})};}});
