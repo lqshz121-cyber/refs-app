@@ -6457,6 +6457,11 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   assert.deepEqual((await adminPool.query('SELECT status,amount,version FROM sales_receipt WHERE sales_receipt_id=$1',[receipt.sales_receipt_id])).rows[0],{status:'POSTED',amount:'1.2345',version:'1'});
   const lines=(await adminPool.query('SELECT account_code,member_ref,debit_amount,credit_amount FROM ledger_line WHERE journal_entry_id=$1 ORDER BY account_code',[receipt.journal_entry_id])).rows;
   assert.deepEqual(lines,[{account_code:'111000',member_ref:'BANK-1',debit_amount:'1.2345',credit_amount:'0.0000'},{account_code:'400000',member_ref:'CUSTOMER-SALE',debit_amount:'0.0000',credit_amount:'1.2345'}]);
+  const postedReadApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'sale-posted-reader'}),kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'sale-posted-reader',['AR.VIEW'])})});
+  const postedDetail=await postedReadApi({method:'GET',url:`${url}/${receipt.sales_receipt_id}`,headers:{}});
+  assert.equal(postedDetail.status,200,JSON.stringify(postedDetail.body));
+  assert.equal(postedDetail.body.data.record.status,'POSTED');assert.equal(postedDetail.body.data.record.journal_status,'POSTED');
+  assert.equal(postedDetail.body.data.record.revision,'1');assert.equal(postedDetail.body.data.record.amount,'1.2345');assert.ok(postedDetail.body.data.record.posted_at);
   assert.deepEqual(await counts(),{sales:1,documents:0,allocations:0});
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type=ANY($2::text[])',[receipt.sales_receipt_id,['SALES_RECEIPT_DRAFT_CREATED','SALES_RECEIPT_POSTED']])).rows[0].n,2);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type=ANY($2::text[])',[receipt.sales_receipt_id,['SALES_RECEIPT_DRAFT_CREATED','SALES_RECEIPT_POSTED']])).rows[0].n,2);
@@ -6473,4 +6478,48 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM outbox_event WHERE aggregate_id IN ($1,$2)',[badReceipt.sales_receipt_id,badReceipt.journal_entry_id])).rows[0].n,before);
   await assert.rejects(migrateDownThrough(adminPool,'317_native_sales_receipt.sql'),/Cannot remove sales receipt schema while business records exist/);
   assert.equal((await counts()).sales,2);
+});
+
+pgTest('sales receipt detail and keyset pages are scoped and remain bounded over 100001 synthetic records',async()=>{
+  await migrateUp(adminPool);
+  const options={status:'DRAFT',extraAccounts:[{accountCode:'400000',accountName:'Cash sale category'}],extraMembers:[{memberRef:'CUSTOMER-SALE',memberType:'CUSTOMER',displayName:'Cash customer'}]};
+  const ids=await seed(options),foreign=await seed({...options,tenantId:ids.tenantId});
+  const permissions={'sale-read-maker':['AR.SALES_RECEIPT.CREATE'],'sale-reader':['AR.VIEW']};
+  const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})});
+  const root=`/api/v1/entities/${ids.entityId}/ar/sales-receipts`;
+  const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;
+  const created=await api({method:'POST',url:root,headers:{'x-test-actor':'sale-read-maker','idempotency-key':'sale-read-create-1'},body:{periodId:ids.periodId,number:'SALE-READ-1',customerRef:'CUSTOMER-SALE',bankMemberRef:'BANK-1',cashAccountCode:'111000',categoryAccountCode:'400000',date:'2026-07-18',currency:'USD',amount:'1.2345',reason:'Saved receipt for real read tests',attachmentIds:[attachmentId]}});
+  assert.equal(created.status,201,JSON.stringify(created.body));const receiptId=created.body.data.sales_receipt_id;
+  const get=(url,actor='sale-reader')=>api({method:'GET',url,headers:{'x-test-actor':actor}});
+  const detail=await get(`${root}/${receiptId}`);assert.equal(detail.status,200,JSON.stringify(detail.body));
+  assert.equal(detail.body.data.record.amount,'1.2345');assert.equal(detail.body.data.record.journal_entry_id,created.body.data.journal_entry_id);
+  assert.equal(detail.body.data.record.status,'DRAFT');assert.equal(detail.body.data.record.posted_at,null);
+  assert.equal((await get(`${root}/${receiptId}`,'sale-read-maker')).status,403);
+  const foreignKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(foreign,'foreign-sale-reader',['AR.VIEW'])});
+  await assert.rejects(foreignKernel.readSalesReceipt({tenantId:ids.tenantId,entityId:foreign.entityId,receiptId}),e=>e.code==='P0002');
+  assert.equal((await get(`${root}?periodId=${foreign.periodId}`)).status,404);
+  assert.equal((await get(`${root}?periodId=${ids.periodId}&afterId=${foreign.journalId}`)).status,400);
+  await assert.rejects(runtimePool.query('SELECT * FROM sales_receipt_detail_read'),e=>e.code==='42501');
+  // Synthetic persisted records test read volume only; the API-created record above proves the command/read chain.
+  await adminPool.query(`WITH generated AS MATERIALIZED (
+    SELECT gen_random_uuid() journal_id,('00000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid receipt_id,n FROM generate_series(1,100001) n
+  ), journals AS (
+    INSERT INTO journal_entry(journal_entry_id,tenant_id,entity_id,period_id,journal_number,journal_type,status,journal_date,currency,description,created_by)
+    SELECT journal_id,$1,$2,$3,'PERF-SALE-'||n,'MANUAL','DRAFT','2026-07-18','USD','Synthetic pagination fixture','fixture-maker' FROM generated RETURNING journal_entry_id
+  ) INSERT INTO sales_receipt(sales_receipt_id,tenant_id,entity_id,period_id,receipt_number,customer_ref,customer_name,bank_member_ref,cash_account_code,category_account_code,accounting_date,currency,amount,description,journal_entry_id,created_by)
+    SELECT g.receipt_id,$1,$2,$3,'PERF-SALE-'||g.n,'CUSTOMER-SALE','Cash customer','BANK-1','111000','400000','2026-07-18','USD',1.2345,'Synthetic pagination fixture',g.journal_id,'fixture-maker'
+    FROM generated g JOIN journals j ON j.journal_entry_id=g.journal_id`,[ids.tenantId,ids.entityId,ids.periodId]);
+  await adminPool.query('ANALYZE sales_receipt');await adminPool.query('ANALYZE journal_entry');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM sales_receipt WHERE entity_id=$1',[ids.entityId])).rows[0].n,100002);
+  const started=Date.now(),first=await get(`${root}?periodId=${ids.periodId}&limit=100`);
+  assert.equal(first.status,200,JSON.stringify(first.body));assert.equal(first.body.data.rows.length,100);assert.equal(first.body.data.next_id,'00000000-0000-4000-8000-000000000100');
+  const second=await get(`${root}?periodId=${ids.periodId}&limit=100&afterId=${first.body.data.next_id}`);
+  assert.equal(second.status,200);assert.equal(second.body.data.rows[0].sales_receipt_id,'00000000-0000-4000-8000-000000000101');
+  const tail=await get(`${root}?periodId=${ids.periodId}&limit=100&afterId=00000000-0000-4000-8000-000000100000`);
+  assert.equal(tail.status,200);assert.equal(tail.body.data.rows.length,2);assert.equal(tail.body.data.next_id,null);
+  const reread=await get(`${root}/${receiptId}`);assert.equal(reread.status,200);assert.deepEqual(reread.body.data,detail.body.data);
+  assert.ok(Date.now()-started<5000,'Four bounded reads over 100001 synthetic records must complete within five seconds');
+  await migrateDownThrough(adminPool,'318_sales_receipt_reads.sql');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM sales_receipt WHERE entity_id=$1',[ids.entityId])).rows[0].n,100002);
+  await migrateUp(adminPool);assert.equal((await get(`${root}/${receiptId}`)).status,200);
 });

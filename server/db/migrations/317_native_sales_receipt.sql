@@ -2,6 +2,8 @@ BEGIN;
 
 INSERT INTO permission_catalog(permission_code,domain,risk_class,sod_class)
 VALUES('AR.SALES_RECEIPT.CREATE','AR','HIGH','AR_SALES_RECEIPT_MAKER');
+INSERT INTO runtime_human_permission_authority(permission_code,authority_class)
+VALUES('AR.SALES_RECEIPT.CREATE','DRAFT');
 
 CREATE TABLE sales_receipt (
   sales_receipt_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
