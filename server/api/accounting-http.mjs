@@ -2280,6 +2280,23 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['businessDocumentId','amount','reason']);
         result=await kernel.applyArCreditMemo({tenantId:principal.tenantId,entityId,businessAdjustmentId:requireUuid(parts[6],'businessAdjustmentId'),businessDocumentId:requireUuid(payload.businessDocumentId,'businessDocumentId'),amount:payload.amount,reason:payload.reason,idempotencyKey});
+      }else if(parts.length===8&&parts[4]==='ar'&&parts[5]==='credit-memos'&&parts[7]==='native-refunds'){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','A new refund uses an idempotency key; credit capacity is locked by the command');
+        allowOnly(payload,['periodId','number','date','cashAccountCode','bankMemberRef','amount','reason','attachmentIds']);
+        const amount=requireDecimalAmount(payload.amount,'amount');
+        if(amount.startsWith('-')||!/[1-9]/.test(amount))throw new AccountingApiError(400,'INVALID_AMOUNT','Refund amount must be positive');
+        if([payload.number,payload.bankMemberRef].some(value=>!boundedText(value,128)||value!==value.trim()||/[\u0000-\u001f\u007f]/.test(value)))throw new AccountingApiError(400,'INVALID_REFUND_INPUT','Number and bank member reference must be trimmed nonempty text of at most 128 characters');
+        const sourceAdjustmentId=requireUuid(parts[6],'sourceAdjustmentId');
+        const args={tenantId:principal.tenantId,entityId,sourceAdjustmentId,
+          periodId:requireUuid(payload.periodId,'periodId'),number:payload.number,date:requireIsoDate(payload.date,'date'),cashAccountCode:requireAccountCode(payload.cashAccountCode),
+          bankMemberRef:payload.bankMemberRef,amount,reason:requireReviewReason(payload.reason),attachmentIds:requireAttachmentIds(requireAttachmentIds(payload.attachmentIds).map(id=>id.toLowerCase())),idempotencyKey};
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.createNativeRefund!=='function')throw new AccountingApiError(503,'NATIVE_REFUND_UNAVAILABLE','Native refund creation is unavailable');
+        result=await kernel.createNativeRefund(args);
+        if(!exactKeys(result,['business_adjustment_id','source_adjustment_id','journal_entry_id','status','revision','idempotent'].sort())
+          ||!UUID.test(result.business_adjustment_id||'')||!UUID.test(result.journal_entry_id||'')
+          ||result.source_adjustment_id!==sourceAdjustmentId||result.status!=='DRAFT'||result.revision!==0||typeof result.idempotent!=='boolean')throw new AccountingApiError(500,'NATIVE_REFUND_RECEIPT_INVALID','Native refund creation returned an unconfirmed receipt');
       }else if(parts.length===6&&parts[4]==='ar'&&parts[5]==='refunds'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['periodId','sourceAdjustmentId','refundNumber','refundDate','cashAccountCode','amount','reason']);

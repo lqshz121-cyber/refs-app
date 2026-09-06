@@ -15,6 +15,239 @@
     }
   ],
   "paths": {
+    "/entities/{entityId}/ar/credit-memos/{sourceAdjustmentId}/native-refunds": {
+      "post": {
+        "operationId": "createNativeRefund",
+        "summary": "Create an evidence-backed customer refund Draft from posted credit",
+        "description": "Requires AR.REFUND.CREATE. Creates a Manual Draft journal with a customer AR debit and a BANK-controlled cash credit, links verified clean attachments, reserves available posted credit and commits the audit, outbox and actor-bound idempotency receipt atomically. Source credit locking serializes this command with legacy refund and credit allocation commands. Uses the normal separate-actor journal approval and posting workflow. No query parameters or If-Match header.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "sourceAdjustmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "periodId",
+                  "number",
+                  "date",
+                  "cashAccountCode",
+                  "bankMemberRef",
+                  "amount",
+                  "reason",
+                  "attachmentIds"
+                ],
+                "properties": {
+                  "periodId": {
+                    "$ref": "#/components/schemas/Uuid"
+                  },
+                  "number": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "cashAccountCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "bankMemberRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,15})(\\.[0-9]{1,4})?$",
+                    "description": "Strictly positive exact decimal string, at most 16 integer and four fractional digits."
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 2000
+                  },
+                  "attachmentIds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 25,
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "#/components/schemas/Uuid"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Replay of the same actor-bound refund command",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "business_adjustment_id",
+                        "source_adjustment_id",
+                        "journal_entry_id",
+                        "status",
+                        "revision",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "business_adjustment_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "source_adjustment_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "journal_entry_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Refund Draft and attachment evidence created atomically",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "business_adjustment_id",
+                        "source_adjustment_id",
+                        "journal_entry_id",
+                        "status",
+                        "revision",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "business_adjustment_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "source_adjustment_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "journal_entry_id": {
+                          "$ref": "#/components/schemas/Uuid"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/entities/{entityId}/business-adjustments/{businessAdjustmentId}/usage-context": {
       "get": {
         "operationId": "readCreditUsageContext",
