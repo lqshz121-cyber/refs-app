@@ -53,12 +53,12 @@ async function currentEntryContext(config,kind,fetcher,expectedActorId){
   return {ok:true,access:access.row,scope:scope.row};
 }
 
-export async function uploadNativeDocumentSupport({config,kind,file,expectedActorId,fetcher=globalThis.fetch,cryptoApi=globalThis.crypto}={}){
-  const metadata=validateAttachmentFile(file);if(!normalizeConfig(config)||!kindValid(kind)||!metadata||!cryptoApi?.subtle)return fail('ATTACHMENT_UPLOAD_INVALID','Choose a supported file and company.');
+export async function uploadNativeDocumentSupport({config,kind,file,expectedActorId,uploadAttempt=0,fetcher=globalThis.fetch,cryptoApi=globalThis.crypto}={}){
+  const metadata=validateAttachmentFile(file);if(!normalizeConfig(config)||!kindValid(kind)||!metadata||!cryptoApi?.subtle||!Number.isSafeInteger(uploadAttempt)||uploadAttempt<0||uploadAttempt>100)return fail('ATTACHMENT_UPLOAD_INVALID','Choose a supported file and company.');
   const context=await currentEntryContext(config,kind,fetcher,expectedActorId);if(!context.ok)return context;
   try{
     const bytes=await file.arrayBuffer();if(bytes.byteLength!==metadata.sizeBytes)return fail('ATTACHMENT_SIZE_MISMATCH','The selected file changed. Select it again.');
-    const contentHash=await hash(bytes,cryptoApi),identity=JSON.stringify(['NATIVE_SUPPORT_V1',config.entityId,context.access.actor_id,metadata,contentHash]);
+    const contentHash=await hash(bytes,cryptoApi),identity=JSON.stringify(['NATIVE_SUPPORT_V1',config.entityId,context.access.actor_id,metadata,contentHash,...(uploadAttempt?[uploadAttempt]:[])]);
     const idempotencyKey=`native-support-${await hash(identity,cryptoApi)}`;
     return await uploadVerifiedAttachment({config,file,idempotencyKey,fetcher,cryptoApi});
   }catch{return fail('ATTACHMENT_UPLOAD_UNCONFIRMED','The supporting document could not be confirmed. Retry the same file.');}

@@ -81,3 +81,12 @@ test('upload checks fresh access and immutable file size before reservation',asy
   let calls=0;const file={name:'bill.pdf',type:'application/pdf',size:3,arrayBuffer:async()=>new Uint8Array([1]).buffer};
   const result=await uploadNativeDocumentSupport({config,kind:'AP_BILL',file,expectedActorId:access.actor_id,fetcher:fetchContext({command:()=>{calls++;}}),cryptoApi:webcrypto});assert.equal(result.code,'ATTACHMENT_SIZE_MISMATCH');assert.equal(calls,0);
 });
+test('closed upload is not automatically retried; explicit replacement attempts have recoverable keys',async()=>{
+  const file={name:'bill.pdf',type:'application/pdf',size:3,arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer},keys=[];
+  const fetcher=fetchContext({command:async(url,options)=>{keys.push(options.headers['idempotency-key']);return {ok:false,status:409,json:async()=>({code:'ATTACHMENT_RESERVATION_CLOSED'})};}});
+  for(const uploadAttempt of [0,1,1]){
+    const before=keys.length,result=await uploadNativeDocumentSupport({config,kind:'AP_BILL',file,uploadAttempt,fetcher,cryptoApi:webcrypto});
+    assert.equal(result.code,'ATTACHMENT_RESERVATION_CLOSED');assert.equal(keys.length,before+1);
+  }
+  assert.notEqual(keys[0],keys[1]);assert.equal(keys[1],keys[2]);
+});

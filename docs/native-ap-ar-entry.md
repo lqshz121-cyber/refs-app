@@ -24,6 +24,10 @@ validated document contents. These identify retries; they do not replace the
 server's request hash or idempotency receipts. Retrying unchanged details after
 refresh produces the same key. A verified retained attachment is reused without
 another object PUT. Changed document details represent another intent.
+If the server explicitly reports a closed upload, a separate user click starts
+a new numbered upload attempt. Each attempt has a stable key; unknown failures
+keep the same attempt. After refresh, traversing the same closed attempts
+recovers the later attempt. No replacement upload starts automatically.
 
 An unknown command outcome freezes form edits and offers an explicit retry of
 the same draft. Known HTTP 4xx rejections allow correcting an initially rejected

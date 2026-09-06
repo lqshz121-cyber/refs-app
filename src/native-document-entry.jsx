@@ -3,12 +3,13 @@ import {createNativeDocumentDraft,nativeDocumentEntryAccess,readNativeDocumentCo
 
 export function NativeDocumentEntry({config,kind,access,scope,accounts=[],fetcher=globalThis.fetch,onOpenDraft,onRefresh}) {
   const [open,setOpen]=useState(false);
-  const trigger=useRef(null),id=useId();
+  const trigger=useRef(null),wasOpen=useRef(false),id=useId();
+  useEffect(()=>{if(wasOpen.current&&!open)trigger.current?.focus();wasOpen.current=open;},[open]);
   const allowed=nativeDocumentEntryAccess(config,kind,access)&&scope?.entity_id===config?.entityId&&scope?.period_id===config?.periodId&&scope?.period_status==='OPEN';
   if(!allowed)return null;
   return <section className="card native-document-entry" aria-label={kind==='AP_BILL'?'Bill entry':'Invoice entry'}>
     <button ref={trigger} className="btn" type="button" aria-expanded={open} aria-controls={id} onClick={()=>setOpen(true)} disabled={open}>New {kind==='AP_BILL'?'bill':'invoice'}</button>
-    {open&&<NativeDocumentEntryForm key={`${config.entityId}:${config.periodId}:${kind}:${access.actor_id}`} id={id} config={config} kind={kind} access={access} scope={scope} accounts={accounts} fetcher={fetcher} onOpenDraft={onOpenDraft} onClose={saved=>{setOpen(false);trigger.current?.focus();if(saved)onRefresh?.();}}/>}
+    {open&&<NativeDocumentEntryForm key={`${config.entityId}:${config.periodId}:${kind}:${access.actor_id}`} id={id} config={config} kind={kind} access={access} scope={scope} accounts={accounts} fetcher={fetcher} onOpenDraft={onOpenDraft} onClose={saved=>{setOpen(false);if(saved)onRefresh?.();}}/>}
   </section>;
 }
 
@@ -17,6 +18,7 @@ export function NativeDocumentEntryForm({id,config,kind,access,scope,accounts=[]
   const [draft,setDraft]=useState({documentNumber:'',accountingDate:'',dueDate:'',amount:'',currency:scope?.base_currency||'',offsetAccountCode:'',description:''});
   const [query,setQuery]=useState(''),[page,setPage]=useState(null),[counterparty,setCounterparty]=useState(null);
   const [file,setFile]=useState(null),[attachment,setAttachment]=useState(null),[receipt,setReceipt]=useState(null);
+  const [uploadAttempt,setUploadAttempt]=useState(0),[uploadClosed,setUploadClosed]=useState(false);
   const [busy,setBusy]=useState(false),[locked,setLocked]=useState(false),[message,setMessage]=useState(null);
   const mounted=useRef(false),busyRef=useRef(false),heading=useRef(null);
   useEffect(()=>{mounted.current=true;heading.current?.focus();return()=>{mounted.current=false;};},[]);
@@ -32,9 +34,10 @@ export function NativeDocumentEntryForm({id,config,kind,access,scope,accounts=[]
     if(result.ok){setPage(result.data);setCounterparty(null);}else setMessage(result.message);
   });
   const upload=()=>run(async()=>{
-    const result=await uploadNativeDocumentSupport({config,kind,file,expectedActorId:access.actor_id,fetcher});
+    const attempt=uploadAttempt+(uploadClosed?1:0);setUploadAttempt(attempt);setUploadClosed(false);
+    const result=await uploadNativeDocumentSupport({config,kind,file,expectedActorId:access.actor_id,uploadAttempt:attempt,fetcher});
     if(!mounted.current)return;
-    if(result.ok){setAttachment(result);setMessage('Supporting document verified.');}else setMessage(result.message);
+    if(result.ok){setAttachment(result);setMessage('Supporting document verified.');}else{setUploadClosed(result.code==='ATTACHMENT_RESERVATION_CLOSED');setMessage(result.code==='ATTACHMENT_RESERVATION_CLOSED'?'The previous upload is closed. You can start a new upload for this file.':result.message);}
   });
   const create=()=>run(async()=>{
     const valid=validateNativeDocumentDraft({config,kind,draft,counterparty,attachmentId:attachment?.attachmentId,scope,accounts});
@@ -49,7 +52,7 @@ export function NativeDocumentEntryForm({id,config,kind,access,scope,accounts=[]
   return <div id={id} className="native-document-form">
     <h3 ref={heading} tabIndex={-1}>New {bill?'bill':'invoice'}</h3>
     <p className="muted sm">{scope.entity_name} · {scope.period_code} · Creates a draft with one category amount and verified support.</p>
-    <form onSubmit={event=>{event.preventDefault();create();}}>
+    <form aria-busy={busy} onSubmit={event=>{event.preventDefault();create();}}>
       <fieldset disabled={busy||locked}>
         <legend>Document details</legend>
         <div className="native-document-grid">
@@ -61,14 +64,14 @@ export function NativeDocumentEntryForm({id,config,kind,access,scope,accounts=[]
           <label>Category<select value={draft.offsetAccountCode} required onChange={event=>update('offsetAccountCode',event.target.value)}><option value="">Choose a category</option>{eligible.map(row=><option key={row.account_code} value={row.account_code}>{row.account_code} · {row.account_name}</option>)}</select></label>
         </div>
         <div className="native-document-search">
-          <label>Find {partyLabel.toLowerCase()}<input value={query} maxLength={128} onChange={event=>{setQuery(event.target.value);setPage(null);setCounterparty(null);}}/></label>
+          <label>Find {partyLabel.toLowerCase()}<input value={query} maxLength={128} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();search(null);}}} onChange={event=>{setQuery(event.target.value);setPage(null);setCounterparty(null);}}/></label>
           <button type="button" className="btn btn-sm" onClick={()=>search(null)}>Search {bill?'vendors':'customers'}</button>
           {page&&<><label>{partyLabel}<select value={counterparty?.member_ref||''} required onChange={event=>setCounterparty(page.rows.find(row=>row.member_ref===event.target.value)||null)}><option value="">{page.rows.length?'Choose a counterparty':'No matching counterparties'}</option>{page.rows.map(row=><option key={row.member_ref} value={row.member_ref}>{row.display_name} · {row.member_ref}</option>)}</select></label><button type="button" className="btn btn-sm btn-ghost" disabled={!page.next_ref} onClick={()=>search(page.next_ref)}>Next results</button></>}
         </div>
         <label>Description<textarea maxLength={2000} value={draft.description} onChange={event=>update('description',event.target.value)}/></label>
-        <label>Supporting document<input type="file" accept=".pdf,.png,.jpg,.jpeg,.csv" onChange={event=>{setFile(event.target.files?.[0]||null);setAttachment(null);}}/></label>
+        <label>Supporting document<input type="file" accept=".pdf,.png,.jpg,.jpeg,.csv" onChange={event=>{setFile(event.target.files?.[0]||null);setAttachment(null);setUploadAttempt(0);setUploadClosed(false);}}/></label>
         <p className="muted sm">PDF, PNG, JPEG or CSV, up to 50 MB.</p>
-        <button type="button" className="btn btn-sm" disabled={!file||!!attachment} onClick={upload}>{attachment?'Support verified':'Upload and verify support'}</button>
+        <button type="button" className="btn btn-sm" disabled={!file||!!attachment} onClick={upload}>{attachment?'Support verified':uploadClosed?'Start a new upload':'Upload and verify support'}</button>
       </fieldset>
       {message&&<p role="status" aria-live="polite">{message}</p>}
       <div className="native-document-actions">
