@@ -11,6 +11,18 @@ const validUntil='2026-08-24T00:00:00.000Z';
 const base={NODE_ENV:'production',REFS_DEPLOYMENT_ENV:'staging',REFS_WORKFLOW_ROLE_CONFIRM:'AUTHORITATIVE_WORKFLOW_ROLE_ONLY',REFS_STAGE1_TENANT_ID:'11111111-1111-4111-8111-111111111111',REFS_STAGE1_ENTITY_ID:'22222222-2222-4222-8222-222222222222',REFS_WORKFLOW_ROLE:'WBS_PAYABLE_MAKER',REFS_WORKFLOW_GRANT_VALID_UNTIL:validUntil,REFS_WORKFLOW_GRANT_EXPECTED_VERSION:'2',REFS_WORKFLOW_GRANT_IDEMPOTENCY_KEY:'workflow-maker-0001',REFS_AUTHENTICATED_ACCESS_TOKEN:'opaque',OIDC_ISSUER:'https://issuer.example',OIDC_AUDIENCE:'refs',OIDC_JWKS_URI:'https://issuer.example/jwks'};
 const permissions=role=>AUTHORITATIVE_WORKFLOW_ROLES[role].permissions;
 
+test('native document entry roles allow support upload and exactly one Draft kind without scanner or later workflow authority',()=>{
+  for(const [name,createPermission,other] of [['AP_BILL_ENTRY_MAKER','AP.BILL.CREATE','AR.INVOICE.CREATE'],['AR_INVOICE_ENTRY_MAKER','AR.INVOICE.CREATE','AP.BILL.CREATE']]){
+    const definition=AUTHORITATIVE_WORKFLOW_ROLES[name];
+    assert.equal(definition.principalKind,'HUMAN');assert.equal(definition.authorityClass,'DRAFT');
+    assert.ok(definition.permissions.includes(createPermission));assert.ok(definition.permissions.includes('ATTACHMENT.CREATE'));
+    for(const forbidden of [other,'ATTACHMENT.FINALIZE','ATTACHMENT.CLEANUP','GL.JE.SUBMIT','GL.JE.REVIEW','GL.JE.APPROVE','GL.JE.POST','GL.PERIOD.REOPEN'])assert.equal(definition.permissions.includes(forbidden),false);
+    assert.equal(assertWorkflowRoleSafety(definition),definition);
+  }
+  assert.equal(permissions('WBS_PAYABLE_MAKER').includes('ATTACHMENT.CREATE'),false,'existing role bundles stay unchanged');
+  assert.equal(permissions('AR_INVOICE_MAKER').includes('ATTACHMENT.CREATE'),false);
+});
+
 test('production and staging ceremonies reassert inside the grant transaction after OIDC',async()=>{
   const config=authoritativeWorkflowRoleGrantConfig(base);
   for(const run of [grantProductionWorkflowRole,grantStagingWorkflowRole]){
