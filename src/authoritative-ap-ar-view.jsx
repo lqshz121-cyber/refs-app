@@ -11,6 +11,7 @@ export function AuthoritativeApArView({
   headerClassName = '',
   className = '',
   toolbar,
+  readOnly = true,
   children,
 }) {
   const payable = kind === 'AP';
@@ -22,7 +23,7 @@ export function AuthoritativeApArView({
   return <section className={`authoritative-ap-ar-presentation authoritative-ap-ar-${payable ? 'ap' : 'ar'} ${className}`.trim()} aria-label={`${title} authoritative workspace`}>
     <div className={`accounting-page-head ${headerClassName}`.trim()}>
       <div><div className="page-eyebrow">{eyebrow}</div><h2 className="page-h">{title}</h2><div className="page-subtitle">{subtitle}</div></div>
-      <span className="badge badge-muted">READ ONLY</span>
+      <span className="badge badge-muted">{readOnly?'READ ONLY':'DRAFT ENTRY'}</span>
     </div>
     {metrics.length > 0 && <div className="kpi-row" aria-label={`${title} API summary`}>
       {metrics.map(metric => <div className={`kpi ${metric.tone || ''}`.trim()} key={metric.label}>
