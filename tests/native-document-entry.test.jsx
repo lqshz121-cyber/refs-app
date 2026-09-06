@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {NativeDocumentEntry,NativeDocumentEntryForm} from '../src/native-document-entry.jsx';
+import {NativeSettlementEntry,NativeSettlementForm} from '../src/native-settlement-entry.jsx';
 import {AuthoritativeDocumentWorkspace} from '../src/authoritative-workspace.jsx';
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222'};
 const access={entity_id:config.entityId,actor_id:'oidc|maker',session_refresh_required:false,permissions:['AP.BILL.CREATE','AR.INVOICE.CREATE','ATTACHMENT.CREATE']};
@@ -18,3 +19,10 @@ const page=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" config
 assert.match(page,/DRAFT ENTRY/);assert.match(page,/New bill/);
 const readonly=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" config={config}/>);assert.match(readonly,/READ ONLY/);assert.doesNotMatch(readonly,/New bill/);
 console.log('Native document entry SSR: scoped capability gates, labels, precision and draft-only actions passed.');
+
+for(const kind of ['AP_PAYMENT','AR_RECEIPT']){
+  const settlementAccess={...access,permissions:[kind==='AP_PAYMENT'?'AP.PAYMENT.CREATE':'AR.RECEIPT.CREATE','ATTACHMENT.CREATE']};
+  assert.equal(renderToStaticMarkup(<NativeSettlementEntry config={config} kind={kind}/>),'');
+  const entry=renderToStaticMarkup(<NativeSettlementEntry config={config} kind={kind} access={settlementAccess}/>);assert.match(entry,/Record payment|Receive payment/);assert.match(entry,/aria-expanded="false"/);
+  const form=renderToStaticMarkup(<NativeSettlementForm config={config} kind={kind} access={settlementAccess} accounts={accounts}/>);assert.match(form,/inputMode="decimal"/);assert.match(form,/Uploaded when you save/);assert.doesNotMatch(form,/Upload and verify|type="number"|Post journal/);assert.match(form,/disabled="">Save draft/);
+}
