@@ -1,5 +1,6 @@
 import {validSettlementHistorySelection,validSettlementHistory} from '../runtime/settlement-history.mjs';
 import {createServer} from 'node:http';
+import {reportAccessFailure} from './access-failure-diagnostics.mjs';
 import {validSettlementKind,validSettlementBankSelection,validSettlementBankPage,validSettlementContext} from '../runtime/settlement-input-reads.mjs';
 import {validBusinessDocumentCounterpartySelection,validBusinessDocumentCounterpartyPage} from '../runtime/business-document-counterparties.mjs';
 import {WbsReadContractError,assertWbsControlReadOnlyResult,assertWbsReadOnlyResult,parseWbsAutoRecReviewSelection,parseWbsControlReconciliationSelection} from './wbs-read-contract.mjs';
@@ -2280,7 +2281,7 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       const responseHeaders={'content-type':'application/json','cache-control':'no-store'};
       if(Number.isSafeInteger(result?.revision)&&result.revision>=0)responseHeaders.etag=`"${result.revision}"`;
       return {status:result?.idempotent?200:201,headers:responseHeaders,body:{ok:true,data:result}};
-    }catch(error){return problemFor(AI_POPULATION_INCOMPLETE_CODES.includes(error?.code)?new WbsReadContractError(503,error.code,'AI analysis population completeness could not be proven'):error);}
+    }catch(error){reportAccessFailure(error);return problemFor(AI_POPULATION_INCOMPLETE_CODES.includes(error?.code)?new WbsReadContractError(503,error.code,'AI analysis population completeness could not be proven'):error);}
   };
 }
 
