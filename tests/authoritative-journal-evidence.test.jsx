@@ -153,6 +153,27 @@ async function verifyJournalWorkflow(){
   assert.equal(completed.ok,true);assert.equal(completed.action,'SUBMIT');assert.equal(workflowCalls.length,3);assert.match(workflowCalls[1].url,/\/transitions\/submit$/);assert.equal(workflowCalls[1].options.headers['if-match'],'"3"');assert.equal(workflowCalls[1].options.headers['idempotency-key'],`UI-JE-${journal.journal_entry_id}-3-SUBMIT`);assert.match(workflowCalls[2].url,/\/journal-entries\?periodId=/);
   const refreshFailed=await runAuthoritativeJournalWorkflow({journal,config:{baseUrl:'https://api.example',entityId,periodId,getAccessToken:async()=>('x'.repeat(24))},fetcher:async(url)=>{if(url.endsWith('/journal-workflow/capabilities'))return {ok:true,json:async()=>({ok:true,data:permissions})};if(url.includes('/transitions/submit'))return {ok:true,status:201,json:async()=>({ok:true,data:{status:'PENDING_REVIEW',revision:4}})};return {ok:false,status:503,json:async()=>({ok:false})};},environment:{confirm:()=>true}});
   assert.equal(refreshFailed.commandCommitted,true);assert.equal(refreshFailed.code,'JOURNAL_WORKFLOW_REFRESH_REQUIRED');
+  const config={baseUrl:'https://api.example',entityId,periodId,getAccessToken:async()=>('x'.repeat(24))};
+  const directCalls=[];
+  let directRow={...journal,status:'PENDING_REVIEW',revision:'10'};
+  const directFetcher=async(url,options)=>{
+    directCalls.push({url,options});
+    if(url.endsWith('/journal-workflow/capabilities'))return {ok:true,json:async()=>({ok:true,data:permissions})};
+    if(options.method==='POST')return {ok:true,status:201,json:async()=>({ok:true,data:{status:'PENDING_REVIEW',revision:10}})};
+    assert.equal(url,`https://api.example/api/v1/entities/${entityId}/journal-entries/${journal.journal_entry_id}?periodId=${periodId}`,'single-journal workflow must never request the period register');
+    return {ok:true,json:async()=>({ok:true,data:directRow})};
+  };
+  const directArgs={journal:{...journal,revision:9},config,fetcher:directFetcher,environment:{confirm:()=>true},refreshMode:'DETAIL'};
+  const direct=await runAuthoritativeJournalWorkflow(directArgs);
+  assert.equal(direct.ok,true);assert.equal(direct.journal.revision,10);assert.equal(directCalls.length,3);assert.equal(direct.journals,undefined);
+  assert.equal(directCalls[1].options.headers['if-match'],'"9"');
+  for(const row of [{...directRow,revision:9},{...directRow,status:'DRAFT'},{...directRow,period_id:entityId}]){
+    directRow=row;const stale=await runAuthoritativeJournalWorkflow(directArgs);
+    assert.equal(stale.ok,false);assert.equal(stale.code,'JOURNAL_WORKFLOW_REFRESH_REQUIRED');assert.equal(stale.commandCommitted,true);
+  }
+  directCalls.length=0;
+  assert.equal((await runAuthoritativeJournalWorkflow({...directArgs,refreshMode:'INVALID'})).code,'JOURNAL_WORKFLOW_REFRESH_INVALID');assert.equal(directCalls.length,0);
+  assert.equal((await runAuthoritativeJournalWorkflow({...directArgs,environment:{confirm:()=>false}})).cancelled,true);assert.equal(directCalls.length,1);
   console.log('authoritative-journal-evidence: API-only journal register, full-page evidence, Back/focus, lineage block, and workflow capability contracts verified');
 }
 verifyJournalWorkflow().catch(error=>{console.error(error);process.exitCode=1;});

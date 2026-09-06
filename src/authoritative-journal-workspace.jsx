@@ -34,7 +34,8 @@ export const nextAuthoritativeJournalWorkflowAction=(journal,capabilities,entity
   return candidate&&capabilities?.entity_id===entityId&&capabilities[candidate.capability]===true?candidate:null;
 };
 
-export async function runAuthoritativeJournalWorkflow({journal,config,fetcher=globalThis.fetch,environment=globalThis}={}){
+export async function runAuthoritativeJournalWorkflow({journal,config,fetcher=globalThis.fetch,environment=globalThis,refreshMode='REGISTER'}={}){
+  if(!['REGISTER','DETAIL'].includes(refreshMode))return {ok:false,code:'JOURNAL_WORKFLOW_REFRESH_INVALID',message:'Choose a valid journal refresh mode.'};
   const capabilityRead=await readAuthoritativeJournalWorkflowCapabilities({config,fetcher});
   if(!capabilityRead.ok)return capabilityRead;
   const next=nextAuthoritativeJournalWorkflowAction(journal,capabilityRead.capabilities,config?.entityId);
@@ -43,6 +44,12 @@ export async function runAuthoritativeJournalWorkflow({journal,config,fetcher=gl
   if(!environment.confirm(`${next.label} Journal ${journal.journal_number} at revision ${journal.revision}?`))return {ok:false,cancelled:true,code:'JOURNAL_WORKFLOW_CANCELLED',message:'Journal workflow action cancelled.'};
   const result=await transitionAuthoritativeJournal({config,journalEntryId:journal.journal_entry_id,revision:journal.revision,action:next.action,fetcher});
   if(!result.ok)return result;
+  if(refreshMode==='DETAIL'){
+    const refreshed=await readAuthoritativeJournalEntryDetail({config,journalEntryId:journal.journal_entry_id,fetcher});
+    const ranks={DRAFT:0,PENDING_REVIEW:1,PENDING_APPROVAL:2,APPROVED:3,POSTED:4};
+    if(!refreshed.ok||refreshed.journal.revision<=journal.revision||ranks[refreshed.journal.status]<=ranks[journal.status])return {ok:false,commandCommitted:true,code:'JOURNAL_WORKFLOW_REFRESH_REQUIRED',message:'The command returned successfully, but its updated journal could not be confirmed. Refresh this journal before another action.'};
+    return {ok:true,action:next.action,journal:refreshed.journal};
+  }
   const refreshed=await refreshAuthoritativeJournalEntries({config,fetcher});
   if(!refreshed.ok)return {ok:false,commandCommitted:true,code:'JOURNAL_WORKFLOW_REFRESH_REQUIRED',message:'The workflow command completed, but the authoritative Journal register could not be re-read. Refresh before taking another action.'};
   return {ok:true,action:next.action,journals:refreshed.journals};
