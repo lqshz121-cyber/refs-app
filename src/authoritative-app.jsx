@@ -45,6 +45,7 @@ import {AuthoritativePeriodCloseWorkspace} from './authoritative-period-close-wo
 import {AuthoritativeAuditLogWorkspace} from './authoritative-audit-log-workspace.jsx';
 import {AuthoritativeAccountingSettingsWorkspace} from './authoritative-accounting-settings-workspace.jsx';
 import {AuthoritativeReportMappingsWorkspace} from './authoritative-report-mappings-workspace.jsx';
+import {createAuthoritativeReadGuard} from './authoritative-read-guard.js';
 
 export const authoritativeRuntimeConfigured = (environment = globalThis) =>
   Boolean(accountingApiConfig(environment) && oidcRuntimeConfig(environment));
@@ -163,6 +164,10 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const [scopeMetadata,setScopeMetadata]=useState(null);
   const [scopeCatalog,setScopeCatalog]=useState([]);
   const [selectedScope,setSelectedScope]=useState(null);
+  const accountingReadGuard = useRef(null);
+  if (!accountingReadGuard.current) accountingReadGuard.current = createAuthoritativeReadGuard();
+  const accountingReadGeneration = accountingReadGuard.current.capture();
+  useEffect(() => () => accountingReadGuard.current.invalidate(), []);
   const [accessState,setAccessState]=useState({status:'LOADING'});
   // A direct selection of Reports is an explicit catalog entry, not a
   // continuation of the last report drill. React preserves a mounted route
@@ -365,6 +370,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
 
   const refresh = useCallback(async () => {
     if (!config) return;
+    const isCurrent = accountingReadGuard.current.begin('refresh', accountingReadGeneration);
+    if (!isCurrent()) return;
     setDocumentDetail(null); setAdjustmentDetail(null);
     if (!routeRequiresSharedAccountingBootstrap(route)) {
       setError(null);
@@ -377,6 +384,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       refreshAuthoritativeDocuments({ config, fetcher:boundFetcher }),
       refreshAuthoritativeJournalEntries({ config, fetcher:boundFetcher }),
     ]);
+    if (!isCurrent()) return;
     if (!documents.ok || !journals.ok) {
       const failure = !documents.ok ? documents : journals;
       setError(failure); setPhase(phaseForFailure(failure));
@@ -386,14 +394,17 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     setSharedAccountingLoaded(true);
     setWorkspaceRefreshVersion(current => current + 1);
     setPhase('READY');
-  }, [config, boundFetcher, route]);
+  }, [config, boundFetcher, route, accountingReadGeneration]);
 
   const refreshAfterControlledTestWorkflow = useCallback(async () => {
     if (!config) return;
+    const isCurrent = accountingReadGuard.current.begin('controlled-workflow', accountingReadGeneration);
+    if (!isCurrent()) return;
     const [documents, journals] = await Promise.all([
       refreshAuthoritativeDocuments({config,fetcher:boundFetcher}),
       refreshAuthoritativeJournalEntries({config,fetcher:boundFetcher}),
     ]);
+    if (!isCurrent()) return;
     if (documents.ok && journals.ok) {
       setData({ap:documents.ap,ar:documents.ar,journals:journals.journals});
       setSharedAccountingLoaded(true);setError(null);
@@ -401,11 +412,14 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     // GL, reports and Source Documents own their GET state and remount on the
     // next visit; the revision also refreshes either AI launch surface now.
     setWorkspaceRefreshVersion(current=>current+1);
-  },[config,boundFetcher]);
+  },[config,boundFetcher,accountingReadGeneration]);
 
   const openDraftJournalWorkflow = useCallback(async (receipt,notFoundCode) => {
     if (!config || !receipt?.journal_entry_id) return;
+    const isCurrent = accountingReadGuard.current.begin('draft', accountingReadGeneration);
+    if (!isCurrent()) return;
     const journals=await refreshAuthoritativeJournalEntries({config,fetcher:boundFetcher});
+    if (!isCurrent()) return;
     if (!journals.ok) { setError(journals); return; }
     if (!journals.journals.some(row=>row.journal_entry_id===receipt.journal_entry_id&&row.status==='DRAFT')) {
       setError({code:notFoundCode,message:'The created Draft was not returned by the exact company and period Journal register. Refresh before continuing.'});
@@ -413,7 +427,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     }
     setData(current=>({...current,journals:journals.journals}));
     setSharedAccountingLoaded(true);setError(null);setRoute('journals');setWorkflowJournalId(receipt.journal_entry_id);
-  },[config,boundFetcher,setRoute]);
+  },[config,boundFetcher,setRoute,accountingReadGeneration]);
   const openWbsH1DraftWorkflow = useCallback(receipt=>openDraftJournalWorkflow(receipt,'WBS_H1_DRAFT_JOURNAL_NOT_FOUND'),[openDraftJournalWorkflow]);
   const openAiDraftWorkflow = useCallback(receipt=>openDraftJournalWorkflow(receipt,'AI_DRAFT_JOURNAL_NOT_FOUND'),[openDraftJournalWorkflow]);
 
@@ -501,29 +515,33 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     if(result.ok){ setPhase('AUTHENTICATED'); return; }
     setError(result);
   };
-  const logout = () => { oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setDocumentDetail(null); setAdjustmentDetail(null); setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}}); setError(null); setRenewalFailure(null); setSessionExpired(false); setPhase('LOGIN_REQUIRED'); };
+  const logout = () => { accountingReadGuard.current.invalidate(); oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setDocumentDetail(null); setAdjustmentDetail(null); setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}}); setError(null); setRenewalFailure(null); setSessionExpired(false); setPhase('LOGIN_REQUIRED'); };
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeChartOfAccounts({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeRows(result.ok?result.rows:[]);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeScope({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeMetadata(result.ok?result.row:null);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};setAccessState({status:'LOADING'});refreshCurrentActorAccess({config,fetcher:boundFetcher}).then(result=>{if(current)setAccessState(result.ok?{status:'READY',row:result.row}:{status:'ERROR',code:result.code,message:result.message});});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY'||!baseConfig)return()=>{current=false;};refreshAuthoritativeScopeCatalog({config:baseConfig,fetcher:boundFetcher}).then(result=>{if(current&&result.ok)setScopeCatalog([...result.rows]);});return()=>{current=false;};},[phase,baseConfig,boundFetcher]);
   const applyScope=useCallback(next=>{
     if(!next||next.entity_id===config?.entityId&&next.period_id===config?.periodId)return;
+    accountingReadGuard.current.invalidate();
+    setWorkflowJournalId(null);setReportReconciliationDetail(null);setError(null);setPhase('AUTHENTICATED');
     setSelectedScope(next);setData({ap:{bills:[],adjustments:[]},ar:{invoices:[],adjustments:[]},journals:[]});setSharedAccountingLoaded(false);setScopeRows([]);setScopeMetadata(null);setDocumentDetail(null);setAdjustmentDetail(null);setAgingDetail(null);setReportAgingDetail(null);setReportGeneralLedgerDetail(null);setReportCatalogReturn(null);setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}});setWorkspaceRefreshVersion(current=>current+1);
   },[config]);
   const nativeDraftOriginRef=useRef(config);
   nativeDraftOriginRef.current=config;
   const openNativeSettlementDraft=useCallback(async(receipt,paymentScope)=>{
     const origin=config;
+    const isCurrent = accountingReadGuard.current.begin('native-settlement', accountingReadGeneration);
+    if (!isCurrent()) return;
     const target=scopeCatalog.find(row=>row.entity_id===config?.entityId&&row.period_id===paymentScope?.period_id);
     if(!target||!receipt?.journal_entry_id){setError({code:'NATIVE_SETTLEMENT_SCOPE_UNCONFIRMED',message:'Refresh the company periods before opening the saved draft.'});return;}
     const targetConfig={...config,periodId:target.period_id};
     const [documents,journals]=await Promise.all([refreshAuthoritativeDocuments({config:targetConfig,fetcher:boundFetcher}),refreshAuthoritativeJournalEntries({config:targetConfig,fetcher:boundFetcher})]);
-    if(nativeDraftOriginRef.current!==origin)return;
+    if(!isCurrent()||nativeDraftOriginRef.current!==origin)return;
     if(!documents.ok||!journals.ok){setError(!documents.ok?documents:journals);return;}
     if(!journals.journals.some(row=>row.journal_entry_id===receipt.journal_entry_id&&row.status==='DRAFT')){setError({code:'NATIVE_SETTLEMENT_DRAFT_NOT_FOUND',message:'The saved draft was not returned by its payment-period journal register. Refresh before continuing.'});return;}
     applyScope(target);
     setData({ap:documents.ap,ar:documents.ar,journals:journals.journals});setSharedAccountingLoaded(true);setError(null);setRoute('journals');setWorkflowJournalId(receipt.journal_entry_id);
-  },[config,scopeCatalog,boundFetcher,applyScope,setRoute]);
+  },[config,scopeCatalog,boundFetcher,applyScope,setRoute,accountingReadGeneration]);
   const selectEntityScope=useCallback(entityId=>{
     const choices=scopeCatalog.filter(row=>row.entity_id===entityId).sort((a,b)=>b.period_start.localeCompare(a.period_start));
     applyScope(choices.find(row=>row.period_code===scopeMetadata?.period_code)||choices[0]);
