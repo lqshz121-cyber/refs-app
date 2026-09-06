@@ -2551,6 +2551,14 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async createNativeRefund(args){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_create_native_refund($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) AS result',
+      [args.tenantId,args.entityId,args.sourceAdjustmentId,args.periodId,args.number,args.date,
+        args.cashAccountCode,args.bankMemberRef,args.amount,args.reason,args.attachmentIds,args.idempotencyKey]
+    ),'NATIVE_REFUND_FAILED','Native refund Draft creation did not return a result').result);
+  }
+
   async createArRefund(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
