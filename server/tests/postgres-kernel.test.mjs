@@ -4233,7 +4233,8 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'vendor-credit-control-reader',['AP.VIEW'])});
   assert.deepEqual(await reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'0.0000',control_balance:'0.0000',in_balance:true}]);
   assert.deepEqual(await reader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'100.0000',days_31_60:'-100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
-  const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,randomUUID(),['AP.VENDOR_CREDIT.APPLY'])});
+  const allocationSession=await trustedSession(ids,randomUUID(),['AP.VENDOR_CREDIT.APPLY']);
+  const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>allocationSession});
   const usageArgs={...ids,action:'AP_CREDIT_APPLY',businessAdjustmentId:credit.business_adjustment_id};
   const beforeUsage=await applier.readCreditUsageContext(usageArgs);
   assert.equal(beforeUsage.available_amount,'100.0000');
@@ -4311,7 +4312,8 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   await poster.postJournal({...ids,journalEntryId:memo.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'ar-credit-post'});
   const agingReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-aging-reader',['AR.VIEW'])});
   assert.deepEqual(await agingReader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'100.0000',days_31_60:'-100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
-  const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,randomUUID(),['AR.CREDIT_MEMO.APPLY'])});
+  const allocationSession=await trustedSession(ids,randomUUID(),['AR.CREDIT_MEMO.APPLY']);
+  const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>allocationSession});
   const usageArgs={...ids,action:'AR_CREDIT_APPLY',businessAdjustmentId:memo.business_adjustment_id};
   const beforeUsage=await applier.readCreditUsageContext(usageArgs);
   assert.equal(beforeUsage.available_amount,'100.0000');
