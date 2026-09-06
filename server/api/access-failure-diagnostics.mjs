@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+
 const reasons=new Map([
   ['Context issuer identity denied','CONTEXT_ISSUER_IDENTITY'],
   ['Actor has no active DB authorization grant','NO_ACTIVE_GRANT'],
@@ -20,8 +22,9 @@ export function reportAccessFailure(error,write=record=>console.error(JSON.strin
   if(!reason&&/^Permission [A-Z][A-Z0-9_.]* denied$/.test(error.message||''))reason='ENTITY_PERMISSION';
   if(!reason&&/^permission denied for (function|table|schema|sequence) /.test(error.message||''))reason='DATABASE_OBJECT_PRIVILEGE';
   if(!reason&&/^permission denied to set role /.test(error.message||''))reason='DATABASE_ROLE_MEMBERSHIP';
-  if(!reason&&/violates row-level security policy/.test(error.message||''))reason='DATABASE_ROW_POLICY';
+  if(!reason&&/row-level security policy/.test(error.message||''))reason='DATABASE_ROW_POLICY';
   const where=typeof error.where==='string'?error.where:'';
   const stage=/\brefs_issue_context\(/.test(where)?'CONTEXT_ISSUE':/\brefs_bootstrap_context\(/.test(where)?'CONTEXT_BIND':/\brefs_assert_scope\(/.test(where)?'SCOPE_CHECK':'DATABASE_OPERATION';
-  try{write({event:'accounting_access_failure',sqlstate:'42501',reason:reason||'OTHER_DATABASE_ACCESS_DENIAL',stage});}catch{}
+  const signature=createHash('sha256').update(String(error.message||'')).digest('hex');
+  try{write({event:'accounting_access_failure',sqlstate:'42501',reason:reason||'OTHER_DATABASE_ACCESS_DENIAL',stage,signature});}catch{}
 }
