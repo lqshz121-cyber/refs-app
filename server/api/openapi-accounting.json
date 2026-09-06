@@ -574,6 +574,7 @@
     "/entities/{entityId}/attachments/reservations": {
       "post": {
         "operationId": "reserveAttachment",
+        "description": "Recover the same uploader/entity request from its retained reservation, including legacy random object keys. Metadata changes conflict. Pending recovery never extends the original upload window. A verified-clean replay returns matching file metadata without an upload URL; clients must not re-upload it. Expired or closed reservations require a new upload request key.",
         "parameters": [
           {
             "$ref": "#/components/parameters/EntityId"
@@ -3209,6 +3210,37 @@
           "upload_expires_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "media_type": {
+            "type": "string",
+            "enum": [
+              "application/pdf",
+              "image/png",
+              "image/jpeg",
+              "text/csv"
+            ]
+          },
+          "size_bytes": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 52428800
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$"
+              }
+            ]
+          },
+          "content_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
           }
         }
       },

@@ -1983,7 +1983,13 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         if(!result||result.status!=='RESOLVED'||!UUID.test(result.ai_finding_action_id||'')||result.can_create_draft!==false||result.can_review!==false||result.can_approve!==false||result.can_post!==false)throw new AccountingApiError(500,'AI_FINDING_ACTION_RESOLUTION_RESULT_INVALID','AI finding resolution must retain human accountability only and cannot grant accounting authority');
       }else if(parts.length===6&&parts[4]==='attachments'&&parts[5]==='reservations'){
         if(typeof attachmentServiceFactory!=='function')throw new AccountingApiError(503,'ATTACHMENT_SERVICE_UNAVAILABLE','Attachment service is unavailable');
-        allowOnly(payload,['name','mediaType','sizeBytes','contentHash']);const service=await attachmentServiceFactory(principal);result=await service.reserve(principal,{...payload,tenantId:principal.tenantId,entityId,idempotencyKey});
+        allowOnly(payload,['name','mediaType','sizeBytes','contentHash']);const service=await attachmentServiceFactory(principal);
+        try{result=await service.reserve(principal,{...payload,tenantId:principal.tenantId,entityId,idempotencyKey});}
+        catch(error){
+          if(error?.code==='ATTACHMENT_RESERVATION_CLOSED')throw new AccountingApiError(409,error.code,'This upload reservation is expired or closed. Start a new upload with a new request key.');
+          if(error?.code==='ATTACHMENT_RESERVATION_LOOKUP_UNAVAILABLE')throw new AccountingApiError(503,error.code,'Attachment recovery is unavailable');
+          throw error;
+        }
       }else if(parts.length===10&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[8]==='attachments'&&parts[9]==='reservations'){
         if(typeof attachmentServiceFactory!=='function')throw new AccountingApiError(503,'ATTACHMENT_SERVICE_UNAVAILABLE','Attachment service is unavailable');
         allowOnly(payload,['name','mediaType','sizeBytes','contentHash']);const service=await attachmentServiceFactory(principal);

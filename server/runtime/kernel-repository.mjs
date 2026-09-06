@@ -361,6 +361,13 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async findAttachmentReservation(args){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_find_attachment_reservation($1,$2,$3,$4,$5,$6,$7) AS result',
+      [args.tenantId,args.entityId,args.name,args.mediaType,args.sizeBytes,args.contentHash,args.idempotencyKey]
+    ),'ATTACHMENT_RESERVATION_LOOKUP_FAILED','Attachment reservation lookup failed').result);
+  }
+
   async reserveWbsPayableAttachment(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
