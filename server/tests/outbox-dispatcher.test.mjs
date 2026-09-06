@@ -128,3 +128,35 @@ test('health becomes stale when the last successful cycle or permission prefligh
 test('startup preflight rejects expired, extra, stale, missing-entity, duplicate, oversized, and credential-shaped inputs',async()=>{const actorId='outbox-service',base={tenant_id:tenantId,entity_id:entityId,actor_id:actorId,grant_set_version:1,permissions:['OUTBOX.DISPATCH'],configured_permissions:['OUTBOX.DISPATCH'],session_refresh_required:false},backlog={tenant_id:tenantId,entity_id:entityId,pending_count:0,failed_count:0,oldest_pending_at:null},verify=access=>new OutboxDispatchPreflight({kernelFactory:async()=>({readCurrentActorAccess:async()=>access,readOutboxDispatchBacklog:async()=>backlog})}).verify({trusted:true,actorId},{scopes:[{tenantId,entityId}]});for(const access of [{...base,permissions:[]},{...base,permissions:['OUTBOX.DISPATCH','GL.JE.POST'],configured_permissions:['OUTBOX.DISPATCH','GL.JE.POST']},{...base,session_refresh_required:true},{...base,grant_set_version:0}])await assert.rejects(verify(access),error=>['OUTBOX_DISPATCH_ACCESS_DENIED','OUTBOX_DISPATCH_ACCESS_INVALID'].includes(error.code));assert.throws(()=>validateOutboxDispatchScopes([{tenantId}]),error=>error.code==='OUTBOX_DISPATCH_SCOPE_INVALID');assert.throws(()=>validateOutboxDispatchScopes([{tenantId,entityId},{tenantId,entityId}]),error=>error.code==='OUTBOX_DISPATCH_SCOPE_DUPLICATE');assert.throws(()=>validateOutboxDispatchScopes(Array.from({length:101},(_,index)=>({tenantId,entityId:`00000000-0000-4000-8000-${String(index).padStart(12,'0')}`}))),error=>error.code==='OUTBOX_DISPATCH_SCOPE_INVALID');await assert.rejects(new OutboxDispatchPreflight({kernelFactory:async()=>({})}).verify({trusted:true,actorId:'sk-abcdefghijklmnop'},{scopes:[{tenantId,entityId}]}),error=>error.code==='OUTBOX_DISPATCH_ACCESS_INVALID');});
 
 test('production startup performs permission and backlog preflight before worker start and exposes a fatal-loop promise',async()=>{const source=await (await import('node:fs/promises')).readFile(new URL('../runtime/start-outbox-dispatch-worker.mjs',import.meta.url),'utf8');assert.match(source,/new OutboxDispatchPreflight/);assert.match(source,/await worker\.checkReadiness\(\)/);assert.ok(source.indexOf('await worker.checkReadiness()')<source.indexOf('healthServer=createServer'));assert.ok(source.indexOf('healthServer=createServer')<source.indexOf('worker.start()'));assert.match(source,/const loopPromise=worker\.start\(\),done=/);assert.match(source,/then\(runtime=>runtime\.done\)/);assert.match(source,/'127\.0\.0\.1'/);assert.doesNotMatch(source,/reconcile\(|refs_reconcile_actor_grants|INSERT INTO runtime_actor_grant/);});
+
+test('failed concurrent cycle drains active delivery before finishing and does not start queued scopes', async()=>{
+  const scopes=[1,2,3].map(n=>({tenantId:`tenant-${n}`,entityId:`entity-${n}`}));
+  let release;
+  const pending=new Promise(resolve=>{release=resolve;});
+  const calls=[];
+  const failure=Object.assign(new Error('delivery failed'),{code:'OUTBOX_PUBLISH_RETRYABLE'});
+  const worker=new OutboxDispatchWorker({
+    principal:{trusted:true,actorId:'outbox-service'},scopes,concurrency:2,logger:{error(){}},
+    readinessProbe:async()=>({schema_version:'OUTBOX_DISPATCH_READINESS_V1',ready:true,scope_count:3,checked_at:new Date().toISOString(),scopes:scopes.map(scope=>({tenant_id:scope.tenantId,entity_id:scope.entityId,permission:'OUTBOX.DISPATCH',grant_set_version:1}))}),
+    service:{runOnce:async(_principal,scope)=>{
+      calls.push(scope.tenantId);
+      if(scope.tenantId==='tenant-1')throw failure;
+      if(scope.tenantId==='tenant-2')await pending;
+      return [{status:'PUBLISHED'}];
+    }},
+  });
+  let settled=false;
+  const cycle=worker.runCycle().then(()=>{settled=true;return null;},error=>{settled=true;return error;});
+  try{
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(calls,['tenant-1','tenant-2']);
+    assert.equal(settled,false,'cycle must wait for the already active delivery');
+    assert.equal(worker.metrics.lastCycleFinishedAt,null);
+  }finally{release();await cycle;}
+  assert.equal(await cycle,failure);
+  assert.deepEqual(calls,['tenant-1','tenant-2'],'no queued scope starts after a peer failed');
+  assert.equal(worker.metrics.published,1);
+  assert.equal(worker.metrics.cycles,0);
+  assert.equal(worker.metrics.cycleErrors,1);
+  assert.equal(worker.metrics.lastSuccessAt,null);
+});
