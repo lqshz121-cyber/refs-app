@@ -1,4 +1,5 @@
 import {BusinessRecordEvidence} from '../src/business-record-detail.jsx';
+import {ListedRecordJournal} from '../src/listed-record-journal.jsx';
 import {formatExactCurrency} from '../src/exact-currency.js';
 import {CreditAllocationHistory} from '../src/credit-allocation-history.jsx';
 import {DocumentSettlementHistory} from '../src/document-settlement-history.jsx';
@@ -22,6 +23,15 @@ assert.equal(formatExactCurrency('12.1000','KWD'),'KWD 12.100');
 assert.equal(formatExactCurrency(null,'USD'),'Not available');
 assert.equal(formatExactCurrency('1e20','USD'),'Not available');
 const access={entity_id:config.entityId,actor_id:'oidc|maker',session_refresh_required:false,permissions:['AP.BILL.CREATE','AR.INVOICE.CREATE','ATTACHMENT.CREATE']};
+for(const recordKind of ['AP_BILL','AR_INVOICE','AP_VENDOR_CREDIT','AR_CREDIT_MEMO']){
+ const permissions=[recordKind.startsWith('AP')?'AP.VIEW':'AR.VIEW','GL.JE.VIEW'];
+ const render=patch=>renderToStaticMarkup(<ListedRecordJournal config={config} recordKind={recordKind} access={{...access,permissions,...patch}} row={{}}/>);
+ assert.match(render({}),/>View journal</);
+ assert.equal(render({permissions:[permissions[0]]}),'');
+ assert.equal(render({permissions:['GL.JE.VIEW']}),'');
+ assert.equal(render({session_refresh_required:true}),'');
+ assert.equal(render({entity_id:'another-company'}),'');
+}
 const scope={entity_id:config.entityId,period_id:config.periodId,entity_name:'Scoped company',period_code:'2026-08',base_currency:'USD',period_start:'2026-08-01',period_end:'2026-08-31',period_status:'OPEN'};
 const accounts=[{period_id:config.periodId,account_code:'610000',account_name:'Office',active:true,requires_member:false},{period_id:config.periodId,account_code:'291001',account_name:'Control',active:true,requires_member:true}];
 const refundAccess={...access,permissions:['AR.REFUND.CREATE','ATTACHMENT.CREATE']};
