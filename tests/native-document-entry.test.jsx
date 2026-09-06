@@ -1,4 +1,5 @@
 import {BusinessRecordEvidence} from '../src/business-record-detail.jsx';
+import {retainNativeDocument,releaseNativeDocument} from '../src/native-document-recovery.js';
 import {ListedRecordJournal} from '../src/listed-record-journal.jsx';
 import {formatExactCurrency} from '../src/exact-currency.js';
 import {CreditAllocationHistory} from '../src/credit-allocation-history.jsx';
@@ -33,6 +34,12 @@ for(const recordKind of ['AP_BILL','AR_INVOICE','AP_VENDOR_CREDIT','AR_CREDIT_ME
  assert.equal(render({entity_id:'another-company'}),'');
 }
 const scope={entity_id:config.entityId,period_id:config.periodId,entity_name:'Scoped company',period_code:'2026-08',base_currency:'USD',period_start:'2026-08-01',period_end:'2026-08-31',period_status:'OPEN'};
+for(const kind of ['AP_BILL','AR_INVOICE']){
+ const recoveryScope={config,kind,actorId:access.actor_id},command={baseUrl:config.baseUrl,entityId:config.entityId,periodId:config.periodId,kind,actorId:access.actor_id,idempotencyKey:'retained-test-'+kind};
+ retainNativeDocument(recoveryScope,command);
+ try{assert.match(renderToStaticMarkup(<NativeDocumentEntry config={config} kind={kind} scope={{...scope,period_status:'CLOSED'}} access={access}/>),/Resume pending/);}finally{releaseNativeDocument(recoveryScope,command);}
+ assert.equal(renderToStaticMarkup(<NativeDocumentEntry config={config} kind={kind} scope={{...scope,period_status:'CLOSED'}} access={access}/>),'');
+}
 const accounts=[{period_id:config.periodId,account_code:'610000',account_name:'Office',active:true,requires_member:false},{period_id:config.periodId,account_code:'291001',account_name:'Control',active:true,requires_member:true}];
 const refundAccess={...access,permissions:['AR.REFUND.CREATE','ATTACHMENT.CREATE']};
 const credit={business_adjustment_id:config.periodId,adjustment_kind:'AR_CREDIT_MEMO',status:'POSTED',period_id:config.periodId,amount:'12.3400',currency:'USD',version:'1',accounting_date:'2026-08-01'};

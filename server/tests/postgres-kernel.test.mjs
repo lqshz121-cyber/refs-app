@@ -3502,6 +3502,16 @@ pgTest('authenticated HTTP creates AP Bills and AR Invoices only as evidence-bac
     const result=response.body.data;
     assert.deepEqual((await adminPool.query('SELECT status,open_balance,draft_journal_entry_id,posted_journal_entry_id FROM business_document WHERE business_document_id=$1',[result.business_document_id])).rows[0],{status:'DRAFT',open_balance:'100.0000',draft_journal_entry_id:result.journal_entry_id,posted_journal_entry_id:null});
     assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[result.journal_entry_id])).rows[0].n,0);
+    const documentCountBefore=(await adminPool.query('SELECT count(*)::int n FROM business_document WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n;
+    await adminPool.query("UPDATE accounting_period SET status='SOFT_CLOSED' WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3",[ids.tenantId,ids.entityId,ids.periodId]);
+    try{
+      const replay=await send('document-maker',`${root}/${module}`,body,key);
+      assert.equal(replay.status,200,JSON.stringify(replay.body));assert.equal(replay.body.data.idempotent,true);assert.equal(replay.body.data.business_document_id,result.business_document_id);assert.equal(replay.body.data.journal_entry_id,result.journal_entry_id);
+      const fresh=await send('document-maker',`${root}/${module}`,{...body,documentNumber:body.documentNumber+'-CLOSED'},key+'-closed-new');assert.equal(fresh.status,423,JSON.stringify(fresh.body));
+      assert.equal((await adminPool.query('SELECT count(*)::int n FROM business_document WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n,documentCountBefore);
+      assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[result.journal_entry_id])).rows[0].n,0);
+      assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type IN ('AP_BILL_DRAFT_CREATED','AR_INVOICE_DRAFT_CREATED')",[result.business_document_id])).rows[0].n,1);
+    }finally{await adminPool.query("UPDATE accounting_period SET status='OPEN' WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3",[ids.tenantId,ids.entityId,ids.periodId]);}
     const journalPath=`${root}/journal-entries/${result.journal_entry_id}`;
     assert.equal((await send('document-submitter',`${journalPath}/transitions/submit`,{},`${key}-submit`,0)).status,201);
     assert.equal((await send('document-reviewer',`${journalPath}/transitions/review`,{},`${key}-review`,1)).status,201);
