@@ -5104,7 +5104,7 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   assert.equal((await adminPool.query('SELECT business_source_document_id FROM bank_match WHERE bank_match_id=$1',[created.bank_match_id])).rows[0].business_source_document_id,null);
   const readApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'bank-null-source-reader'}),kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bank-null-source-reader',['BANK.VIEW'])})});
   const clientConfig={baseUrl:'https://fixture.example',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>'fixture-token-'.repeat(4)};
-  const clientFetch=async(url,options)=>{const result=await readApi({method:options.method,url:new URL(url).pathname+new URL(url).search,body:null,headers:options.headers});return {ok:result.status>=200&&result.status<300,status:result.status,json:async()=>result.body};};
+  const clientFetch=async(url,options)=>{const result=await readApi({method:options.method,url:new URL(url).pathname+new URL(url).search,body:null,headers:options.headers});return {ok:result.status>=200&&result.status<300,status:result.status,json:async()=>JSON.parse(JSON.stringify(result.body))};};
   const {refreshAuthoritativeBankTransactions,refreshAuthoritativeReconciliationWorksheet}=await import('../../src/accounting-api.js');
   const bankRead=await refreshAuthoritativeBankTransactions({config:clientConfig,bankAccountRef:'BANK-1',fetcher:clientFetch});
   assert.equal(bankRead.ok,true,JSON.stringify(bankRead));assert.equal(bankRead.rows[0].business_source_document_id,null);assert.equal(bankRead.rows[0].journal_entry_id,exact.payment.journal_entry_id);
