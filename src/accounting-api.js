@@ -2537,7 +2537,18 @@ export async function createAuthoritativeAdjustment({config,kind,adjustment,idem
   if(kind==='AP_VENDOR_CREDIT'){path='/ap/vendor-credits';body={...common,creditNumber:adjustment?.number,creditDate:adjustment?.date,vendorRef:String(adjustment?.counterpartyRef||''),vendorName:adjustment?.counterpartyName,lines:adjustment?.lines};}
   else if(kind==='AR_CREDIT_MEMO'){path='/ar/credit-memos';body={...common,memoNumber:adjustment?.number,memoDate:adjustment?.date,customerRef:String(adjustment?.counterpartyRef||''),customerName:adjustment?.counterpartyName,lines:adjustment?.lines};}
   else {if(typeof config.cashAccountCode!=='string'||!config.cashAccountCode)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Refund requires authoritative cash-account configuration.'};path='/ar/refunds';body={...common,sourceAdjustmentId:adjustment?.sourceAdjustmentId,refundNumber:adjustment?.number,refundDate:adjustment?.date,cashAccountCode:config.cashAccountCode};}
-  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});if(!response.ok)return await failure(response);const result=await response.json();if(result?.ok!==true||!result.data)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid adjustment envelope.'};return {ok:true,data:result.data,idempotent:response.status===200};}catch{return unreachable('The browser could not complete the authoritative adjustment command; no HTTP response was produced.');}
+  const unconfirmed=()=>({ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'The API did not confirm the adjustment and Draft journal. Check the saved adjustment or retry with the same request key.'});
+  let response;
+  try{response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});}
+  catch{return unreachable('The browser could not confirm the adjustment command. Check the saved adjustment or retry with the same request key.');}
+  if(!response.ok)return await failure(response);
+  let result;try{result=await response.json();}catch{return unconfirmed();}
+  const receipt=result?.data;
+  if(![200,201].includes(response.status)||result?.ok!==true||!receipt||Array.isArray(receipt)
+    ||!UUID.test(receipt.business_adjustment_id||'')||!UUID.test(receipt.journal_entry_id||'')
+    ||receipt.status!=='DRAFT'||receipt.revision!==0||receipt.idempotent!==(response.status===200)
+    ||kind==='AR_REFUND'&&(!UUID.test(receipt.source_adjustment_id||'')||receipt.source_adjustment_id!==adjustment?.sourceAdjustmentId))return unconfirmed();
+  return {ok:true,data:receipt,idempotent:receipt.idempotent};
 }
 
 export async function applyAuthoritativeCredit({config,kind,businessAdjustmentId,businessDocumentId,amount,reason,idempotencyKey,fetcher=globalThis.fetch}={}){
