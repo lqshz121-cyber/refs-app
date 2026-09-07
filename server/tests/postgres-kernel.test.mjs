@@ -6508,8 +6508,12 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   const matchRequest={method:'POST',url:matchUrl,body:{salesReceiptId:receipt.sales_receipt_id,expectedReceiptRevision:1,reason:'Reviewed native cash sale bank match'},headers:{'idempotency-key':'native-sale-bank-match-001','if-match':'"'+matchRevision+'"'}};
   assert.equal((await postedReadApi(matchRequest)).status,403);
   const ledgerBeforeMatch=(await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
-  const matched=await bankCandidateApi(matchRequest);assert.equal(matched.status,201,JSON.stringify(matched.body));assert.equal(matched.body.data.sales_receipt_id,receipt.sales_receipt_id);assert.equal(matched.body.data.ledger_line_id,saleCandidate.ledger_line_id);
+  const matching=await Promise.all([bankCandidateApi(matchRequest),bankCandidateApi(matchRequest)]);
+  assert.deepEqual(matching.map(r=>r.status).sort(),[200,201],JSON.stringify(matching));
+  const matched=matching.find(r=>r.status===201);assert.equal(matching[0].body.data.bank_match_id,matching[1].body.data.bank_match_id);assert.equal(matched.body.data.sales_receipt_id,receipt.sales_receipt_id);assert.equal(matched.body.data.ledger_line_id,saleCandidate.ledger_line_id);
   const matchReplay=await bankCandidateApi(matchRequest);assert.equal(matchReplay.status,200,JSON.stringify(matchReplay.body));assert.equal(matchReplay.body.data.bank_match_id,matched.body.data.bank_match_id);
+  const otherMatcherApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'sale-other-bank-matcher'}),kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'sale-other-bank-matcher',['BANK.MATCH.CREATE'])})});
+  assert.equal((await otherMatcherApi(matchRequest)).status,403,'idempotent replay remains bound to its original actor');
   assert.equal((await bankCandidateApi({...matchRequest,headers:{...matchRequest.headers,'idempotency-key':'native-sale-bank-match-002'}})).status,409);
   assert.equal((await bankCandidateApi({...matchRequest,body:{...matchRequest.body,reason:'Changed original request reason'}})).status,409);
   assert.equal((await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.rows.length,0);
