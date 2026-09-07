@@ -15,6 +15,210 @@
     }
   ],
   "paths": {
+    "/entities/{entityId}/bank/transactions/{bankSourceId}/sales-receipt-matches": {
+  "post": {
+    "operationId": "createSalesReceiptBankMatch",
+    "summary": "Match a bank transaction to a posted Sales Receipt",
+    "description": "Requires BANK.MATCH.CREATE and exact bank/receipt revisions. Actor-bound idempotency, account reconciliation lock, posted receipt/cash ledger validation and active-match uniqueness. Signed reconciliation coverage must be reopened first. Atomically retains typed match, source trace, audit and outbox; no ledger or AR mutation.",
+    "parameters": [
+      {
+        "$ref": "#/components/parameters/EntityId"
+      },
+      {
+        "$ref": "#/components/parameters/BankSourceId"
+      },
+      {
+        "$ref": "#/components/parameters/IdempotencyKey"
+      },
+      {
+        "$ref": "#/components/parameters/IfMatch"
+      }
+    ],
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "salesReceiptId",
+              "expectedReceiptRevision",
+              "reason"
+            ],
+            "properties": {
+              "salesReceiptId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "expectedReceiptRevision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 8,
+                "maxLength": 2000
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "Same-actor idempotent replay",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "ok",
+                "data"
+              ],
+              "properties": {
+                "ok": {
+                  "const": true
+                },
+                "data": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "bank_match_id",
+                    "bank_source_id",
+                    "sales_receipt_id",
+                    "journal_entry_id",
+                    "journal_line_id",
+                    "ledger_line_id",
+                    "status",
+                    "revision",
+                    "idempotent"
+                  ],
+                  "properties": {
+                    "bank_match_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "bank_source_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "sales_receipt_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "journal_entry_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "journal_line_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "ledger_line_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "status": {
+                      "const": "ACTIVE"
+                    },
+                    "revision": {
+                      "const": 0
+                    },
+                    "idempotent": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "201": {
+        "description": "Cash sale bank match created",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "ok",
+                "data"
+              ],
+              "properties": {
+                "ok": {
+                  "const": true
+                },
+                "data": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "bank_match_id",
+                    "bank_source_id",
+                    "sales_receipt_id",
+                    "journal_entry_id",
+                    "journal_line_id",
+                    "ledger_line_id",
+                    "status",
+                    "revision",
+                    "idempotent"
+                  ],
+                  "properties": {
+                    "bank_match_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "bank_source_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "sales_receipt_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "journal_entry_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "journal_line_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "ledger_line_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "status": {
+                      "const": "ACTIVE"
+                    },
+                    "revision": {
+                      "const": 0
+                    },
+                    "idempotent": {
+                      "const": false
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "412": {
+        "$ref": "#/components/responses/PreconditionFailed"
+      },
+      "503": {
+        "$ref": "#/components/responses/SerializationRetryExhausted"
+      },
+      "default": {
+        "$ref": "#/components/responses/Problem"
+      }
+    }
+  }
+},
     "/entities/{entityId}/bank/transactions/{bankSourceId}/sales-receipt-candidates": {
   "get": {
     "operationId": "readSalesReceiptBankCandidates",
