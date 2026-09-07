@@ -751,7 +751,8 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!Number.isInteger(selection.limit)||selection.limit<1||selection.limit>100||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Candidate page size is invalid');
         const kernel=await kernelFactory(principal);
         if(!kernel||typeof kernel.readSalesReceiptBankCandidates!=='function')throw new AccountingApiError(503,'SALES_RECEIPT_BANK_CANDIDATES_UNAVAILABLE','Cash sale bank candidates are unavailable');
-        result=await kernel.readSalesReceiptBankCandidates({tenantId:principal.tenantId,entityId,...selection});
+        try{result=await kernel.readSalesReceiptBankCandidates({tenantId:principal.tenantId,entityId,...selection});}
+        catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'SALES_RECEIPT_BANK_CURSOR_INVALID','The cash sale cursor is invalid for this company. Refresh from the first page.');throw error;}
         if(!validSalesReceiptBankCandidates(result,{entityId,...selection}))throw new AccountingApiError(500,'SALES_RECEIPT_BANK_CANDIDATES_INVALID','Cash sale candidates did not match the requested scope');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
