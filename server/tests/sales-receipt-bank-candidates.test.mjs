@@ -17,6 +17,7 @@ test('cash sale candidates retain exact typed identities, money and authenticate
 test('cash sale candidate output rejects mismatched source, malformed money, trace and cursor',async()=>{
  for(const changed of [{...page,bank_source_id:entityId},{...page,entity_id:tenantId},{...page,rows:[{...row,amount:9007199254740993}]},{...page,rows:[{...row,amount:'0.0000'}]},{...page,rows:[{...row,accounting_date:'2026-02-30'}]},{...page,rows:[{...row,journal_line_id:null}]},{...page,rows:[row,row]},{...page,next_id:row.sales_receipt_id},{...page,rows:[{...row,payment_occurrence_id:row.sales_receipt_id}]},{...page,rows:[{...row,receipt_revision:'9223372036854775808'}]}])assert.equal((await get(apiFor({readSalesReceiptBankCandidates:async()=>changed}))).status,500);
  assert.equal((await get(apiFor({}))).status,503);
+ assert.equal((await get(apiFor({readSalesReceiptBankCandidates:async()=>{throw Object.assign(new Error('Wrong company cursor'),{code:'22023'});}}))).status,400);
  assert.equal((await get(apiFor({readSalesReceiptBankCandidates:async()=>{throw Object.assign(new Error('Denied'),{code:'42501'});}}))).status,403);
  const afterId='11111111-1111-4111-8111-111111111111';
  assert.equal((await get(apiFor({readSalesReceiptBankCandidates:async()=>({...page,after_id:afterId,limit:1,next_id:row.sales_receipt_id})}),`?afterId=${afterId}&limit=1`)).status,200);
