@@ -1,0 +1,11 @@
+# Sales Receipt bank matching
+
+Bank match review now offers a Sales receipt choice alongside the existing payment review. The receipt form loads bounded candidate pages, requires an explicit receipt selection and review reason, and displays the full four-decimal receipt amount. A historical bank match can be reviewed for a new cash-sale match; the existing payment history behavior is unchanged.
+
+Preparation checks current bank/candidate revisions, bank account, currency, exact amount and current matching access. Each new logical review receives a nonce; retries preserve its exact body, If-Match version and idempotency key. A later review after unmatch is distinct from replaying the original match. Access verification and POST use the same bearer, and a prepared request must retain its original actor and scope.
+
+The form prevents concurrent submissions and source-type changes while busy or holding an unconfirmed request. It retains pending intent by API/company/bank/actor across component navigation within the page session. After a verified command receipt, refresh retries only read the bank record. The returned active match, receipt and ledger identities must agree before reporting a refreshed match. A subsequent authoritative match change releases the old pending intent for review. Rejected commands clear the selection; uncertain responses preserve the original request.
+
+API tests cover candidate scope/precision, replay identity, changed actor, malformed receipt, fresh review nonce, changed request, stale bank evidence and bearer consistency. An isolated Chrome fixture uses the actual form and mocked API at 1280 and 390 pixels, checking pagination, exact amount, double-click protection, retry focus, component remount recovery, actor change, identical retry, failed refresh and later confirmed readback. This is not live API/identity acceptance.
+
+Browser reload/restart recovery is not durable: the pending intent map is memory-only. Direct business-document navigation, complete payment candidate selection, typed unmatch/sign-off concurrency, large-volume performance, independent audit and live business acceptance remain outstanding. Matching does not post another ledger entry. No deployment or production-completeness claim is made.

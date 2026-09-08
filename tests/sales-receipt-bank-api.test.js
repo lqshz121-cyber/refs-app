@@ -1,0 +1,32 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {readSalesBankCandidates,prepareSalesBankMatch,sendSalesBankMatch} from '../src/sales-receipt-bank-api.js';
+const id=n=>`${n.repeat(8)}-${n.repeat(4)}-4${n.repeat(3)}-8${n.repeat(3)}-${n.repeat(12)}`;
+const config={baseUrl:'https://fixture.example',entityId:id('1'),periodId:id('2'),getAccessToken:async()=>'fixture-token-'.repeat(4)};
+const bank={bank_source_id:id('3'),version:2,bank_account_ref:'BANK-1',currency:'USD',amount:'1.2345',bank_match_id:null};
+const candidate={sales_receipt_id:id('4'),receipt_revision:'1',receipt_number:'SALE-001',period_id:id('2'),customer_ref:'CUSTOMER-1',customer_name:'Customer One',bank_member_ref:'BANK-1',cash_account_code:'111001',accounting_date:'2026-07-15',currency:'USD',amount:'1.2345',journal_entry_id:id('5'),journal_revision:'4',journal_line_id:id('6'),ledger_line_id:id('7'),date_delta_days:-1};
+const access=actor=>({ok:true,data:{tenant_id:id('8'),entity_id:config.entityId,actor_id:actor,grant_set_version:1,permissions:['BANK.MATCH.CREATE'],configured_permissions:['BANK.MATCH.CREATE'],session_refresh_required:false}});
+const response=(body,status=200)=>({ok:status<400,status,json:async()=>body});
+const page={schema_version:'SALES_RECEIPT_BANK_CANDIDATES_V1',entity_id:config.entityId,bank_source_id:bank.bank_source_id,bank_revision:'2',after_id:null,limit:25,rows:[candidate],next_id:null};
+test('cash sale candidate pages retain exact amount, source, revision and cursor scope',async()=>{
+ let call;const read=await readSalesBankCandidates({config,bankSourceId:bank.bank_source_id,fetcher:async(url,options)=>{call={url,...options};return response({ok:true,data:page});}});
+ assert.equal(read.ok,true);assert.equal(read.data.rows[0].amount,'1.2345');assert.equal(read.data.rows[0].date_delta_days,-1);assert.equal(call.method,'GET');assert.match(call.url,/sales-receipt-candidates\?limit=25$/);
+ for(const patch of [{entity_id:id('9')},{bank_revision:2},{next_id:candidate.sales_receipt_id},{rows:[{...candidate,amount:1.2345}]}])assert.equal((await readSalesBankCandidates({config,bankSourceId:bank.bank_source_id,fetcher:async()=>response({ok:true,data:{...page,...patch}})})).ok,false);
+});
+test('cash sale match retries bind actor, versions, exact request and posted trace',async()=>{
+ const posts=[];let actor='matcher',loseResponse=true;
+ const receipt={bank_match_id:id('9'),bank_source_id:bank.bank_source_id,sales_receipt_id:candidate.sales_receipt_id,journal_entry_id:candidate.journal_entry_id,journal_line_id:candidate.journal_line_id,ledger_line_id:candidate.ledger_line_id,status:'ACTIVE',revision:0,idempotent:true};
+ const fetcher=async(url,options)=>{if(url.endsWith('/access/self'))return response(access(actor));posts.push({url,...options});if(loseResponse){loseResponse=false;throw Error('response lost after commit');}return response({ok:true,data:receipt});};
+ const prepared=await prepareSalesBankMatch({config,bank,candidate,bankRevision:'2',reason:'Reviewed matching receipt',expectedActorId:actor,fetcher});assert.equal(prepared.ok,true,JSON.stringify(prepared));
+ const later=await prepareSalesBankMatch({config,bank:{...bank,bank_match_id:id('9'),match_status:'UNMATCHED'},candidate,bankRevision:'2',reason:'Reviewed matching receipt',expectedActorId:actor,fetcher});assert.equal(later.ok,true);assert.notEqual(later.command.idempotencyKey,prepared.command.idempotencyKey,'a new review after unmatch is distinct from replaying the earlier command');
+ const first=await sendSalesBankMatch({config,command:prepared.command,fetcher});assert.equal(first.unconfirmed,true);assert.equal(posts.length,1);
+ actor='another-matcher';assert.equal((await sendSalesBankMatch({config,command:prepared.command,fetcher})).ok,false);assert.equal(posts.length,1);
+ actor='matcher';const replay=await sendSalesBankMatch({config,command:prepared.command,fetcher});assert.equal(replay.ok,true,JSON.stringify(replay));assert.equal(posts.length,2);
+ assert.equal(posts[0].body,posts[1].body);assert.equal(posts[0].headers['idempotency-key'],posts[1].headers['idempotency-key']);assert.equal(posts[0].headers['if-match'],'"2"');
+ assert.deepEqual(JSON.parse(posts[0].body),{salesReceiptId:candidate.sales_receipt_id,expectedReceiptRevision:1,reason:'Reviewed matching receipt'});
+ assert.equal((await sendSalesBankMatch({config,command:{...prepared.command,body:{...prepared.command.body,reason:'Changed request reason'}},fetcher})).ok,false);assert.equal(posts.length,2);
+ const malformed=await sendSalesBankMatch({config,command:prepared.command,fetcher:async(url)=>url.endsWith('/access/self')?response(access(actor)):response({ok:true,data:{...receipt,ledger_line_id:id('8')}})});assert.equal(malformed.unconfirmed,true);
+ let tokenCalls=0;const seenAuth=[];
+ const created=await sendSalesBankMatch({config:{...config,getAccessToken:async()=>{tokenCalls++;return `fixture-token-${tokenCalls}-`.repeat(4);}},command:prepared.command,fetcher:async(url,options)=>{seenAuth.push(options.headers.authorization);return url.endsWith('/access/self')?response(access(actor)):response({ok:true,data:{...receipt,idempotent:false}},201);}});
+ assert.equal(created.ok,true);assert.equal(tokenCalls,1);assert.equal(seenAuth.length,2);assert.equal(seenAuth[0],seenAuth[1],'access check and command use the same bearer');
+ for(const changed of [{...bank,amount:'1.2346'},{...bank,version:3}])assert.equal((await prepareSalesBankMatch({config,bank:changed,candidate,bankRevision:'2',reason:'Reviewed matching receipt',expectedActorId:actor,fetcher})).ok,false);
+});
