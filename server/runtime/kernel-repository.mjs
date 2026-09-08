@@ -2022,7 +2022,7 @@ export class PostgresAccountingKernel{
 
   async listBankTransactions({tenantId,entityId,bankAccountRef,fromDate=null,throughDate=null,limit=100,offset=0}){
     return this.inSession(async client=>(await client.query(
-      'SELECT * FROM refs_list_bank_transactions($1,$2,$3,$4::date,$5::date,$6,$7)',
+      'SELECT * FROM refs_list_bank_transactions_v2($1,$2,$3,$4::date,$5::date,$6,$7)',
       [tenantId,entityId,bankAccountRef,fromDate,throughDate,limit,offset]
     )).rows.map(row=>({...row,transaction_date:publicDate(row.transaction_date)})));
   }
@@ -2146,7 +2146,7 @@ export class PostgresAccountingKernel{
 
   async listReconciliationWorksheet({tenantId,entityId,reconciliationId}){
     return this.inSession(async client=>(await client.query(
-      'SELECT * FROM refs_list_reconciliation_worksheet($1,$2,$3)',
+      'SELECT * FROM refs_list_reconciliation_worksheet_v2($1,$2,$3)',
       [tenantId,entityId,reconciliationId]
     )).rows.map(row=>({...row,transaction_date:publicDate(row.transaction_date)})));
   }
@@ -2154,7 +2154,7 @@ export class PostgresAccountingKernel{
   async getReconciliationWorksheetItem({tenantId,entityId,reconciliationId,bankSourceId}){
     return this.inSession(async client=>{
       const rows=(await client.query(
-        'SELECT * FROM refs_get_reconciliation_worksheet_item($1,$2,$3,$4)',
+        'SELECT * FROM refs_get_reconciliation_worksheet_item_v2($1,$2,$3,$4)',
         [tenantId,entityId,reconciliationId,bankSourceId]
       )).rows.map(row=>({...row,transaction_date:publicDate(row.transaction_date)}));
       return rows.length===1?rows[0]:null;
