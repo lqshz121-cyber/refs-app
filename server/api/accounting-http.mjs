@@ -39,6 +39,7 @@ import {assertAiAccountingDecisionPacketFullBatch} from '../runtime/ai-accountin
 import {safeAiEvidenceTree} from '../runtime/ai-secret-safety.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {validCounterpartyProposal,validCounterpartyReview,validCounterpartyChangeReceipt} from '../runtime/counterparty-maintenance.mjs';
+import {validCounterpartyDetailSelection,validCounterpartyDetail,validCounterpartyChangesSelection,validCounterpartyChangesPage} from '../runtime/counterparty-maintenance-reads.mjs';
 import {assertWbsH1ImportInventory} from '../runtime/wbs-h1-import-inventory.mjs';
 import {assertWbsH1AccountingSettingsProposal,assertWbsH1AccountingSettingsHumanDecision} from '../runtime/wbs-h1-accounting-settings-proposal.mjs';
 import {projectAuthoritativeAccountingSettings} from '../runtime/authoritative-accounting-settings.mjs';
@@ -844,6 +845,19 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!kernel||typeof kernel.readCreditUsageContext!=='function')throw new AccountingApiError(503,'CREDIT_USAGE_CONTEXT_UNAVAILABLE','Credit availability is unavailable');
         result=await kernel.readCreditUsageContext({tenantId:principal.tenantId,entityId,...selection});
         if(!validCreditUsageContext(result,{entityId,...selection}))throw new AccountingApiError(500,'CREDIT_USAGE_CONTEXT_INVALID','Credit availability did not match its scope or balances');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&(parts.length===5&&parts[4]==='counterparty-changes'||parts.length===6&&parts[4]==='counterparties'&&parts[5]==='detail')){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Counterparty reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        const detail=parts[4]==='counterparties';
+        requireExactQuery(parsedUrl.searchParams,detail?['kind','memberRef']:['kind','status','memberRef','afterId','limit']);
+        const selection={kind:parsedUrl.searchParams.get('kind'),memberRef:parsedUrl.searchParams.get('memberRef'),...(detail?{}:{status:parsedUrl.searchParams.get('status')??'PENDING',afterId:parsedUrl.searchParams.get('afterId'),limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):25})};
+        if(!(detail?validCounterpartyDetailSelection(selection):validCounterpartyChangesSelection(selection))||!detail&&parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Counterparty detail or history selection is invalid');
+        const operation=detail?'readCounterpartyDetail':'readCounterpartyChanges',kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel[operation]!=='function')throw new AccountingApiError(503,'COUNTERPARTY_READ_UNAVAILABLE','Counterparty detail or history is unavailable');
+        result=await kernel[operation]({tenantId:principal.tenantId,entityId,...selection});
+        if(!(detail?validCounterpartyDetail(result,{entityId,...selection}):validCounterpartyChangesPage(result,{entityId,...selection})))throw new AccountingApiError(500,'COUNTERPARTY_READ_INVALID','Counterparty data did not match the requested scope or revision');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='POST'&&parts[4]==='counterparty-changes'&&(parts.length===5||parts.length===7&&parts[6]==='review')){

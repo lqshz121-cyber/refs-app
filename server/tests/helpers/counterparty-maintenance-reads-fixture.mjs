@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {PostgresAccountingKernel} from '../../runtime/kernel-repository.mjs';
+import {createAccountingApi} from '../../api/accounting-http.mjs';
 export async function proveCounterpartyMaintenanceReads({adminPool,runtimePool,seed,trustedSession,migrateDownThrough,migrateUp}){
  const ids=await seed({status:'DRAFT',attachmentStatus:null}),sibling=await seed({tenantId:ids.tenantId,status:'DRAFT',attachmentStatus:null});
  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'master-read-maker',['MASTER.COUNTERPARTY.PROPOSE'])});
@@ -32,4 +33,10 @@ export async function proveCounterpartyMaintenanceReads({adminPool,runtimePool,s
  const before=await read();await migrateDownThrough(adminPool,'330_counterparty_maintenance_reads.sql');
  assert.equal((await adminPool.query('SELECT count(*)::int n FROM counterparty_change WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n,3);
  await migrateUp(adminPool);assert.deepEqual(await read(),before);
+ const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'master-read-reader'}),kernelFactory:async()=>reader});
+ const http=async path=>api({method:'GET',url:`/api/v1/entities/${ids.entityId}/${path}`,headers:{},body:null});
+ const detailHttp=await http('counterparties/detail?kind=VENDOR&memberRef=HISTORY-1');
+ assert.equal(detailHttp.status,200,JSON.stringify(detailHttp.body));assert.deepEqual(detailHttp.body.data,await detail('HISTORY-1'));
+ const historyHttp=await http('counterparty-changes?kind=VENDOR&status=ALL');
+ assert.equal(historyHttp.status,200,JSON.stringify(historyHttp.body));assert.deepEqual(historyHttp.body.data,before);assert.equal(historyHttp.headers['cache-control'],'no-store');
 }

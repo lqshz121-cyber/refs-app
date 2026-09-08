@@ -1796,6 +1796,18 @@ export class PostgresAccountingKernel{
     ),'CREDIT_USAGE_CONTEXT_UNAVAILABLE','Credit availability is unavailable').result);
   }
 
+  async readCounterpartyDetail({tenantId,entityId,kind,memberRef}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_counterparty_detail($1,$2,$3,$4) AS result',[tenantId,entityId,kind,memberRef]
+    ),'COUNTERPARTY_DETAIL_UNAVAILABLE','Counterparty detail is unavailable').result);
+  }
+
+  async readCounterpartyChanges({tenantId,entityId,kind,status='PENDING',memberRef=null,afterId=null,limit=25}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_counterparty_changes($1,$2,$3,$4,$5,$6,$7) AS result',[tenantId,entityId,kind,status,memberRef,afterId,limit]
+    ),'COUNTERPARTY_CHANGES_UNAVAILABLE','Counterparty changes are unavailable').result);
+  }
+
   async proposeCounterpartyChange({tenantId,entityId,kind,memberRef,changeType,expectedVersion,displayName,active,reason,idempotencyKey}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_propose_counterparty_change($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
