@@ -333,6 +333,7 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"325_payment_candidate_query_order.sql","up":"e066cbb28dd7bf16a70e613e69a72d20eb5fc5d39eb8cdb940f86b266708dac1","down":"9a351b4796c489c463e8e90cf3944890045db94fae55d6bc96a1b470c218358a"}),
   Object.freeze({"name":"326_counterparty_register.sql","up":"91bddf84d84ebf10152d4b23c09fb0e89aa505937a67dca23fd765758950b4bf","down":"5da232e1c40c080b245f5abeb4e098983ae7e6c6c9ef623c065b94b2ab7a07e4"}),
   Object.freeze({"name":"327_counterparty_maintenance.sql","up":"d6d3cbc0707c266e29cc454d0125f727c045b61942ce1b003a636dafcf3416ea","down":"916fc232dae90c9847f8d7f97bc2ddf7d2182de4b552c85475640a57e655a8e3"}),
+  Object.freeze({"name":"328_credit_adjustment_attachment_evidence.sql","up":"59011511665ad0200e2e329e0f3b160ea11c63996bad50e90fc735154e42ef43","down":"81805a0a2c4d3e3a8fdbff72f7c2e807219d42dc8a42b3c96861f1463bd7d615"}),
   Object.freeze({"name":"329_wbs_payable_acceptance_evidence_read.sql","up":"a413ddd64b00e5f1439549bc6fc0c3a3f9a144121f4f400fd767ac716991ffda","down":"ac200d4817257b64996c286bdc8f6b483bd10b70bbadda1d93ed77e9cf9dcee5"}),
   Object.freeze({"name":"330_counterparty_maintenance_reads.sql","up":"234ddeff31ad2b36fadea8ff0f1b138716f801f0dbffae2b9b0b2232260db389","down":"4553d5b646295d7863437a51c4e5c16bd8edac603a570746311ac56e2240a1b2"}),
 ]);
