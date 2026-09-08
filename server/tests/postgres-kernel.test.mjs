@@ -7231,6 +7231,22 @@ async function reviewedFixedAssetFixture(){
   return {ids,trace,receipt,reviewer};
 }
 
+pgTest('fixed asset disposal integrity migration restores and reinstalls command guards',async()=>{
+  const name='334_fixed_asset_disposal_ledger_integrity.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name);assert.ok(entry);
+  const bodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+  const client=await adminPool.connect();
+  const definition=async name=>(await client.query('SELECT pg_get_functiondef(oid) body FROM pg_proc WHERE proname=$1',[name])).rows[0].body;
+  try{await client.query('BEGIN');
+    assert.match(await definition('refs_review_fixed_asset_disposal'),/POSTED_DISPOSAL_LINES_V2/);
+    await client.query(bodies.down);
+    assert.doesNotMatch(await definition('refs_review_fixed_asset_disposal'),/POSTED_DISPOSAL_LINES_V2/);
+    assert.doesNotMatch(await definition('refs_review_fixed_asset_impairment'),/Disposed assets cannot/);
+    await client.query(bodies.up);
+    assert.match(await definition('refs_review_fixed_asset_disposal'),/POSTED_DISPOSAL_LINES_V2/);
+    assert.match(await definition('refs_review_fixed_asset_impairment'),/Disposed assets cannot/);
+  }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
 pgTest('formal fixed asset register review retains source evidence and forbids self review without posting',async()=>{await reviewedFixedAssetFixture();});
 
 pgTest('formal fixed asset impairment and disposal reviews bind actual posted asset ledger',async()=>{
@@ -7259,9 +7275,21 @@ pgTest('formal fixed asset impairment and disposal reviews bind actual posted as
   await assert.rejects(disposalReviewer.reviewFixedAssetDisposal(disposalArgs),e=>e.code==='23514');
   // Assessment is evidence only; no impairment journal was booked in this scenario.
   const disposal=await postAssetJournal('ASSET-DISPOSAL','2026-07-25',[line(1,'111000',24000,0,'BANK-1'),line(2,'159100',2000,0),line(3,'150100',0,25000),line(4,'780100',0,1000)]);
+  const disposalArtifacts=async()=>(await adminPool.query(`SELECT
+    (SELECT count(*)::int FROM fixed_asset_disposal_evidence WHERE tenant_id=$1) evidence,
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='FIXED_ASSET_DISPOSAL_REVIEWED') audit,
+    (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND event_type='FIXED_ASSET_DISPOSAL_REVIEWED') outbox,
+    (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1 AND operation_scope LIKE 'FIXED_ASSET_DISPOSAL_REVIEW:%') receipts`,[ids.tenantId])).rows[0];
+  const beforeRejected=await disposalArtifacts();
+  await assert.rejects(disposalReviewer.reviewFixedAssetDisposal({...disposalArgs,accumulatedDepreciation:'1000.0000',idempotencyKey:'asset-disposal-wrong-depreciation'}),e=>e.code==='23514');
+  await assert.rejects(disposalReviewer.reviewFixedAssetDisposal({...disposalArgs,proceeds:'23000.0000',idempotencyKey:'asset-disposal-wrong-proceeds'}),e=>e.code==='23514');
+  await assert.rejects(disposalReviewer.reviewFixedAssetDisposal({...disposalArgs,disposalDate:'2026-07-24',idempotencyKey:'asset-disposal-before-posting'}),e=>e.code==='23514');
+  assert.deepEqual(await disposalArtifacts(),beforeRejected);
   const disposalReceipt=await disposalReviewer.reviewFixedAssetDisposal(disposalArgs),disposalReplay=await disposalReviewer.reviewFixedAssetDisposal(disposalArgs);
-  assert.equal(disposalReceipt.disposed_cost,'25000.0000');assert.equal(disposalReceipt.carrying_value,'23000.0000');assert.equal(disposalReceipt.gain_or_loss,'1000.0000');assert.deepEqual(disposalReceipt.journal_entry_ids,[disposal]);assert.equal(disposalReceipt.ledger_line_ids.length,1);assert.equal(disposalReplay.fixed_asset_disposal_evidence_id,disposalReceipt.fixed_asset_disposal_evidence_id);assert.equal(disposalReplay.idempotent,true);
+  assert.equal(disposalReceipt.disposed_cost,'25000.0000');assert.equal(disposalReceipt.carrying_value,'23000.0000');assert.equal(disposalReceipt.gain_or_loss,'1000.0000');assert.deepEqual(disposalReceipt.journal_entry_ids,[disposal]);assert.equal(disposalReceipt.ledger_line_ids.length,4);assert.equal(disposalReceipt.journal_line_ids.length,4);assert.equal(disposalReceipt.lineage_version,'POSTED_DISPOSAL_LINES_V2');assert.equal(disposalReplay.fixed_asset_disposal_evidence_id,disposalReceipt.fixed_asset_disposal_evidence_id);assert.equal(disposalReplay.idempotent,true);
   await assert.rejects(disposalReviewer.reviewFixedAssetDisposal({...disposalArgs,proceeds:'23000.0000'}),e=>e.code==='23505');
   for(const event of ['FIXED_ASSET_IMPAIRMENT_REVIEWED','FIXED_ASSET_DISPOSAL_REVIEWED'])for(const table of ['audit_event','outbox_event'])assert.equal((await adminPool.query('SELECT count(*)::int n FROM '+table+' WHERE tenant_id=$1 AND event_type=$2',[ids.tenantId,event])).rows[0].n,1);
+  await assert.rejects(impairmentReviewer.reviewFixedAssetImpairment({...impairmentArgs,assessmentDate:'2026-07-26',idempotencyKey:'asset-impairment-after-disposal'}),e=>e.code==='23514');
+  await assert.rejects(migrateDownThrough(adminPool,'334_fixed_asset_disposal_ledger_integrity.sql'),e=>e.code==='55006');
   const assetBalances=(await adminPool.query("SELECT account_code,sum(debit_amount-credit_amount)::text balance FROM ledger_line WHERE tenant_id=$1 AND dimensions->>'fixed_asset_register_evidence_id'=$2 AND account_code IN('150100','159100') GROUP BY account_code ORDER BY account_code",[ids.tenantId,receipt.fixed_asset_register_evidence_id])).rows;assert.deepEqual(assetBalances,[{account_code:'150100',balance:'0.0000'},{account_code:'159100',balance:'0.0000'}]);
 });
