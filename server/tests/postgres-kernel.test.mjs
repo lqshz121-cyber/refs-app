@@ -7302,8 +7302,9 @@ async function cloneAssetReadFixture(ids,baseId,suffix){
 
 pgTest('fixed asset source consumption migration restores empty history functions exactly',async()=>{
  const name='345_fixed_asset_source_consumption.sql',entry=MIGRATION_MANIFEST.find(r=>r.name===name),bodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const nextName='346_fixed_asset_source_snapshot_serialization.sql',nextEntry=MIGRATION_MANIFEST.find(r=>r.name===nextName),nextBodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+nextName,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),nextEntry[direction]);nextBodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
  const client=await adminPool.connect();const definition=async()=> (await client.query("SELECT pg_get_functiondef(oid) body FROM pg_proc WHERE proname='refs_create_fixed_asset_acquisition'")).rows[0].body;
- try{await client.query('BEGIN');const before=await definition();await client.query(bodies.down);assert.notEqual(await definition(),before);await client.query(bodies.up);assert.equal(await definition(),before);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+ try{await client.query('BEGIN');const current=await definition();await client.query(nextBodies.down);const before=await definition();assert.notEqual(before,current);await client.query(bodies.down);assert.notEqual(await definition(),before);await client.query(bodies.up);assert.equal(await definition(),before);await client.query(nextBodies.up);assert.equal(await definition(),current);assert.equal((await client.query("SELECT has_function_privilege('refs_app','refs_serialize_asset_source(uuid,uuid,uuid)','EXECUTE') allowed")).rows[0].allowed,false);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });
 
 pgTest('fixed asset mandatory acquisition migration roundtrips before retaining bindings',async()=>{
@@ -7732,5 +7733,47 @@ pgTest('fixed asset source consumption serializes generic-first and simultaneous
  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,2);
  const journalCount=(await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;await assert.rejects(roles.AI_ACCOUNTING_DECISION_MAKER.createFixedAssetAcquisition({...args,journalNumber:'REUSED-LATER',idempotencyKey:'reuse-after-post-create'}),e=>e.code==='23514');assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalCount);
  await assert.rejects(adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_line_id,journal_entry_id,created_by) VALUES($1,$2,'SOURCE_TO_JE',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,lineId,generic.journal_entry_id]),e=>e.code==='23514');
+ }
+});
+
+pgTest('fixed asset attachment append and Post serialize in both transaction orders',async()=>{
+ const waitFor=async predicate=>{for(let attempt=0;attempt<160;attempt++){if(await predicate())return;await new Promise(resolve=>setTimeout(resolve,25));}assert.fail('Owned database transaction did not reach the expected lock barrier');};
+ const outcome=promise=>promise.then(value=>({value}),error=>({error}));
+ for(const mode of ['append-first','post-first','append-first-legacy','post-first-legacy']){
+  const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1'),roles={};
+  const linkSql="INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')";
+  await adminPool.query(linkSql,[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+  for(const role of ['AI_ACCOUNTING_DECISION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'attachment-race-'+role.toLowerCase(),role);
+  const draft=await roles.AI_ACCOUNTING_DECISION_MAKER.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'ATTACHMENT-RACE',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Verify ordered attachment append versus authoritative Post.',idempotencyKey:'attachment-race-create'});
+  for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action,expectedRevision,idempotencyKey:'attachment-race-'+action});
+  const extra=randomUUID();await adminPool.query("INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,verified_at,scan_status,finalization_status,finalized_at) VALUES($1,$2,$3,'concurrent-source.pdf','application/pdf',10,$4,$5,'v1','fixture-source-owner',now(),now(),'CLEAN','VERIFIED_CLEAN',now())",[extra,ids.tenantId,ids.entityId,hash('concurrent-source-evidence'),'object://source-race/'+extra]);
+  // Emulate an existing source upgraded from 345, before the first fence row.
+  if(mode.endsWith('-legacy'))await adminPool.query('DELETE FROM fixed_asset_source_serialization WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3',[ids.tenantId,ids.entityId,trace.documentId]);
+  const append=await adminPool.connect(),appendPid=(await append.query('SELECT pg_backend_pid() pid')).rows[0].pid,args=[ids.tenantId,ids.entityId,trace.documentId,extra];
+  const postArgs={...ids,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:'attachment-race-post'};
+  let releaseCommit=()=>{},postResult=null,appendResult=null;
+  try{
+   if(mode.startsWith('append-first')){
+    await append.query('BEGIN');await append.query(linkSql,args);
+    postResult=outcome(roles.JE_POSTER.postJournal(postArgs));
+    await waitFor(async()=> (await adminPool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND $1::int=ANY(pg_blocking_pids(pid))) waiting",[appendPid])).rows[0].waiting);
+    await append.query('COMMIT');const result=await postResult;assert.equal(result.error?.code,'23514');await assertAcquisitionPostRolledBack(ids,draft.journal_entry_id,postArgs.idempotencyKey);
+    assert.equal((await adminPool.query("SELECT count(*)::int n FROM source_link WHERE tenant_id=$1 AND source_document_id=$2 AND link_type='SOURCE_ATTACHMENT'",[ids.tenantId,trace.documentId])).rows[0].n,2);
+   }else{
+    // Pause the owned runtime connection at COMMIT, after the real Post SQL has
+    // executed. It retains the actual PostgreSQL source and accounting locks.
+    let held=false,postPid=null;const barrier=new Promise(resolve=>{releaseCommit=resolve;});
+    const pool={connect:async()=>{const client=await runtimePool.connect();postPid=(await client.query('SELECT pg_backend_pid() pid')).rows[0].pid;return {query:async(...queryArgs)=>{if(queryArgs[0]==='COMMIT'){held=true;await barrier;}return client.query(...queryArgs);},release:()=>client.release()};}};
+    const poster=new PostgresAccountingKernel(pool,{sessionProvider:roles.JE_POSTER.sessionProvider});postResult=outcome(poster.postJournal(postArgs));
+    await waitFor(async()=>held);appendResult=outcome(append.query(linkSql,args));
+    await waitFor(async()=> (await adminPool.query('SELECT $1::int=ANY(pg_blocking_pids($2::int)) waiting',[postPid,appendPid])).rows[0].waiting);
+    releaseCommit();const posted=await postResult,appended=await appendResult;assert.equal(posted.error,undefined);assert.equal(appended.error?.code,'23514');
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1 AND journal_entry_id=$2',[ids.tenantId,draft.journal_entry_id])).rows[0].n,2);
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM fixed_asset_source_consumption WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,1);
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM source_link WHERE tenant_id=$1 AND attachment_id=$2',[ids.tenantId,extra])).rows[0].n,0);
+   }
+   const down=await readFile(new URL('../db/migrations/down/346_fixed_asset_source_snapshot_serialization.sql',import.meta.url),'utf8'),rollbackClient=await adminPool.connect();
+   try{await rollbackClient.query('BEGIN');await assert.rejects(rollbackClient.query(down.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'')),e=>e.code==='55006');}finally{try{await rollbackClient.query('ROLLBACK');}finally{rollbackClient.release();}}
+  }finally{releaseCommit();try{await append.query('ROLLBACK');}catch{}if(postResult)await postResult;if(appendResult)await appendResult;append.release();}
  }
 });
