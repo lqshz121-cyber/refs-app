@@ -52,4 +52,9 @@ test('migration 328 is checksum-bound in fixed order',()=>{
   assert.equal(names.filter(item=>item===name).length,1);
   assert.ok(index>0&&Number.parseInt(names[index-1],10)<328);
   assert.ok(index===names.length-1||Number.parseInt(names[index+1],10)>328);
+  assert.deepEqual(MIGRATION_MANIFEST.find(item=>item.name==='328_credit_adjustment_attachment_evidence.sql'),{
+    name:'328_credit_adjustment_attachment_evidence.sql',
+    up:'59011511665ad0200e2e329e0f3b160ea11c63996bad50e90fc735154e42ef43',
+    down:'81805a0a2c4d3e3a8fdbff72f7c2e807219d42dc8a42b3c96861f1463bd7d615'
+  });
 });
