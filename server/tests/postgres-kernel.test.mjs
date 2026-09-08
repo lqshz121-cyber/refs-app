@@ -101,6 +101,10 @@ pgTest('original payable evidence retains canonical raw facts and rejects source
  assert.deepEqual(evidence.raw_row,retained.plan.staging_rows[0].raw_row);assert.equal(evidence.raw_row_hash,canonicalRequestHash(evidence.raw_row));assert.equal(evidence.source_document_id,retained.sourceDocumentId);assert.equal(evidence.source_line_snapshot.amount,25000);
  const args={tenantId:ids.tenantId,entityId:ids.entityId,delivery:retained.delivery,artifacts:retained.artifacts,plan:retained.plan,idempotencyKey:'wbs-ai-e2e-final1-001'};
  assert.equal((await importer.retainWbsProviderFinal1SourceEvidence(args)).idempotent,true);
+ const audits=(await adminPool.query("SELECT after_hash,metadata FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_PAYABLE_ORIGINAL_EVIDENCE_RETAINED'",[ids.tenantId])).rows;
+ assert.equal(audits.length,1);assert.equal(audits[0].after_hash,evidence.evidence_hash);assert.equal(audits[0].metadata.evidence_id,evidence.evidence_id);
+ const events=(await adminPool.query("SELECT payload FROM outbox_event WHERE tenant_id=$1 AND event_type='WBS_PAYABLE_ORIGINAL_EVIDENCE_RETAINED'",[ids.tenantId])).rows;
+ assert.equal(events.length,1);assert.equal(events[0].payload.evidence_hash,evidence.evidence_hash);
  for(const [field,value] of [['party_ref','OTHER-VENDOR'],['project_ref','OTHER-PROJECT'],['property_ref','OTHER-PROPERTY'],['amount',25001],['external_dimension_refs',{signed_charge_code:'OTHER'}]]){
   await assert.rejects(adminPool.query('UPDATE source_document_line SET '+field+'=$2 WHERE source_document_line_id=$1',[evidence.source_document_line_id,value]),e=>e.code==='23514');
  }
@@ -126,6 +130,14 @@ pgTest('original payable evidence refuses to certify a historical replay without
  }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
  await adminPool.query("UPDATE source_document_line SET party_ref='HISTORICAL-DRIFT' WHERE source_document_id=$1",[retained.sourceDocumentId]);
  await assert.rejects(importer.retainWbsProviderFinal1SourceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,delivery:retained.delivery,artifacts:retained.artifacts,plan:retained.plan,idempotencyKey:'wbs-ai-e2e-final1-001'}),e=>e.code==='55006');
+ // Refresh mutable source tuple xmin inside the replay transaction. The
+ // append-only retained row must still prove this is historical evidence.
+ await adminPool.query("CREATE FUNCTION refs_owned_refresh_source_xmin(p_document uuid) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$ BEGIN UPDATE source_document SET status=status WHERE source_document_id=p_document; UPDATE source_document_line SET amount=amount WHERE source_document_id=p_document; END;$$");
+ try{
+  const pool={connect:async()=>{const client=await runtimePool.connect();return {query:async(...args)=>{if(String(args[0]).startsWith('SELECT refs_retain_wbs_final1_source_evidence_with_signed_controls('))await client.query('SELECT refs_owned_refresh_source_xmin($1)',[retained.sourceDocumentId]);return client.query(...args);},release:()=>client.release()};}};
+  const replay=new PostgresAccountingKernel(pool,{sessionProvider:importer.sessionProvider});
+  await assert.rejects(replay.retainWbsProviderFinal1SourceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,delivery:retained.delivery,artifacts:retained.artifacts,plan:retained.plan,idempotencyKey:'wbs-ai-e2e-final1-001'}),e=>e.code==='55006');
+ }finally{await adminPool.query('DROP FUNCTION refs_owned_refresh_source_xmin(uuid)');}
  assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_payable_original_row_evidence WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);
  assert.equal((await adminPool.query('SELECT party_ref FROM source_document_line WHERE source_document_id=$1',[retained.sourceDocumentId])).rows[0].party_ref,'HISTORICAL-DRIFT');
 });

@@ -11,4 +11,6 @@ DROP FUNCTION refs_guard_original_payable_line();
 DROP TRIGGER original_payable_document_guard ON source_document;
 DROP FUNCTION refs_guard_original_payable_document();
 DROP TABLE wbs_payable_original_row_evidence;
+DROP FUNCTION refs_emit_original_payable_evidence();
+DROP FUNCTION refs_original_payable_snapshot_hash(uuid,uuid,uuid,uuid,uuid,uuid,uuid,text,jsonb,jsonb,jsonb,jsonb);
 COMMIT;
