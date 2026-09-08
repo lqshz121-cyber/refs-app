@@ -350,4 +350,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"342_fixed_asset_acquisition_source_evidence.sql","up":"416f678099e6b431e4f368ea37709f46eeb2aee8eabdb0909876114190e6f096","down":"0402ed791e08c3343f0dd07287801b8a0e2e00d20407bdbb7e801c77b2278425"}),
   Object.freeze({"name":"343_fixed_asset_acquisition_required.sql","up":"426670cde710e73b3ac04456c41e19147da301445f0011b6fc26f644a31925d1","down":"a7198d761fc446bd29137f36df94157859d0709c8f2efc4a6bdafbbc3118956c"}),
   Object.freeze({"name":"344_fixed_asset_acquisition_history_guard.sql","up":"f4aa57567113c5938676f583a04b69394c95927b4855a244cac12c682bc1bbac","down":"2789679d5a8ff66e9ed509268ee72badeba04e785338df2de4da8cb96ab27b48"}),
+  Object.freeze({"name":"345_fixed_asset_source_consumption.sql","up":"0727f0665018eecbf0bd2c79ba8163ebe9b56ff5238b3833ed251538b54e9412","down":"9957c184aa91993f1108ad9db6bf00c40b301546e9dd54311a44ce544b2f65b3"}),
 ]);

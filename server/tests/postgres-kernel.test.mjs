@@ -7300,6 +7300,12 @@ async function cloneAssetReadFixture(ids,baseId,suffix){
  await adminPool.query('INSERT INTO fixed_asset_register_evidence SELECT * FROM jsonb_populate_record(NULL::fixed_asset_register_evidence,$1::jsonb)',[JSON.stringify({...template.asset,fixed_asset_register_evidence_id:assetId,capitalization_proposal_id:proposalId,asset_tag:'CLONE-'+suffix,register_evidence_hash:hash('clone-asset-'+suffix)})]);return assetId;
 }
 
+pgTest('fixed asset source consumption migration restores empty history functions exactly',async()=>{
+ const name='345_fixed_asset_source_consumption.sql',entry=MIGRATION_MANIFEST.find(r=>r.name===name),bodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect();const definition=async()=> (await client.query("SELECT pg_get_functiondef(oid) body FROM pg_proc WHERE proname='refs_create_fixed_asset_acquisition'")).rows[0].body;
+ try{await client.query('BEGIN');const before=await definition();await client.query(bodies.down);assert.notEqual(await definition(),before);await client.query(bodies.up);assert.equal(await definition(),before);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
 pgTest('fixed asset mandatory acquisition migration roundtrips before retaining bindings',async()=>{
  const name='343_fixed_asset_acquisition_required.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
  for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
@@ -7588,9 +7594,10 @@ async function assertAcquisitionPostRolledBack(ids,journalId,key){
  (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND entity_id=$2 AND aggregate_id=$3 AND event_type='JOURNAL_POSTED') outbox,
  (SELECT count(*)::int FROM fixed_asset_acquisition_posting WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3) postings,
  (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key=$4) receipts,
+ (SELECT count(*)::int FROM fixed_asset_source_consumption WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3) consumptions,
  (SELECT count(*)::int FROM posting_batch WHERE tenant_id=$1 AND entity_id=$2 AND idempotency_key=$4) batches
  FROM journal_entry j WHERE j.tenant_id=$1 AND j.entity_id=$2 AND j.journal_entry_id=$3`,[ids.tenantId,ids.entityId,journalId,key])).rows[0];
- assert.deepEqual(row,{status:'APPROVED',revision:'3',ledger:0,audits:0,outbox:0,postings:0,receipts:0,batches:0});
+ assert.deepEqual(row,{status:'APPROVED',revision:'3',ledger:0,audits:0,outbox:0,postings:0,receipts:0,consumptions:0,batches:0});
 }
 
 pgTest('native fixed asset acquisition derives a source-bound Draft and prevents duplicate acquisition Post',async()=>{
@@ -7642,10 +7649,11 @@ pgTest('native fixed asset acquisition derives a source-bound Draft and prevents
  const rollback=await readFile(new URL('../db/migrations/down/343_fixed_asset_acquisition_required.sql',import.meta.url),'utf8'),client=await adminPool.connect();try{await client.query('BEGIN');await assert.rejects(client.query(rollback.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'')),e=>e.code==='55006');}finally{try{await client.query('ROLLBACK');}finally{client.release();}}assert.deepEqual(await counts(),posted);
 });
 
-pgTest('native fixed asset acquisition migration roundtrips its source binding and posting guard',async()=>{
+pgTest('native fixed asset acquisition rollback preserves source consumption dependencies',async()=>{
  const name='341_fixed_asset_acquisition_draft.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};assert.ok(entry);
  for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
- const client=await adminPool.connect();try{await client.query('BEGIN');await client.query(bodies.down);assert.equal((await client.query("SELECT to_regclass('fixed_asset_acquisition_binding') value")).rows[0].value,null);await client.query(bodies.up);assert.equal((await client.query("SELECT count(*)::int n FROM pg_trigger WHERE tgname='fixed_asset_acquisition_post_guard'")).rows[0].n,1);assert.equal((await client.query("SELECT has_table_privilege('refs_app','fixed_asset_acquisition_binding','INSERT') allowed")).rows[0].allowed,false);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+ const client=await adminPool.connect();try{await client.query('BEGIN');await assert.rejects(client.query(bodies.down),e=>e.code==='2BP01');}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+ assert.equal((await adminPool.query("SELECT to_regclass('fixed_asset_source_consumption') IS NOT NULL present")).rows[0].present,true);
 });
 
 pgTest('native fixed asset acquisition source evidence rejects appended attachments and roundtrips exact line binding',async()=>{
@@ -7684,4 +7692,45 @@ pgTest('fixed asset acquisition history upgrade accepts bound history and reject
  try{await roles.JE_POSTER.postJournal({...ids,journalEntryId:journal.journal_entry_id,expectedRevision:3,idempotencyKey:'legacy-asset-post'});}finally{await adminPool.query('ALTER TABLE journal_entry ENABLE TRIGGER fixed_asset_acquisition_required_guard');}
  const history=async()=>(await adminPool.query(`SELECT (SELECT jsonb_agg(to_jsonb(l) ORDER BY l.ledger_line_id) FROM ledger_line l WHERE l.tenant_id=$1) ledger,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='JOURNAL_POSTED') audits,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox,(SELECT count(*)::int FROM fixed_asset_acquisition_binding WHERE tenant_id=$1) bindings,(SELECT status FROM journal_entry WHERE journal_entry_id=$2) status`,[ids.tenantId,journal.journal_entry_id])).rows[0];
  const before=await history();assert.equal(before.ledger.length,2);assert.equal(before.status,'POSTED');assert.equal(before.bindings,0);await check(true);assert.deepEqual(await history(),before);
+});
+
+pgTest('fixed asset source consumption admits only one asset per source line and rejects later generic reuse',async()=>{
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ // Two separately retained review fixtures refer to the same invoice line.
+ const evidenceId=randomUUID(),proposalId=randomUUID(),assetId=randomUUID();
+ await adminPool.query(`INSERT INTO ai_invoice_accounting_classification_evidence SELECT (jsonb_populate_record(NULL::ai_invoice_accounting_classification_evidence,to_jsonb(c)||$2::jsonb)).* FROM ai_invoice_accounting_classification_evidence c JOIN ai_invoice_capitalization_proposal p ON p.ai_invoice_accounting_classification_evidence_id=c.ai_invoice_accounting_classification_evidence_id WHERE p.ai_invoice_capitalization_proposal_id=$1`,[receipt.capitalization_proposal_id,JSON.stringify({ai_invoice_accounting_classification_evidence_id:evidenceId,classification_hash:hash('second-asset-classification')})]);
+ await adminPool.query(`INSERT INTO ai_invoice_capitalization_proposal SELECT (jsonb_populate_record(NULL::ai_invoice_capitalization_proposal,to_jsonb(p)||$2::jsonb)).* FROM ai_invoice_capitalization_proposal p WHERE p.ai_invoice_capitalization_proposal_id=$1`,[receipt.capitalization_proposal_id,JSON.stringify({ai_invoice_capitalization_proposal_id:proposalId,ai_invoice_accounting_classification_evidence_id:evidenceId,classification_hash:hash('second-asset-classification'),proposal_hash:hash('second-asset-proposal')})]);
+ await adminPool.query(`INSERT INTO fixed_asset_register_evidence SELECT (jsonb_populate_record(NULL::fixed_asset_register_evidence,to_jsonb(a)||$2::jsonb)).* FROM fixed_asset_register_evidence a WHERE a.fixed_asset_register_evidence_id=$1`,[receipt.fixed_asset_register_evidence_id,JSON.stringify({fixed_asset_register_evidence_id:assetId,capitalization_proposal_id:proposalId,asset_tag:'SECOND-SAME-SOURCE',register_evidence_hash:hash('second-asset-review')})]);
+ const roles={};for(const role of ['AI_ACCOUNTING_DECISION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'source-consumption-'+role.toLowerCase(),role);
+ const drafts=[];for(const [index,id] of [receipt.fixed_asset_register_evidence_id,assetId].entries())drafts.push(await roles.AI_ACCOUNTING_DECISION_MAKER.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:id,periodId:ids.periodId,journalNumber:'SAME-SOURCE-'+index,journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Attempt independently reviewed assets sharing an invoice line.',idempotencyKey:'same-source-draft-'+index}));
+ const approve=async d=>{for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:d.journal_entry_id,action,expectedRevision,idempotencyKey:d.journal_entry_id+'-'+action});};
+ for(const d of drafts)await approve(d);
+ const generic=await roles.AI_ACCOUNTING_DECISION_MAKER.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalNumber:'GENERIC-REUSED-SOURCE',journalDate:'2026-07-02',currency:'USD',description:'Generic journal attempts to reuse acquired source',attachmentIds:[ids.attachmentId],idempotencyKey:'generic-reused-source-create',lines:[{line_no:1,account_code:'680100',debit_amount:25000,credit_amount:0},{line_no:2,account_code:'291001',debit_amount:0,credit_amount:25000,member_ref:'VENDOR-1'}]});
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,journal_entry_id,created_by) VALUES($1,$2,'SOURCE_TO_JE',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,generic.journal_entry_id]);await approve(generic);
+ const outcomes=await Promise.allSettled(drafts.map((d,index)=>roles.JE_POSTER.postJournal({...ids,journalEntryId:d.journal_entry_id,expectedRevision:3,idempotencyKey:'same-source-post-'+index})));
+ assert.equal(outcomes.filter(r=>r.status==='fulfilled').length,1);const loser=outcomes.findIndex(r=>r.status==='rejected');assert.ok(['23514','23505'].includes(outcomes[loser].reason.code));await assertAcquisitionPostRolledBack(ids,drafts[loser].journal_entry_id,'same-source-post-'+loser);
+ const consumed=(await adminPool.query('SELECT * FROM fixed_asset_source_consumption WHERE tenant_id=$1',[ids.tenantId])).rows;assert.equal(consumed.length,1);assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,2);
+
+ await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:generic.journal_entry_id,expectedRevision:3,idempotencyKey:'generic-reused-source-post'}),e=>e.code==='23514');await assertAcquisitionPostRolledBack(ids,generic.journal_entry_id,'generic-reused-source-post');
+ await assert.rejects(adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,source_document_line_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,$5,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,consumed[0].source_document_line_id,ids.attachmentId]),e=>e.code==='23514');
+});
+
+pgTest('fixed asset source consumption serializes generic-first and simultaneous generic acquisition posts',async()=>{
+ for(const mode of ['generic-first','race']){
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1'),roles={};await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ for(const role of ['AI_ACCOUNTING_DECISION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'mixed-source-'+role.toLowerCase(),role);
+ const args={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'MIXED-NATIVE',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Native source consumption competes with existing generic accounting.',idempotencyKey:'mixed-native-create'};
+ const native=await roles.AI_ACCOUNTING_DECISION_MAKER.createFixedAssetAcquisition(args),lineId=(await adminPool.query('SELECT source_document_line_id FROM fixed_asset_acquisition_binding WHERE binding_id=$1',[native.binding_id])).rows[0].source_document_line_id;
+ const generic=await roles.AI_ACCOUNTING_DECISION_MAKER.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalNumber:'MIXED-GENERIC',journalDate:'2026-07-02',currency:'USD',description:'Generic expense shares the exact invoice line',attachmentIds:[ids.attachmentId],idempotencyKey:'mixed-generic-create',lines:[{line_no:1,account_code:'680100',debit_amount:25000,credit_amount:0},{line_no:2,account_code:'291001',debit_amount:0,credit_amount:25000,member_ref:'VENDOR-1'}]});
+ // The line-only shape is normalized to its authoritative document on insert.
+ const linked=(await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_line_id,journal_entry_id,created_by) VALUES($1,$2,'SOURCE_TO_JE',$3,$4,'fixture-source-owner') RETURNING source_document_id",[ids.tenantId,ids.entityId,lineId,generic.journal_entry_id])).rows[0];assert.equal(linked.source_document_id,trace.documentId);
+ for(const d of [native,generic])for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:d.journal_entry_id,action,expectedRevision,idempotencyKey:d.journal_entry_id+'-'+action});
+ const post=(d,key)=>roles.JE_POSTER.postJournal({...ids,journalEntryId:d.journal_entry_id,expectedRevision:3,idempotencyKey:key});
+ if(mode==='generic-first'){await post(generic,'mixed-generic-post');await assert.rejects(post(native,'mixed-native-post'),e=>e.code==='23514');await assertAcquisitionPostRolledBack(ids,native.journal_entry_id,'mixed-native-post');}
+ else{const r=await Promise.allSettled([post(generic,'mixed-generic-post'),post(native,'mixed-native-post')]);assert.equal(r.filter(x=>x.status==='fulfilled').length,1);const index=r.findIndex(x=>x.status==='rejected');assert.equal(r[index].reason.code,'23514');await assertAcquisitionPostRolledBack(ids,[generic,native][index].journal_entry_id,['mixed-generic-post','mixed-native-post'][index]);}
+ assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,2);
+ const journalCount=(await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;await assert.rejects(roles.AI_ACCOUNTING_DECISION_MAKER.createFixedAssetAcquisition({...args,journalNumber:'REUSED-LATER',idempotencyKey:'reuse-after-post-create'}),e=>e.code==='23514');assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalCount);
+ await assert.rejects(adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_line_id,journal_entry_id,created_by) VALUES($1,$2,'SOURCE_TO_JE',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,lineId,generic.journal_entry_id]),e=>e.code==='23514');
+ }
 });
