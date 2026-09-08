@@ -3636,8 +3636,9 @@ pgTest('authenticated HTTP posts a vendor credit and atomically applies it to an
   });
   const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':`"${revision}"`})}});
   const root=`/api/v1/entities/${ids.entityId}`;
-  const created=await send('http-credit-maker',`${root}/ap/vendor-credits`,{periodId:ids.periodId,creditNumber:'VC-HTTP-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Vendor credit'}],reason:'HTTP vendor price adjustment'},'http-credit-create');
+  const created=await send('http-credit-maker',`${root}/ap/vendor-credits`,{periodId:ids.periodId,creditNumber:'VC-HTTP-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Vendor credit'}],reason:'HTTP vendor price adjustment',attachmentIds:[ids.attachmentId]},'http-credit-create');
   assert.equal(created.status,201);const credit=created.body.data;
+  assert.deepEqual((await adminPool.query('SELECT j.journal_type,sl.attachment_id FROM journal_entry j JOIN source_link sl ON sl.tenant_id=j.tenant_id AND sl.entity_id=j.entity_id AND sl.journal_entry_id=j.journal_entry_id AND sl.link_type=\'JE_ATTACHMENT\' WHERE j.journal_entry_id=$1',[credit.journal_entry_id])).rows,[{journal_type:'MANUAL',attachment_id:ids.attachmentId}]);
   await attachAutoSource({...ids,journalId:credit.journal_entry_id});
   const journalPath=`${root}/journal-entries/${credit.journal_entry_id}`;
   assert.equal((await send('http-credit-submitter',`${journalPath}/transitions/submit`,{},'http-credit-submit',0)).status,201);
@@ -3674,8 +3675,9 @@ pgTest('authenticated HTTP posts an AR credit memo, applies it and refunds only 
   });
   const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':`"${revision}"`})}});
   const root=`/api/v1/entities/${ids.entityId}`;
-  const memoResponse=await send(makerId,`${root}/ar/credit-memos`,{periodId:ids.periodId,memoNumber:'CM-HTTP-100',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:[{line_no:1,account_code:'410000',amount:100,description:'Customer credit'}],reason:'HTTP customer credit correction'},'http-memo-create');
+  const memoResponse=await send(makerId,`${root}/ar/credit-memos`,{periodId:ids.periodId,memoNumber:'CM-HTTP-100',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:[{line_no:1,account_code:'410000',amount:100,description:'Customer credit'}],reason:'HTTP customer credit correction',attachmentIds:[ids.attachmentId]},'http-memo-create');
   assert.equal(memoResponse.status,201);const memo=memoResponse.body.data;
+  assert.deepEqual((await adminPool.query('SELECT j.journal_type,sl.attachment_id FROM journal_entry j JOIN source_link sl ON sl.tenant_id=j.tenant_id AND sl.entity_id=j.entity_id AND sl.journal_entry_id=j.journal_entry_id AND sl.link_type=\'JE_ATTACHMENT\' WHERE j.journal_entry_id=$1',[memo.journal_entry_id])).rows,[{journal_type:'MANUAL',attachment_id:ids.attachmentId}]);
   await attachAutoSource({...ids,journalId:memo.journal_entry_id});
   const advance=async(journalId,prefix)=>{
     const path=`${root}/journal-entries/${journalId}`;
