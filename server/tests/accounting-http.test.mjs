@@ -798,3 +798,14 @@ test('disposal source binding rejects mismatched or incomplete backend receipts'
   const response=await api({method:'POST',url:'/api/v1/entities/'+entityId+'/fixed-assets/disposal-source-bindings',headers:{'Idempotency-Key':'invalid-receipt','If-Match':'"0"'},body:{fixedAssetRegisterEvidenceId:assetId,journalEntryId,sourceDocumentId:sourceId,expectedSourceHash:valid.source_payload_hash,reason:'Verified retained disposal source.'}});assert.equal(response.status,500,JSON.stringify(patch));
  }
 });
+
+test('asset register reads scope, dates and pagination and rejects corrupted balances',async()=>{
+ const assetId=randomUUID(),seen=[];let invalid=false;
+ const row={fixed_asset_register_evidence_id:assetId,tenant_id:tenantId,entity_id:entityId,as_of_date:'2026-07-31',status:'ACTIVE',cost_basis:'25000.0000',salvage_value:'0.0000',posted_cost_balance:'25000.0000',accumulated_depreciation:'2000.0000',accumulated_impairment:'5000.0000',net_book_value:'18000.0000'};
+ const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'asset-reader'}),kernelFactory:async()=>({readFixedAssetRegister:async args=>{seen.push(args);return {schema_version:'FIXED_ASSET_REGISTER_READ_V1',tenant_id:tenantId,entity_id:entityId,as_of_date:'2026-07-31',basis:'POSTED_PRIMARY_LEDGER',rows:[{...row,...(invalid?{net_book_value:18000}:{})}],next_cursor:null};}})});
+ const url='/api/v1/entities/'+entityId+'/fixed-assets/register?asOfDate=2026-07-31&limit=10';
+ const result=await api({method:'GET',url});assert.equal(result.status,200);assert.equal(result.headers['cache-control'],'no-store');assert.equal(seen[0].tenantId,tenantId);assert.equal(seen[0].limit,10);
+ const detail=await api({method:'GET',url:'/api/v1/entities/'+entityId+'/fixed-assets/register/'+assetId+'?asOfDate=2026-07-31'});assert.equal(detail.status,200);assert.equal(seen[1].assetId,assetId);
+ for(const request of [{method:'GET',url:url+'&actorId=other'},{method:'GET',url,body:{}},{method:'GET',url,headers:{'If-Match':'"0"'}},{method:'GET',url:url.replace('limit=10','limit=101')},{method:'GET',url:url.replace('asOfDate=2026-07-31&','')}]){assert.equal((await api(request)).status,400);}
+ assert.equal(seen.length,2);invalid=true;assert.equal((await api({method:'GET',url})).status,500);
+});
