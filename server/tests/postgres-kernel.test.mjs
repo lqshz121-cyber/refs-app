@@ -7192,11 +7192,11 @@ pgTest('counterparty register pages 100001 masters without crossing kind or comp
   const elapsed=Date.now()-started;console.log('# counterparty register first/second/deep pages over 100001 rows: '+elapsed+'ms');assert.ok(elapsed<5000,'Three register pages must finish within five seconds');
 });
 
-async function reviewedFixedAssetFixture(){
+async function reviewedFixedAssetFixture(sourceVendor=null){
   const ids=await seed({status:'DRAFT',attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'150100',accountName:'Building assets'},{accountCode:'159100',accountName:'Accumulated depreciation'},{accountCode:'680100',accountName:'Depreciation expense'}]});
   const trace=await attachAutoSource(ids,{linkJournal:false});
   await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT',version=1 WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,trace.documentId]);
-  const lineId=(await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,project_ref,property_ref) VALUES($1,$2,$3,'capital-invoice',1,25000,'DEBIT','PROJECT-1','PROPERTY-1') RETURNING source_document_line_id",[ids.tenantId,ids.entityId,trace.documentId])).rows[0].source_document_line_id;
+  const lineId=(await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,project_ref,property_ref,party_ref) VALUES($1,$2,$3,'capital-invoice',1,25000,'DEBIT','PROJECT-1','PROPERTY-1',$4) RETURNING source_document_line_id",[ids.tenantId,ids.entityId,trace.documentId,sourceVendor])).rows[0].source_document_line_id;
   const policyId=randomUUID(),policySnapshot={input_keys:{currency:'USD'},output_rules:{capitalization_threshold:'5000.0000'}},policyHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) snapshot_hash',[JSON.stringify(policySnapshot)])).rows[0].snapshot_hash,evidenceId=randomUUID(),classificationHash=hash('capital-classification');
   await adminPool.query("INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at) VALUES($1,$2,$3,'AI_CAPITALIZATION_POLICY','ENTITY',$3::uuid::text,1,'2026-01-01','APPROVED',$4::jsonb,$5,'policy-maker','policy-approver',now())",[policyId,ids.tenantId,ids.entityId,JSON.stringify(policySnapshot),policyHash]);
   await adminPool.query(`INSERT INTO ai_invoice_accounting_classification_evidence(ai_invoice_accounting_classification_evidence_id,tenant_id,entity_id,accounting_period_id,source_document_id,source_document_line_id,source_payload_hash,source_line_hash,classifier_version,classification,reason,confidence,required_human_fields,rule_id,policy_snapshot_id,policy_snapshot_hash,policy_evidence,classification_hash,status,created_by)
@@ -7572,4 +7572,43 @@ pgTest('fixed asset posting audit identity migration roundtrips exact posting pr
  for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
  const client=await adminPool.connect();const definition="SELECT pg_get_functiondef('refs_read_fixed_asset_movements(uuid,uuid,uuid,date,integer,text)'::regprocedure) body";
  try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0].body;assert.match(before,/a.actor_id=l.posted_by/);await client.query(bodies.down);const prior=(await client.query(definition)).rows[0].body;assert.doesNotMatch(prior,/a.actor_id=l.posted_by|a.permission_used='GL.JE.POST'/);await client.query(bodies.up);assert.equal((await client.query(definition)).rows[0].body,before);assert.equal((await client.query("SELECT has_function_privilege('refs_app','refs_read_fixed_asset_movements(uuid,uuid,uuid,date,integer,text)','EXECUTE') allowed")).rows[0].allowed,true);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('native fixed asset acquisition derives a source-bound Draft and prevents duplicate acquisition Post',async()=>{
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
+ const roles={};for(const role of ['AI_ACCOUNTING_DECISION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'native-acquisition-'+role.toLowerCase(),role);
+ const maker=roles.AI_ACCOUNTING_DECISION_MAKER;
+ const args={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'NATIVE-ASSET-1',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Acquire reviewed building from the exact retained vendor invoice.',idempotencyKey:'native-asset-draft'};
+ const counts=async()=>(await adminPool.query(`SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM fixed_asset_acquisition_binding WHERE tenant_id=$1) bindings,(SELECT count(*)::int FROM fixed_asset_acquisition_posting WHERE tenant_id=$1) postings,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='FIXED_ASSET_ACQUISITION_DRAFT_CREATED') audits,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox`,[ids.tenantId])).rows[0];
+ const before=await counts();
+ await assert.rejects(maker.createFixedAssetAcquisition({...args,expectedSourceVersion:2,idempotencyKey:'stale-acquisition'}),e=>e.code==='40001');
+ await assert.rejects(roles.JE_REVIEWER.createFixedAssetAcquisition({...args,idempotencyKey:'unauthorized-acquisition'}),e=>e.code==='42501');
+ await assert.rejects(maker.createFixedAssetAcquisition({...args,entityId:randomUUID(),idempotencyKey:'wrong-entity-acquisition'}),e=>e.code==='42501');
+ await assert.rejects(maker.createFixedAssetAcquisition({...args,attachmentIds:[],idempotencyKey:'missing-attachment-acquisition'}));
+ assert.deepEqual(await counts(),before);
+ const draft=await maker.createFixedAssetAcquisition(args),replay=await maker.createFixedAssetAcquisition(args);
+ assert.equal(draft.status,'DRAFT');assert.equal(draft.source_document_id,trace.documentId);assert.equal(draft.source_document_version,1);assert.equal(replay.journal_entry_id,draft.journal_entry_id);assert.equal(replay.idempotent,true);
+ await assert.rejects(maker.createFixedAssetAcquisition({...args,journalNumber:'CONFLICT'}),e=>e.code==='23505');
+ const lines=(await adminPool.query('SELECT account_code,debit_amount::text,credit_amount::text,member_ref,dimensions FROM journal_line WHERE tenant_id=$1 AND journal_entry_id=$2 ORDER BY line_no',[ids.tenantId,draft.journal_entry_id])).rows;
+ assert.deepEqual(lines.map(l=>[l.account_code,l.debit_amount,l.credit_amount,l.member_ref]),[['150100','25000.0000','0.0000',null],['291001','0.0000','25000.0000','VENDOR-1']]);assert.ok(lines.every(l=>l.dimensions.fixed_asset_register_evidence_id===args.assetId));
+ const after=await counts();assert.equal(after.journals,before.journals+1);assert.equal(after.ledger,before.ledger);assert.equal(after.bindings,1);assert.equal(after.audits,1);
+ // A second unposted Draft remains possible, but only one may acquire the asset.
+ const second=await maker.createFixedAssetAcquisition({...args,journalNumber:'NATIVE-ASSET-2',idempotencyKey:'native-asset-draft-2'});
+ for(const d of [draft,second])for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:d.journal_entry_id,action,expectedRevision,idempotencyKey:d.journal_entry_id+'-'+action});
+ const beforeDrift=await counts();
+ await adminPool.query('UPDATE source_document SET version=version+1 WHERE source_document_id=$1',[trace.documentId]);
+ await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:'native-acquisition-stale-post'}),e=>e.code==='23514');
+ assert.deepEqual(await counts(),beforeDrift);
+ await adminPool.query('UPDATE source_document SET version=version-1 WHERE source_document_id=$1',[trace.documentId]);
+ await roles.JE_POSTER.postJournal({...ids,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:'native-acquisition-post'});
+ const posted=await counts();assert.equal(posted.ledger,before.ledger+2);assert.equal(posted.postings,1);
+ await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:second.journal_entry_id,expectedRevision:3,idempotencyKey:'native-acquisition-duplicate-post'}),e=>['23514','23505'].includes(e.code));
+ assert.deepEqual(await counts(),posted);
+ await assert.rejects(adminPool.query('DELETE FROM fixed_asset_acquisition_binding WHERE journal_entry_id=$1',[draft.journal_entry_id]),e=>e.code==='55000');
+});
+
+pgTest('native fixed asset acquisition migration roundtrips its source binding and posting guard',async()=>{
+ const name='341_fixed_asset_acquisition_draft.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};assert.ok(entry);
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect();try{await client.query('BEGIN');await client.query(bodies.down);assert.equal((await client.query("SELECT to_regclass('fixed_asset_acquisition_binding') value")).rows[0].value,null);await client.query(bodies.up);assert.equal((await client.query("SELECT count(*)::int n FROM pg_trigger WHERE tgname='fixed_asset_acquisition_post_guard'")).rows[0].n,1);assert.equal((await client.query("SELECT has_table_privilege('refs_app','fixed_asset_acquisition_binding','INSERT') allowed")).rows[0].allowed,false);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });

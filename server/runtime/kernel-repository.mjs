@@ -698,6 +698,14 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_fixed_asset_register_v2($1,$2,$3::date,$4,$5,$6) AS result',[tenantId,entityId,asOfDate,limit,after,assetId]),'FIXED_ASSET_READ_MISSING','Fixed asset register read unavailable').result);
   }
 
+  async createFixedAssetAcquisition({tenantId,entityId,assetId,periodId,journalNumber,journalDate,expectedSourceVersion,attachmentIds,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,assetId,periodId,journalNumber,journalDate,expectedSourceVersion,attachmentIds,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_create_fixed_asset_acquisition_hash($1,$2,$3,$4,$5,$6::date,$7::bigint,$8::uuid[],$9) request_hash',args),'FIXED_ASSET_ACQUISITION_HASH_FAILED','Acquisition hash missing').request_hash;
+      return requireRow(await client.query('SELECT refs_create_fixed_asset_acquisition($1,$2,$3,$4,$5,$6::date,$7::bigint,$8::uuid[],$9,$10,$11) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_ACQUISITION_FAILED','Acquisition Draft missing').result;
+    });
+  }
+
   async bindFixedAssetDisposalSource({tenantId,entityId,fixedAssetRegisterEvidenceId,journalEntryId,sourceDocumentId,expectedSourceHash,expectedRevision,reason,idempotencyKey}){
     return this.inSession(async client=>{const args=[tenantId,entityId,fixedAssetRegisterEvidenceId,journalEntryId,sourceDocumentId,expectedSourceHash,expectedRevision,reason];const requestHash=requireRow(await client.query('SELECT refs_bind_fixed_asset_disposal_source_hash($1,$2,$3,$4,$5,$6,$7,$8) request_hash',args),'FIXED_ASSET_SOURCE_HASH_FAILED','Source binding hash missing').request_hash;return requireRow(await client.query('SELECT refs_bind_fixed_asset_disposal_source($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_SOURCE_BIND_FAILED','Source binding response missing').result;});
   }
