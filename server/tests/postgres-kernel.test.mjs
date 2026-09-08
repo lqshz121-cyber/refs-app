@@ -6872,8 +6872,7 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   const browserCashWorksheet=await readCashWorksheet({config:sourceClientConfig,reconciliationId:saleRecId,fetcher:sourceClientFetch});
   assert.equal(browserCashWorksheet.ok,true,JSON.stringify(browserCashWorksheet));assertSaleSource(browserCashWorksheet.rows.find(row=>row.bank_source_id===saleBankId));
   assertSaleSource(await saleBankReader.getReconciliationWorksheetItem({...sourceWorksheetArgs,bankSourceId:saleBankId}));
-  await migrateDownThrough(adminPool,'322_bank_match_typed_source_read.sql');
-  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_list_bank_transactions_v2(uuid,uuid,text,date,date,integer,integer)') IS NULL removed")).rows[0].removed,true);
+  await probeMigrationRoundTrip(adminPool,'322_bank_match_typed_source_read.sql','refs_list_bank_transactions_v2(uuid,uuid,text,date,date,integer,integer)');
   assert.equal((await adminPool.query('SELECT sales_receipt_id FROM bank_match WHERE bank_match_id=$1',[matched.body.data.bank_match_id])).rows[0].sales_receipt_id,receipt.sales_receipt_id);
   await migrateUp(adminPool);
   assertSaleSource(await saleBankReader.getReconciliationWorksheetItem({...sourceWorksheetArgs,bankSourceId:saleBankId}));
