@@ -134,8 +134,8 @@ test('Stage 1 fails before business reads when the API and web release differ',a
 
 test('Stage 1 acceptance projection is complete, exact, privilege-gated and reversible',async()=>{
   const [up,down]=await Promise.all([
-    readFile(new URL('../db/migrations/324_wbs_payable_acceptance_evidence_read.sql',import.meta.url),'utf8'),
-    readFile(new URL('../db/migrations/down/324_wbs_payable_acceptance_evidence_read.sql',import.meta.url),'utf8'),
+    readFile(new URL('../db/migrations/329_wbs_payable_acceptance_evidence_read.sql',import.meta.url),'utf8'),
+    readFile(new URL('../db/migrations/down/329_wbs_payable_acceptance_evidence_read.sql',import.meta.url),'utf8'),
   ]);
   for(const token of ['refs_read_wbs_payable_acceptance_evidence',"'WBS.AUTOREC.VIEW'","'AP.VIEW'","imp.environment='PRODUCTION'","sr.source_module='BGDATA.payable'","sr.ingestion_kind='TRANSACTION_CANDIDATE'","wbs_provider_signed_payable_admission pa","pa.algorithm='Ed25519'","a.content_hash=b.attachment_content_hash","a.storage_version=b.attachment_storage_version","a.finalization_status='VERIFIED_CLEAN'","j.status='POSTED'","bd.posted_journal_entry_id=d.journal_entry_id","REVOKE ALL","GRANT EXECUTE"])assert.ok(up.includes(token),token);
   for(const secret of ["'payload_ref'","'storage_ref'","'raw_payload'","'access_token'","'detached_signature'"])assert.equal(up.includes(secret),false,secret);
