@@ -35,6 +35,7 @@ export async function seedPaymentCandidateVolume(pool,ids){
       await client.query(`INSERT INTO payment_occurrence(payment_occurrence_id,tenant_id,entity_id,period_id,business_document_id,occurrence_kind,amount,currency,accounting_date,status,posted_journal_entry_id,idempotency_key,request_hash,created_by,version)
         SELECT occurrence_id,$1,$2,$3,$6,'AP_PAYMENT',40,'USD','2026-07-16','POSTED',journal_id,'perf-candidate-'||n,'sha256:'||repeat('b',64),'fixture',1
         FROM payment_candidate_volume WHERE n BETWEEN $4 AND $5`,[...args,billId]);
+      if(Math.min(first+1999,100001)%20000===0||first+1999>=100001)console.log(`# synthetic payment candidate volume loaded ${Math.min(first+1999,100001)} of 100001 distinct posted traces`);
     }
     await client.query('ALTER TABLE journal_line ENABLE TRIGGER journal_line_posted_immutable');
     await client.query('COMMIT');
