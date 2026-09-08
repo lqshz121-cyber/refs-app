@@ -1,5 +1,6 @@
 import test from 'node:test';
 import './counterparty-register.test.mjs';
+import './counterparty-maintenance.test.mjs';
 import './context-issuer-retry.test.mjs';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';

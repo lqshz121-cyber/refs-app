@@ -332,4 +332,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"324_payment_bank_candidates.sql","up":"82382aa5c0dd242cd2ea32b3f261e03c76baccb78542aa3f33e8ac7061671133","down":"a08540db9bd5864fcc7bb6072ab4508cbd68524151e49ad8dd0447851442573d"}),
   Object.freeze({"name":"325_payment_candidate_query_order.sql","up":"e066cbb28dd7bf16a70e613e69a72d20eb5fc5d39eb8cdb940f86b266708dac1","down":"9a351b4796c489c463e8e90cf3944890045db94fae55d6bc96a1b470c218358a"}),
   Object.freeze({"name":"326_counterparty_register.sql","up":"91bddf84d84ebf10152d4b23c09fb0e89aa505937a67dca23fd765758950b4bf","down":"5da232e1c40c080b245f5abeb4e098983ae7e6c6c9ef623c065b94b2ab7a07e4"}),
+  Object.freeze({"name":"327_counterparty_maintenance.sql","up":"d6d3cbc0707c266e29cc454d0125f727c045b61942ce1b003a636dafcf3416ea","down":"916fc232dae90c9847f8d7f97bc2ddf7d2182de4b552c85475640a57e655a8e3"}),
 ]);

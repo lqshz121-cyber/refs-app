@@ -38,6 +38,7 @@ import {assertAiAccountingDecisionPacketBatch} from '../runtime/ai-accounting-de
 import {assertAiAccountingDecisionPacketFullBatch} from '../runtime/ai-accounting-approved-decision-service.mjs';
 import {safeAiEvidenceTree} from '../runtime/ai-secret-safety.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
+import {validCounterpartyProposal,validCounterpartyReview,validCounterpartyChangeReceipt} from '../runtime/counterparty-maintenance.mjs';
 import {assertWbsH1ImportInventory} from '../runtime/wbs-h1-import-inventory.mjs';
 import {assertWbsH1AccountingSettingsProposal,assertWbsH1AccountingSettingsHumanDecision} from '../runtime/wbs-h1-accounting-settings-proposal.mjs';
 import {projectAuthoritativeAccountingSettings} from '../runtime/authoritative-accounting-settings.mjs';
@@ -844,6 +845,25 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         result=await kernel.readCreditUsageContext({tenantId:principal.tenantId,entityId,...selection});
         if(!validCreditUsageContext(result,{entityId,...selection}))throw new AccountingApiError(500,'CREDIT_USAGE_CONTEXT_INVALID','Credit availability did not match its scope or balances');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='POST'&&parts[4]==='counterparty-changes'&&(parts.length===5||parts.length===7&&parts[6]==='review')){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const idempotencyKey=requireIdempotency(headers);
+        if(!/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey))throw new AccountingApiError(400,'INVALID_IDEMPOTENCY_KEY','A stable counterparty change key is required');
+        const reviewing=parts.length===7;
+        if(!(reviewing?validCounterpartyReview(body):validCounterpartyProposal(body)))throw new AccountingApiError(400,'COUNTERPARTY_CHANGE_INVALID','Counterparty change fields are invalid');
+        let expectedVersion;
+        if(!reviewing&&body.changeType==='CREATE'){
+          if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','New counterparties do not have a current revision');
+          expectedVersion=0;
+        }else expectedVersion=requireRevision(headers);
+        if(reviewing&&expectedVersion!==0)throw new AccountingApiError(412,'COUNTERPARTY_CHANGE_STALE','Review requires the pending change revision');
+        const changeId=reviewing?requireUuid(parts[5],'changeId'):undefined;
+        const operation=reviewing?'reviewCounterpartyChange':'proposeCounterpartyChange',kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel[operation]!=='function')throw new AccountingApiError(503,'COUNTERPARTY_CHANGE_UNAVAILABLE','Counterparty maintenance is unavailable');
+        result=await kernel[operation]({tenantId:principal.tenantId,entityId,...body,...(reviewing?{changeId}:{}),expectedVersion,idempotencyKey});
+        if(!validCounterpartyChangeReceipt(result,{entityId,...(reviewing?{changeId,decision:body.decision}:{kind:body.kind,memberRef:body.memberRef})}))throw new AccountingApiError(500,'COUNTERPARTY_CHANGE_RECEIPT_INVALID','Counterparty change receipt did not match this request');
+        return {status:reviewing||result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===5&&parts[4]==='counterparties'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Counterparty reads do not accept command headers');

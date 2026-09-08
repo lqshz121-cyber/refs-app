@@ -1796,6 +1796,20 @@ export class PostgresAccountingKernel{
     ),'CREDIT_USAGE_CONTEXT_UNAVAILABLE','Credit availability is unavailable').result);
   }
 
+  async proposeCounterpartyChange({tenantId,entityId,kind,memberRef,changeType,expectedVersion,displayName,active,reason,idempotencyKey}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_propose_counterparty_change($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+      [tenantId,entityId,kind,memberRef,changeType,expectedVersion,displayName,active,reason,idempotencyKey]
+    ),'COUNTERPARTY_CHANGE_UNAVAILABLE','Counterparty change is unavailable').result);
+  }
+
+  async reviewCounterpartyChange({tenantId,entityId,changeId,expectedVersion,decision,reason,idempotencyKey}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_review_counterparty_change($1,$2,$3,$4,$5,$6,$7) AS result',
+      [tenantId,entityId,changeId,expectedVersion,decision,reason,idempotencyKey]
+    ),'COUNTERPARTY_CHANGE_UNAVAILABLE','Counterparty review is unavailable').result);
+  }
+
   async readCounterpartyRegister({tenantId,entityId,kind,status='ACTIVE',query='',afterRef=null,limit=50}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_counterparty_register($1,$2,$3,$4,$5,$6,$7) AS result',

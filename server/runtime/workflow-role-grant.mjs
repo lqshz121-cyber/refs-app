@@ -12,6 +12,8 @@ const role=(authorityClass,permissions,{principalKind='HUMAN'}={})=>Object.freez
 // Each authenticated subject receives one frozen bundle. Write authority
 // stages never mix Draft, Submit, Review, Approve, or Post.
 export const AUTHORITATIVE_WORKFLOW_ROLES=Object.freeze({
+  COUNTERPARTY_MAKER:role('DRAFT',[...READ,'MASTER.COUNTERPARTY.PROPOSE']),
+  COUNTERPARTY_APPROVER:role('APPROVE',[...READ,'MASTER.COUNTERPARTY.APPROVE']),
   WBS_SNAPSHOT_IMPORTER_SERVICE:role('SERVICE',['WBS.SNAPSHOT.IMPORT'],{principalKind:'SERVICE'}),
   ATTACHMENT_SCANNER_SERVICE:role('SERVICE',['ATTACHMENT.FINALIZE'],{principalKind:'SERVICE'}),
   ATTACHMENT_CLEANUP_SERVICE:role('SERVICE',['ATTACHMENT.CLEANUP'],{principalKind:'SERVICE'}),

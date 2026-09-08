@@ -45,6 +45,7 @@ import {AUTHORITATIVE_WORKFLOW_ROLES} from '../runtime/workflow-role-grant.mjs';
 import {proveSnapshotImportAtomicity} from './helpers/wbs-h1-snapshot-atomicity-fixture.mjs';
 import {productionIamAttestationFixture} from './helpers/production-iam-attestation-fixture.mjs';
 import {productionIamSealRaceFixture} from './helpers/production-iam-seal-race-fixture.mjs';
+import {proveCounterpartyMaintenance} from './helpers/counterparty-maintenance-fixture.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -501,6 +502,10 @@ async function trustedSession(ids,actorId='poster',permissions=['GL.JE.POST']){
 }
 
 const sessionProvider=(ids,actorId='poster',permissions=['GL.JE.POST'])=>()=>trustedSession(ids,actorId,permissions);
+
+pgTest('counterparty maintenance applies reviewed changes with version isolation and atomic audit',async()=>{
+  await proveCounterpartyMaintenance({adminPool,runtimePool,seed,trustedSession,migrateDownThrough,migrateUp});
+});
 
 pgTest('company catalog returns every allowed period in a 120-company tenant and respects revocation',async()=>{
   const ids=await seed({status:'DRAFT'}),actor='company-catalog-reader';
