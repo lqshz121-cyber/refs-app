@@ -7191,8 +7191,8 @@ pgTest('counterparty register pages 100001 masters without crossing kind or comp
   const elapsed=Date.now()-started;console.log('# counterparty register first/second/deep pages over 100001 rows: '+elapsed+'ms');assert.ok(elapsed<5000,'Three register pages must finish within five seconds');
 });
 
-pgTest('formal fixed asset register review retains source evidence and forbids self review without posting',async()=>{
-  const ids=await seed({status:'DRAFT',attachmentStatus:null,extraAccounts:[{accountCode:'150100',accountName:'Building assets'},{accountCode:'159100',accountName:'Accumulated depreciation'},{accountCode:'680100',accountName:'Depreciation expense'}]});
+async function reviewedFixedAssetFixture(){
+  const ids=await seed({status:'DRAFT',attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'150100',accountName:'Building assets'},{accountCode:'159100',accountName:'Accumulated depreciation'},{accountCode:'680100',accountName:'Depreciation expense'}]});
   const trace=await attachAutoSource(ids,{linkJournal:false});
   await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT',version=1 WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,trace.documentId]);
   const lineId=(await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,project_ref,property_ref) VALUES($1,$2,$3,'capital-invoice',1,25000,'DEBIT','PROJECT-1','PROPERTY-1') RETURNING source_document_line_id",[ids.tenantId,ids.entityId,trace.documentId])).rows[0].source_document_line_id;
@@ -7228,4 +7228,40 @@ pgTest('formal fixed asset register review retains source evidence and forbids s
   for(const table of ['audit_event','outbox_event'])assert.equal((await adminPool.query('SELECT count(*)::int n FROM '+table+" WHERE tenant_id=$1 AND event_type='FIXED_ASSET_REGISTER_REVIEWED'",[ids.tenantId])).rows[0].n,1);
   const stored=(await adminPool.query('SELECT reviewed_by,register_evidence_hash FROM fixed_asset_register_evidence WHERE fixed_asset_register_evidence_id=$1',[receipt.fixed_asset_register_evidence_id])).rows[0];assert.equal(stored.reviewed_by,'asset-reviewer');assert.equal(stored.register_evidence_hash,receipt.register_evidence_hash);
   await assert.rejects(adminPool.query("UPDATE fixed_asset_register_evidence SET asset_tag='MUTATED' WHERE fixed_asset_register_evidence_id=$1",[receipt.fixed_asset_register_evidence_id]),e=>e.code==='55000');
+  return {ids,trace,receipt,reviewer};
+}
+
+pgTest('formal fixed asset register review retains source evidence and forbids self review without posting',async()=>{await reviewedFixedAssetFixture();});
+
+pgTest('formal fixed asset impairment and disposal reviews bind actual posted asset ledger',async()=>{
+  const {ids,trace,receipt}=await reviewedFixedAssetFixture();
+  await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name) VALUES($1,$2,'680200','Impairment expense'),($1,$2,'159200','Accumulated impairment'),($1,$2,'780100','Asset disposal gain')",[ids.tenantId,ids.entityId]);
+  const roles={};for(const name of ['AI_ACCOUNTING_DECISION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER','FIXED_ASSET_IMPAIRMENT_REVIEWER','FIXED_ASSET_DISPOSAL_REVIEWER'])roles[name]=await formalWorkflowRoleKernel(ids,'asset-ledger-'+name.toLowerCase(),name);
+  const dimensions={fixed_asset_register_evidence_id:receipt.fixed_asset_register_evidence_id};
+  const line=(line_no,account_code,debit_amount,credit_amount,member_ref=null)=>({line_no,account_code,debit_amount,credit_amount,member_ref,dimensions});
+  async function postAssetJournal(number,date,lines){
+    const created=await roles.AI_ACCOUNTING_DECISION_MAKER.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalNumber:number,journalDate:date,currency:'USD',description:'Reviewed fixture asset ledger transaction',attachmentIds:[ids.attachmentId],idempotencyKey:number+'-create',lines});
+    for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:created.journal_entry_id,action,expectedRevision,idempotencyKey:number+'-'+action.toLowerCase()});
+    await roles.JE_POSTER.postJournal({...ids,journalEntryId:created.journal_entry_id,expectedRevision:3,idempotencyKey:number+'-post'});return created.journal_entry_id;
+  }
+  const impairmentArgs={tenantId:ids.tenantId,entityId:ids.entityId,fixedAssetRegisterEvidenceId:receipt.fixed_asset_register_evidence_id,accountingPeriodId:ids.periodId,valuationSourceDocumentId:trace.documentId,assessmentDate:'2026-07-20',recoverableAmount:'18000.0000',impairmentExpenseAccountCode:'680200',accumulatedImpairmentAccountCode:'159200',reason:'Independent fixture valuation compared to asset-bound posted carrying value.',idempotencyKey:'asset-impairment-review'};
+  const impairmentReviewer=roles.FIXED_ASSET_IMPAIRMENT_REVIEWER,disposalReviewer=roles.FIXED_ASSET_DISPOSAL_REVIEWER;
+  await assert.rejects(impairmentReviewer.reviewFixedAssetImpairment(impairmentArgs),e=>e.code==='23514');
+  const acquisition=await postAssetJournal('ASSET-ACQUISITION','2026-07-02',[line(1,'150100',25000,0),line(2,'291001',0,25000,'VENDOR-1')]);
+  const depreciation=await postAssetJournal('ASSET-DEPRECIATION','2026-07-15',[line(1,'680100',2000,0),line(2,'159100',0,2000)]);
+  const ledgerBeforeReview=(await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
+  const assessment=await impairmentReviewer.reviewFixedAssetImpairment(impairmentArgs),assessmentReplay=await impairmentReviewer.reviewFixedAssetImpairment(impairmentArgs);
+  assert.equal(assessment.posted_carrying_value,'23000.0000');assert.equal(assessment.impairment_loss,'5000.0000');assert.equal(assessment.status,'INDEPENDENTLY_REVIEWED');assert.equal(assessmentReplay.impairment_assessment_evidence_id,assessment.impairment_assessment_evidence_id);assert.equal(assessmentReplay.idempotent,true);
+  assert.deepEqual(new Set(assessment.journal_entry_ids),new Set([acquisition,depreciation]));assert.equal(assessment.ledger_line_ids.length,2);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,ledgerBeforeReview);
+  await assert.rejects(impairmentReviewer.reviewFixedAssetImpairment({...impairmentArgs,recoverableAmount:'17000.0000'}),e=>e.code==='23505');
+  const disposalArgs={tenantId:ids.tenantId,entityId:ids.entityId,fixedAssetRegisterEvidenceId:receipt.fixed_asset_register_evidence_id,accountingPeriodId:ids.periodId,disposalSourceDocumentId:trace.documentId,disposalDate:'2026-07-25',accumulatedDepreciation:'2000.0000',proceeds:'24000.0000',reason:'Independent disposal review reconciled original cost and disposal posting.',idempotencyKey:'asset-disposal-review'};
+  await assert.rejects(disposalReviewer.reviewFixedAssetDisposal(disposalArgs),e=>e.code==='23514');
+  // Assessment is evidence only; no impairment journal was booked in this scenario.
+  const disposal=await postAssetJournal('ASSET-DISPOSAL','2026-07-25',[line(1,'111000',24000,0,'BANK-1'),line(2,'159100',2000,0),line(3,'150100',0,25000),line(4,'780100',0,1000)]);
+  const disposalReceipt=await disposalReviewer.reviewFixedAssetDisposal(disposalArgs),disposalReplay=await disposalReviewer.reviewFixedAssetDisposal(disposalArgs);
+  assert.equal(disposalReceipt.disposed_cost,'25000.0000');assert.equal(disposalReceipt.carrying_value,'23000.0000');assert.equal(disposalReceipt.gain_or_loss,'1000.0000');assert.deepEqual(disposalReceipt.journal_entry_ids,[disposal]);assert.equal(disposalReceipt.ledger_line_ids.length,1);assert.equal(disposalReplay.fixed_asset_disposal_evidence_id,disposalReceipt.fixed_asset_disposal_evidence_id);assert.equal(disposalReplay.idempotent,true);
+  await assert.rejects(disposalReviewer.reviewFixedAssetDisposal({...disposalArgs,proceeds:'23000.0000'}),e=>e.code==='23505');
+  for(const event of ['FIXED_ASSET_IMPAIRMENT_REVIEWED','FIXED_ASSET_DISPOSAL_REVIEWED'])for(const table of ['audit_event','outbox_event'])assert.equal((await adminPool.query('SELECT count(*)::int n FROM '+table+' WHERE tenant_id=$1 AND event_type=$2',[ids.tenantId,event])).rows[0].n,1);
+  const assetBalances=(await adminPool.query("SELECT account_code,sum(debit_amount-credit_amount)::text balance FROM ledger_line WHERE tenant_id=$1 AND dimensions->>'fixed_asset_register_evidence_id'=$2 AND account_code IN('150100','159100') GROUP BY account_code ORDER BY account_code",[ids.tenantId,receipt.fixed_asset_register_evidence_id])).rows;assert.deepEqual(assetBalances,[{account_code:'150100',balance:'0.0000'},{account_code:'159100',balance:'0.0000'}]);
 });
