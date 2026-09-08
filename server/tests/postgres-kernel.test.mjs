@@ -46,6 +46,7 @@ import {proveSnapshotImportAtomicity} from './helpers/wbs-h1-snapshot-atomicity-
 import {productionIamAttestationFixture} from './helpers/production-iam-attestation-fixture.mjs';
 import {productionIamSealRaceFixture} from './helpers/production-iam-seal-race-fixture.mjs';
 import {proveCounterpartyMaintenance} from './helpers/counterparty-maintenance-fixture.mjs';
+import {proveCounterpartyMaintenanceReads} from './helpers/counterparty-maintenance-reads-fixture.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -505,6 +506,10 @@ const sessionProvider=(ids,actorId='poster',permissions=['GL.JE.POST'])=>()=>tru
 
 pgTest('counterparty maintenance applies reviewed changes with version isolation and atomic audit',async()=>{
   await proveCounterpartyMaintenance({adminPool,runtimePool,seed,trustedSession,migrateDownThrough,migrateUp});
+});
+
+pgTest('counterparty maintenance detail and history preserve scoped versions and review evidence',async()=>{
+  await proveCounterpartyMaintenanceReads({adminPool,runtimePool,seed,trustedSession,migrateDownThrough,migrateUp});
 });
 
 pgTest('company catalog returns every allowed period in a 120-company tenant and respects revocation',async()=>{
