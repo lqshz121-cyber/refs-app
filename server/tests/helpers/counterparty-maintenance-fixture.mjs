@@ -77,5 +77,8 @@ export async function proveCounterpartyMaintenance({adminPool,runtimePool,seed,t
  assert.equal(await read('CP-ROLLBACK'),undefined);assert.deepEqual(await counts(),beforeRollback);
  assert.equal((await adminPool.query('SELECT status FROM counterparty_change WHERE counterparty_change_id=$1',[rollback.counterparty_change_id])).rows[0].status,'PENDING');
  await assert.rejects(migrateDownThrough(adminPool,'327_counterparty_maintenance.sql'),e=>e.code==='55000');
+ // Higher read-only migrations may have rolled down before the retained-history
+ // guard refuses 327. Restore them so the following scenario sees the full schema.
+ await migrateUp(adminPool);
  assert.equal((await counts()).journals,initial.journals,'Master maintenance must not create accounting journals');
 }
