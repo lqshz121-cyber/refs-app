@@ -101,14 +101,19 @@ async function verifyReleaseStamp({apiBaseUrl,webOrigin,releaseSha,fetcher}){
 }
 
 async function readCompleteLedgerSnapshot({fetcher,base,token,periodId}){
-  const rows=[];let offset=0,snapshotToken=null,totalCount=null;
+  const rows=[],seenLedgerLineIds=new Set();let offset=0,snapshotToken=null,totalCount=null;
   do{
     const query=new URLSearchParams({periodId,limit:'200',offset:String(offset)});if(snapshotToken)query.set('snapshotToken',snapshotToken);
     const page=await getJson(fetcher,`${base}/general-ledger/snapshot-entries?${query}`,token,'General Ledger snapshot');
     expect(page?.schema_version==='GENERAL_LEDGER_SNAPSHOT_PAGE_V1'&&page.scope?.period_id===periodId,'General Ledger snapshot scope is invalid');
-    expect(Array.isArray(page.rows)&&Number.isSafeInteger(page.total_count)&&page.total_count>=0&&page.total_count<=100000,'General Ledger snapshot population is invalid');
+    expect(Array.isArray(page.rows)&&page.limit===200&&page.read_count===page.rows.length&&page.rows.length<=page.limit&&Number.isSafeInteger(page.total_count)&&page.total_count>=0&&page.total_count<=100000,'General Ledger snapshot population is invalid');
     if(snapshotToken===null){snapshotToken=page.snapshot_token;totalCount=page.total_count;expect(PREFIXED_SHA256.test(snapshotToken||''),'General Ledger snapshot token is invalid');}
     expect(page.snapshot_token===snapshotToken&&page.population_hash===snapshotToken&&page.total_count===totalCount&&page.offset===offset,'General Ledger snapshot changed between pages');
+    for(const row of page.rows){
+      expect(UUID.test(row?.ledger_line_id||''),'General Ledger snapshot row identity is invalid');
+      expect(!seenLedgerLineIds.has(row.ledger_line_id),'General Ledger snapshot repeated a ledger line across pages');
+      seenLedgerLineIds.add(row.ledger_line_id);
+    }
     rows.push(...page.rows);expect(rows.length<=totalCount,'General Ledger snapshot returned excess rows');
     if(page.population_complete){expect(rows.length===totalCount,'General Ledger snapshot ended before the complete population');break;}
     expect(page.rows.length>0,'General Ledger snapshot made no paging progress');offset+=page.rows.length;
@@ -117,15 +122,20 @@ async function readCompleteLedgerSnapshot({fetcher,base,token,periodId}){
 }
 
 async function readCompleteAgingDetail({fetcher,base,token,scenario,business}){
-  const rows=[];let offset=0,snapshotHash=null,totalCount=null;
+  const rows=[],seenBusinessDocumentIds=new Set();let offset=0,snapshotHash=null,totalCount=null;
   do{
     const query=new URLSearchParams({periodId:scenario.periodId,asOf:scenario.asOf,counterpartyRef:business.counterparty_ref,counterpartyName:business.counterparty_name,currency:business.currency,limit:'200',offset:String(offset)});
     const page=await getEnvelope(fetcher,`${base}/ap/aging-detail?${query}`,token,'AP aging detail'),scope=page.scope;
     expect(scope.entity_id===scenario.entityId&&scope.period_id===scenario.periodId&&scope.document_kind==='AP_BILL'&&scope.as_of_date===scenario.asOf,'AP Aging snapshot scope does not match the scenario');
     expect(scope.counterparty_ref===business.counterparty_ref&&scope.counterparty_name===business.counterparty_name&&scope.currency===business.currency&&scope.snapshot_version===1,'AP Aging counterparty scope does not match the Bill');
-    expect(PREFIXED_SHA256.test(scope.snapshot_hash||'')&&Number.isSafeInteger(scope.total_count)&&scope.total_count>=0&&scope.total_count<=1000000&&scope.offset===offset,'AP Aging snapshot metadata is invalid');
+    expect(PREFIXED_SHA256.test(scope.snapshot_hash||'')&&scope.limit===200&&page.data.length<=scope.limit&&Number.isSafeInteger(scope.total_count)&&scope.total_count>=0&&scope.total_count<=1000000&&scope.offset===offset,'AP Aging snapshot metadata is invalid');
     if(snapshotHash===null){snapshotHash=scope.snapshot_hash;totalCount=scope.total_count;}
     expect(scope.snapshot_hash===snapshotHash&&scope.total_count===totalCount,'AP Aging snapshot changed between pages');
+    for(const row of page.data){
+      expect(UUID.test(row?.business_document_id||''),'AP Aging row identity is invalid');
+      expect(!seenBusinessDocumentIds.has(row.business_document_id),'AP Aging repeated a business document across pages');
+      seenBusinessDocumentIds.add(row.business_document_id);
+    }
     rows.push(...page.data);expect(rows.length<=totalCount,'AP Aging returned excess rows');
     if(rows.length===totalCount)break;
     expect(page.data.length>0,'AP Aging made no paging progress');offset+=page.data.length;

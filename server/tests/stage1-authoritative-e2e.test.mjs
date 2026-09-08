@@ -88,6 +88,20 @@ test('Stage 1 follows the immutable GL snapshot token until the complete populat
   assert.ok(calls.some(call=>call.url.includes('offset=200')&&call.url.includes(encodeURIComponent(hashes.population))));
 });
 
+test('Stage 1 rejects duplicated stable row identities across paged GL and AP Aging reads',async()=>{
+  const ledgerFillers=Array.from({length:200},(_,index)=>({journal_entry_id:id(100+index),ledger_line_id:id(400+index)}));
+  await assert.rejects(()=>verifyStage1AuthoritativeE2e({config:stage1AuthoritativeE2eConfig(environment,scenario),fetcher:fetcherFor({ledgerPage:url=>{
+    const offset=Number(new URL(url).searchParams.get('offset'));
+    return offset===0?page(ledgerFillers,{total_count:202,read_count:200,population_complete:false}):page([ledgerFillers[0],ledgerRows()[0]],{offset:200,total_count:202,read_count:2,population_complete:true});
+  }}).fetcher}),/repeated a ledger line across pages/);
+
+  const agingFillers=[aging()[0],...Array.from({length:199},(_,index)=>({...aging()[0],business_document_id:id(500+index)}))];
+  await assert.rejects(()=>verifyStage1AuthoritativeE2e({config:stage1AuthoritativeE2eConfig(environment,scenario),fetcher:fetcherFor({agingPage:url=>{
+    const offset=Number(new URL(url).searchParams.get('offset'));
+    return offset===0?ok(agingFillers,{...agingScope(),total_count:201}):ok(aging(),{...agingScope(),total_count:201,offset:200});
+  }}).fetcher}),/repeated a business document across pages/);
+});
+
 test('Stage 1 rejects drifted signed or attachment evidence and duplicate journal actors',async()=>{
   const wrongSigned=evidence();wrongSigned.source.signed_receipt_hash=`sha256:${'9'.repeat(64)}`;
   await assert.rejects(()=>verifyStage1AuthoritativeE2e({config:stage1AuthoritativeE2eConfig(environment,scenario),fetcher:fetcherFor({evidence:wrongSigned}).fetcher}),/exact retained Ed25519 admission/);
