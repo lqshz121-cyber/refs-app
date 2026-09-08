@@ -779,3 +779,22 @@ test('current actor access read is self-only bodyless no-store diagnostics',asyn
   response=await accessApi({method:'GET',url:path,body:null,headers:{'If-Match':'\"0\"'}});assert.equal(response.status,400);assert.equal(response.body.code,'IF_MATCH_NOT_ALLOWED');
   response=await accessApi({method:'GET',url:path,body:{actorId:'someone-else'},headers:{}});assert.equal(response.status,400);assert.equal(response.body.code,'IDENTITY_FIELD_FORBIDDEN');
 });
+
+
+test('disposal source binding takes server identity and header revision with a closed request',async()=>{
+  const assetId=randomUUID(),sourceId=randomUUID(),bindingId=randomUUID(),seen=[];
+  const routeApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'source-maker'}),kernelFactory:async()=>({bindFixedAssetDisposalSource:async args=>{seen.push(args);return {schema_version:'FIXED_ASSET_DISPOSAL_SOURCE_BINDING_V1',binding_id:bindingId,journal_entry_id:journalEntryId,fixed_asset_register_evidence_id:assetId,source_document_id:sourceId,source_link_id:randomUUID(),source_payload_hash:'sha256:'+'a'.repeat(64),source_document_version:1,status:'DRAFT',revision:1,idempotent:false};}})});
+  const req={method:'POST',url:'/api/v1/entities/'+entityId+'/fixed-assets/disposal-source-bindings',headers:{'Idempotency-Key':'disposal-source-bind-unit','If-Match':'"0"'},body:{fixedAssetRegisterEvidenceId:assetId,journalEntryId,sourceDocumentId:sourceId,expectedSourceHash:'sha256:'+'a'.repeat(64),reason:'Retained source checked against the disposal draft.'}};
+  const response=await routeApi(req);assert.equal(response.status,201);assert.equal(seen.length,1);assert.equal(seen[0].tenantId,tenantId);assert.equal(seen[0].entityId,entityId);assert.equal(seen[0].expectedRevision,0);assert.equal(seen[0].idempotencyKey,'disposal-source-bind-unit');
+  const injected=await routeApi({...req,body:{...req.body,actorId:'other'}});assert.equal(injected.status,400);assert.equal(seen.length,1);
+  const missing=await routeApi({...req,headers:{'Idempotency-Key':'disposal-source-bind-no-revision'}});assert.equal(missing.status,428);assert.equal(seen.length,1);
+});
+
+test('disposal source binding rejects mismatched or incomplete backend receipts',async()=>{
+ const assetId=randomUUID(),sourceId=randomUUID();
+ const valid={schema_version:'FIXED_ASSET_DISPOSAL_SOURCE_BINDING_V1',binding_id:randomUUID(),fixed_asset_register_evidence_id:assetId,journal_entry_id:journalEntryId,source_document_id:sourceId,source_link_id:randomUUID(),source_payload_hash:'sha256:'+'a'.repeat(64),source_document_version:1,status:'DRAFT',revision:1,idempotent:false};
+ for(const patch of [{fixed_asset_register_evidence_id:randomUUID()},{journal_entry_id:randomUUID()},{source_document_id:randomUUID()},{source_payload_hash:'sha256:'+'b'.repeat(64)},{source_link_id:null},{source_document_version:0},{source_document_version:'1'},{revision:2},{idempotent:undefined}]){
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'source-maker'}),kernelFactory:async()=>({bindFixedAssetDisposalSource:async()=>({...valid,...patch})})});
+  const response=await api({method:'POST',url:'/api/v1/entities/'+entityId+'/fixed-assets/disposal-source-bindings',headers:{'Idempotency-Key':'invalid-receipt','If-Match':'"0"'},body:{fixedAssetRegisterEvidenceId:assetId,journalEntryId,sourceDocumentId:sourceId,expectedSourceHash:valid.source_payload_hash,reason:'Verified retained disposal source.'}});assert.equal(response.status,500,JSON.stringify(patch));
+ }
+});
