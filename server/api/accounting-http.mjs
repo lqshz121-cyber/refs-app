@@ -2057,7 +2057,28 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
       }
       if(method!=='POST')throw new AccountingApiError(405,'METHOD_NOT_ALLOWED','Only POST commands and supported GET reads are available');
       const idempotencyKey=requireIdempotency(headers);
-      if(parts.length===7&&parts[4]==='periods'&&parts[6]==='close'){
+      if(parts.length===8&&parts[4]==='fixed-assets'&&parts[5]==='register'&&parts[7]==='acquisitions'){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Use expectedSourceVersion when creating an acquisition Draft');
+        allowOnly(payload,['periodId','journalNumber','journalDate','expectedSourceVersion','attachmentIds','reason']);
+        const assetId=requireUuid(parts[6],'assetId'),periodId=requireUuid(payload.periodId,'periodId'),journalDate=requireIsoDate(payload.journalDate,'journalDate');
+        const {journalNumber,expectedSourceVersion}=payload;
+        if(typeof journalNumber!=='string'||journalNumber!==journalNumber.trim()||journalNumber.length<1||journalNumber.length>100||/[\u0000-\u001f\u007f]/.test(journalNumber))throw new AccountingApiError(400,'INVALID_JOURNAL_NUMBER','Enter a journal number of 1-100 characters');
+        if(!Number.isSafeInteger(expectedSourceVersion)||expectedSourceVersion<1)throw new AccountingApiError(400,'INVALID_SOURCE_VERSION','expectedSourceVersion must be a positive safe integer');
+        const attachmentIds=requireAttachmentIds(requireAttachmentIds(payload.attachmentIds).map(id=>id.toLowerCase())),reason=requireReviewReason(payload.reason);
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.createFixedAssetAcquisition!=='function')throw new AccountingApiError(503,'FIXED_ASSET_ACQUISITION_UNAVAILABLE','Asset acquisition is unavailable');
+        try{result=await kernel.createFixedAssetAcquisition({tenantId:principal.tenantId,entityId,assetId,periodId,journalNumber,journalDate,expectedSourceVersion,attachmentIds,reason,idempotencyKey});}
+        catch(error){
+          if(error?.code==='40001'&&error.message==='Acquisition source changed')throw new AccountingApiError(412,'PRECONDITION_FAILED','The source changed. Refresh it before creating the acquisition');
+          if(error?.code==='55006'&&error.message==='Acquisition requires verified original payable evidence')throw new AccountingApiError(409,'FIXED_ASSET_ORIGINAL_SOURCE_REQUIRED','Original source evidence must be retained before creating this acquisition');
+          if(error?.code==='55006'&&error.message==='Retained source attachment identity is ambiguous; acquisition evidence must be corrected')throw new AccountingApiError(409,'FIXED_ASSET_ATTACHMENT_IDENTITY_AMBIGUOUS','The retained attachment association needs correction before creating this acquisition');
+          throw error;
+        }
+        const receiptKeys=['journal_entry_id','status','revision','idempotent','schema_version','binding_id','asset_id','source_document_id','source_document_version','source_payload_hash','source_link_id'].sort();
+        if(!exactKeys(result,receiptKeys)||result.schema_version!=='FIXED_ASSET_ACQUISITION_DRAFT_V1'||result.asset_id!==assetId||result.status!=='DRAFT'||result.revision!==0||typeof result.idempotent!=='boolean'||result.source_document_version!==expectedSourceVersion||!['journal_entry_id','binding_id','source_document_id','source_link_id'].every(key=>typeof result[key]==='string'&&UUID.test(result[key]))||!/^sha256:[a-f0-9]{64}$/.test(result.source_payload_hash||''))throw new AccountingApiError(502,'FIXED_ASSET_ACQUISITION_RESULT_INVALID','Asset acquisition returned an invalid Draft receipt');
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store','etag':'"0"'},body:{ok:true,data:result}};
+      }else if(parts.length===7&&parts[4]==='periods'&&parts[6]==='close'){
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['expectedReadinessHash','reason']);
         for(const key of ['expectedReadinessHash','reason'])if(!Object.hasOwn(payload,key))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${key} is required`);
         const periodId=requireUuid(parts[5],'periodId'),expectedReadinessHash=requireSha256(payload.expectedReadinessHash,'expectedReadinessHash');

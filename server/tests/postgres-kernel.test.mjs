@@ -7799,7 +7799,14 @@ pgTest('native fixed asset acquisition derives a source-bound Draft and prevents
  await assert.rejects(maker.createFixedAssetAcquisition({...args,idempotencyKey:'unrelated-clean-attachment'}),e=>e.code==='23514');
  assert.deepEqual(await counts(),before);
  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
- const draft=await maker.createFixedAssetAcquisition(args),replay=await maker.createFixedAssetAcquisition(args);
+ const acquisitionApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'native-acquisition-ai_accounting_decision_maker'}),kernelFactory:async()=>maker});
+ const {tenantId:ignoredTenant,entityId:ignoredEntity,assetId:routeAsset,idempotencyKey:commandKey,...commandBody}=args;
+ const request={method:'POST',url:`/api/v1/entities/${ids.entityId}/fixed-assets/register/${routeAsset}/acquisitions`,headers:{'idempotency-key':commandKey},body:commandBody};
+ const staleHttp=await acquisitionApi({...request,headers:{'idempotency-key':'native-http-stale-source'},body:{...commandBody,expectedSourceVersion:2}});
+ assert.equal(staleHttp.status,412,JSON.stringify(staleHttp.body));assert.equal(staleHttp.body.code,'PRECONDITION_FAILED');assert.equal(staleHttp.headers['retry-after'],undefined);
+ const createdResponse=await acquisitionApi(request),replayedResponse=await acquisitionApi(request);
+ assert.equal(createdResponse.status,201,JSON.stringify(createdResponse.body));assert.equal(replayedResponse.status,200,JSON.stringify(replayedResponse.body));assert.equal(createdResponse.headers.etag,'"0"');
+ const draft=createdResponse.body.data,replay=replayedResponse.body.data;
  assert.equal(draft.status,'DRAFT');assert.equal(draft.source_document_id,trace.documentId);assert.equal(draft.source_document_version,1);assert.equal(replay.journal_entry_id,draft.journal_entry_id);assert.equal(replay.idempotent,true);
  const original=(await adminPool.query('SELECT b.original_evidence_id,b.original_evidence_hash,o.evidence_id,o.evidence_hash FROM fixed_asset_original_source_binding b JOIN wbs_payable_original_row_evidence o ON o.evidence_id=b.original_evidence_id WHERE binding_id=$1',[draft.binding_id])).rows[0];
  assert.equal(original.original_evidence_id,original.evidence_id);assert.equal(original.original_evidence_hash,original.evidence_hash);
