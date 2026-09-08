@@ -2241,6 +2241,15 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         allowOnly(payload,['paymentOccurrenceId','expectedOccurrenceRevision','reason']);
         if(!Number.isSafeInteger(payload.expectedOccurrenceRevision)||payload.expectedOccurrenceRevision<0)throw new AccountingApiError(400,'INVALID_REVISION','expectedOccurrenceRevision must be a non-negative safe integer');
         result=await kernel.createBankPaymentMatch({tenantId:principal.tenantId,entityId,bankSourceId:requireUuid(parts[6],'bankSourceId'),paymentOccurrenceId:requireUuid(payload.paymentOccurrenceId,'paymentOccurrenceId'),expectedBankVersion:requireRevision(headers),expectedOccurrenceVersion:payload.expectedOccurrenceRevision,reason:requireReviewReason(payload.reason),idempotencyKey});
+      }else if(parts.length===8&&parts[4]==='bank'&&parts[5]==='transactions'&&parts[7]==='sales-receipt-matches'){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        allowOnly(payload,['salesReceiptId','expectedReceiptRevision','reason']);
+        if(!Number.isSafeInteger(payload.expectedReceiptRevision)||payload.expectedReceiptRevision<0)throw new AccountingApiError(400,'INVALID_REVISION','expectedReceiptRevision must be a non-negative safe integer');
+        const args={tenantId:principal.tenantId,entityId,bankSourceId:requireUuid(parts[6],'bankSourceId').toLowerCase(),salesReceiptId:requireUuid(payload.salesReceiptId,'salesReceiptId').toLowerCase(),expectedBankVersion:requireRevision(headers),expectedReceiptVersion:payload.expectedReceiptRevision,reason:requireReviewReason(payload.reason),idempotencyKey};
+        const kernel=await kernelFactory(principal);if(typeof kernel?.createSalesReceiptBankMatch!=='function')throw new AccountingApiError(503,'SALES_RECEIPT_MATCH_UNAVAILABLE','Cash sale matching is unavailable');
+        result=await kernel.createSalesReceiptBankMatch(args);
+        const fields=['bank_match_id','bank_source_id','sales_receipt_id','journal_entry_id','journal_line_id','ledger_line_id','status','revision','idempotent'];
+        if(!result||typeof result!=='object'||Array.isArray(result)||Object.keys(result).length!==fields.length||!fields.every(k=>Object.hasOwn(result,k))||!fields.slice(0,6).every(k=>typeof result[k]==='string'&&UUID.test(result[k]))||result.bank_source_id!==args.bankSourceId||result.sales_receipt_id!==args.salesReceiptId||result.status!=='ACTIVE'||result.revision!==0||typeof result.idempotent!=='boolean')throw new AccountingApiError(500,'SALES_RECEIPT_MATCH_INVALID','Cash sale match receipt is invalid');
       }else if(parts.length===10&&parts[4]==='bank'&&parts[5]==='transactions'&&parts[7]==='matches'&&parts[9]==='unmatch'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['reason']);

@@ -2319,6 +2319,14 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async createSalesReceiptBankMatch(args){
+    return this.inSession(async client=>{
+      const values=[args.tenantId,args.entityId,args.bankSourceId,args.salesReceiptId,args.expectedBankVersion,args.expectedReceiptVersion,args.reason];
+      const requestHash=requireRow(await client.query('SELECT refs_sales_receipt_bank_match_hash($1,$2,$3,$4,$5,$6,$7) AS request_hash',values),'SALES_RECEIPT_MATCH_HASH_FAILED','Cash sale match hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_create_sales_receipt_bank_match($1,$2,$3,$4,$5,$6,$7,$8,$9) AS result',[...values,args.idempotencyKey,requestHash]),'SALES_RECEIPT_MATCH_FAILED','Cash sale matching did not return a receipt').result;
+    });
+  }
+
   async unmatchBankPayment(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

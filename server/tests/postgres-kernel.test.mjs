@@ -6503,6 +6503,23 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   await adminPool.query('DELETE FROM bank_match WHERE bank_match_id=$1',[syntheticMatchId]);
   await migrateDownThrough(adminPool,'320_sales_receipt_bank_evidence.sql');await migrateUp(adminPool);
   assert.equal((await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.rows[0].sales_receipt_id,receipt.sales_receipt_id);
+  const matchUrl=`${root}/bank/transactions/${saleBankId}/sales-receipt-matches`;
+  const matchRevision=(await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.bank_revision;
+  const matchRequest={method:'POST',url:matchUrl,body:{salesReceiptId:receipt.sales_receipt_id,expectedReceiptRevision:1,reason:'Reviewed native cash sale bank match'},headers:{'idempotency-key':'native-sale-bank-match-001','if-match':'"'+matchRevision+'"'}};
+  assert.equal((await postedReadApi(matchRequest)).status,403);
+  const ledgerBeforeMatch=(await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
+  const matching=await Promise.all([bankCandidateApi(matchRequest),bankCandidateApi(matchRequest)]);
+  assert.deepEqual(matching.map(r=>r.status).sort(),[200,201],JSON.stringify(matching));
+  const matched=matching.find(r=>r.status===201);assert.equal(matching[0].body.data.bank_match_id,matching[1].body.data.bank_match_id);assert.equal(matched.body.data.sales_receipt_id,receipt.sales_receipt_id);assert.equal(matched.body.data.ledger_line_id,saleCandidate.ledger_line_id);
+  const matchReplay=await bankCandidateApi(matchRequest);assert.equal(matchReplay.status,200,JSON.stringify(matchReplay.body));assert.equal(matchReplay.body.data.bank_match_id,matched.body.data.bank_match_id);
+  const otherMatcherApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'sale-other-bank-matcher'}),kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'sale-other-bank-matcher',['BANK.MATCH.CREATE'])})});
+  assert.equal((await otherMatcherApi(matchRequest)).status,403,'idempotent replay remains bound to its original actor');
+  assert.equal((await bankCandidateApi({...matchRequest,headers:{...matchRequest.headers,'idempotency-key':'native-sale-bank-match-002'}})).status,409);
+  assert.equal((await bankCandidateApi({...matchRequest,body:{...matchRequest.body,reason:'Changed original request reason'}})).status,409);
+  assert.equal((await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.rows.length,0);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,ledgerBeforeMatch);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type='SALES_RECEIPT_BANK_MATCH_CREATED'",[matched.body.data.bank_match_id])).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type='SALES_RECEIPT_BANK_MATCH_CREATED'",[matched.body.data.bank_match_id])).rows[0].n,1);
   assert.deepEqual(await counts(),{sales:1,documents:0,allocations:0});
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type=ANY($2::text[])',[receipt.sales_receipt_id,['SALES_RECEIPT_DRAFT_CREATED','SALES_RECEIPT_POSTED']])).rows[0].n,2);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type=ANY($2::text[])',[receipt.sales_receipt_id,['SALES_RECEIPT_DRAFT_CREATED','SALES_RECEIPT_POSTED']])).rows[0].n,2);
@@ -6517,7 +6534,7 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[badReceipt.journal_entry_id])).rows[0].status,'APPROVED');
   assert.equal((await adminPool.query('SELECT status FROM sales_receipt WHERE sales_receipt_id=$1',[badReceipt.sales_receipt_id])).rows[0].status,'DRAFT');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM outbox_event WHERE aggregate_id IN ($1,$2)',[badReceipt.sales_receipt_id,badReceipt.journal_entry_id])).rows[0].n,before);
-  await assert.rejects(migrateDownThrough(adminPool,'317_native_sales_receipt.sql'),/Cannot remove sales receipt schema while business records exist/);
+  await assert.rejects(migrateDownThrough(adminPool,'317_native_sales_receipt.sql'),/Retained sales receipt bank match history prevents destructive rollback/);
   assert.equal((await counts()).sales,2);
 });
 
