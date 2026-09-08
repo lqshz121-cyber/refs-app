@@ -1400,6 +1400,37 @@ pgTest('provider-signed Payable admission atomically reaches Review Draft four-r
   const posted=await journalPoster.postJournal({...ids,journalEntryId:drafted.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'wbs-payable-post-pg-0001'});
   assert.equal(posted.idempotent,false);
 
+  const acceptanceReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-acceptance-reader',['WBS.AUTOREC.VIEW','AP.VIEW'])});
+  const acceptance=await acceptanceReader.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id});
+  assert.deepEqual({
+    schema:acceptance.schema_version,scope:acceptance.scope,row:acceptance.source.wbs_inbound_row_id,
+    admission:acceptance.source.provider_signed_payable_admission_id,algorithm:acceptance.source.signature_algorithm,
+    record:acceptance.source.source_record_id,version:acceptance.source.source_version,
+    receipt:acceptance.source.receipt_hash,provider:acceptance.source.provider_receipt_hash,evidence:acceptance.source.evidence_hash,
+    review:acceptance.review.review_evidence_id,attachmentIds:acceptance.review.attachment_ids,
+    attachment:acceptance.attachments[0],draft:acceptance.draft.journal_entry_id,
+    business:acceptance.business_document,journal:acceptance.journal,
+  },{
+    schema:'WBS_PAYABLE_ACCEPTANCE_EVIDENCE_V1',scope:{tenant_id:ids.tenantId,entity_id:ids.entityId,period_id:ids.periodId},row:stored.wbs_inbound_row_id,
+    admission:created.wbs_provider_signed_payable_admission_id,algorithm:'Ed25519',
+    record:stored.source_record_id,version:stored.source_version,receipt:stored.receipt_hash,provider:providerReceiptHash,evidence:stored.evidence_hash,
+    review:reviewed.wbs_payable_review_evidence_id,attachmentIds:[attachmentId],
+    attachment:{attachment_id:attachmentId,content_hash:attachmentMeta.content_hash,storage_version:attachmentMeta.storage_version,finalization_status:'VERIFIED_CLEAN',scan_status:'CLEAN',verified_at:acceptance.attachments[0].verified_at,bound_by:'independent-attachment-binder'},
+    draft:drafted.journal_entry_id,
+    business:{business_document_id:drafted.business_document_id,source_document_id:reviewed.source_document_id,document_kind:'AP_BILL',currency:'USD',gross_amount:'89.1250',open_balance:'89.1250',status:'OPEN',posted_journal_entry_id:drafted.journal_entry_id,counterparty_ref:'VENDOR-PG',counterparty_name:'Signed WBS vendor'},
+    journal:{journal_entry_id:drafted.journal_entry_id,status:'POSTED',revision:4,created_by:'wbs-payable-maker',reviewed_by:'wbs-payable-journal-reviewer',approved_by:'wbs-payable-journal-approver',posted_by:'wbs-payable-journal-poster',posted_at:acceptance.journal.posted_at},
+  });
+  assert.match(acceptance.source.signed_package_hash,/^sha256:[0-9a-f]{64}$/);assert.match(acceptance.source.signed_receipt_hash,/^sha256:[0-9a-f]{64}$/);assert.ok(acceptance.source.signed_at);
+  const acceptanceWbsOnly=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'acceptance-wbs-only',['WBS.AUTOREC.VIEW'])});
+  await assert.rejects(acceptanceWbsOnly.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}),error=>error.code==='42501');
+
+  await migrateDown(adminPool);
+  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_wbs_payable_acceptance_evidence(uuid,uuid,uuid)') fn")).rows[0].fn,null);
+  await assert.rejects(acceptanceReader.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}),error=>error.code==='42883');
+  await migrateUp(adminPool);
+  assert.ok((await adminPool.query("SELECT to_regprocedure('refs_read_wbs_payable_acceptance_evidence(uuid,uuid,uuid)') fn")).rows[0].fn);
+  assert.deepEqual(await acceptanceReader.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}),acceptance);
+
   const postedState=(await adminPool.query(`SELECT d.status document_status,d.open_balance::text,d.draft_journal_entry_id,d.posted_journal_entry_id,j.status::text journal_status,s.status::text staging_status,s.version::text staging_version,
       (SELECT count(DISTINCT l.posting_batch_id)::int FROM ledger_line l WHERE l.tenant_id=d.tenant_id AND l.entity_id=d.entity_id AND l.journal_entry_id=j.journal_entry_id) posting_batches,
       (SELECT count(*)::int FROM ledger_line l WHERE l.tenant_id=d.tenant_id AND l.entity_id=d.entity_id AND l.journal_entry_id=j.journal_entry_id) ledger_lines

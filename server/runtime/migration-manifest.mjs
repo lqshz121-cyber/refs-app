@@ -329,4 +329,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"321_sales_receipt_bank_match.sql","up":"a40959608e906619b894bc7e52547618d032483c49105a5b8823fa1487e32659","down":"50c0c5ae2a2255e7d34da7f47c83ad8b0f7e4e7506ba338a6815ac297ab101a9"}),
   Object.freeze({"name":"322_bank_match_typed_source_read.sql","up":"2efbb90a05d3180faf0066b18a3056e91b5b4800fb91894db6e3397c6a073237","down":"666f354e65ebd437448eb717ac9e010d17874df89c7e0ec0885b18eaf397e576"}),
   Object.freeze({"name":"323_bank_match_serialization.sql","up":"898a2c93da2efd0b0ca874a40749cec93e4827fa16bdf146bd939d935cfd610c","down":"aa8876fb166e684e88f6da16a18a0430bbab0e8dee39591138a1b3926d06dc22"}),
+  Object.freeze({"name":"324_wbs_payable_acceptance_evidence_read.sql","up":"a413ddd64b00e5f1439549bc6fc0c3a3f9a144121f4f400fd767ac716991ffda","down":"ac200d4817257b64996c286bdc8f6b483bd10b70bbadda1d93ed77e9cf9dcee5"}),
 ]);
