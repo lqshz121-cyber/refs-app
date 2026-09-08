@@ -203,7 +203,7 @@ console.log('authoritative-bank-workspace: scoped full-page read-only SSR contra
 // This covers its async orchestration, not browser rendering or real identity.
 async function verifySettlementHandoff(){
  const start=appSource.indexOf('const openNativeSettlementDraft=useCallback(');
- const end=appSource.indexOf('const selectEntityScope=',start);
+ const end=appSource.indexOf('const assetJournalOriginRef=',start);
  assert.ok(start>0&&end>start);
  const callbackSource=appSource.slice(start,end);
  const target={entity_id:config.entityId,period_id:'22222222-2222-4222-8222-222222222222'};

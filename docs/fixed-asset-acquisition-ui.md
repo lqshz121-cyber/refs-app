@@ -1,5 +1,26 @@
 # Acquisition form integration
 
+Keyboard focus moves to Journal number when Create another draft replaces its
+button, and to the stable panel heading when retry/refresh enters loading. A
+checked-in isolated browser test exercises those DOM transitions, an Approved
+pending journal callback, and save/retry interaction: run
+`npm run test:asset-acquisition-browser` with Playwright available, or set
+`REFS_PLAYWRIGHT_MODULE` to its module URL. Optional `REFS_ASSET_BROWSER_OUTPUT`
+must name a new directory; otherwise the test creates a temporary directory.
+This test uses mocked HTTP and minimal CSS, not production database/OIDC acceptance.
+
+The form displays Source accounting date separately from Placed in service and
+the editable Accounting date. Current database behavior permits a maker-selected
+journal date inside the reviewed source's OPEN period and retains the explanation.
+It also validates that the source accounting date belongs to that period. The
+service date drives the separate depreciation policy. These dates need not be
+equal; enforcing equality would be a separate policy change, not a UI default.
+
+The actual asset handoff callback is additionally executed in targeted tests for
+all four resumable states, period mismatch, late company change, invalidated read,
+missing scope, failed read and a journal already Posted. Those tests isolate its
+dependencies and do not stand in for a full application browser acceptance run.
+
 The V2 form now lists up to 20 existing unposted acquisition journals with their
 current status/date and passes the exact journal ID and period to the resume
 callback. A new Draft form is hidden when existing journals are present until the
