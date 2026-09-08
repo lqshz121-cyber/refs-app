@@ -7247,9 +7247,23 @@ pgTest('fixed asset disposal integrity migration restores and reinstalls command
   }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });
 
+pgTest('fixed asset disposal timeline migration restores and reinstalls command guards',async()=>{
+  const name='335_fixed_asset_disposal_timeline.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name);assert.ok(entry);
+  const bodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+  const client=await adminPool.connect();
+  const definition=async name=>(await client.query('SELECT pg_get_functiondef(oid) body FROM pg_proc WHERE proname=$1',[name])).rows[0].body;
+  try{await client.query('BEGIN');
+    assert.match(await definition('refs_review_fixed_asset_disposal'),/DISPOSAL_TIMELINE_V1/);
+    await client.query(bodies.down);
+    assert.doesNotMatch(await definition('refs_review_fixed_asset_disposal'),/DISPOSAL_TIMELINE_V1/);
+    await client.query(bodies.up);
+    assert.match(await definition('refs_review_fixed_asset_disposal'),/DISPOSAL_TIMELINE_V1/);
+  }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
 pgTest('formal fixed asset register review retains source evidence and forbids self review without posting',async()=>{await reviewedFixedAssetFixture();});
 
-pgTest('formal fixed asset impairment and disposal reviews bind actual posted asset ledger',async()=>{
+async function exerciseFixedAssetLedger(assessmentAfterDisposal=false,impairmentPosted=false){
   const {ids,trace,receipt}=await reviewedFixedAssetFixture();
   await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name) VALUES($1,$2,'680200','Impairment expense'),($1,$2,'159200','Accumulated impairment'),($1,$2,'780100','Asset disposal gain')",[ids.tenantId,ids.entityId]);
   const roles={};for(const name of ['AI_ACCOUNTING_DECISION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER','FIXED_ASSET_IMPAIRMENT_REVIEWER','FIXED_ASSET_DISPOSAL_REVIEWER'])roles[name]=await formalWorkflowRoleKernel(ids,'asset-ledger-'+name.toLowerCase(),name);
@@ -7260,7 +7274,7 @@ pgTest('formal fixed asset impairment and disposal reviews bind actual posted as
     for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:created.journal_entry_id,action,expectedRevision,idempotencyKey:number+'-'+action.toLowerCase()});
     await roles.JE_POSTER.postJournal({...ids,journalEntryId:created.journal_entry_id,expectedRevision:3,idempotencyKey:number+'-post'});return created.journal_entry_id;
   }
-  const impairmentArgs={tenantId:ids.tenantId,entityId:ids.entityId,fixedAssetRegisterEvidenceId:receipt.fixed_asset_register_evidence_id,accountingPeriodId:ids.periodId,valuationSourceDocumentId:trace.documentId,assessmentDate:'2026-07-20',recoverableAmount:'18000.0000',impairmentExpenseAccountCode:'680200',accumulatedImpairmentAccountCode:'159200',reason:'Independent fixture valuation compared to asset-bound posted carrying value.',idempotencyKey:'asset-impairment-review'};
+  const impairmentArgs={tenantId:ids.tenantId,entityId:ids.entityId,fixedAssetRegisterEvidenceId:receipt.fixed_asset_register_evidence_id,accountingPeriodId:ids.periodId,valuationSourceDocumentId:trace.documentId,assessmentDate:assessmentAfterDisposal?'2026-07-26':'2026-07-20',recoverableAmount:'18000.0000',impairmentExpenseAccountCode:'680200',accumulatedImpairmentAccountCode:'159200',reason:'Independent fixture valuation compared to asset-bound posted carrying value.',idempotencyKey:'asset-impairment-review'};
   const impairmentReviewer=roles.FIXED_ASSET_IMPAIRMENT_REVIEWER,disposalReviewer=roles.FIXED_ASSET_DISPOSAL_REVIEWER;
   await assert.rejects(impairmentReviewer.reviewFixedAssetImpairment(impairmentArgs),e=>e.code==='23514');
   const acquisition=await postAssetJournal('ASSET-ACQUISITION','2026-07-02',[line(1,'150100',25000,0),line(2,'291001',0,25000,'VENDOR-1')]);
@@ -7271,6 +7285,7 @@ pgTest('formal fixed asset impairment and disposal reviews bind actual posted as
   assert.deepEqual(new Set(assessment.journal_entry_ids),new Set([acquisition,depreciation]));assert.equal(assessment.ledger_line_ids.length,2);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,ledgerBeforeReview);
   await assert.rejects(impairmentReviewer.reviewFixedAssetImpairment({...impairmentArgs,recoverableAmount:'17000.0000'}),e=>e.code==='23505');
+  if(impairmentPosted)await postAssetJournal('ASSET-IMPAIRMENT','2026-07-21',[line(1,'680200',5000,0),line(2,'159200',0,5000)]);
   const disposalArgs={tenantId:ids.tenantId,entityId:ids.entityId,fixedAssetRegisterEvidenceId:receipt.fixed_asset_register_evidence_id,accountingPeriodId:ids.periodId,disposalSourceDocumentId:trace.documentId,disposalDate:'2026-07-25',accumulatedDepreciation:'2000.0000',proceeds:'24000.0000',reason:'Independent disposal review reconciled original cost and disposal posting.',idempotencyKey:'asset-disposal-review'};
   await assert.rejects(disposalReviewer.reviewFixedAssetDisposal(disposalArgs),e=>e.code==='23514');
   // Assessment is evidence only; no impairment journal was booked in this scenario.
@@ -7285,11 +7300,17 @@ pgTest('formal fixed asset impairment and disposal reviews bind actual posted as
   await assert.rejects(disposalReviewer.reviewFixedAssetDisposal({...disposalArgs,proceeds:'23000.0000',idempotencyKey:'asset-disposal-wrong-proceeds'}),e=>e.code==='23514');
   await assert.rejects(disposalReviewer.reviewFixedAssetDisposal({...disposalArgs,disposalDate:'2026-07-24',idempotencyKey:'asset-disposal-before-posting'}),e=>e.code==='23514');
   assert.deepEqual(await disposalArtifacts(),beforeRejected);
+  if(assessmentAfterDisposal||impairmentPosted){await assert.rejects(disposalReviewer.reviewFixedAssetDisposal(disposalArgs),e=>e.code==='23514');assert.deepEqual(await disposalArtifacts(),beforeRejected);return;}
   const disposalReceipt=await disposalReviewer.reviewFixedAssetDisposal(disposalArgs),disposalReplay=await disposalReviewer.reviewFixedAssetDisposal(disposalArgs);
   assert.equal(disposalReceipt.disposed_cost,'25000.0000');assert.equal(disposalReceipt.carrying_value,'23000.0000');assert.equal(disposalReceipt.gain_or_loss,'1000.0000');assert.deepEqual(disposalReceipt.journal_entry_ids,[disposal]);assert.equal(disposalReceipt.ledger_line_ids.length,4);assert.equal(disposalReceipt.journal_line_ids.length,4);assert.equal(disposalReceipt.lineage_version,'POSTED_DISPOSAL_LINES_V2');assert.equal(disposalReplay.fixed_asset_disposal_evidence_id,disposalReceipt.fixed_asset_disposal_evidence_id);assert.equal(disposalReplay.idempotent,true);
   await assert.rejects(disposalReviewer.reviewFixedAssetDisposal({...disposalArgs,proceeds:'23000.0000'}),e=>e.code==='23505');
   for(const event of ['FIXED_ASSET_IMPAIRMENT_REVIEWED','FIXED_ASSET_DISPOSAL_REVIEWED'])for(const table of ['audit_event','outbox_event'])assert.equal((await adminPool.query('SELECT count(*)::int n FROM '+table+' WHERE tenant_id=$1 AND event_type=$2',[ids.tenantId,event])).rows[0].n,1);
   await assert.rejects(impairmentReviewer.reviewFixedAssetImpairment({...impairmentArgs,assessmentDate:'2026-07-26',idempotencyKey:'asset-impairment-after-disposal'}),e=>e.code==='23514');
-  await assert.rejects(migrateDownThrough(adminPool,'334_fixed_asset_disposal_ledger_integrity.sql'),e=>e.code==='55006');
+  await assert.rejects(migrateDownThrough(adminPool,'335_fixed_asset_disposal_timeline.sql'),e=>e.code==='55006');
   const assetBalances=(await adminPool.query("SELECT account_code,sum(debit_amount-credit_amount)::text balance FROM ledger_line WHERE tenant_id=$1 AND dimensions->>'fixed_asset_register_evidence_id'=$2 AND account_code IN('150100','159100') GROUP BY account_code ORDER BY account_code",[ids.tenantId,receipt.fixed_asset_register_evidence_id])).rows;assert.deepEqual(assetBalances,[{account_code:'150100',balance:'0.0000'},{account_code:'159100',balance:'0.0000'}]);
-});
+}
+
+pgTest('formal fixed asset impairment and disposal reviews bind actual posted asset ledger',async()=>{await exerciseFixedAssetLedger();});
+pgTest('formal fixed asset impairment and disposal rejects backdated disposal after assessment',async()=>{await exerciseFixedAssetLedger(true);});
+
+pgTest('formal fixed asset impairment and disposal rejects omitted impairment reversal',async()=>{await exerciseFixedAssetLedger(false,true);});
