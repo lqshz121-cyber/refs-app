@@ -11,6 +11,16 @@ const validUntil='2026-08-24T00:00:00.000Z';
 const base={NODE_ENV:'production',REFS_DEPLOYMENT_ENV:'staging',REFS_WORKFLOW_ROLE_CONFIRM:'AUTHORITATIVE_WORKFLOW_ROLE_ONLY',REFS_STAGE1_TENANT_ID:'11111111-1111-4111-8111-111111111111',REFS_STAGE1_ENTITY_ID:'22222222-2222-4222-8222-222222222222',REFS_WORKFLOW_ROLE:'WBS_PAYABLE_MAKER',REFS_WORKFLOW_GRANT_VALID_UNTIL:validUntil,REFS_WORKFLOW_GRANT_EXPECTED_VERSION:'2',REFS_WORKFLOW_GRANT_IDEMPOTENCY_KEY:'workflow-maker-0001',REFS_AUTHENTICATED_ACCESS_TOKEN:'opaque',OIDC_ISSUER:'https://issuer.example',OIDC_AUDIENCE:'refs',OIDC_JWKS_URI:'https://issuer.example/jwks'};
 const permissions=role=>AUTHORITATIVE_WORKFLOW_ROLES[role].permissions;
 
+test('formal credit entry roles satisfy the actual browser access predicate',async()=>{
+  const {nativeCreditAdjustmentAccess}=await import('../../src/native-credit-adjustment-entry.js');
+  for(const [name,kind] of [['AP_VENDOR_CREDIT_ENTRY_MAKER','AP_VENDOR_CREDIT'],['AR_CREDIT_MEMO_ENTRY_MAKER','AR_CREDIT_MEMO']]){
+    const role=AUTHORITATIVE_WORKFLOW_ROLES[name];
+    assert.equal(role.authorityClass,'ADJUSTMENT');
+    assert.equal(nativeCreditAdjustmentAccess({entityId:base.REFS_STAGE1_ENTITY_ID},kind,{entity_id:base.REFS_STAGE1_ENTITY_ID,actor_id:'credit-entry-user',session_refresh_required:false,permissions:[...role.permissions]}),true);
+    for(const permission of ['GL.JE.SUBMIT','GL.JE.REVIEW','GL.JE.APPROVE','GL.JE.POST'])assert.throws(()=>assertWorkflowRoleSafety({...role,permissions:[...role.permissions,permission]}),{code:'WORKFLOW_ROLE_SCOPE_DENIED'});
+  }
+});
+
 test('sales receipt entry has native Draft and upload without later accounting authority',()=>{
   const role=AUTHORITATIVE_WORKFLOW_ROLES.AR_SALES_RECEIPT_ENTRY_MAKER;
   assert.equal(role.authorityClass,'DRAFT');

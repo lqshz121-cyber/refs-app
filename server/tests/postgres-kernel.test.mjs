@@ -2375,6 +2375,33 @@ pgTest('production reads fall back to existing read grants while invalid write a
   await assert.rejects(issuer.issue({tenantId:ids.tenantId,readOnly:true}),error=>error.code==='42501');
 });
 
+pgTest('credit entry formal roles upload and create exact Draft credits without later workflow authority',async()=>{
+  const ids=await seed({attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'400000',accountName:'Returns'}],extraMembers:[{memberRef:'CUSTOMER-CREDIT',memberType:'CUSTOMER',displayName:'Credit customer'}]});
+  await migrateDownThrough(adminPool,'333_credit_entry_attachment_authority.sql');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_human_additive_permission_authority WHERE authority_class='ADJUSTMENT'")).rows[0].n,0);
+  await migrateUp(adminPool);
+  const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+  const scope={tenantId:ids.tenantId,entityId:ids.entityId,validUntil:new Date(Date.now()+3600000).toISOString(),expectedVersion:0};
+  for(const roleName of ['AP_VENDOR_CREDIT_ENTRY_MAKER','AR_CREDIT_MEMO_ENTRY_MAKER']){
+    const role=AUTHORITATIVE_WORKFLOW_ROLES[roleName],actorId=`credit-entry-${roleName}`;
+    await sync.reconcile({...scope,actorId,permissions:[...role.permissions],authorityClass:role.authorityClass,idempotencyKey:`credit-role-${roleName}`});
+    const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})});
+    const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})});
+    const reserved=await kernel.reserveAttachment({...ids,name:'credit.pdf',mediaType:'application/pdf',sizeBytes:42,contentHash:hash(roleName),storageRef:`object://attachments/${randomUUID()}`,storageVersion:'pending:credit',idempotencyKey:`credit-upload-${roleName}`});
+    assert.equal(reserved.status,'PENDING');
+    const common={...ids,amount:42,lines:[{line_no:1,account_code:'400000',amount:42,description:'Credit support'}],reason:'Formal credit entry',attachmentIds:[ids.attachmentId],idempotencyKey:`credit-draft-${roleName}`};
+    const create=()=>roleName.startsWith('AP_')?kernel.createApVendorCredit({...common,creditNumber:'FORMAL-VC-1',creditDate:'2026-07-18',vendorRef:'VENDOR-1',vendorName:'Vendor'}):kernel.createArCreditMemo({...common,memoNumber:'FORMAL-CM-1',memoDate:'2026-07-18',customerRef:'CUSTOMER-CREDIT',customerName:'Credit customer'});
+    const created=await create(),replayed=await create();assert.equal(created.status,'DRAFT');assert.equal(replayed.idempotent,true);assert.equal(replayed.journal_entry_id,created.journal_entry_id);
+    const journal=(await adminPool.query('SELECT created_by,status::text status,journal_type::text journal_type FROM journal_entry WHERE journal_entry_id=$1',[created.journal_entry_id])).rows[0];
+    assert.deepEqual(journal,{created_by:actorId,status:'DRAFT',journal_type:'MANUAL'});
+    await kernel.inSession(async client=>{for(const permission of ['GL.JE.SUBMIT','GL.JE.REVIEW','GL.JE.APPROVE','GL.JE.POST','AP.VENDOR_CREDIT.APPLY','AR.CREDIT_MEMO.APPLY','ATTACHMENT.FINALIZE'])assert.equal((await client.query('SELECT refs_entity_has_permission($1,$2) allowed',[ids.entityId,permission])).rows[0].allowed,false);});
+  }
+  for(const [index,permissions] of [['ATTACHMENT.CREATE'],['AP.VENDOR_CREDIT.CREATE','ATTACHMENT.CREATE','GL.JE.APPROVE'],['AR.CREDIT_MEMO.CREATE','ATTACHMENT.CREATE','AR.CREDIT_MEMO.APPLY']].entries())await assert.rejects(sync.reconcile({...scope,actorId:`bad-credit-role-${index}`,permissions,authorityClass:'ADJUSTMENT',idempotencyKey:`bad-credit-role-${index}`}),e=>e.code==='42501');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE authority_class='ADJUSTMENT'")).rows[0].n,2);
+  await assert.rejects(migrateDownThrough(adminPool,'333_credit_entry_attachment_authority.sql'),e=>e.code==='55006');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE status='DRAFT'")).rows[0].n,2);
+});
+
 pgTest('attachment entry authority supports exact formal maker roles and denies unanchored or approval bundles',async()=>{
   const ids=await seed({attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'400000',accountName:'Sales revenue'}],extraMembers:[{memberRef:'CUSTOMER-ENTRY',memberType:'CUSTOMER',displayName:'Entry customer'}]});
   await migrateDownThrough(adminPool,'331_attachment_entry_authority.sql');

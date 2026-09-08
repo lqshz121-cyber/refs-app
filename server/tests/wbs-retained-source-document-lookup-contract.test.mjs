@@ -16,7 +16,7 @@ test('migration 332 indexes the exact admitted-source trigger lookup',()=>{
 });
 
 test('migration 332 is checksum-bound and reverses only its index',()=>{
-  assert.equal(MIGRATION_MANIFEST.at(-1)?.name,'332_wbs_retained_source_document_lookup.sql');
+  assert.equal(MIGRATION_MANIFEST.filter(item=>item.name==='332_wbs_retained_source_document_lookup.sql').length,1);
   assert.match(down,/DROP INDEX IF EXISTS wbs_final1_retained_source_document_lookup_idx/);
   assert.doesNotMatch(down,/DROP TABLE|DELETE FROM|TRUNCATE/i);
 });
