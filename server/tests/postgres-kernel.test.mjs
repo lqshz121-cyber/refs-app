@@ -2499,6 +2499,9 @@ pgTest('finite human role sync enforces exact replacement, service-only deny, ex
   const internalService=await sync.reconcile({tenantId:ids.tenantId,actorId:'platform-internal-service',entityId:ids.entityId,permissions:['WBS.SNAPSHOT.IMPORT'],authorityClass:'SERVICE',validUntil:null,expectedVersion:0,idempotencyKey:'service-exception-null-0001'});
   assert.equal(internalService.authority_class,'SERVICE');assert.equal(internalService.valid_until,null);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE grant_policy_version='SOD_FINITE_V2' AND tenant_id=$1 AND entity_id=$2",[ids.tenantId,ids.entityId])).rows[0].n,14);
+  // The retained V2 API still creates V1 evidence and keeps its original rollback guard.
+  await grantSyncPool.query("SELECT refs_reconcile_actor_grants_v2($1,'legacy-compatible-reader',$2,ARRAY['AP.VIEW'],'READ',$3,0,'legacy-compatible-reader-0001',refs_grant_request_hash_v2($1,'legacy-compatible-reader',$2,ARRAY['AP.VIEW'],'READ',$3,0))",[ids.tenantId,ids.entityId,validUntil]);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE grant_policy_version='SOD_FINITE_V1' AND actor_id='legacy-compatible-reader'")).rows[0].n,1);
   const down=await readFile(new URL('../db/migrations/down/274_runtime_grant_sod_expiry.sql',import.meta.url),'utf8');
   await assert.rejects(adminPool.query(down),error=>error.message==='Refusing migration 274 rollback: finite-expiry grant evidence exists');
 });
