@@ -341,4 +341,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"333_credit_entry_attachment_authority.sql","up":"44ee218d76c1f3045831da298afae38487f04069f1f2ae22c61002a3e10091d9","down":"5e11bb57f71addf5ce3d59ac3c7c800ba4b3989f41cafd480ddfc87f2c479acf"}),
   Object.freeze({"name":"334_fixed_asset_disposal_ledger_integrity.sql","up":"a41322b466a59840f9841cd01f70f1de46e25cc093df451e42889f32a2b0a177","down":"41540a81e1cd36a19d3adb0f70d183f3090499507e1e3db0503ddf7bedc5ab4b"}),
   Object.freeze({"name":"335_fixed_asset_disposal_timeline.sql","up":"94cd301eb9cfe54040c68f548e80fd736d30fce362aed82d66c75c3ec3b690ab","down":"5b7a21d7c84647e3c5b3d835f06ba300e954c9f0b651eb3c031ca6d8512090bc"}),
+  Object.freeze({"name":"336_fixed_asset_impaired_disposal.sql","up":"9a2c7d4aa342082c6b8e8f7f473d16e8edf8bc4efbad7459d1d82ed74f7f65da","down":"6b0300958cda4bc0f5bff45929b4e8abd8c20201c991ad91aa5ed6e98f6f2696"}),
 ]);
