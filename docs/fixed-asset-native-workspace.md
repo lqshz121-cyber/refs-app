@@ -4,7 +4,7 @@ The Fixed assets route reads the authenticated company register as of a local ca
 
 The list supports paging, date changes, refresh, detail loading and retry. Opening an asset focuses its detail heading; closing restores the originating button and list/window scroll. Date and list-page changes discard the selected detail. Pending list/detail responses cannot replace a newer company/date request.
 
-Posted activity lists actual ledger rows. Journal buttons fetch the retained accounting period and verify the selected journal line, ledger line, account, currency and amounts before showing journal evidence. Posting-source buttons exist only for an exact retained disposal source binding. The source read must match its retained hash, document revision, currency and posted journal relationship. Returning from evidence restores the originating activity button.
+Posted activity lists actual ledger rows. Journal buttons fetch the retained accounting period and verify the journal number, date, type, posting instant (at the journal API’s millisecond precision), full line count and debit/credit totals, plus the selected journal line, ledger line, account, currency and amounts before showing journal evidence. Posting-source buttons exist only for an exact retained disposal source binding. The source read must match its retained hash, document revision, currency and posted journal relationship. Returning from evidence restores the originating activity button.
 
 ## Verification limits
 

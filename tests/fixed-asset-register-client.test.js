@@ -23,7 +23,10 @@ test('asset journal drill rejects drift outside the selected line and changed jo
  const row=movementFixture({tenantId:id(2),entityId:id(1),assetId:id(3),asOfDate}).rows[0];
  const journal={...row,status:'POSTED',lines:[{...row,source_document_ids:[]},{journal_line_id:id(91),ledger_line_id:id(92),account_code:'300100',debit_amount:'0.0000',credit_amount:'25000.0000',dimensions:{},source_document_ids:[]}]};
  assert.equal(matchesAssetMovementJournal(journal,row),true);
- for(const field of ['journal_number','journal_date'])assert.equal(matchesAssetMovementJournal({...journal,[field]:'changed'},row),false);
+ assert.equal(matchesAssetMovementJournal({...journal,posted_at:'2026-07-02T20:00:00.000+08:00'},row),true);
+ assert.equal(matchesAssetMovementJournal({...journal,posted_at:'2026-07-02T12:00:00.001Z'},row),false);
+ assert.equal(matchesAssetMovementJournal({...journal,posted_at:'2026-07-02T12:00:00.000Z'},{...row,posted_at:'2026-07-02T12:00:00.000123+00:00'}),true);
+ for(const field of ['journal_number','journal_date','journal_type','posted_at'])assert.equal(matchesAssetMovementJournal({...journal,[field]:'changed'},row),false);
  assert.equal(matchesAssetMovementJournal({...journal,lines:journal.lines.slice(0,1)},row),false);
  assert.equal(matchesAssetMovementJournal({...journal,lines:[journal.lines[0],{...journal.lines[1],credit_amount:'25001.0000'}]},row),false);
  assert.equal(matchesAssetMovementJournal({...journal,lines:[{...journal.lines[0],dimensions:{fixed_asset_register_evidence_id:id(99)}},journal.lines[1]]},row),false);
