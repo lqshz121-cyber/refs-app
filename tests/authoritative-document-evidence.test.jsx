@@ -267,7 +267,7 @@ assert.match(completeAdjustmentDetail,/Open posted Journal/,'an exact same-revis
 const inertAdjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={completeAdjustment} side="AP" entityId={entityId} config={displayConfig} returnContext={completeAdjustmentReturnContext} onBack={()=>{}}/>);
 assert.doesNotMatch(inertAdjustmentDetail,/Open posted Journal/,'a reusable detail without a real Journal opener must fail closed');
 const staleAdjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={completeAdjustment} side="AP" entityId={entityId} config={displayConfig} returnContext={{...completeAdjustmentReturnContext,journalRevision:4}} onBack={()=>{}} onOpenJournal={()=>{}}/>);
-assert.match(staleAdjustmentDetail,/Read-only retained evidence/,'same adjustment facts remain readable when only the optional Journal binding is stale');
+assert.match(staleAdjustmentDetail,/Retained adjustment evidence/,'same adjustment facts remain readable when only the optional Journal binding is stale');
 assert.doesNotMatch(staleAdjustmentDetail,/Open posted Journal/,'a changed Journal binding must fail closed before exposing navigation');
 assert.equal(authoritativeAdjustmentJournalTarget(completeAdjustment,'AR',displayConfig,completeAdjustmentReturnContext),null,'a cross-module adjustment must never expose its Journal link');
 

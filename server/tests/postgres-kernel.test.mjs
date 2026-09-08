@@ -4630,7 +4630,7 @@ for(const native of [false,true])pgTest(`${native?'native':'legacy'} AR refund p
 
 pgTest('refund and credit allocation serialize against the same available credit',async()=>{
   const native=true;
-  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:native?'VERIFIED_CLEAN':null,
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN',
     extraAccounts:[{accountCode:'400000',accountName:'Revenue'},{accountCode:'410000',accountName:'Sales returns'}],
     extraMembers:[{memberRef:'CUSTOMER-1',memberType:'CUSTOMER',displayName:'Customer'}],
     journalLines:[{lineNo:1,accountCode:'120200',debit:100,credit:0,memberRef:'CUSTOMER-1'},{lineNo:2,accountCode:'400000',debit:0,credit:100}]});const invoiceId=randomUUID();
@@ -4641,8 +4641,7 @@ pgTest('refund and credit allocation serialize against the same available credit
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by) VALUES($1,$2,$3,$4,'AR_INVOICE','INV-REFUND-1','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[invoiceId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-credit-maker',['AR.CREDIT_MEMO.CREATE'])});
   const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-submitter',['GL.JE.SUBMIT'])});
-  const memo=await maker.createArCreditMemo({...ids,memoNumber:'CM-REFUND',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'410000',amount:100,description:'Memo'}]),reason:'Refund source credit',idempotencyKey:'refund-credit-source'});
-  await attachAutoSource({...ids,journalId:memo.journal_entry_id},{reuseApprovedSnapshots:true});
+  const memo=await maker.createArCreditMemo({...ids,memoNumber:'CM-REFUND',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'410000',amount:100,description:'Memo'}]),reason:'Refund source credit',attachmentIds:[ids.attachmentId],idempotencyKey:'refund-credit-source'});
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-reviewer',['GL.JE.REVIEW'])});
   const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-approver',['GL.JE.APPROVE'])});
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-poster',['GL.JE.POST'])});
@@ -4673,7 +4672,7 @@ pgTest('refund and credit allocation serialize against the same available credit
 });
 
 pgTest('credit allocation history retains states and keyset-pages 100001 recorded fixtures',async()=>{
-  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN',
     extraAccounts:[{accountCode:'610000',accountName:'Expense'}],
     journalLines:[{lineNo:1,accountCode:'610000',debit:100,credit:0},{lineNo:2,accountCode:'291001',debit:0,credit:100,memberRef:'VENDOR-1'}]});const billId=randomUUID();
   const source=await attachAutoSource(ids);
@@ -4682,10 +4681,9 @@ pgTest('credit allocation history retains states and keyset-pages 100001 recorde
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by) VALUES($1,$2,$3,$4,'AP_BILL','BILL-CREDIT-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[billId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-maker',['AP.VENDOR_CREDIT.CREATE'])});
   const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-submitter',['GL.JE.SUBMIT'])});
-  await assert.rejects(maker.createApVendorCredit({...ids,creditNumber:'VC-CONTROL-BAD',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1'}],reason:'Reject control-account counterpart',idempotencyKey:'vendor-credit-control-bad'}),error=>error.code==='23514');
+  await assert.rejects(maker.createApVendorCredit({...ids,creditNumber:'VC-CONTROL-BAD',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1'}],reason:'Reject control-account counterpart',attachmentIds:[ids.attachmentId],idempotencyKey:'vendor-credit-control-bad'}),error=>error.code==='23514');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE adjustment_kind='AP_VENDOR_CREDIT'",[])).rows[0].n,0);
-  const credit=await maker.createApVendorCredit({...ids,creditNumber:'VC-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Credit'}],reason:'Vendor credit',idempotencyKey:'vendor-credit-100'});
-  await attachAutoSource({...ids,journalId:credit.journal_entry_id},{reuseApprovedSnapshots:true});
+  const credit=await maker.createApVendorCredit({...ids,creditNumber:'VC-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Credit'}],reason:'Vendor credit',attachmentIds:[ids.attachmentId],idempotencyKey:'vendor-credit-100'});
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-reviewer',['GL.JE.REVIEW'])});
   const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-approver',['GL.JE.APPROVE'])});
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-poster',['GL.JE.POST'])});
@@ -4734,7 +4732,7 @@ pgTest('credit allocation history retains states and keyset-pages 100001 recorde
 });
 
 pgTest('credit target lookup searches all source periods and keyset-pages 100001 eligible fixtures',async()=>{
-  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN',
     extraAccounts:[{accountCode:'610000',accountName:'Expense'}],
     journalLines:[{lineNo:1,accountCode:'610000',debit:100,credit:0},{lineNo:2,accountCode:'291001',debit:0,credit:100,memberRef:'VENDOR-1'}]});const billId=randomUUID();
   const source=await attachAutoSource(ids);
@@ -4743,10 +4741,9 @@ pgTest('credit target lookup searches all source periods and keyset-pages 100001
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by) VALUES($1,$2,$3,$4,'AP_BILL','BILL-CREDIT-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[billId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-maker',['AP.VENDOR_CREDIT.CREATE'])});
   const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-submitter',['GL.JE.SUBMIT'])});
-  await assert.rejects(maker.createApVendorCredit({...ids,creditNumber:'VC-CONTROL-BAD',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1'}],reason:'Reject control-account counterpart',idempotencyKey:'vendor-credit-control-bad'}),error=>error.code==='23514');
+  await assert.rejects(maker.createApVendorCredit({...ids,creditNumber:'VC-CONTROL-BAD',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1'}],reason:'Reject control-account counterpart',attachmentIds:[ids.attachmentId],idempotencyKey:'vendor-credit-control-bad'}),error=>error.code==='23514');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE adjustment_kind='AP_VENDOR_CREDIT'",[])).rows[0].n,0);
-  const credit=await maker.createApVendorCredit({...ids,creditNumber:'VC-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Credit'}],reason:'Vendor credit',idempotencyKey:'vendor-credit-100'});
-  await attachAutoSource({...ids,journalId:credit.journal_entry_id},{reuseApprovedSnapshots:true});
+  const credit=await maker.createApVendorCredit({...ids,creditNumber:'VC-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Credit'}],reason:'Vendor credit',attachmentIds:[ids.attachmentId],idempotencyKey:'vendor-credit-100'});
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-reviewer',['GL.JE.REVIEW'])});
   const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-approver',['GL.JE.APPROVE'])});
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-poster',['GL.JE.POST'])});

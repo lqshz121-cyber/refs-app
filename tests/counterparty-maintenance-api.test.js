@@ -7,7 +7,7 @@ const access={actor_id:'maker',tenant_id:config.tenantId,entity_id:config.entity
 const receipt={counterparty_change_id:config.periodId,entity_id:config.entityId,member_ref:'V-1',kind:'VENDOR',status:'PENDING',revision:0,idempotent:false};
 const prepared=()=>prepareCounterpartyCommand({config,actorId:'maker',body,expectedVersion:4,idempotencyKey:'counterparty-retry-1'}).command;
 test('maintenance browser contracts remain identical to runtime validation',()=>{
- for(const [browser,server] of [['counterparty-maintenance-contract.js','counterparty-maintenance.mjs'],['counterparty-maintenance-read-contract.js','counterparty-maintenance-reads.mjs']])assert.equal(readFileSync(new URL('../src/'+browser,import.meta.url),'utf8'),readFileSync(new URL('../server/runtime/'+server,import.meta.url),'utf8'));
+ for(const [browser,server] of [['counterparty-maintenance-contract.js','counterparty-maintenance.mjs'],['counterparty-maintenance-read-contract.js','counterparty-maintenance-reads.mjs']])assert.equal(readFileSync(new URL('../src/'+browser,import.meta.url),'utf8').replaceAll('\r\n','\n'),readFileSync(new URL('../server/runtime/'+server,import.meta.url),'utf8').replaceAll('\r\n','\n'));
 });
 test('maintenance client rechecks actor and sends only closed body with exact version and stable replay key',async()=>{
  const command=prepared(),calls=[];

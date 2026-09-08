@@ -57,12 +57,13 @@ for(const kind of ['AP_BILL','AR_INVOICE']){
 const accounts=[{period_id:config.periodId,account_code:'610000',account_name:'Office',active:true,requires_member:false},{period_id:config.periodId,account_code:'291001',account_name:'Control',active:true,requires_member:true}];
 const refundAccess={...access,permissions:['AR.REFUND.CREATE','ATTACHMENT.CREATE']};
 const credit={business_adjustment_id:config.periodId,adjustment_kind:'AR_CREDIT_MEMO',status:'POSTED',period_id:config.periodId,amount:'12.3400',currency:'USD',version:'1',accounting_date:'2026-08-01'};
+const adjustmentContext=(row,side)=>({entityId:config.entityId,periodId:config.periodId,adjustmentId:row.business_adjustment_id,adjustmentVersion:Number(row.version),adjustmentKind:row.adjustment_kind,adjustmentSide:side,adjustmentPeriodId:row.period_id});
 for(const [kind,side,permission] of [['AP_VENDOR_CREDIT','AP','AP.VENDOR_CREDIT.APPLY'],['AR_CREDIT_MEMO','AR','AR.CREDIT_MEMO.APPLY']]){
   const allocationAccess={...access,permissions:[permission]},adjustment={...credit,adjustment_kind:kind};
   assert.equal(renderToStaticMarkup(<NativeCreditAllocationEntry config={config} kind={kind} sourceAdjustmentId={credit.business_adjustment_id} access={access}/>),'');
-  const detail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail config={config} entityId={config.entityId} adjustment={adjustment} side={side} currentActorAccess={allocationAccess}/>);
+  const detail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail config={config} entityId={config.entityId} adjustment={adjustment} returnContext={adjustmentContext(adjustment,side)} side={side} currentActorAccess={allocationAccess}/>);
   assert.match(detail,/Apply credit/);
-  assert.doesNotMatch(renderToStaticMarkup(<AuthoritativeAdjustmentDetail config={config} entityId={config.entityId} adjustment={{...adjustment,status:'DRAFT'}} side={side} currentActorAccess={allocationAccess}/>),/Apply credit/);
+  assert.doesNotMatch(renderToStaticMarkup(<AuthoritativeAdjustmentDetail config={config} entityId={config.entityId} adjustment={{...adjustment,status:'DRAFT'}} returnContext={adjustmentContext(adjustment,side)} side={side} currentActorAccess={allocationAccess}/>),/Apply credit/);
   const form=renderToStaticMarkup(<NativeCreditAllocationForm config={config} kind={kind} sourceAdjustmentId={credit.business_adjustment_id} access={allocationAccess}/>);
   assert.match(form,/applies existing posted credit immediately/);assert.match(form,/inputMode="decimal"/);assert.doesNotMatch(form,/Save draft|Open saved draft/);
 }
@@ -70,7 +71,7 @@ assert.equal(renderToStaticMarkup(<NativeRefundEntry config={config} sourceAdjus
 assert.match(renderToStaticMarkup(<NativeRefundEntry config={config} sourceAdjustmentId={credit.business_adjustment_id} access={refundAccess} scopes={[scope]}/>),/Refund credit/);
 const refundForm=renderToStaticMarkup(<NativeRefundForm config={config} sourceAdjustmentId={credit.business_adjustment_id} access={refundAccess}/>);
 assert.match(refundForm,/Refund customer credit/);assert.match(refundForm,/inputMode="decimal"/);assert.match(refundForm,/Supporting document/);assert.match(refundForm,/disabled="">Save draft/);assert.doesNotMatch(refundForm,/Post journal|Approve|type="number"/);
-const creditView=row=>renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={row} side="AR" entityId={config.entityId} config={config} currentActorAccess={refundAccess} scopes={[scope]}/>);
+const creditView=row=>renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={row} returnContext={adjustmentContext(row,'AR')} side="AR" entityId={config.entityId} config={config} currentActorAccess={refundAccess} scopes={[scope]}/>);
 assert.match(creditView(credit),/Refund credit/);assert.doesNotMatch(creditView({...credit,status:'DRAFT'}),/Refund credit/);assert.doesNotMatch(creditView({...credit,adjustment_kind:'AR_REFUND'}),/Refund credit/);
 for(const kind of ['AP_BILL','AR_INVOICE']){
   assert.equal(renderToStaticMarkup(<NativeDocumentEntry config={config} kind={kind} scope={scope}/>),'');

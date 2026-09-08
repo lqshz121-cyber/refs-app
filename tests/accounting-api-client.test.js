@@ -327,9 +327,9 @@ const periodEnvelope=data=>({ok:true,data,scope:periodScope(data)});
   const refund=await createAuthoritativeAdjustment({config,kind:'AR_REFUND',idempotencyKey:'AR-REFUND-request-0001',adjustment:{sourceAdjustmentId:entityId,number:'RF-100',date:'2026-08-02',amount:5,reason:'Return customer credit'},fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{business_adjustment_id:periodId,journal_entry_id:periodId,source_adjustment_id:entityId,status:'DRAFT',revision:0,idempotent:false}})};}});
   assert.equal(refund.ok,true);assert.match(call.url,/\/ar\/refunds$/);assert.equal(JSON.parse(call.options.body).cashAccountCode,'111000');
   for(const kind of ['AP_VENDOR_CREDIT','AR_CREDIT_MEMO','AR_REFUND']){
-    const request={config,kind,idempotencyKey:'adjustment-receipt-check',adjustment:{sourceAdjustmentId:entityId,amount:'1.2345'}};
+    const request={config,kind,idempotencyKey:'adjustment-receipt-check',adjustment:{sourceAdjustmentId:entityId,amount:'1.2345',...(kind==='AR_REFUND'?{}:{attachmentIds:[attachmentId]})}};
     const receipt={business_adjustment_id:periodId,journal_entry_id:periodId,status:'DRAFT',revision:0,idempotent:false,...(kind==='AR_REFUND'?{source_adjustment_id:entityId}:{})};
-    for(const patch of [{business_adjustment_id:null},{journal_entry_id:'bad'},{status:'POSTED'},{revision:1},{idempotent:true},...(kind==='AR_REFUND'?[{source_adjustment_id:periodId},{source_adjustment_id:null}]:[])]){
+    for(const patch of [{business_adjustment_id:null},{journal_entry_id:'bad'},{status:'POSTED'},{revision:1},{idempotent:true},{unexpected:true},...(kind==='AR_REFUND'?[{source_adjustment_id:periodId},{source_adjustment_id:null}]:[])]){
       const result=await createAuthoritativeAdjustment({...request,fetcher:async()=>({ok:true,status:201,json:async()=>({ok:true,data:{...receipt,...patch}})})});
       assert.equal(result.code,'ACCOUNTING_API_PROTOCOL',`${kind}: ${JSON.stringify(patch)}`);
     }

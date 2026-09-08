@@ -48,5 +48,8 @@ test('repository, HTTP, browser and OpenAPI require attachment identities',()=>{
 });
 
 test('migration 328 is checksum-bound in fixed order',()=>{
-  assert.equal(MIGRATION_MANIFEST.at(-1)?.name,'328_credit_adjustment_attachment_evidence.sql');
+  const names=MIGRATION_MANIFEST.map(row=>row.name),name='328_credit_adjustment_attachment_evidence.sql',index=names.indexOf(name);
+  assert.equal(names.filter(item=>item===name).length,1);
+  assert.ok(index>0&&Number.parseInt(names[index-1],10)<328);
+  assert.ok(index===names.length-1||Number.parseInt(names[index+1],10)>328);
 });
