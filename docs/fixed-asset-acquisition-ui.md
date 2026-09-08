@@ -1,5 +1,19 @@
 # Acquisition form integration
 
+The V2 form now lists up to 20 existing unposted acquisition journals with their
+current status/date and passes the exact journal ID and period to the resume
+callback. A new Draft form is hidden when existing journals are present until the
+user explicitly chooses Create another draft. Resume remains visible even when
+new acquisition creation is blocked. The form also displays placed-in-service date
+separately from accounting date. Truncation is identified with a Journals notice.
+
+The integrated client/asset SSR suite passes. A separate owned mocked HTTP browser
+run additionally verified an Approved existing journal resumes with its exact period
+without a POST, the explicit new-Draft choice, and the original save/focus/double
+click checks (10 checks total). This still does not replace real database/OIDC
+browser acceptance. The cross-period app/workflow bridge is a separate pending
+integration; these component-level callback assertions alone do not prove it.
+
 Asset detail now offers Record acquisition. Opening it fetches the scoped options
 read and displays the invoice, period, cost, accounts, vendor and attachment names.
 The form collects a journal number, accounting date and explanation; source IDs,
