@@ -8,7 +8,7 @@ Each row requires nullable `acquisition_binding_id`. `EXACT_ACQUISITION_SOURCE` 
 
 The asset activity page offers **View posting source** for either exact family. The existing drill reads the source again in the row's accounting period and checks the retained version, hash, currency and posted journal membership before opening it. A mismatch displays an error instead of substituting another source.
 
-The detail identity includes the selected accounting period and API base URL. Changing either unmounts the current acquisition/activity panels and invalidates their pending requests; the detail effect loads the replacement view. The actual same-company period-switch browser scenario remains part of integration acceptance.
+The detail identity includes the selected accounting period and API base URL. Changing either unmounts the current acquisition/activity panels and invalidates their pending requests; the detail effect loads the replacement view.
 
 `npm run test:asset-acquisition-browser` also runs the checked-in scope browser harness. Chromium renders the actual asset workspace and movement component, with mocked API exports and a minimal lineage renderer. It verifies late-source rejection after a same-company period switch, closure of an already-open drill, opening in the retained row period, and refusal of changed hash/version/currency/journal membership. These component checks do not replace real API/source-drill acceptance.
 
@@ -16,4 +16,4 @@ Deploy the V2 database function and matching API/frontend contract together. A V
 
 Development evidence: closed contract tests, fixed asset UI suite and three fresh PostgreSQL 16 cases passed without skips in the selected database scope: posted asset register/source reconciliation, posting audit migration compatibility, and exact V2/down-to-V1/up-to-V2 function roundtrip. A further real register run verifies that removing either original evidence binding or acquisition posting in the disposable fixture blocks the entire acquisition source tuple while disposal remains readable; restoring the exact fixture rows restores acquisition source visibility. Reads use the real runtime connection and viewer identity. Fixture restoration preserves consumption history without repeating insert-trigger side effects.
 
-This is not final release acceptance. Independent audit, full required database gates and real source-drill browser acceptance remain required.
+The dedicated owned PostgreSQL browser runner additionally refreshes the posted asset, opens the real source detail through the accounting HTTP handler, changes the same-company period while a real response is delayed and while a drill is already open, and traverses Source to Journal to General Ledger to Trial Balance. This remains local test-only identity evidence. Independent audit, full required database gates, production OIDC and deployed business acceptance remain required.
