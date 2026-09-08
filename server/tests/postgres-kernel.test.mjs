@@ -7786,7 +7786,7 @@ pgTest('native fixed asset original source serializes supersession and Post in b
 
 pgTest('fixed asset acquisition options read exact source attachments without business writes and roundtrip migration',async()=>{
  const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
- const maker=await formalWorkflowRoleKernel(ids,'acquisition-options-maker','AI_ACCOUNTING_DECISION_MAKER'),reviewer=await formalWorkflowRoleKernel(ids,'acquisition-options-reviewer','JE_REVIEWER');
+ const maker=await formalWorkflowRoleKernel(ids,'acquisition-options-maker','FIXED_ASSET_ACQUISITION_MAKER'),reviewer=await formalWorkflowRoleKernel(ids,'acquisition-options-reviewer','JE_REVIEWER');
  const args={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id};
  const counts=async()=>(await adminPool.query(`SELECT (SELECT count(*) FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*) FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*) FROM idempotency_receipt WHERE tenant_id=$1) receipts,(SELECT count(*) FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') audits,(SELECT count(*) FROM outbox_event WHERE tenant_id=$1) outbox`,[ids.tenantId])).rows[0];
  const before=await counts(),missing=await maker.readFixedAssetAcquisitionOptions(args);
@@ -7808,7 +7808,7 @@ pgTest('fixed asset acquisition options read exact source attachments without bu
 pgTest('native fixed asset acquisition derives a source-bound Draft and prevents duplicate acquisition Post',async()=>{
  // Policy selection is based on period end, not the earlier invoice date.
  const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1',{policyEffectiveFrom:'2026-07-15'});
- const roles={};for(const role of ['AI_ACCOUNTING_DECISION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'native-acquisition-'+role.toLowerCase(),role);
+ const roles={};for(const role of ['AI_ACCOUNTING_DECISION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'native-acquisition-'+role.toLowerCase(),role==='AI_ACCOUNTING_DECISION_MAKER'?'FIXED_ASSET_ACQUISITION_MAKER':role);
  const maker=roles.AI_ACCOUNTING_DECISION_MAKER;
  const args={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'NATIVE-ASSET-1',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Acquire reviewed building from the exact retained vendor invoice.',idempotencyKey:'native-asset-draft'};
  const counts=async()=>(await adminPool.query(`SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM fixed_asset_acquisition_binding WHERE tenant_id=$1) bindings,(SELECT count(*)::int FROM fixed_asset_acquisition_posting WHERE tenant_id=$1) postings,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='FIXED_ASSET_ACQUISITION_DRAFT_CREATED') audits,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox`,[ids.tenantId])).rows[0];
@@ -7822,6 +7822,9 @@ pgTest('native fixed asset acquisition derives a source-bound Draft and prevents
  assert.deepEqual(await counts(),before);
  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
  const acquisitionApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'native-acquisition-ai_accounting_decision_maker'}),kernelFactory:async()=>maker});
+ const registerResponse=await acquisitionApi({method:'GET',url:`/api/v1/entities/${ids.entityId}/fixed-assets/register?asOfDate=2026-07-31`});assert.equal(registerResponse.status,200,JSON.stringify(registerResponse.body));assert.ok(registerResponse.body.data.rows.some(row=>row.fixed_asset_register_evidence_id===args.assetId));
+ const detailResponse=await acquisitionApi({method:'GET',url:`/api/v1/entities/${ids.entityId}/fixed-assets/register/${args.assetId}?asOfDate=2026-07-31`});assert.equal(detailResponse.status,200);
+ const optionsResponse=await acquisitionApi({method:'GET',url:`/api/v1/entities/${ids.entityId}/fixed-assets/register/${args.assetId}/acquisition-options`});assert.equal(optionsResponse.status,200,JSON.stringify(optionsResponse.body));
  const {tenantId:ignoredTenant,entityId:ignoredEntity,assetId:routeAsset,idempotencyKey:commandKey,...commandBody}=args;
  const request={method:'POST',url:`/api/v1/entities/${ids.entityId}/fixed-assets/register/${routeAsset}/acquisitions`,headers:{'idempotency-key':commandKey},body:commandBody};
  const staleHttp=await acquisitionApi({...request,headers:{'idempotency-key':'native-http-stale-source'},body:{...commandBody,expectedSourceVersion:2}});
@@ -7829,6 +7832,7 @@ pgTest('native fixed asset acquisition derives a source-bound Draft and prevents
  const createdResponse=await acquisitionApi({...request,url:request.url.replace(routeAsset,routeAsset.toUpperCase())}),replayedResponse=await acquisitionApi(request);
  assert.equal(createdResponse.status,201,JSON.stringify(createdResponse.body));assert.equal(replayedResponse.status,200,JSON.stringify(replayedResponse.body));assert.equal(createdResponse.headers.etag,'"0"');
  const draft=createdResponse.body.data,replay=replayedResponse.body.data;
+ const journalResponse=await acquisitionApi({method:'GET',url:`/api/v1/entities/${ids.entityId}/journal-entries/${draft.journal_entry_id}?periodId=${ids.periodId}`});assert.equal(journalResponse.status,200,JSON.stringify(journalResponse.body));
  assert.equal(draft.status,'DRAFT');assert.equal(draft.source_document_id,trace.documentId);assert.equal(draft.source_document_version,1);assert.equal(replay.journal_entry_id,draft.journal_entry_id);assert.equal(replay.idempotent,true);
  const original=(await adminPool.query('SELECT b.original_evidence_id,b.original_evidence_hash,o.evidence_id,o.evidence_hash FROM fixed_asset_original_source_binding b JOIN wbs_payable_original_row_evidence o ON o.evidence_id=b.original_evidence_id WHERE binding_id=$1',[draft.binding_id])).rows[0];
  assert.equal(original.original_evidence_id,original.evidence_id);assert.equal(original.original_evidence_hash,original.evidence_hash);

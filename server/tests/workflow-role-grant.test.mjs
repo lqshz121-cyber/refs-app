@@ -9,6 +9,12 @@ import {ADDITIONAL_WORKFLOW_ROLES} from '../runtime/additional-workflow-roles.mj
 import {AUTHORITATIVE_WORKFLOW_ROLES,WORKFLOW_SOD_GROUPS,assertWorkflowRoleSafety,authoritativeWorkflowRoleGrantConfig,grantAuthenticatedWorkflowRole,grantConfiguredServiceWorkflowRole} from '../runtime/workflow-role-grant.mjs';
 
 const validUntil='2026-08-24T00:00:00.000Z';
+test('asset acquisition maker can reach the form and Draft without workflow escalation',()=>{
+ const role=AUTHORITATIVE_WORKFLOW_ROLES.FIXED_ASSET_ACQUISITION_MAKER;
+ assert.equal(role.authorityClass,'DRAFT');assert.equal(role.principalKind,'HUMAN');
+ assert.deepEqual([...role.permissions].sort(),['FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']);
+ assert.ok(Object.isFrozen(role));assert.ok(Object.isFrozen(role.permissions));
+});
 const base={NODE_ENV:'production',REFS_DEPLOYMENT_ENV:'staging',REFS_WORKFLOW_ROLE_CONFIRM:'AUTHORITATIVE_WORKFLOW_ROLE_ONLY',REFS_STAGE1_TENANT_ID:'11111111-1111-4111-8111-111111111111',REFS_STAGE1_ENTITY_ID:'22222222-2222-4222-8222-222222222222',REFS_WORKFLOW_ROLE:'WBS_PAYABLE_MAKER',REFS_WORKFLOW_GRANT_VALID_UNTIL:validUntil,REFS_WORKFLOW_GRANT_EXPECTED_VERSION:'2',REFS_WORKFLOW_GRANT_IDEMPOTENCY_KEY:'workflow-maker-0001',REFS_AUTHENTICATED_ACCESS_TOKEN:'opaque',OIDC_ISSUER:'https://issuer.example',OIDC_AUDIENCE:'refs',OIDC_JWKS_URI:'https://issuer.example/jwks'};
 const permissions=role=>AUTHORITATIVE_WORKFLOW_ROLES[role].permissions;
 
