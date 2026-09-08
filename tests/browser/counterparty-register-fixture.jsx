@@ -1,0 +1,26 @@
+import React from 'react';import {createRoot} from 'react-dom/client';
+import {CounterpartyRegisterWorkspace} from '__COMPONENT__';
+const phase=new URLSearchParams(location.search).get('phase'),checks={},sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const wait=async fn=>{for(let i=0;i<200;i++){if(fn())return;await sleep(25);}throw Error('Condition timed out');};
+const config={baseUrl:'https://fixture.example',entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222',getAccessToken:async()=>'fixture-token-'.repeat(4)};
+let releaseOld;const requests=[];
+const fetcher=async(url,init)=>{const u=new URL(url),q=u.searchParams,entity=u.pathname.split('/')[4];requests.push(init.method);
+  const query=q.get('query'),after=q.get('afterRef'),status=q.get('status');
+  if(query==='slow'&&entity===config.entityId)await new Promise(r=>{releaseOld=r;});
+  const row={member_ref:after?'V-26':'V-01',member_type:'VENDOR',display_name:entity===config.entityId?(query==='slow'?'OLD COMPANY SECRET':after?'Second page vendor':'First page vendor'):'New company vendor',active:status!=='INACTIVE'};
+  return {ok:true,json:async()=>({ok:true,data:{schema_version:'COUNTERPARTY_REGISTER_V1',entity_id:entity,kind:'VENDOR',status,query,after_ref:after,limit:25,rows:after||query?[row]:Array.from({length:25},(_,i)=>({...row,member_ref:'V-'+String(i+1).padStart(2,'0')})),next_ref:after||query?null:'V-25'}})};
+};
+const root=createRoot(document.getElementById('root')),render=c=>root.render(<CounterpartyRegisterWorkspace config={c} fetcher={fetcher}/>);
+const button=t=>[...document.querySelectorAll('button')].find(b=>b.textContent===t);
+const setInput=(el,value)=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));};
+(async()=>{try{
+ render(config);await wait(()=>document.body.textContent.includes('First page vendor'));checks.loadsRows=true;
+ button('Next').click();await wait(()=>document.body.textContent.includes('Second page vendor'));checks.nextPage=true;checks.headingFocused=document.activeElement?.tagName==='H1';
+ button('Previous').click();await wait(()=>document.body.textContent.includes('First page vendor'));checks.previousPage=true;
+ const status=document.querySelector('select');status.value='INACTIVE';status.dispatchEvent(new Event('change',{bubbles:true}));await wait(()=>document.querySelector('tbody td:last-child')?.textContent==='Inactive');checks.statusFilter=true;
+ setInput(document.querySelector('input'),'slow');await sleep(50);document.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await wait(()=>!!releaseOld);
+ render({...config,entityId:'33333333-3333-4333-8333-333333333333'});await wait(()=>document.body.textContent.includes('New company vendor'));releaseOld();await sleep(100);
+ checks.oldCompanyResponseDiscarded=!document.body.textContent.includes('OLD COMPANY SECRET');checks.filtersReset=document.querySelector('input').value===''&&document.querySelector('select').value==='ACTIVE';
+ checks.onlyGET=requests.every(m=>m==='GET');checks.fitsViewport=document.documentElement.scrollWidth<=innerWidth;checks.namedControls=!!document.querySelector('label input')&&!!document.querySelector('nav[aria-label]');
+ window.__durableResult={phase,ok:Object.values(checks).every(Boolean),checks};
+ }catch(e){window.__durableResult={phase,ok:false,checks,error:e.message};}})();
