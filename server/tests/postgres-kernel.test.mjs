@@ -5248,12 +5248,14 @@ pgTest('payment bank candidate keyset pages remain bounded over 100001 distinct 
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'volume-matcher'}),kernelFactory:async()=>matcher});
   const root=`/api/v1/entities/${ids.entityId}/bank/transactions/${bankSourceId}/payment-candidates`,get=query=>api({method:'GET',url:root+query,headers:{}});
   const started=Date.now(),first=await get('?limit=100');assert.equal(first.status,200,JSON.stringify(first.body));
+  const firstMs=Date.now()-started;
   assert.equal(first.body.data.rows.length,100);assert.equal(first.body.data.next_id,'00000000-0000-4000-8000-000000000100');
   const second=await get(`?limit=100&afterId=${first.body.data.next_id}`);assert.equal(second.status,200);assert.equal(second.body.data.rows[0].payment_occurrence_id,'00000000-0000-4000-8000-000000000101');
+  const secondMs=Date.now()-started-firstMs;
   const tail=await get('?limit=100&afterId=00000000-0000-4000-8000-000000100000');assert.equal(tail.status,200);assert.equal(tail.body.data.rows.length,1);assert.equal(tail.body.data.next_id,null);
   assert.equal(tail.body.data.rows[0].amount,'40.0000');assert.equal(tail.body.data.rows[0].journal_number,'PERF-CANDIDATE-100001');
   const elapsed=Date.now()-started;console.log(`# payment candidate first/second/deep pages over 100001 posted traces: ${elapsed}ms`);
-  assert.ok(elapsed<5000,'Three real API pages over 100001 posted traces must finish within five seconds');
+  console.log('# payment candidate page timings '+JSON.stringify({firstMs,secondMs,deepMs:elapsed-firstMs-secondMs,totalMs:elapsed}));
   // Explain the exact migration candidate query, not an uninformative outer
   // Function Scan. Parameters below mirror the bank row and requested page.
   const sql=await readFile(new URL('../db/migrations/324_payment_bank_candidates.sql',import.meta.url),'utf8');
@@ -5267,6 +5269,7 @@ pgTest('payment bank candidate keyset pages remain bounded over 100001 distinct 
     assert.ok(plan['Execution Time']<5000,'Candidate execution plan must remain bounded');
   }
   assert.deepEqual(await counts(),before,'Candidate pages do not mutate accounting or audit data');
+  assert.ok(elapsed<5000,'Three real API pages over 100001 posted traces must finish within five seconds');
 });
 
 pgTest('Stage 2 test-data chain traces one reconciled bank payment through its posted JE, GL, TB and report rows',async()=>{
