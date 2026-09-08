@@ -82,6 +82,12 @@ const INFRASTRUCTURE_BOUND_SERVER_SUITES=Object.freeze([
   'test:staging:smoke',
 ]);
 
+// Executed separately with an installed Playwright module and Chromium. This is
+// component browser evidence, not a substitute for real API/identity acceptance.
+const INFRASTRUCTURE_BOUND_ROOT_SUITES=Object.freeze([
+  'test:asset-acquisition-browser',
+]);
+
 const reachableTestScripts=scripts=>{
   const reachable=new Set();
   const visit=command=>{
@@ -115,11 +121,16 @@ test('Insurance and Property suites exercise both workspace and authoritative AP
   assert.match(packageJson.scripts?.['test:authoritative-property-rent']||'',/property-rent-authoritative-client\.test/);
 });
 
-test('every test:* script is reachable from the aggregate, so no suite can rot unrun',()=>{
+test('every root test:* script is reachable or explicitly requires browser infrastructure',()=>{
   const scripts=packageJson.scripts||{};
   const reachable=reachableTestScripts(scripts);
-  const orphans=Object.keys(scripts).filter(name=>name.startsWith('test:')&&!reachable.has(name));
+  const allowed=new Set(INFRASTRUCTURE_BOUND_ROOT_SUITES);
+  const orphans=Object.keys(scripts).filter(name=>name.startsWith('test:')&&!reachable.has(name)&&!allowed.has(name));
   assert.deepEqual(orphans,[],`defined but never run by npm test: ${orphans.join(', ')}`);
+  for(const name of allowed){
+    assert.ok(Object.hasOwn(scripts,name),`allowlisted root suite no longer exists: ${name}`);
+    assert.ok(!reachable.has(name),`allowlisted root suite already runs in npm test: ${name}`);
+  }
 });
 
 test('every server test:* script is reachable from the server aggregate, or is a named infrastructure-bound suite',()=>{
