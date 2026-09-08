@@ -11,8 +11,11 @@ The integrated client/asset SSR suite passes. A separate owned mocked HTTP brows
 run additionally verified an Approved existing journal resumes with its exact period
 without a POST, the explicit new-Draft choice, and the original save/focus/double
 click checks (10 checks total). This still does not replace real database/OIDC
-browser acceptance. The cross-period app/workflow bridge is a separate pending
-integration; these component-level callback assertions alone do not prove it.
+browser acceptance. The integrated asset-specific bridge resolves the journal's
+period in the current company scope catalog, reads the journal in that period,
+then applies the same period to the subsequent workflow. Stale company changes
+invalidate the result. It accepts all four unposted workflow states; component
+callback and pure policy assertions alone do not prove full browser integration.
 
 Asset detail now offers Record acquisition. Opening it fetches the scoped options
 read and displays the invoice, period, cost, accounts, vendor and attachment names.
@@ -36,9 +39,8 @@ default source date, double-click protection, saved-result focus, Open journal
 callback, 390px layout and page-error capture. That test is not live OIDC or real
 PostgreSQL browser acceptance and used a minimal test stylesheet.
 
-Remaining before acceptance: options-read review follow-ups (existing Draft
-visibility, empty source text normalization, evidence-status naming), backend date
-policy, authoritative browser integration with real identity/database, production
-styling/keyboard/zoom coverage and deployment. Full d4 database regression has
-reported older migration-roundtrip and source-hash expectation failures; preserve
-and resolve those rather than treating focused green tests as full acceptance.
+Remaining before acceptance: backend date policy, authoritative browser integration
+with real identity/database, production styling/keyboard/zoom coverage and deployment.
+Migration 351 addresses the options-read review follow-ups. The two d4 full-regression
+failures were corrected with passing focused tests; the failed log remains evidence
+and the integrated candidate still requires its complete regression gates.
