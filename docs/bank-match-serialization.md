@@ -1,0 +1,9 @@
+# Bank matching and reconciliation serialization
+
+Migration 323 replaces the existing payment-match and unmatch functions without changing their signatures, response schemas, operation scopes or hash formulas. Successful retries must belong to the original actor. Both functions reject null/noncanonical hashes, missing identities and invalid idempotency-key lengths before changing state.
+
+New work takes the same tenant/company/bank-account advisory transaction lock used by reconciliation sign-off. The account is resolved from the scoped bank source and checked again after locking its row. The functions reject changes covered by a signed statement until it is reopened. They do not lock reconciliation rows: sign-off takes its reconciliation row before the account lock, so reversing that order would create a deadlock. Successful idempotent replay returns the original receipt without changing accounting state, even if a later statement is signed.
+
+The PostgreSQL lifecycle tests check original-actor retries, changed requests, null hashes, payment matching waiting on the account lock, and queued sign-off followed by unmatch. They verify that rejected unmatch leaves the active match intact and rolls back its idempotency reservation, and that a successful unmatch retains exactly one audit and outbox event. A down/up exercise preserves existing match history and successful receipts.
+
+The down migration restores the previous function definitions and preserves all business data. It also restores the prior actor-replay and concurrency gaps; treat it as a controlled code rollback, not a way to bypass signed-statement controls. No grants or accounting balances are changed by this migration. The existing actor permission checks remain; this change does not claim complete banking separation-of-duties or live business acceptance.
