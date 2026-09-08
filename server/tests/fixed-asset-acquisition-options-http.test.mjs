@@ -1,0 +1,14 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {randomUUID} from 'node:crypto';
+import {createAccountingApi} from '../api/accounting-http.mjs';
+const tenantId=randomUUID(),entityId=randomUUID(),assetId=randomUUID(),hash='sha256:'+'a'.repeat(64);
+const row={schema_version:'FIXED_ASSET_ACQUISITION_OPTIONS_V1',tenant_id:tenantId,entity_id:entityId,asset_id:assetId,asset_tag:'Building 1',asset_status:'ACTIVE',currency:'USD',cost_basis:'25000.0000',asset_account_code:'150100',liability_account_code:'291001',vendor_ref:'VENDOR-1',period:{period_id:randomUUID(),period_code:'2026-07',starts_on:'2026-07-01',ends_on:'2026-07-31',status:'OPEN'},source:{source_document_id:randomUUID(),source_document_version:1,source_payload_hash:hash,accounting_date:'2026-07-01',document_no:'INV-1'},original_evidence:{evidence_id:randomUUID(),evidence_hash:hash},attachments:[{attachment_id:randomUUID(),name:'Invoice.pdf'}],attachment_status:'VERIFIED',acquisition_posted:false,disposal_recorded:false,requires_command_validation:true};
+const request={method:'GET',url:`/api/v1/entities/${entityId.toUpperCase()}/fixed-assets/register/${assetId.toUpperCase()}/acquisition-options`};
+const setup=(result=row)=>{const calls=[];return {calls,api:createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>({readFixedAssetAcquisitionOptions:async args=>{calls.push(args);return result;}})})};};
+test('acquisition options read canonical scoped data without caching or command authority',async()=>{
+ const {api,calls}=setup();const response=await api(request);assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(calls,[{tenantId,entityId,assetId}]);assert.deepEqual(response.body.data,row);
+ const missing=setup({...row,original_evidence:null,attachments:[],attachment_status:'MISSING'});assert.equal((await missing.api(request)).status,200);
+});
+test('acquisition options refuse request mutations and malformed or cross-company responses',async()=>{
+ const {api,calls}=setup();for(const patch of [{body:{}},{headers:{'if-match':'"1"'}},{headers:{'idempotency-key':'unused'}},{url:request.url+'?tenantId=other'}])assert.equal((await api({...request,...patch})).status,400);assert.equal(calls.length,0);
+ for(const value of [null,{...row,tenant_id:randomUUID()},{...row,asset_id:randomUUID()},{...row,cost_basis:25000},{...row,requires_command_validation:false},{...row,can_post:true},{...row,attachments:[]},{...row,attachments:[{...row.attachments[0],storage_ref:'s3://private'}]},{...row,source:{...row.source,accounting_date:'2026-02-30'}}])assert.equal((await setup(value).api(request)).status,502);
+});

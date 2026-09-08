@@ -698,6 +698,10 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_fixed_asset_register_v2($1,$2,$3::date,$4,$5,$6) AS result',[tenantId,entityId,asOfDate,limit,after,assetId]),'FIXED_ASSET_READ_MISSING','Fixed asset register read unavailable').result);
   }
 
+  async readFixedAssetAcquisitionOptions({tenantId,entityId,assetId}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_fixed_asset_acquisition_options($1,$2,$3) result',[tenantId,entityId,assetId]),'FIXED_ASSET_ACQUISITION_OPTIONS_MISSING','Acquisition options unavailable').result);
+  }
+
   async createFixedAssetAcquisition({tenantId,entityId,assetId,periodId,journalNumber,journalDate,expectedSourceVersion,attachmentIds,reason,idempotencyKey}){
     return this.inSession(async client=>{
       const args=[tenantId,entityId,assetId,periodId,journalNumber,journalDate,expectedSourceVersion,attachmentIds,reason];

@@ -7783,6 +7783,27 @@ pgTest('native fixed asset original source serializes supersession and Post in b
  }
 });
 
+pgTest('fixed asset acquisition options read exact source attachments without business writes and roundtrip migration',async()=>{
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
+ const maker=await formalWorkflowRoleKernel(ids,'acquisition-options-maker','AI_ACCOUNTING_DECISION_MAKER'),reviewer=await formalWorkflowRoleKernel(ids,'acquisition-options-reviewer','JE_REVIEWER');
+ const args={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id};
+ const counts=async()=>(await adminPool.query(`SELECT (SELECT count(*) FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*) FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*) FROM idempotency_receipt WHERE tenant_id=$1) receipts,(SELECT count(*) FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') audits,(SELECT count(*) FROM outbox_event WHERE tenant_id=$1) outbox`,[ids.tenantId])).rows[0];
+ const before=await counts(),missing=await maker.readFixedAssetAcquisitionOptions(args);
+ assert.equal(missing.attachment_status,'MISSING');assert.deepEqual(missing.attachments,[]);assert.equal(missing.source.source_document_id,trace.documentId);assert.equal(missing.source.source_document_version,1);assert.equal(missing.requires_command_validation,true);assert.equal(missing.acquisition_posted,false);assert.equal(missing.cost_basis,'25000.0000');assert.match(missing.original_evidence.evidence_hash,/^sha256:[a-f0-9]{64}$/);
+ await assert.rejects(reviewer.readFixedAssetAcquisitionOptions(args),error=>error.code==='42501');
+ await assert.rejects(maker.readFixedAssetAcquisitionOptions({...args,entityId:randomUUID()}),error=>error.code==='42501');
+ await assert.rejects(maker.readFixedAssetAcquisitionOptions({...args,assetId:randomUUID()}),error=>error.code==='P0002');
+ assert.deepEqual(await counts(),before);
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'acquisition-options-maker'}),kernelFactory:async()=>maker});
+ const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/fixed-assets/register/${args.assetId.toUpperCase()}/acquisition-options`});
+ assert.equal(response.status,200,JSON.stringify(response.body));assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.attachment_status,'VERIFIED');assert.equal(response.body.data.attachments[0].attachment_id,ids.attachmentId);assert.deepEqual(Object.keys(response.body.data.attachments[0]).sort(),['attachment_id','name']);assert.deepEqual(await counts(),before);
+ const name='350_fixed_asset_acquisition_options.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect();try{await client.query('BEGIN');await client.query(bodies.down);assert.equal((await client.query("SELECT to_regprocedure('refs_read_fixed_asset_acquisition_options(uuid,uuid,uuid)') name")).rows[0].name,null);await client.query(bodies.up);assert.equal((await client.query("SELECT has_function_privilege('refs_app','refs_read_fixed_asset_acquisition_options(uuid,uuid,uuid)','EXECUTE') allowed")).rows[0].allowed,true);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+ assert.deepEqual(await maker.readFixedAssetAcquisitionOptions(args),response.body.data);assert.deepEqual(await counts(),before);
+});
+
 pgTest('native fixed asset acquisition derives a source-bound Draft and prevents duplicate acquisition Post',async()=>{
  // Policy selection is based on period end, not the earlier invoice date.
  const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1',{policyEffectiveFrom:'2026-07-15'});

@@ -1,4 +1,5 @@
 import {validFixedAssetRegister,validFixedAssetMovements} from './fixed-asset-register-contract.mjs';
+import {validFixedAssetAcquisitionOptions} from './fixed-asset-acquisition-options-contract.mjs';
 import {validCounterpartyRegisterSelection,validCounterpartyRegisterPage} from '../runtime/counterparty-register.mjs';
 import {validPaymentBankCandidates} from '../runtime/payment-bank-candidates.mjs';
 import {validBusinessRecordKind,validBusinessRecord} from '../runtime/business-record-detail.mjs';
@@ -340,6 +341,15 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
       }
       if(method==='POST'&&parts.length===7&&parts[4]==='access'&&parts[5]==='self-service-controlled-test-workflow-grant'&&parts[6]==='upgrade'){
         throw new AccountingApiError(410,'ROUTE_RETIRED','The mixed-authority controlled test grant is retired; use separate finite workflow and service roles');
+      }
+      if(method==='GET'&&parts.length===8&&parts[4]==='fixed-assets'&&parts[5]==='register'&&parts[7]==='acquisition-options'){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        if(body!==null||header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_FIELDS_FORBIDDEN','Acquisition options do not accept command fields');
+        const assetId=requireUuid(parts[6],'assetId').toLowerCase(),kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readFixedAssetAcquisitionOptions!=='function')throw new AccountingApiError(503,'FIXED_ASSET_ACQUISITION_OPTIONS_UNAVAILABLE','Acquisition options are unavailable');
+        result=await kernel.readFixedAssetAcquisitionOptions({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),assetId});
+        if(!validFixedAssetAcquisitionOptions(result,{tenantId:principal.tenantId.toLowerCase(),entityId:entityId.toLowerCase(),assetId}))throw new AccountingApiError(502,'FIXED_ASSET_ACQUISITION_OPTIONS_INVALID','Acquisition options returned invalid source information');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===8&&parts[4]==='fixed-assets'&&parts[5]==='register'&&parts[7]==='movements'){
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a body');
