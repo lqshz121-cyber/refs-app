@@ -88,6 +88,48 @@ pgTest('production IAM seal and staging grant serialize across physical connecti
   await productionIamSealRaceFixture({adminPool,config});
 });
 
+pgTest('original payable evidence migration roundtrips before retaining source rows',async()=>{
+ const name='348_wbs_payable_original_row_evidence.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect();try{await client.query('BEGIN');await client.query(bodies.down);assert.equal((await client.query("SELECT to_regclass('wbs_payable_original_row_evidence') table_name")).rows[0].table_name,null);await client.query(bodies.up);assert.equal((await client.query("SELECT has_table_privilege('refs_app','wbs_payable_original_row_evidence','INSERT') allowed")).rows[0].allowed,false);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('original payable evidence retains canonical raw facts and rejects source mutations and mismatched replay',async()=>{
+ const ids=await seed({status:'DRAFT'}),importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'original-payable-importer',['WBS.SNAPSHOT.IMPORT'])});
+ const retained=await retainFinal1PayableFixture({pool:adminPool,kernel:importer,ids,amount:'25000.0000'});
+ const evidence=(await adminPool.query('SELECT * FROM wbs_payable_original_row_evidence WHERE tenant_id=$1',[ids.tenantId])).rows[0];
+ assert.deepEqual(evidence.raw_row,retained.plan.staging_rows[0].raw_row);assert.equal(evidence.raw_row_hash,canonicalRequestHash(evidence.raw_row));assert.equal(evidence.source_document_id,retained.sourceDocumentId);assert.equal(evidence.source_line_snapshot.amount,25000);
+ const args={tenantId:ids.tenantId,entityId:ids.entityId,delivery:retained.delivery,artifacts:retained.artifacts,plan:retained.plan,idempotencyKey:'wbs-ai-e2e-final1-001'};
+ assert.equal((await importer.retainWbsProviderFinal1SourceEvidence(args)).idempotent,true);
+ for(const [field,value] of [['party_ref','OTHER-VENDOR'],['project_ref','OTHER-PROJECT'],['property_ref','OTHER-PROPERTY'],['amount',25001],['external_dimension_refs',{signed_charge_code:'OTHER'}]]){
+  await assert.rejects(adminPool.query('UPDATE source_document_line SET '+field+'=$2 WHERE source_document_line_id=$1',[evidence.source_document_line_id,value]),e=>e.code==='23514');
+ }
+ await assert.rejects(adminPool.query('DELETE FROM source_document_line WHERE source_document_line_id=$1',[evidence.source_document_line_id]),e=>e.code==='23514');
+ await assert.rejects(adminPool.query("UPDATE source_document SET currency='EUR' WHERE source_document_id=$1",[retained.sourceDocumentId]),e=>e.code==='23514');
+ await adminPool.query('UPDATE source_document SET version=version+1 WHERE source_document_id=$1',[retained.sourceDocumentId]);
+ assert.deepEqual((await adminPool.query('SELECT to_jsonb(l) value FROM source_document_line l WHERE source_document_line_id=$1',[evidence.source_document_line_id])).rows[0].value,evidence.source_line_snapshot);
+ const plan=structuredClone(retained.plan);plan.staging_rows[0].normalized.vendorRef='OTHER-VENDOR';
+ await assert.rejects(importer.retainWbsProviderFinal1SourceEvidence({...args,plan,idempotencyKey:'original-normalized-drift'}),e=>e.code==='23514');
+ const changedRaw=structuredClone(retained.plan);changedRaw.staging_rows[0].raw_row.vendor_no='OTHER-VENDOR';
+ await assert.rejects(importer.retainWbsProviderFinal1SourceEvidence({...args,plan:changedRaw,idempotencyKey:'original-raw-hash-drift'}),e=>e.code==='23514');
+ assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_payable_original_row_evidence WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,1);
+ const client=await adminPool.connect();try{await client.query('BEGIN');const down=await readFile(new URL('../db/migrations/down/348_wbs_payable_original_row_evidence.sql',import.meta.url),'utf8');await assert.rejects(client.query(down.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'')),e=>e.code==='55006');}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('original payable evidence refuses to certify a historical replay without original capture',async()=>{
+ const ids=await seed({status:'DRAFT'}),importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'original-history-importer',['WBS.SNAPSHOT.IMPORT'])});
+ const retained=await retainFinal1PayableFixture({pool:adminPool,kernel:importer,ids});
+ const client=await adminPool.connect();try{
+  await client.query('BEGIN');await client.query('ALTER TABLE wbs_payable_original_row_evidence DISABLE TRIGGER wbs_payable_original_row_append_only');
+  await client.query('DELETE FROM wbs_payable_original_row_evidence WHERE tenant_id=$1',[ids.tenantId]);
+  await client.query('ALTER TABLE wbs_payable_original_row_evidence ENABLE TRIGGER wbs_payable_original_row_append_only');await client.query('COMMIT');
+ }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+ await adminPool.query("UPDATE source_document_line SET party_ref='HISTORICAL-DRIFT' WHERE source_document_id=$1",[retained.sourceDocumentId]);
+ await assert.rejects(importer.retainWbsProviderFinal1SourceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,delivery:retained.delivery,artifacts:retained.artifacts,plan:retained.plan,idempotencyKey:'wbs-ai-e2e-final1-001'}),e=>e.code==='55006');
+ assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_payable_original_row_evidence WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);
+ assert.equal((await adminPool.query('SELECT party_ref FROM source_document_line WHERE source_document_id=$1',[retained.sourceDocumentId])).rows[0].party_ref,'HISTORICAL-DRIFT');
+});
+
 pgTest('AI vendor monthly spend reads one complete signed current-source population across the approved history window',async()=>{
   const ids=await seed({status:'DRAFT'}),prior=[
     {id:randomUUID(),code:'2026-04',start:'2026-04-01',end:'2026-04-30'},
