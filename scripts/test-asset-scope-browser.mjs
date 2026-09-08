@@ -26,11 +26,15 @@ try{
  browser=await chromium.launch({headless:true});const page=await browser.newPage();const errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.goto(`http://127.0.0.1:${server.address().port}`);await page.getByRole('button',{name:'View asset Scope test asset',exact:true}).click();
  const source=()=>page.getByRole('button',{name:'View posting source',exact:true}),drill=()=>page.getByRole('region',{name:'Opened source drill',exact:true});
- await source().click();await page.waitForFunction(()=>window.sourceReads===1);
- await page.evaluate(()=>{window.lateSource=window.resolveSource;window.changePeriod('second-period');});await source().waitFor();
+ const originalSource=await source().elementHandle();await source().click();await page.waitForFunction(()=>window.sourceReads===1);
+ await page.evaluate(()=>{window.lateSource=window.resolveSource;window.changePeriod('second-period');});
+ await page.waitForFunction(()=>document.querySelector('[data-testid="period"]').textContent==='second-period');
+ await page.waitForFunction(element=>!element.isConnected,originalSource);await source().waitFor();
  await page.evaluate(()=>window.lateSource());await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));assert.equal(await drill().count(),0,'late source response must not open the old drill');
  await source().click();await page.waitForFunction(()=>window.sourceReads===2);await page.evaluate(()=>window.resolveSource());await drill().waitFor();assert.match(await drill().innerText(),/source-period/);
- await page.evaluate(()=>window.changePeriod('third-period'));await source().waitFor();assert.equal(await drill().count(),0,'period switch must close an already-open drill');
+ const originalDrill=await drill().elementHandle();await page.evaluate(()=>window.changePeriod('third-period'));
+ await page.waitForFunction(()=>document.querySelector('[data-testid="period"]').textContent==='third-period');
+ await page.waitForFunction(element=>!element.isConnected,originalDrill);await source().waitFor();assert.equal(await drill().count(),0,'period switch must close an already-open drill');
  for(const patch of [{payload_hash:'different-hash'},{source_document_revision:2},{currency:'CAD'},{posted_journal_entry_ids:[]}]){
   const before=await page.evaluate(()=>window.sourceReads);await source().click();await page.waitForFunction(count=>window.sourceReads===count,before+1);await page.evaluate(value=>window.resolveSource(value),patch);await page.getByRole('alert').waitFor();assert.match(await page.getByRole('alert').innerText(),/current source differs/);assert.equal(await drill().count(),0);
  }
