@@ -50,7 +50,7 @@ BEGIN
    FROM fixed_asset_acquisition_binding b
    JOIN fixed_asset_acquisition_posting posted ON posted.tenant_id=b.tenant_id AND posted.entity_id=b.entity_id AND posted.asset_id=b.asset_id AND posted.binding_id=b.binding_id AND posted.journal_entry_id=b.journal_entry_id
    JOIN fixed_asset_original_source_binding original ON original.binding_id=b.binding_id AND original.tenant_id=b.tenant_id AND original.entity_id=b.entity_id AND original.asset_id=b.asset_id AND original.journal_entry_id=b.journal_entry_id
-   JOIN source_link s ON s.source_link_id=b.source_link_id AND s.tenant_id=b.tenant_id AND s.entity_id=b.entity_id AND s.link_type='SOURCE_TO_JE' AND s.source_document_id=b.source_document_id AND s.journal_entry_id=b.journal_entry_id
+   JOIN source_link s ON s.source_link_id=b.source_link_id AND s.tenant_id=b.tenant_id AND s.entity_id=b.entity_id AND s.link_type='SOURCE_TO_JE' AND s.source_document_id=b.source_document_id AND s.journal_entry_id=b.journal_entry_id AND s.source_document_line_id=b.source_document_line_id
    WHERE b.tenant_id=p_tenant AND b.entity_id=p_entity AND b.asset_id=p_asset AND b.journal_entry_id=l.journal_entry_id
   ) retained LIMIT 1
  ) exact_source ON true

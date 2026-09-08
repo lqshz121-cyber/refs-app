@@ -2,6 +2,8 @@
 
 Migration 352 upgrades the asset movement response to `FIXED_ASSET_MOVEMENTS_V2`. A posted acquisition row can expose its retained posting source when the scoped acquisition binding, acquisition posting, original evidence binding and `SOURCE_TO_JE` link all identify the same asset and journal. The projection reads retained identity, version and hash; it does not infer a source from an account or amount.
 
+The acquisition source link must also identify the exact source document line retained by the acquisition binding. A historical link with a null line, or a different line on the same document, cannot produce an exact acquisition source. The real PostgreSQL scenario verifies the matching line, temporarily clears it in the disposable fixture, checks that the entire source tuple becomes blocked, and restores it before checking visibility again.
+
 Each row requires nullable `acquisition_binding_id`. `EXACT_ACQUISITION_SOURCE` requires that binding and the complete source tuple, with no disposal binding. `EXACT_DISPOSAL_SOURCE` requires the converse. Missing or multiple source candidates expose no source tuple. Depreciation, impairment and legacy entries without the exact retained chain continue to report that no posting source link is retained.
 
 The asset activity page offers **View posting source** for either exact family. The existing drill reads the source again in the row's accounting period and checks the retained version, hash, currency and posted journal membership before opening it. A mismatch displays an error instead of substituting another source.
