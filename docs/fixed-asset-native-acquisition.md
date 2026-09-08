@@ -14,3 +14,9 @@ Remaining work before acceptance:
 - Add concurrency, financial line mutation and source-line drift rejection tests; verify historical acquisition/date interactions and negative-money cases.
 - Expose exact acquisition binding in movement/source drill contracts; add period-bound depreciation and pre-Post impairment binding, correction/reversal workflows.
 - Finish exact committed root/server/build/PG15/16 gates, independent audit and real API/identity/browser acceptance. No production release is authorized by these isolated results.
+
+## Source evidence revision (342)
+
+New Drafts bind SOURCE_TO_JE to the exact source_document_line_id. Input attachment IDs must exactly equal the scoped source SOURCE_ATTACHMENT set; all must be VERIFIED_CLEAN/CLEAN. An immutable snapshot binds IDs, content hashes, storage references/versions and verification states. Post rechecks source line identity, the source attachment snapshot and the journal attachment set. Older 341 bindings without this proof cannot Post through the strengthened guard; create a corrected Draft. No historical binding is rewritten.
+
+PG16 focused revision tests passed 3/3 without skips: unrelated clean attachment rejection before any Draft, exact source-line link and retained attachment hash, source-version rollback, appended source attachment rejection with unchanged ledger/posting/audit/outbox and APPROVED status, plus forward/down migration restoration. Early test fixture failures (UUID parameter type and missing verified_at) were fixed without weakening runtime constraints. This still does not cover the global manual-entry/source reuse/date or UI gaps listed above.
