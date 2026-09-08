@@ -358,6 +358,40 @@ async function migrateDownThrough(pool,targetMigration){
   }
 }
 
+// Exercise one migration's SQL and restoration without rolling back unrelated
+// newer features that deliberately retain their own immutable evidence.
+async function probeMigrationRoundTrip(pool,name,signature){
+  const entry=MIGRATION_MANIFEST.find(item=>item.name===name);assert.ok(entry);
+  const read=async direction=>{
+    const sql=await readFile(new URL(`../db/migrations/${direction==='down'?'down/':''}${name}`,import.meta.url),'utf8');
+    assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);
+    return sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'').trim();
+  };
+  const down=await read('down'),up=await read('up'),client=await pool.connect();
+  try{
+    await client.query('BEGIN');
+    assert.ok((await client.query('SELECT to_regprocedure($1) fn',[signature])).rows[0].fn);
+    await client.query(down);
+    assert.equal((await client.query('SELECT to_regprocedure($1) fn',[signature])).rows[0].fn,null);
+    await client.query(up);
+    assert.ok((await client.query('SELECT to_regprocedure($1) fn',[signature])).rows[0].fn);
+  }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+}
+
+// Deliberate legacy-corruption fixture, never a supported master-data mutation.
+async function injectCounterpartyIdentityDrift(sql,args){
+  await assert.rejects(adminPool.query(sql,args),error=>error.code==='23514');
+  const client=await adminPool.connect();
+  try{
+    await client.query('BEGIN');
+    await client.query('ALTER TABLE member_master DISABLE TRIGGER counterparty_version_guard');
+    await client.query(sql,args);
+    await client.query('ALTER TABLE member_master ENABLE TRIGGER counterparty_version_guard');
+    await client.query('COMMIT');
+  }catch(error){await client.query('ROLLBACK');throw error;}
+  finally{client.release();}
+}
+
 const hash=value=>`sha256:${createHash('sha256').update(String(value)).digest('hex')}`;
 
 pgTest('AI Full Controller model WAL is actor-bound, idempotent, recoverable, audited, and accounting read-only',async()=>{
@@ -3132,8 +3166,8 @@ pgTest('retained WBS Payable and approved settings drive the production AI decis
   const pendingAttachmentId=randomUUID();await adminPool.query(`INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,scan_status,finalization_status) VALUES($1,$2,$3,'pending-support.pdf','application/pdf',10,$4,$5,'pending-support-v1','wbs-provider',now(),'PENDING','PENDING')`,[pendingAttachmentId,ids.tenantId,ids.entityId,hash('pending-support'),`s3://refs-wbs-ai-e2e/${pendingAttachmentId}`]);await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'wbs-provider')",[ids.tenantId,ids.entityId,retainedSource.sourceDocumentId,pendingAttachmentId]);let unsafe=await decisionService.analyze({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10});assert.equal(unsafe.packets[0].classification,'BLOCKED');assert.equal(unsafe.packets[0].source.completeness_status,'INCOMPLETE');assert.equal(unsafe.packets[0].source.source_detail.execution_evidence.attachments.length,2);assert.deepEqual(unsafe.packets[0].proposed_journal.lines,[]);await adminPool.query('ALTER TABLE source_link DISABLE TRIGGER USER');await adminPool.query('DELETE FROM source_link WHERE source_document_id=$1 AND attachment_id=$2',[retainedSource.sourceDocumentId,pendingAttachmentId]);await adminPool.query('ALTER TABLE source_link ENABLE TRIGGER USER');
   await adminPool.query("UPDATE account_master SET active=false WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId]);await assert.rejects(decisionService.analyze({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10}),error=>error.code==='AI_ACCOUNTING_ACCOUNT_MASTER_INVALID');await adminPool.query("UPDATE account_master SET active=true,required_member_type='CUSTOMER' WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId]);await assert.rejects(decisionService.analyze({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10}),error=>error.code==='AI_ACCOUNTING_ACCOUNT_MASTER_INVALID');await adminPool.query("UPDATE account_master SET required_member_type='VENDOR' WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId]);
   await adminPool.query("UPDATE member_master SET active=false WHERE tenant_id=$1 AND entity_id=$2 AND member_ref='VENDOR-1'",[ids.tenantId,ids.entityId]);unsafe=await decisionService.analyze({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10});assert.equal(unsafe.packets[0].classification,'BLOCKED');assert.deepEqual(unsafe.packets[0].proposed_journal.lines,[]);assert.deepEqual(unsafe.packets[0].expected_report_deltas,[]);
-  await adminPool.query("UPDATE member_master SET active=true,member_type='CUSTOMER' WHERE tenant_id=$1 AND entity_id=$2 AND member_ref='VENDOR-1'",[ids.tenantId,ids.entityId]);unsafe=await decisionService.analyze({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10});assert.equal(unsafe.packets[0].classification,'BLOCKED');assert.deepEqual(unsafe.packets[0].proposed_journal.lines,[]);
-  await adminPool.query("UPDATE member_master SET member_type='VENDOR' WHERE tenant_id=$1 AND entity_id=$2 AND member_ref='VENDOR-1'",[ids.tenantId,ids.entityId]);const payablePopulation=await aiKernel.readAiAccountingDecisionPopulation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,pageSize:10}),payableIdentity=payablePopulation.invoice_rows.map(row=>({tenant_id:row.tenant_id,entity_id:row.entity_id,accounting_period_id:row.accounting_period_id,source_kind:'INVOICE',accounting_date:row.accounting_date,source_document_id:row.source_document_id,line_no:row.line_no,source_document_line_id:row.source_document_line_id,source_payload_hash:row.source_payload_hash,source_line_hash:row.source_line_hash,retained_outcome:row.retained_outcome,retained_exception_codes:row.retained_exception_codes,source_status:row.source_status})),payableDatabasePopulationHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) value',[JSON.stringify(payableIdentity)])).rows[0].value;assert.equal(payablePopulation.population_hash,payableDatabasePopulationHash);assert.equal(payablePopulation.population_validation_hash,canonicalRequestHash(payableIdentity));assert.deepEqual(payablePopulation.invoice_rows[0].retained_exception_codes,['WBS_PAYABLE_ATTACHMENT_REQUIRED','WBS_PAYABLE_MAPPING_REVIEW_REQUIRED']);const batch=await decisionService.analyze({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10});assert.equal(batch.row_count,1);assert.equal(batch.packets[0].classification,'EXPENSE',JSON.stringify(batch.packets[0]));assert.equal(batch.packets[0].settings_snapshot_id,settings.settingsSnapshotId);assert.equal(batch.packets[0].source.admission_status,'ADMITTED');assert.deepEqual(batch.packets[0].source.exception_codes,[]);assert.deepEqual(batch.packets[0].proposed_journal.lines.map(row=>[row.account_code,row.side,row.amount,row.member_ref]),[['610000','DEBIT','125.0000',null],['291001','CREDIT','125.0000','VENDOR-1']]);
+  await injectCounterpartyIdentityDrift("UPDATE member_master SET active=true,member_type='CUSTOMER' WHERE tenant_id=$1 AND entity_id=$2 AND member_ref='VENDOR-1'",[ids.tenantId,ids.entityId]);unsafe=await decisionService.analyze({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10});assert.equal(unsafe.packets[0].classification,'BLOCKED');assert.deepEqual(unsafe.packets[0].proposed_journal.lines,[]);
+  await injectCounterpartyIdentityDrift("UPDATE member_master SET member_type='VENDOR' WHERE tenant_id=$1 AND entity_id=$2 AND member_ref='VENDOR-1'",[ids.tenantId,ids.entityId]);const payablePopulation=await aiKernel.readAiAccountingDecisionPopulation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,pageSize:10}),payableIdentity=payablePopulation.invoice_rows.map(row=>({tenant_id:row.tenant_id,entity_id:row.entity_id,accounting_period_id:row.accounting_period_id,source_kind:'INVOICE',accounting_date:row.accounting_date,source_document_id:row.source_document_id,line_no:row.line_no,source_document_line_id:row.source_document_line_id,source_payload_hash:row.source_payload_hash,source_line_hash:row.source_line_hash,retained_outcome:row.retained_outcome,retained_exception_codes:row.retained_exception_codes,source_status:row.source_status})),payableDatabasePopulationHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) value',[JSON.stringify(payableIdentity)])).rows[0].value;assert.equal(payablePopulation.population_hash,payableDatabasePopulationHash);assert.equal(payablePopulation.population_validation_hash,canonicalRequestHash(payableIdentity));assert.deepEqual(payablePopulation.invoice_rows[0].retained_exception_codes,['WBS_PAYABLE_ATTACHMENT_REQUIRED','WBS_PAYABLE_MAPPING_REVIEW_REQUIRED']);const batch=await decisionService.analyze({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10});assert.equal(batch.row_count,1);assert.equal(batch.packets[0].classification,'EXPENSE',JSON.stringify(batch.packets[0]));assert.equal(batch.packets[0].settings_snapshot_id,settings.settingsSnapshotId);assert.equal(batch.packets[0].source.admission_status,'ADMITTED');assert.deepEqual(batch.packets[0].source.exception_codes,[]);assert.deepEqual(batch.packets[0].proposed_journal.lines.map(row=>[row.account_code,row.side,row.amount,row.member_ref]),[['610000','DEBIT','125.0000',null],['291001','CREDIT','125.0000','VENDOR-1']]);
   const retainArgs={tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,packets:batch.packets,populationCount:batch.population.total_count,populationHash:batch.population.population_hash,idempotencyKey:'wbs-ai-decision-run-e2e-001'},run=await aiKernel.retainAiAccountingDecisionBatch(retainArgs),decision=run.receipts[0];assert.equal(decision.packet_status,'READY_FOR_HUMAN_REVIEW');assert.equal(decision.source_document_id,batch.packets[0].source.source_document_id);assert.equal((await aiKernel.retainAiAccountingDecisionBatch(retainArgs)).idempotent,true);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'AP_PREPARER',['GL.JE.VIEW','GL.JE.CREATE'])});
   const awaitingQueue=await maker.readAiAccountingDecisionQueue({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:25,offset:0});assert.equal(awaitingQueue.total_count,1);assert.equal(awaitingQueue.population_complete,true);assert.equal(awaitingQueue.rows[0].ai_accounting_decision_id,decision.ai_accounting_decision_id);assert.equal(awaitingQueue.rows[0].workflow_state,'AWAITING_HUMAN_DECISION');assert.equal(awaitingQueue.rows[0].action_flags.can_accept_or_reject,true);assert.equal(awaitingQueue.rows[0].action_flags.can_create_draft,false);assert.equal(awaitingQueue.rows[0].action_flags.can_post,false);
@@ -6778,12 +6812,12 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   await adminPool.query(`INSERT INTO bank_match(bank_match_id,tenant_id,entity_id,bank_source_id,sales_receipt_id,journal_entry_id,journal_line_id,ledger_line_id,candidate_rule_code,amount_delta,currency_match,date_delta_days,status,matched_by)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,'EXACT_POSTED_SALES_RECEIPT',0,true,0,'ACTIVE','synthetic-read-fixture')`,[syntheticMatchId,ids.tenantId,ids.entityId,saleBankId,receipt.sales_receipt_id,receipt.journal_entry_id,saleCandidate.journal_line_id,saleCandidate.ledger_line_id]);
   assert.equal((await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.rows.length,0);
-  await assert.rejects(migrateDownThrough(adminPool,'320_sales_receipt_bank_evidence.sql'),/Retained sales receipt bank match history prevents destructive rollback/);
+  await assert.rejects(probeMigrationRoundTrip(adminPool,'320_sales_receipt_bank_evidence.sql','refs_read_sales_receipt_bank_candidates(uuid,uuid,uuid,uuid,integer)'),/Retained sales receipt bank match history prevents destructive rollback/);
   await adminPool.query("UPDATE bank_match SET status='UNMATCHED',unmatched_by='synthetic-read-fixture',unmatched_at=clock_timestamp(),version=version+1 WHERE bank_match_id=$1",[syntheticMatchId]);
-  await assert.rejects(migrateDownThrough(adminPool,'320_sales_receipt_bank_evidence.sql'),/Retained sales receipt bank match history prevents destructive rollback/);
+  await assert.rejects(probeMigrationRoundTrip(adminPool,'320_sales_receipt_bank_evidence.sql','refs_read_sales_receipt_bank_candidates(uuid,uuid,uuid,uuid,integer)'),/Retained sales receipt bank match history prevents destructive rollback/);
   assert.equal((await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.rows.length,1);
   await adminPool.query('DELETE FROM bank_match WHERE bank_match_id=$1',[syntheticMatchId]);
-  await migrateDownThrough(adminPool,'320_sales_receipt_bank_evidence.sql');await migrateUp(adminPool);
+  await probeMigrationRoundTrip(adminPool,'320_sales_receipt_bank_evidence.sql','refs_read_sales_receipt_bank_candidates(uuid,uuid,uuid,uuid,integer)');await migrateUp(adminPool);
   assert.equal((await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.rows[0].sales_receipt_id,receipt.sales_receipt_id);
   const matchUrl=`${root}/bank/transactions/${saleBankId}/sales-receipt-matches`;
   const matchRevision=(await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.bank_revision;
@@ -6863,7 +6897,7 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[badReceipt.journal_entry_id])).rows[0].status,'APPROVED');
   assert.equal((await adminPool.query('SELECT status FROM sales_receipt WHERE sales_receipt_id=$1',[badReceipt.sales_receipt_id])).rows[0].status,'DRAFT');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM outbox_event WHERE aggregate_id IN ($1,$2)',[badReceipt.sales_receipt_id,badReceipt.journal_entry_id])).rows[0].n,before);
-  await assert.rejects(migrateDownThrough(adminPool,'317_native_sales_receipt.sql'),/Retained sales receipt bank match history prevents destructive rollback/);
+  await assert.rejects(probeMigrationRoundTrip(adminPool,'320_sales_receipt_bank_evidence.sql','refs_read_sales_receipt_bank_candidates(uuid,uuid,uuid,uuid,integer)'),/Retained sales receipt bank match history prevents destructive rollback/);
   assert.equal((await counts()).sales,2);
 });
 
@@ -6948,7 +6982,7 @@ pgTest('sales receipt choices enforce current company and eligible masters with 
     assert.deepEqual(tail.body.data.rows.map(r=>r.ref),['PF100001']);assert.equal(tail.body.data.next_ref,null);
   }
   assert.ok(Date.now()-started<5000,'Four bounded option reads over 100001 customers and categories must finish within five seconds');
-  await migrateDownThrough(adminPool,'319_sales_receipt_options.sql');
+  await probeMigrationRoundTrip(adminPool,'319_sales_receipt_options.sql','refs_read_sales_receipt_options(uuid,uuid,text,text,text,integer)');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM member_master WHERE entity_id=$1',[ids.entityId])).rows[0].n,100006);
   await migrateUp(adminPool);assert.equal((await get('BANK')).status,200);
 });
