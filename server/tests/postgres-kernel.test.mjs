@@ -6538,12 +6538,19 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
     assert.equal(row.ledger_line_id,saleCandidate.ledger_line_id);assert.equal(row.amount,'1.2345');
   };
   assertSaleSource(typedBankRead.body.data.find(row=>row.bank_source_id===saleBankId));
+  const {refreshAuthoritativeBankTransactions:readCashBank,refreshAuthoritativeReconciliationWorksheet:readCashWorksheet}=await import('../../src/accounting-api.js');
+  const sourceClientConfig={baseUrl:'https://fixture.example',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>'fixture-token-'.repeat(4)};
+  const sourceClientFetch=async(url,options)=>{const requestUrl=new URL(url);const result=await saleBankReadApi({method:options.method,url:requestUrl.pathname+requestUrl.search,body:null,headers:options.headers});return {ok:result.status>=200&&result.status<300,status:result.status,json:async()=>JSON.parse(JSON.stringify(result.body))};};
+  const browserCashBank=await readCashBank({config:sourceClientConfig,bankAccountRef:'BANK-1',fetcher:sourceClientFetch});
+  assert.equal(browserCashBank.ok,true,JSON.stringify(browserCashBank));assertSaleSource(browserCashBank.rows.find(row=>row.bank_source_id===saleBankId));
   assert.equal((await postedReadApi({method:'GET',url:sourceBankUrl,headers:{}})).status,403);
   const saleRecId=randomUUID();
   await adminPool.query(`INSERT INTO reconciliation(reconciliation_id,tenant_id,entity_id,bank_account_ref,statement_ending_date,statement_ending_balance,difference,status)
     VALUES($1,$2,$3,'BANK-1','2026-07-31',1.2345,0,'DRAFT')`,[saleRecId,ids.tenantId,ids.entityId]);
   const sourceWorksheetArgs={...ids,reconciliationId:saleRecId};
   assertSaleSource((await saleBankReader.listReconciliationWorksheet(sourceWorksheetArgs)).find(row=>row.bank_source_id===saleBankId));
+  const browserCashWorksheet=await readCashWorksheet({config:sourceClientConfig,reconciliationId:saleRecId,fetcher:sourceClientFetch});
+  assert.equal(browserCashWorksheet.ok,true,JSON.stringify(browserCashWorksheet));assertSaleSource(browserCashWorksheet.rows.find(row=>row.bank_source_id===saleBankId));
   assertSaleSource(await saleBankReader.getReconciliationWorksheetItem({...sourceWorksheetArgs,bankSourceId:saleBankId}));
   await migrateDownThrough(adminPool,'322_bank_match_typed_source_read.sql');
   assert.equal((await adminPool.query("SELECT to_regprocedure('refs_list_bank_transactions_v2(uuid,uuid,text,date,date,integer,integer)') IS NULL removed")).rows[0].removed,true);

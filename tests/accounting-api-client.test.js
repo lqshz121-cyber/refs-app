@@ -161,6 +161,20 @@ const periodEnvelope=data=>({ok:true,data,scope:periodScope(data)});
   const validBank={bank_source_id:entityId,bank_account_ref:'BANK-1',external_bank_line_id:'BANK-LINE-1',transaction_date:'2026-07-15',currency:'USD',amount:'-125.2500',version:'3',source_document_id:'22222222-2222-4222-8222-222222222222',source_ref:'SOURCE-1',document_type:'BANK_TRANSACTION',bank_match_id:null,match_status:null,business_source_document_id:null,journal_entry_id:null,journal_line_id:null,candidate_rule_code:null,amount_delta:null,currency_match:null,date_delta_days:null,matched_by:null,matched_at:null,match_version:null};
   const matchedBank={...validBank,bank_match_id:'33333333-3333-4333-8333-333333333333',match_status:'ACTIVE',business_source_document_id:'44444444-4444-4444-8444-444444444444',journal_entry_id:'55555555-5555-4555-8555-555555555555',journal_line_id:'66666666-6666-4666-8666-666666666666',candidate_rule_code:'EXACT_POSTED_PAYMENT',amount_delta:'0.0000',currency_match:true,date_delta_days:0,matched_by:'auth0|actor',matched_at:'2026-07-16T00:00:00.000Z',match_version:'1'};
   const readBankRows=async data=>refreshAuthoritativeBankTransactions({config,bankAccountRef:'BANK-1',fetcher:async()=>({ok:true,json:async()=>({ok:true,data})})});
+  const cashSource={match_source_kind:'SALES_RECEIPT',payment_occurrence_id:null,sales_receipt_id:'77777777-7777-4777-8777-777777777777',sales_receipt_number:'SALE-001',sales_receipt_revision:'9007199254740993',ledger_line_id:'88888888-8888-4888-8888-888888888888'};
+  const cashBank={...matchedBank,...cashSource,business_source_document_id:null,candidate_rule_code:'EXACT_POSTED_SALES_RECEIPT'};
+  for(const matchStatus of ['ACTIVE','UNMATCHED']){
+    const cashRead=await readBankRows([{...cashBank,match_status:matchStatus,date_delta_days:-1}]);assert.equal(cashRead.ok,true,JSON.stringify(cashRead));
+    for(const [key,value] of Object.entries(cashSource))assert.equal(cashRead.rows[0][key],value);
+  }
+  const emptySource=Object.fromEntries(Object.keys(cashSource).map(key=>[key,null]));
+  assert.equal((await readBankRows([{...validBank,...emptySource}])).ok,true);
+  const typedPayment={...matchedBank,...emptySource,match_source_kind:'PAYMENT',payment_occurrence_id:cashSource.sales_receipt_id,ledger_line_id:cashSource.ledger_line_id};
+  assert.equal((await readBankRows([typedPayment])).rows[0].payment_occurrence_id,cashSource.sales_receipt_id);
+  for(const patch of [{payment_occurrence_id:entityId},{sales_receipt_id:null},{sales_receipt_revision:1},{sales_receipt_revision:'9223372036854775808'},{sales_receipt_number:''},{ledger_line_id:null},{match_source_kind:'PAYMENT'},{business_source_document_id:entityId},{candidate_rule_code:'EXACT_POSTED_PAYMENT'},{journal_line_id:null}])assert.equal((await readBankRows([{...cashBank,...patch}])).code,'ACCOUNTING_API_PROTOCOL');
+  const partialCash={...cashBank};delete partialCash.sales_receipt_revision;
+  assert.equal((await readBankRows([partialCash])).code,'ACCOUNTING_API_PROTOCOL');
+  assert.equal((await readBankRows([{...validBank,...cashSource}])).code,'ACCOUNTING_API_PROTOCOL');
   assert.equal((await readBankRows([matchedBank])).ok,true);
   for(const dateDelta of [-31,-1,0,1,31]){
     const signedDateRead=await readBankRows([{...matchedBank,date_delta_days:dateDelta}]);
@@ -216,6 +230,10 @@ const periodEnvelope=data=>({ok:true,data,scope:periodScope(data)});
   let worksheetCall;const worksheetRead=await refreshAuthoritativeReconciliationWorksheet({config,reconciliationId:entityId,fetcher:async(url,options)=>{worksheetCall={url,options};return {ok:true,json:async()=>({ok:true,data:[worksheetRow]})};}});
   assert.equal(worksheetRead.ok,true);assert.equal(worksheetRead.rows[0].bank_version,3);assert.match(worksheetCall.url,/\/bank\/reconciliations\/.+\/worksheet$/);assert.equal(worksheetCall.options.method,'GET');assert.equal('body' in worksheetCall.options,false);
   const readWorksheet=data=>refreshAuthoritativeReconciliationWorksheet({config,reconciliationId:entityId,fetcher:async()=>({ok:true,json:async()=>({ok:true,data})})});
+  const cashWorksheet={...worksheetRow,...cashSource,business_source_document_id:null};
+  const typedWorksheet=await readWorksheet([cashWorksheet]);assert.equal(typedWorksheet.ok,true,JSON.stringify(typedWorksheet));
+  for(const [key,value] of Object.entries(cashSource))assert.equal(typedWorksheet.rows[0][key],value);
+  for(const patch of [{sales_receipt_id:null},{ledger_line_id:null},{payment_occurrence_id:entityId},{sales_receipt_revision:1}])assert.equal((await readWorksheet([{...cashWorksheet,...patch}])).code,'ACCOUNTING_API_PROTOCOL');
   assert.equal((await readWorksheet([{...worksheetRow,business_source_document_id:null}])).ok,true,'native matched payments must remain readable in the reconciliation worksheet');
   assert.equal((await readWorksheet([{...worksheetRow,business_source_document_id:'invalid'}])).code,'ACCOUNTING_API_PROTOCOL');
   assert.equal((await readWorksheet([{...worksheetRow,match_status:'UNMATCHED'}])).code,'ACCOUNTING_API_PROTOCOL');
