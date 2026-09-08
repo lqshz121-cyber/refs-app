@@ -1435,7 +1435,7 @@ pgTest('provider-signed Payable admission atomically reaches Review Draft four-r
   const acceptanceWbsOnly=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'acceptance-wbs-only',['WBS.AUTOREC.VIEW'])});
   await assert.rejects(acceptanceWbsOnly.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}),error=>error.code==='42501');
 
-  await migrateDown(adminPool);
+  await migrateDownThrough(adminPool,'329_wbs_payable_acceptance_evidence_read.sql');
   assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_wbs_payable_acceptance_evidence(uuid,uuid,uuid)') fn")).rows[0].fn,null);
   await assert.rejects(acceptanceReader.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}),error=>error.code==='42883');
   await migrateUp(adminPool);
@@ -4404,7 +4404,7 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
 });
 
 pgTest('AR credit memo posted first then partial and full apply updates invoice atomically',async()=>{
-  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN',
     extraAccounts:[{accountCode:'400000',accountName:'Revenue'},{accountCode:'410000',accountName:'Sales returns'}],
     extraMembers:[{memberRef:'CUSTOMER-1',memberType:'CUSTOMER',displayName:'Customer'}],
     journalLines:[{lineNo:1,accountCode:'120200',debit:100,credit:0,memberRef:'CUSTOMER-1'},{lineNo:2,accountCode:'400000',debit:0,credit:100}]});const invoiceId=randomUUID();
