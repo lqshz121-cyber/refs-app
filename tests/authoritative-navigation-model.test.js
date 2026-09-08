@@ -4,7 +4,7 @@ import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTE
 
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the formal navigation must retain the full product taxonomy');
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'every formal route needs a stable unique identity');
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['vendors','customers','account-inquiry','accounting-analysis-report','ai-audit','ai-je-workbench','amortization','audit-log','bank','bank-batch-pipeline','chart-of-accounts','consolidation','construction-loan','general-ledger','integration-hub','intercompany','journals','mapping','overview','payables','period-management','project-cost-cwip','property-ops-pickup','receivables','reconciliation','reports','settings','source-documents','unit-cost-ledger','wbs-autorec-evidence','wbs-payable-review'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['vendors','customers','account-inquiry','accounting-analysis-report','ai-audit','ai-je-workbench','amortization','audit-log','bank','bank-batch-pipeline','chart-of-accounts','consolidation','construction-loan','fixed-assets','general-ledger','integration-hub','intercompany','journals','mapping','overview','payables','period-management','project-cost-cwip','property-ops-pickup','receivables','reconciliation','reports','settings','source-documents','unit-cost-ledger','wbs-autorec-evidence','wbs-payable-review'].sort());
 for (const group of AUTHORITATIVE_NAVIGATION) {
   assert.ok(group.items.length > 0, `${group.label} may not be empty`);
   for (const item of group.items) assert.ok(AUTHORITATIVE_ROUTES.includes(item.route));
