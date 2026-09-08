@@ -7290,6 +7290,13 @@ pgTest('fixed asset disposal source binding migration restores and reinstalls co
   }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });
 
+pgTest('fixed asset attachment identity migration roundtrips without acquisition history',async()=>{
+ const name='347_source_attachment_document_identity.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect();
+ try{await client.query('BEGIN');await client.query(bodies.down);assert.equal((await client.query("SELECT to_regprocedure('refs_normalize_source_attachment_document()') fn")).rows[0].fn,null);await client.query(bodies.up);assert.equal((await client.query("SELECT has_function_privilege('refs_app','refs_normalize_source_attachment_document()','EXECUTE') allowed")).rows[0].allowed,false);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
 pgTest('formal fixed asset register review retains source evidence and forbids self review without posting',async()=>{await reviewedFixedAssetFixture();});
 
 async function cloneAssetReadFixture(ids,baseId,suffix){
@@ -7755,10 +7762,86 @@ pgTest('fixed asset source consumption serializes generic-first and simultaneous
  }
 });
 
+pgTest('fixed asset attachment identity rejects source reparenting in both lock orders',async()=>{
+ const outcome=p=>p.then(value=>({value}),error=>({error}));
+ const waitBlocked=async(holder,waiter)=>{for(let n=0;n<160;n++){if((await adminPool.query('SELECT $1::int=ANY(pg_blocking_pids($2::int)) waiting',[holder,waiter])).rows[0].waiting)return;await new Promise(r=>setTimeout(r,25));}assert.fail('Expected source identity lock was not reached');};
+ for(const order of ['line-first','attachment-first']){
+  const ids=await seed({status:'DRAFT',attachmentStatus:'VERIFIED_CLEAN'}),source=await attachAutoSource(ids,{linkJournal:false}),other=await attachAutoSource({...ids,journalId:randomUUID()},{linkJournal:false,reuseApprovedSnapshots:true});
+  const line=(await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction) VALUES($1,$2,$3,'identity-line',1,100,'DEBIT') RETURNING source_document_line_id",[ids.tenantId,ids.entityId,source.documentId])).rows[0].source_document_line_id;
+  const a=await adminPool.connect(),b=await adminPool.connect(),aPid=(await a.query('SELECT pg_backend_pid() pid')).rows[0].pid,bPid=(await b.query('SELECT pg_backend_pid() pid')).rows[0].pid;
+  const insert="INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_line_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'identity-lock-fixture') RETURNING source_document_id",params=[ids.tenantId,ids.entityId,line,ids.attachmentId];let pending;
+  try{
+   await a.query('BEGIN');
+   if(order==='line-first'){
+    await a.query('SELECT 1 FROM source_document_line WHERE source_document_line_id=$1 FOR UPDATE',[line]);
+    pending=outcome(b.query(insert,params));await waitBlocked(aPid,bPid);
+    await assert.rejects(a.query('UPDATE source_document_line SET source_document_id=$2 WHERE source_document_line_id=$1',[line,other.documentId]),e=>e.code==='23514'&&/identity is immutable/.test(e.message));
+    await a.query('ROLLBACK');assert.equal((await pending).value.rows[0].source_document_id,source.documentId);
+   }else{
+    await a.query(insert,params);pending=outcome(b.query('UPDATE source_document_line SET source_document_id=$2 WHERE source_document_line_id=$1',[line,other.documentId]));await waitBlocked(aPid,bPid);
+    await a.query('COMMIT');assert.equal((await pending).error?.code,'23514');
+   }
+   const linked=(await adminPool.query("SELECT l.source_document_id current_document,sl.source_document_id linked_document FROM source_document_line l JOIN source_link sl ON sl.source_document_line_id=l.source_document_line_id AND sl.link_type='SOURCE_ATTACHMENT' WHERE l.source_document_line_id=$1",[line])).rows;
+   assert.deepEqual(linked,[{current_document:source.documentId,linked_document:source.documentId}]);
+  }finally{try{await a.query('ROLLBACK');}catch{}if(pending)await pending;try{await b.query('ROLLBACK');}catch{}a.release();b.release();}
+ }
+});
+
+pgTest('fixed asset attachment identity normalizes lines and rejects ambiguous retained evidence',async()=>{
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
+ const line=(await adminPool.query('SELECT source_document_line_id FROM source_document_line WHERE tenant_id=$1 AND source_document_id=$2',[ids.tenantId,trace.documentId])).rows[0].source_document_line_id;
+ const sql="INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,source_document_line_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,$5,'identity-fixture') RETURNING source_document_id";
+ await assert.rejects(adminPool.query(sql,[ids.tenantId,ids.entityId,randomUUID(),line,ids.attachmentId]),e=>e.code==='23514');
+ await assert.rejects(adminPool.query(sql,[ids.tenantId,ids.entityId,null,randomUUID(),ids.attachmentId]),e=>e.code==='23514');
+ assert.equal((await adminPool.query(sql,[ids.tenantId,ids.entityId,null,line,ids.attachmentId])).rows[0].source_document_id,trace.documentId);
+ const client=await adminPool.connect();
+ try{
+  await client.query('BEGIN');
+  // Reproduce legacy line-only evidence without changing any retained live row.
+  await client.query('ALTER TABLE source_link DISABLE TRIGGER asset_source_attachment_identity_guard');
+  await client.query(sql,[ids.tenantId,ids.entityId,null,line,ids.attachmentId]);
+  await client.query('ALTER TABLE source_link ENABLE TRIGGER asset_source_attachment_identity_guard');
+  const count=(await client.query('SELECT count(*)::int n FROM source_link WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
+  await client.query('SAVEPOINT legacy_check');
+  await assert.rejects(client.query('SELECT refs_check_asset_attachment_document_history($1,$2,$3)',[ids.tenantId,ids.entityId,trace.documentId]),e=>e.code==='55006');
+  await client.query('ROLLBACK TO SAVEPOINT legacy_check');
+  assert.equal((await client.query('SELECT count(*)::int n FROM source_link WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,count);
+  await client.query('COMMIT');
+ }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+ const maker=await formalWorkflowRoleKernel(ids,'attachment-identity-maker','AI_ACCOUNTING_DECISION_MAKER');
+ // Auth context issuance has its own committed security audit; business audit
+ // and every financial artifact must still roll back with the rejected command.
+ const counts=async()=>{const result={};for(const table of ['journal_entry','journal_line','audit_event','outbox_event','idempotency_receipt','fixed_asset_acquisition_binding','source_link'])result[table]=(await adminPool.query('SELECT count(*)::int n FROM '+table+' WHERE tenant_id=$1'+(table==='audit_event'?" AND event_type<>'RUNTIME_CONTEXT_ISSUED'":''),[ids.tenantId])).rows[0].n;return result;};
+ const before=await counts();
+ await assert.rejects(maker.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'AMBIGUOUS-ATTACHMENT',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Reject historical ambiguous attachment identity atomically.',idempotencyKey:'ambiguous-attachment-create'}),e=>e.code==='55006');
+ assert.deepEqual(await counts(),before);
+});
+
+pgTest('fixed asset attachment identity upgrade rejects ambiguous bound history atomically',async()=>{
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'history-fixture')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ const maker=await formalWorkflowRoleKernel(ids,'identity-history-maker','AI_ACCOUNTING_DECISION_MAKER');
+ const draft=await maker.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'IDENTITY-HISTORY',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Retain real acquisition binding for upgrade history validation.',idempotencyKey:'identity-history-create'});
+ const name='347_source_attachment_document_identity.sql',strip=s=>s.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,''),up=strip(await readFile(new URL('../db/migrations/'+name,import.meta.url),'utf8')),down=strip(await readFile(new URL('../db/migrations/down/'+name,import.meta.url),'utf8')),client=await adminPool.connect();
+ try{
+  await client.query('BEGIN');await client.query('SAVEPOINT protected_down');await assert.rejects(client.query(down),e=>e.code==='55006');await client.query('ROLLBACK TO SAVEPOINT protected_down');
+  // Owned transaction emulates the pre-347 schema; roll back all fixture DDL.
+  await client.query('DROP TRIGGER asset_attachment_document_history_guard ON fixed_asset_acquisition_binding; DROP FUNCTION refs_guard_asset_attachment_document_history(); DROP FUNCTION refs_check_asset_attachment_document_history(uuid,uuid,uuid); DROP TRIGGER asset_source_attachment_identity_guard ON source_link; DROP FUNCTION refs_normalize_source_attachment_document(); DROP TRIGGER source_line_identity_guard ON source_document_line; DROP FUNCTION refs_preserve_source_line_identity()');
+  await client.query('DELETE FROM refs_schema_migration WHERE migration_name=$1',[name]);
+  const line=(await client.query('SELECT source_document_line_id FROM fixed_asset_acquisition_binding WHERE binding_id=$1',[draft.binding_id])).rows[0].source_document_line_id;
+  await client.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_line_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'legacy-history-fixture')",[ids.tenantId,ids.entityId,line,ids.attachmentId]);
+  const snapshot=async()=> (await client.query("SELECT jsonb_build_object('binding',(SELECT to_jsonb(b) FROM fixed_asset_acquisition_binding b WHERE binding_id=$1),'links',(SELECT jsonb_agg(to_jsonb(sl) ORDER BY source_link_id) FROM source_link sl WHERE tenant_id=$2),'journal',(SELECT to_jsonb(j) FROM journal_entry j WHERE journal_entry_id=$3),'audit',(SELECT count(*) FROM audit_event WHERE tenant_id=$2),'outbox',(SELECT count(*) FROM outbox_event WHERE tenant_id=$2)) evidence",[draft.binding_id,ids.tenantId,draft.journal_entry_id])).rows[0].evidence;
+  const before=await snapshot();await client.query('SAVEPOINT install');await assert.rejects(client.query(up),e=>e.code==='55006');await client.query('ROLLBACK TO SAVEPOINT install');
+  assert.deepEqual(await snapshot(),before);
+  assert.equal((await client.query("SELECT to_regprocedure('refs_normalize_source_attachment_document()') fn")).rows[0].fn,null);
+  assert.equal((await client.query('SELECT count(*)::int n FROM refs_schema_migration WHERE migration_name=$1',[name])).rows[0].n,0);
+ }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
 pgTest('fixed asset attachment append and Post serialize in both transaction orders',async()=>{
  const waitFor=async predicate=>{for(let attempt=0;attempt<160;attempt++){if(await predicate())return;await new Promise(resolve=>setTimeout(resolve,25));}assert.fail('Owned database transaction did not reach the expected lock barrier');};
  const outcome=promise=>promise.then(value=>({value}),error=>({error}));
- for(const mode of ['append-first','post-first','append-first-legacy','post-first-legacy']){
+ for(const mode of ['append-first','post-first','append-first-legacy','post-first-legacy','append-first-line-only','post-first-line-only']){
   const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1'),roles={};
   const linkSql="INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')";
   await adminPool.query(linkSql,[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
@@ -7768,12 +7851,14 @@ pgTest('fixed asset attachment append and Post serialize in both transaction ord
   const extra=randomUUID();await adminPool.query("INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,verified_at,scan_status,finalization_status,finalized_at) VALUES($1,$2,$3,'concurrent-source.pdf','application/pdf',10,$4,$5,'v1','fixture-source-owner',now(),now(),'CLEAN','VERIFIED_CLEAN',now())",[extra,ids.tenantId,ids.entityId,hash('concurrent-source-evidence'),'object://source-race/'+extra]);
   // Emulate an existing source upgraded from 345, before the first fence row.
   if(mode.endsWith('-legacy'))await adminPool.query('DELETE FROM fixed_asset_source_serialization WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3',[ids.tenantId,ids.entityId,trace.documentId]);
-  const append=await adminPool.connect(),appendPid=(await append.query('SELECT pg_backend_pid() pid')).rows[0].pid,args=[ids.tenantId,ids.entityId,trace.documentId,extra];
+  const lineOnly=mode.endsWith('-line-only'),sourceLine=(await adminPool.query('SELECT source_document_line_id FROM fixed_asset_acquisition_binding WHERE binding_id=$1',[draft.binding_id])).rows[0].source_document_line_id;
+  const appendSql=lineOnly?linkSql.replace('source_document_id,attachment_id','source_document_line_id,attachment_id'):linkSql;
+  const append=await adminPool.connect(),appendPid=(await append.query('SELECT pg_backend_pid() pid')).rows[0].pid,args=[ids.tenantId,ids.entityId,lineOnly?sourceLine:trace.documentId,extra];
   const postArgs={...ids,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:'attachment-race-post'};
   let releaseCommit=()=>{},postResult=null,appendResult=null;
   try{
    if(mode.startsWith('append-first')){
-    await append.query('BEGIN');await append.query(linkSql,args);
+    await append.query('BEGIN');await append.query(appendSql,args);
     postResult=outcome(roles.JE_POSTER.postJournal(postArgs));
     await waitFor(async()=> (await adminPool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND $1::int=ANY(pg_blocking_pids(pid))) waiting",[appendPid])).rows[0].waiting);
     await append.query('COMMIT');const result=await postResult;assert.equal(result.error?.code,'23514');await assertAcquisitionPostRolledBack(ids,draft.journal_entry_id,postArgs.idempotencyKey);
@@ -7784,7 +7869,7 @@ pgTest('fixed asset attachment append and Post serialize in both transaction ord
     let held=false,postPid=null;const barrier=new Promise(resolve=>{releaseCommit=resolve;});
     const pool={connect:async()=>{const client=await runtimePool.connect();postPid=(await client.query('SELECT pg_backend_pid() pid')).rows[0].pid;return {query:async(...queryArgs)=>{if(queryArgs[0]==='COMMIT'){held=true;await barrier;}return client.query(...queryArgs);},release:()=>client.release()};}};
     const poster=new PostgresAccountingKernel(pool,{sessionProvider:roles.JE_POSTER.sessionProvider});postResult=outcome(poster.postJournal(postArgs));
-    await waitFor(async()=>held);appendResult=outcome(append.query(linkSql,args));
+    await waitFor(async()=>held);appendResult=outcome(append.query(appendSql,args));
     await waitFor(async()=> (await adminPool.query('SELECT $1::int=ANY(pg_blocking_pids($2::int)) waiting',[postPid,appendPid])).rows[0].waiting);
     releaseCommit();const posted=await postResult,appended=await appendResult;assert.equal(posted.error,undefined);assert.equal(appended.error?.code,'23514');
     assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1 AND journal_entry_id=$2',[ids.tenantId,draft.journal_entry_id])).rows[0].n,2);
