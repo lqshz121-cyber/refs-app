@@ -8175,6 +8175,11 @@ pgTest('fixed asset depreciation schedule stops after useful life and clears rou
   for(const [code,start,end,due,accumulated,net] of periods){
    let periodId=ids.periodId;if(code!=='2026-07'){periodId=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status,ledger_code) VALUES($1,$2,$3,$4,$5,$6,'OPEN','PRIMARY')",[periodId,ids.tenantId,ids.entityId,code,start,end]);}
    const rows=await reader.getAiFixedAssetDepreciationSource({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:periodId});assert.equal(rows.length,1);const row=rows[0];assert.equal(row.fixed_asset_register_evidence_id,receipt.fixed_asset_register_evidence_id);assert.equal(row.expected_period_depreciation,due,code+': due');assert.equal(row.expected_accumulated_depreciation,accumulated,code+': accumulated');assert.equal(row.expected_net_book_value,net,code+': net');
+   const reconciled=await reader.getAiFixedAssetPostedReconciliation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:periodId});
+   assert.equal(reconciled.length,1);const rec=reconciled[0];assert.equal(rec.fixed_asset_register_evidence_id,row.fixed_asset_register_evidence_id);
+   assert.equal(rec.expected_period_depreciation,due,code+': reconciliation due');assert.equal(rec.expected_accumulated_depreciation,accumulated,code+': reconciliation accumulated');
+   assert.equal(rec.posted_period_depreciation_expense,'0.0000');assert.equal(rec.posted_accumulated_depreciation,'0.0000');
+   assert.equal(rec.period_variance,due==='0.0000'?'0.0000':'-'+due);assert.equal(rec.accumulated_variance,accumulated==='0.0000'?'0.0000':'-'+accumulated);
    const analysis=detectFixedAssetDepreciationReviews(rows,{entityId:ids.entityId,accountingPeriodId:periodId});assert.equal(analysis.finding_count,due==='0.0000'?0:1);if(analysis.finding_count)assert.equal(analysis.findings[0].proposed_journal_entry.amount,due);assert.equal(analysis.action_flags.can_post,false);
   }
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0,'schedule reads must never post depreciation');
@@ -8193,4 +8198,11 @@ pgTest('fixed asset acquisition movement source migration restores V1 and roundt
  for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
  const client=await adminPool.connect(),definition="SELECT pg_get_functiondef('refs_read_fixed_asset_movements(uuid,uuid,uuid,date,integer,text)'::regprocedure) body";
  try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0].body;assert.match(before,/EXACT_ACQUISITION_SOURCE/);await client.query(bodies.down);const prior=(await client.query(definition)).rows[0].body;assert.match(prior,/FIXED_ASSET_MOVEMENTS_V1/);assert.doesNotMatch(prior,/EXACT_ACQUISITION_SOURCE/);await client.query(bodies.up);assert.equal((await client.query(definition)).rows[0].body,before);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('fixed asset depreciation reconciliation boundary migration restores the previous function and roundtrips',async()=>{
+ const name='354_fixed_asset_depreciation_reconciliation_boundary.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect(),definition="SELECT pg_get_functiondef('refs_read_ai_fixed_asset_posted_reconciliation(uuid,uuid,uuid)'::regprocedure) body";
+ try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0].body;await client.query(bodies.down);const old=(await client.query(definition)).rows[0].body;assert.match(old,/least\(r.useful_life_months/);assert.notEqual(old,before);await client.query(bodies.up);assert.equal((await client.query(definition)).rows[0].body,before);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });
