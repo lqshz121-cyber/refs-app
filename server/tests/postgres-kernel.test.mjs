@@ -2377,7 +2377,7 @@ pgTest('production reads fall back to existing read grants while invalid write a
 
 pgTest('attachment entry authority supports exact formal maker roles and denies unanchored or approval bundles',async()=>{
   const ids=await seed({attachmentStatus:null});
-  await migrateDown(adminPool);
+  await migrateDownThrough(adminPool,'331_attachment_entry_authority.sql');
   assert.equal((await adminPool.query("SELECT to_regprocedure('refs_reconcile_actor_grants_v3(uuid,text,uuid,text[],text,timestamptz,bigint,text,text)') fn")).rows[0].fn,null);
   await migrateUp(adminPool);
   const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
@@ -2414,7 +2414,8 @@ pgTest('attachment entry authority supports exact formal maker roles and denies 
   assert.deepEqual(await count(),counts);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE grant_policy_version='SOD_FINITE_V2'")).rows[0].n,9);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE event_type='ACTOR_GRANTS_RECONCILED' AND metadata->>'grant_policy_version'='SOD_FINITE_V2'")).rows[0].n,9);
-  await assert.rejects(migrateDown(adminPool),e=>e.code==='55006');
+  await assert.rejects(migrateDownThrough(adminPool,'331_attachment_entry_authority.sql'),e=>e.code==='55006');
+  await migrateUp(adminPool);
   assert.deepEqual(await count(),counts);
 });
 
