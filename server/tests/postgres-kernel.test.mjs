@@ -6719,3 +6719,29 @@ pgTest('sales receipt choices enforce current company and eligible masters with 
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM member_master WHERE entity_id=$1',[ids.entityId])).rows[0].n,100006);
   await migrateUp(adminPool);assert.equal((await get('BANK')).status,200);
 });
+
+pgTest('context issuance survives a concurrent grant refresh with one capability and one audit',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),actorId='context-grant-race-uploader';
+  await trustedSession(ids,actorId,['ATTACHMENT.CREATE']);
+  const {issueDuringGrantRefresh}=await import('./helpers/context-issue-grant-race-fixture.mjs');
+  const result=await issueDuringGrantRefresh({adminPool,issuerPool,ids,actorId});
+  console.log('# context issuance grant race '+JSON.stringify(result.diagnostic));
+  assert.equal(result.writerError,undefined,JSON.stringify(result.diagnostic));
+  assert.equal(result.outcome.error,undefined,JSON.stringify(result.diagnostic));
+  assert.deepEqual(result.after,{contexts:result.before.contexts+1,audits:result.before.audits+1});
+  assert.equal(result.principalCalls,1);assert.equal(result.attemptedHashes.length,2);assert.equal(new Set(result.attemptedHashes).size,1);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>result.outcome.value});
+  await reader.inSession(client=>client.query("SELECT refs_assert_scope($1,$2,'ATTACHMENT.CREATE')",[ids.tenantId,ids.entityId]));
+});
+
+pgTest('context issuance retry respects a concurrently revoked grant without retaining a capability',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),actorId='context-grant-race-revoked';
+  await trustedSession(ids,actorId,['ATTACHMENT.CREATE']);
+  const {issueDuringGrantRefresh}=await import('./helpers/context-issue-grant-race-fixture.mjs');
+  const result=await issueDuringGrantRefresh({adminPool,issuerPool,ids,actorId,revoke:true});
+  console.log('# context issuance revocation race '+JSON.stringify(result.diagnostic));
+  assert.equal(result.writerError,undefined,JSON.stringify(result.diagnostic));
+  assert.equal(result.outcome.error?.code,'42501',JSON.stringify(result.diagnostic));
+  assert.deepEqual(result.after,result.before,'Revoked authority must not retain an issued capability or audit');
+  assert.equal(result.principalCalls,1);assert.equal(result.attemptedHashes.length,2);assert.equal(new Set(result.attemptedHashes).size,1);
+});
