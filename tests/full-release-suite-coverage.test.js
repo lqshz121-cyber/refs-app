@@ -129,6 +129,14 @@ test('every server test:* script is reachable from the server aggregate, or is a
   assert.deepEqual(orphans,[],`defined but never run by the server npm test: ${orphans.join(', ')}`);
 });
 
+test('server full test executes both fixed asset read contract suites',()=>{
+  const full=serverPackageJson.scripts?.test||'';
+  for(const source of [
+    'tests/fixed-asset-register-contract.test.mjs',
+    'tests/fixed-asset-movement-contract.test.mjs',
+  ])assert.match(full,new RegExp(`(?:^|\\s)${source.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\$&')}(?:\\s|$)`),`server test omits ${source}`);
+});
+
 test('the infrastructure-bound allowlist cannot name a suite that npm test already runs, or one that no longer exists',()=>{
   const scripts=serverPackageJson.scripts||{};
   const reachable=reachableTestScripts(scripts);
