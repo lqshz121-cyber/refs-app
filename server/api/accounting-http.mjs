@@ -1,3 +1,4 @@
+import {validFixedAssetRegister,validFixedAssetMovements} from './fixed-asset-register-contract.mjs';
 import {validCounterpartyRegisterSelection,validCounterpartyRegisterPage} from '../runtime/counterparty-register.mjs';
 import {validPaymentBankCandidates} from '../runtime/payment-bank-candidates.mjs';
 import {validBusinessRecordKind,validBusinessRecord} from '../runtime/business-record-detail.mjs';
@@ -340,15 +341,27 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
       if(method==='POST'&&parts.length===7&&parts[4]==='access'&&parts[5]==='self-service-controlled-test-workflow-grant'&&parts[6]==='upgrade'){
         throw new AccountingApiError(410,'ROUTE_RETIRED','The mixed-authority controlled test grant is retired; use separate finite workflow and service roles');
       }
+      if(method==='GET'&&parts.length===8&&parts[4]==='fixed-assets'&&parts[5]==='register'&&parts[7]==='movements'){
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a body');
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Asset reads do not accept command headers');
+        requireExactQuery(parsedUrl.searchParams,['asOfDate','limit','after']);const assetId=requireUuid(parts[6],'assetId'),asOfDate=requireIsoDate(parsedUrl.searchParams.get('asOfDate'),'asOfDate'),limit=Number(parsedUrl.searchParams.get('limit')??50),after=parsedUrl.searchParams.get('after');
+        if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new AccountingApiError(400,'INVALID_LIMIT','limit must be from 1 to 100');
+        if(after!==null&&(after.length>2048||! /^[A-Za-z0-9+/=]+[.][a-f0-9]{64}$/.test(after)))throw new AccountingApiError(400,'INVALID_ASSET_CURSOR','Invalid asset cursor');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readFixedAssetMovements!=='function')throw new AccountingApiError(503,'FIXED_ASSET_MOVEMENTS_UNAVAILABLE','Asset movement trace is unavailable');
+        try{result=await kernel.readFixedAssetMovements({tenantId:principal.tenantId,entityId,assetId,asOfDate,limit,after});}catch(error){if(error?.code==='P0002')throw new AccountingApiError(404,'FIXED_ASSET_NOT_FOUND','Asset is unavailable in this company');throw error;}
+        if(!validFixedAssetMovements(result,{tenantId:principal.tenantId,entityId,assetId,asOfDate,limit}))throw new AccountingApiError(500,'FIXED_ASSET_MOVEMENTS_RESULT_INVALID','Asset movement trace is invalid');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&(parts.length===6||parts.length===7)&&parts[4]==='fixed-assets'&&parts[5]==='register'){
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a body');
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Asset reads do not accept command headers');
         const detail=parts.length===7;requireExactQuery(parsedUrl.searchParams,detail?['asOfDate']:['asOfDate','limit','after']);
-        const asOfDate=requireIsoDate(parsedUrl.searchParams.get('asOfDate'),'asOfDate'),limit=detail?1:Number(parsedUrl.searchParams.get('limit')??50),after=parsedUrl.searchParams.has('after')?requireUuid(parsedUrl.searchParams.get('after'),'after'):null,assetId=detail?requireUuid(parts[6],'assetId'):null;
+        const asOfDate=requireIsoDate(parsedUrl.searchParams.get('asOfDate'),'asOfDate'),limit=detail?1:Number(parsedUrl.searchParams.get('limit')??50),after=parsedUrl.searchParams.get('after'),assetId=detail?requireUuid(parts[6],'assetId'):null;
         if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new AccountingApiError(400,'INVALID_LIMIT','limit must be from 1 to 100');
+        if(after!==null&&(after.length>2048||! /^[A-Za-z0-9+/=]+[.][a-f0-9]{64}$/.test(after)))throw new AccountingApiError(400,'INVALID_ASSET_CURSOR','Invalid asset cursor');
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readFixedAssetRegister!=='function')throw new AccountingApiError(503,'FIXED_ASSET_REGISTER_UNAVAILABLE','Asset register is unavailable');
         result=await kernel.readFixedAssetRegister({tenantId:principal.tenantId,entityId,asOfDate,limit,after,assetId});
-        if(!result||result.schema_version!=='FIXED_ASSET_REGISTER_READ_V1'||result.tenant_id!==principal.tenantId||result.entity_id!==entityId||result.as_of_date!==asOfDate||result.basis!=='POSTED_PRIMARY_LEDGER'||!Array.isArray(result.rows)||result.rows.length>limit||(result.next_cursor!==null&&!UUID.test(result.next_cursor||''))||result.rows.some(row=>!row||row.tenant_id!==principal.tenantId||row.entity_id!==entityId||row.as_of_date!==asOfDate||!UUID.test(row.fixed_asset_register_evidence_id||'')||(assetId&&row.fixed_asset_register_evidence_id!==assetId)||!['REGISTERED','ACTIVE','DISPOSAL_POSTED','DISPOSED_REVIEWED'].includes(row.status)||['cost_basis','salvage_value','posted_cost_balance','accumulated_depreciation','accumulated_impairment','net_book_value'].some(field=>typeof row[field]!=='string'||!/^[-]?(?:0|[1-9]\d*)\.\d{4}$/.test(row[field]))))throw new AccountingApiError(500,'FIXED_ASSET_REGISTER_RESULT_INVALID','Asset register response is invalid');
+        if(!validFixedAssetRegister(result,{tenantId:principal.tenantId,entityId,asOfDate,limit,assetId}))throw new AccountingApiError(500,'FIXED_ASSET_REGISTER_RESULT_INVALID','Asset register response is invalid');
         if(detail&&result.rows.length===0)throw new AccountingApiError(404,'FIXED_ASSET_NOT_FOUND','Asset is unavailable in this company');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }

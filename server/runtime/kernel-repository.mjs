@@ -690,8 +690,12 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>{const args=[tenantId,entityId,capitalizationProposalId,assetTag,salvageValue,accumulatedDepreciationAccountCode,depreciationExpenseAccountCode,depreciationMethod,depreciationConvention,reason];const requestHash=requireRow(await client.query('SELECT refs_review_fixed_asset_register_hash($1,$2,$3,$4,$5::numeric,$6,$7,$8,$9,$10) request_hash',args),'FIXED_ASSET_REGISTER_REVIEW_HASH_FAILED','Fixed asset register review hash was not produced').request_hash;return requireRow(await client.query('SELECT refs_review_fixed_asset_register($1,$2,$3,$4,$5::numeric,$6,$7,$8,$9,$10,$11,$12) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_REGISTER_REVIEW_FAILED','Fixed asset register review did not return a result').result;});
   }
 
+  async readFixedAssetMovements({tenantId,entityId,assetId,asOfDate,limit=50,after=null}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_fixed_asset_movements($1,$2,$3,$4::date,$5,$6) AS result',[tenantId,entityId,assetId,asOfDate,limit,after]),'FIXED_ASSET_MOVEMENTS_MISSING','Asset movements unavailable').result);
+  }
+
   async readFixedAssetRegister({tenantId,entityId,asOfDate,limit=50,after=null,assetId=null}){
-    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_fixed_asset_register($1,$2,$3::date,$4,$5,$6) AS result',[tenantId,entityId,asOfDate,limit,after,assetId]),'FIXED_ASSET_READ_MISSING','Fixed asset register read unavailable').result);
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_fixed_asset_register_v2($1,$2,$3::date,$4,$5,$6) AS result',[tenantId,entityId,asOfDate,limit,after,assetId]),'FIXED_ASSET_READ_MISSING','Fixed asset register read unavailable').result);
   }
 
   async bindFixedAssetDisposalSource({tenantId,entityId,fixedAssetRegisterEvidenceId,journalEntryId,sourceDocumentId,expectedSourceHash,expectedRevision,reason,idempotencyKey}){
