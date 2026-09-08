@@ -7300,6 +7300,25 @@ async function cloneAssetReadFixture(ids,baseId,suffix){
  await adminPool.query('INSERT INTO fixed_asset_register_evidence SELECT * FROM jsonb_populate_record(NULL::fixed_asset_register_evidence,$1::jsonb)',[JSON.stringify({...template.asset,fixed_asset_register_evidence_id:assetId,capitalization_proposal_id:proposalId,asset_tag:'CLONE-'+suffix,register_evidence_hash:hash('clone-asset-'+suffix)})]);return assetId;
 }
 
+pgTest('fixed asset snapshot serialization installation waits for the old source writer',async()=>{
+ const name='346_fixed_asset_source_snapshot_serialization.sql',entry=MIGRATION_MANIFEST.find(r=>r.name===name),bodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql;}
+ // This focused case runs without asset bindings so a real downgrade is allowed.
+ const ids=await seed({status:'DRAFT',attachmentStatus:'VERIFIED_CLEAN'}),trace=await attachAutoSource(ids,{linkJournal:false});
+ await adminPool.query(bodies.down);
+ const writer=await adminPool.connect(),migration=await adminPool.connect();let installation=null;
+ try{
+  const writerPid=(await writer.query('SELECT pg_backend_pid() pid')).rows[0].pid,migrationPid=(await migration.query('SELECT pg_backend_pid() pid')).rows[0].pid;
+  await writer.query('BEGIN');await writer.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'old-source-writer')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+  installation=migration.query(bodies.up).then(value=>({value}),error=>({error}));
+  let blocked=false;for(let attempt=0;attempt<160&&!blocked;attempt++){blocked=(await adminPool.query('SELECT $1::int=ANY(pg_blocking_pids($2::int)) waiting',[writerPid,migrationPid])).rows[0].waiting;if(!blocked)await new Promise(resolve=>setTimeout(resolve,25));}assert.equal(blocked,true,'Installation must wait for the actual pre-upgrade source writer');
+  await writer.query('COMMIT');const result=await installation;assert.equal(result.error,undefined);
+  assert.match((await adminPool.query("SELECT pg_get_functiondef(oid) body FROM pg_proc WHERE proname='refs_guard_acquisition_source_attachment'")).rows[0].body,/refs_serialize_asset_source/);
+  const other=randomUUID();await adminPool.query("INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,verified_at,scan_status,finalization_status,finalized_at) VALUES($1,$2,$3,'after-upgrade.pdf','application/pdf',10,$4,$5,'v1','fixture-owner',now(),now(),'CLEAN','VERIFIED_CLEAN',now())",[other,ids.tenantId,ids.entityId,hash('after-upgrade'),'object://after-upgrade/'+other]);
+  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'new-source-writer')",[ids.tenantId,ids.entityId,trace.documentId,other]);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM fixed_asset_source_serialization WHERE tenant_id=$1 AND source_document_id=$2',[ids.tenantId,trace.documentId])).rows[0].n,1);
+ }finally{try{await writer.query('ROLLBACK');}catch{}if(installation)await installation;try{await migration.query('ROLLBACK');}catch{}writer.release();migration.release();}
+});
+
 pgTest('fixed asset source consumption migration restores empty history functions exactly',async()=>{
  const name='345_fixed_asset_source_consumption.sql',entry=MIGRATION_MANIFEST.find(r=>r.name===name),bodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
  const nextName='346_fixed_asset_source_snapshot_serialization.sql',nextEntry=MIGRATION_MANIFEST.find(r=>r.name===nextName),nextBodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+nextName,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),nextEntry[direction]);nextBodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
@@ -7777,3 +7796,4 @@ pgTest('fixed asset attachment append and Post serialize in both transaction ord
   }finally{releaseCommit();try{await append.query('ROLLBACK');}catch{}if(postResult)await postResult;if(appendResult)await appendResult;append.release();}
  }
 });
+

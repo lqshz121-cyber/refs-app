@@ -1,4 +1,6 @@
 BEGIN;
+-- Drain old readers and writers before replacing the source-evidence functions.
+LOCK TABLE journal_entry,source_document,source_document_line,fixed_asset_register_evidence,fixed_asset_acquisition_binding,fixed_asset_acquisition_posting,source_link IN ACCESS EXCLUSIVE MODE;
 CREATE TABLE fixed_asset_source_serialization (
  tenant_id uuid NOT NULL,entity_id uuid NOT NULL,source_document_id uuid NOT NULL,revision bigint NOT NULL DEFAULT 0 CHECK(revision>=0),
  PRIMARY KEY(tenant_id,entity_id,source_document_id),
