@@ -353,5 +353,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"345_fixed_asset_source_consumption.sql","up":"0727f0665018eecbf0bd2c79ba8163ebe9b56ff5238b3833ed251538b54e9412","down":"9957c184aa91993f1108ad9db6bf00c40b301546e9dd54311a44ce544b2f65b3"}),
   Object.freeze({"name":"346_fixed_asset_source_snapshot_serialization.sql","up":"0889641a6b406c649968755362489b501f3c3dd0fbea2abaee28f1500461239e","down":"c2957af7ee68446ab66cf2149d5b95d32fab11107ac75d13a4eb45f865bb19a6"}),
   Object.freeze({"name":"347_source_attachment_document_identity.sql","up":"7eb8b63946d25061790afc604d53dafee52d92b55287603dee3bc246820f8f1f","down":"e68d5722681bb81dff5132a774cd9aaedd74396b5db0abd28018e49c859fbfe0"}),
-  Object.freeze({"name":"348_wbs_payable_original_row_evidence.sql","up":"794f193ba27206e013055315ca8c344c23f132b968bb3966d33ed3098a875b3c","down":"a02cf025d560d204640b58200821eba1dadae102c8ae5542cb110e779f06c9bc"}),
+  Object.freeze({"name":"348_wbs_payable_original_row_evidence.sql","up":"13ae0ecbd399e606095b1a4c847a85caff343b84ec980dc4580ddcd7f66796de","down":"a02cf025d560d204640b58200821eba1dadae102c8ae5542cb110e779f06c9bc"}),
 ]);

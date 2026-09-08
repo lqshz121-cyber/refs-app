@@ -31,7 +31,7 @@ CREATE FUNCTION refs_emit_original_payable_evidence() RETURNS trigger LANGUAGE p
 DECLARE payload jsonb:=jsonb_build_object('schema_version','WBS_PAYABLE_ORIGINAL_ROW_V1','evidence_id',NEW.evidence_id,'source_document_id',NEW.source_document_id,'source_document_line_id',NEW.source_document_line_id,'retained_source_row_id',NEW.retained_source_row_id,'raw_row_hash',NEW.raw_row_hash,'evidence_hash',NEW.evidence_hash);
 BEGIN
  INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,after_hash,metadata)
- VALUES(NEW.tenant_id,NEW.entity_id,'WBS_PAYABLE_ORIGINAL_EVIDENCE_RETAINED','WBS_SOURCE_EVIDENCE',NEW.evidence_id,'RETAIN',NEW.retained_by,'USER','WBS.SNAPSHOT.IMPORT',NEW.evidence_id::text,NEW.retained_source_row_id::text,NEW.evidence_hash,payload);
+ VALUES(NEW.tenant_id,NEW.entity_id,'WBS_PAYABLE_ORIGINAL_EVIDENCE_RETAINED','WBS_SOURCE_EVIDENCE',NEW.evidence_id,'RETAIN',NEW.retained_by,'SERVICE_ACCOUNT','WBS.SNAPSHOT.IMPORT',NEW.evidence_id::text,NEW.retained_source_row_id::text,NEW.evidence_hash,payload);
  INSERT INTO outbox_event(tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash)
  VALUES(NEW.tenant_id,NEW.entity_id,'WBS_SOURCE',NEW.source_document_id,'WBS_PAYABLE_ORIGINAL_EVIDENCE_RETAINED',payload,refs_jsonb_hash(payload));
  RETURN NEW;
