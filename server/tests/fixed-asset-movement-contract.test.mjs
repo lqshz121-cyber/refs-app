@@ -7,4 +7,12 @@ test('movement contract preserves missing source status and rejects corrupted ev
  const bound={...fixture.rows[0],source_binding_status:'EXACT_DISPOSAL_SOURCE',source_document_id:randomUUID(),source_payload_hash:'sha256:'+'a'.repeat(64),source_document_version:1,source_link_id:randomUUID(),disposal_binding_id:randomUUID()};assert.equal(validFixedAssetMovements({...fixture,rows:[bound]},context),true);
  for(const field of ['source_document_id','source_payload_hash','source_document_version','source_link_id','disposal_binding_id'])assert.equal(validFixedAssetMovements({...fixture,rows:[{...bound,[field]:null}]},context),false,field);
 });
+test('acquisition source requires a complete exclusive binding and rejects old response versions',()=>{
+ const fixture=movementFixture(),context={tenantId:fixture.tenant_id,entityId:fixture.entity_id,assetId:fixture.fixed_asset_register_evidence_id,asOfDate:fixture.as_of_date,limit:50};
+ const bound={...fixture.rows[0],source_binding_status:'EXACT_ACQUISITION_SOURCE',source_document_id:randomUUID(),source_payload_hash:'sha256:'+'a'.repeat(64),source_document_version:1,source_link_id:randomUUID(),acquisition_binding_id:randomUUID()};
+ assert.equal(validFixedAssetMovements({...fixture,rows:[bound]},context),true);
+ for(const key of ['source_document_id','source_payload_hash','source_document_version','source_link_id','acquisition_binding_id'])assert.equal(validFixedAssetMovements({...fixture,rows:[{...bound,[key]:null}]},context),false,key);
+ for(const patch of [{disposal_binding_id:randomUUID()},{source_binding_status:'BLOCKED_MISSING_EXACT_SOURCE_BINDING'},{source_binding_status:'EXACT_DISPOSAL_SOURCE'}])assert.equal(validFixedAssetMovements({...fixture,rows:[{...bound,...patch}]},context),false);
+ assert.equal(validFixedAssetMovements({...fixture,schema_version:'FIXED_ASSET_MOVEMENTS_V1'},context),false);
+});
 test('movement OpenAPI is the exact closed runtime schema',async()=>{const spec=JSON.parse(await readFile(new URL('../api/openapi-accounting.json',import.meta.url),'utf8'));assert.deepEqual(spec.components.schemas.FixedAssetMovements,FIXED_ASSET_MOVEMENTS_SCHEMA);assert.equal(spec.paths['/entities/{entityId}/fixed-assets/register/{assetId}/movements'].get.responses['200'].content['application/json'].schema.additionalProperties,false);});

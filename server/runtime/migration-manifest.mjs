@@ -357,4 +357,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"349_fixed_asset_original_source_binding.sql","up":"ee451e6ba9530f0a03a7eb61bb2caa2e3933eb24ced44bc53693021746de2599","down":"4f6591df1905e58bf75450b05cb06fcfeb43c4fe293329d409645275bca23b45"}),
   Object.freeze({"name":"350_fixed_asset_acquisition_options.sql","up":"d5e2f551589a52270a1cdb3e9e7f1d7cc2f363a69100e974d83a1c02753b8a3d","down":"3b468c33c45b90c659f4f7c9cd36fe54fc377336e772e8c3479d834d2b08dd38"}),
   Object.freeze({"name":"351_fixed_asset_acquisition_resume_options.sql","up":"9cc24adb072298515499eb31119e9426a4fd072a96e47a1472c188643bc05b17","down":"54137485cdac4de726da6892928f61102a2c4c4298816f2cf766d86da8f2a95c"}),
+  Object.freeze({"name":"352_fixed_asset_acquisition_movement_source.sql","up":"c5c905debb4de36b611040b689d655161028f918826cb7b107d2ad96007279c2","down":"cab31c6fa573e41341d7bb17f5d7d040a6ed644cf04b56eea3b5ff7168eeaa0b"}),
 ]);
