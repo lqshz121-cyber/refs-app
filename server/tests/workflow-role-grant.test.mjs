@@ -223,3 +223,10 @@ test('outbox dispatcher uses its dedicated service actor and exact replacement b
   assert.equal(config.serviceActorId,'service|refs-outbox-dispatch');assert.equal(config.principalKind,'SERVICE');assert.equal(config.authorityClass,'SERVICE');assert.deepEqual(config.permissions,['OUTBOX.DISPATCH']);
   assert.throws(()=>authoritativeWorkflowRoleGrantConfig({...base,REFS_WORKFLOW_ROLE:'OUTBOX_DISPATCHER_SERVICE',OUTBOX_DISPATCH_ACTOR_ID:''}),error=>error.code==='WORKFLOW_ROLE_CONFIG_MISSING');
 });
+
+test('bill void rejects the unused legacy role and retains real approval roles',()=>{
+ assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.AP_BILL_VOID_APPROVER,undefined);
+ assert.throws(()=>authoritativeWorkflowRoleGrantConfig({...base,REFS_WORKFLOW_ROLE:'AP_BILL_VOID_APPROVER'}),error=>error.code==='WORKFLOW_ROLE_CONFIG_INVALID');
+ assert.ok(AUTHORITATIVE_WORKFLOW_ROLES.AP_BILL_VOID_MAKER.permissions.includes('AP.BILL.VOID.CREATE'));
+ assert.ok(AUTHORITATIVE_WORKFLOW_ROLES.JE_APPROVER.permissions.includes('GL.JE.APPROVE'));
+});
