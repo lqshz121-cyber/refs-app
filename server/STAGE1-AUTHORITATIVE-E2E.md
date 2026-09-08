@@ -26,20 +26,31 @@ these exact identifiers from one completed retained workflow:
   "periodId": "UUID",
   "wbsInboundRowId": "UUID",
   "reviewEvidenceId": "UUID",
+  "providerSignedAdmissionId": "UUID",
+  "sourceRecordId": "exact WBS Payable record identifier",
+  "sourceVersion": "exact immutable provider source version",
+  "receiptHash": "sha256: followed by 64 lowercase hex characters",
+  "providerReceiptHash": "sha256: followed by 64 lowercase hex characters",
+  "evidenceHash": "sha256: followed by 64 lowercase hex characters",
+  "signedPackageHash": "sha256: followed by 64 lowercase hex characters",
+  "signedReceiptHash": "sha256: followed by 64 lowercase hex characters",
   "attachmentId": "UUID",
-  "attachmentObjectVersionId": "UUID",
+  "attachmentObjectVersionId": "opaque immutable object-store version",
   "attachmentSha256": "64 lowercase hex characters",
   "journalEntryId": "UUID",
   "asOf": "YYYY-MM-DD",
-  "expected": { "debitAccountCode": "610000", "creditAccountCode": "220100" }
+  "expected": { "debitAccountCode": "610000", "creditAccountCode": "291001" }
 }
 ```
 
-Passing output proves the authoritative retained API exposes the same WBS review
-and immutable attachment identifiers through a `POSTED` journal, general ledger,
-AP aging and financial statements. Missing configuration, non-HTTPS origins,
-placeholder tokens, HTTP errors, cacheable reads, missing identifiers or a
-non-posted journal fail closed. A pass is evidence of readback only; the signed
+Passing output proves the authoritative retained API exposes the exact signed
+production Payable source hashes and immutable verified-clean attachment through
+an independently reviewed Draft, four distinct Journal actors, the `POSTED`
+Journal, a complete token-bound General Ledger snapshot, the exact open AP Aging
+document, and Trial Balance rows carrying the same Journal and source identifiers.
+Missing configuration, non-HTTPS origins, placeholder tokens, HTTP errors,
+cacheable reads, incomplete pagination, drifted hashes, empty reports or a
+non-posted Journal fail closed. A pass is evidence of readback only; the signed
 admission and workflow commands must be executed and separately retained before
 this command is run.
 

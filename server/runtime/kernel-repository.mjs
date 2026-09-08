@@ -1451,6 +1451,12 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getWbsPayableAcceptanceEvidence({tenantId,entityId,reviewEvidenceId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_payable_acceptance_evidence($1,$2,$3) AS result',[tenantId,entityId,reviewEvidenceId]
+    ),'WBS_PAYABLE_ACCEPTANCE_EVIDENCE_NOT_FOUND','Complete retained WBS Payable acceptance evidence was not found').result);
+  }
+
   // The database function is REFS-owned and verifies receipt-backed WBS
   // sources under locks. It never invokes WBS and never creates or posts JE.
   async executeWbsAutoRecIntent({tenantId,entityId,intent}){
