@@ -7851,6 +7851,36 @@ pgTest('fixed asset acquisition resume options bound pending journals and normal
  assert.deepEqual(await maker.readFixedAssetAcquisitionOptions(scope),options);
 });
 
+pgTest('fixed asset acquisition browser creates one source-bound Draft then independent roles post exact reports',async()=>{
+ if(process.env.REFS_FIXED_ASSET_ACQUISITION_BROWSER_E2E!=='1')return;
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ const uiPeriodId=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[uiPeriodId,ids.tenantId,ids.entityId]);
+ const actorId='owned-acquisition-browser-maker',token='owned-acquisition-browser-'+randomUUID(),roles={};
+ roles.MAKER=await formalWorkflowRoleKernel(ids,actorId,'FIXED_ASSET_ACQUISITION_MAKER',{idempotencyKey:'owned-acquisition-browser-maker-grant'});
+ for(const role of ['JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'owned-acquisition-browser-'+role.toLowerCase(),role,{idempotencyKey:'owned-acquisition-browser-'+role.toLowerCase()+'-grant'});
+ const api=createAccountingApi({authenticate:async request=>request.headers?.authorization==='Bearer '+token?{trusted:true,tenantId:ids.tenantId,actorId}:null,kernelFactory:async principal=>{assert.equal(principal.actorId,actorId);return roles.MAKER;}});
+ const accessPath=`/api/v1/entities/${ids.entityId}/access/self`;
+ for(const headers of [{},{authorization:'Bearer wrong-token'}])assert.equal((await api({method:'GET',url:accessPath,headers})).status,401,'real handler rejects an absent or different browser identity');
+ const makerAccess=await roles.MAKER.readCurrentActorAccess({tenantId:ids.tenantId,entityId:ids.entityId});assert.deepEqual([...makerAccess.permissions].sort(),['FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']);assert.equal(makerAccess.session_refresh_required,false);
+ const options=await roles.MAKER.readFixedAssetAcquisitionOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id});assert.equal(options.period.period_id,ids.periodId);assert.equal(options.attachments.length,1);
+ const {runFixedAssetAcquisitionBrowserProof}=await import('./helpers/fixed-asset-acquisition-browser-proof.mjs');
+ await runFixedAssetAcquisitionBrowserProof({api,token,ids,uiPeriodId,assetId:receipt.fixed_asset_register_evidence_id,assetTag:'BUILDING-001',attachmentName:options.attachments[0].name,completeWorkflow:async({journalEntryId,periodId,actorAccess,browserDraft})=>{
+  assert.equal(periodId,ids.periodId);assert.equal(browserDraft.journal_date,'2026-07-02');assert.equal(browserDraft.status,'DRAFT');assert.deepEqual([...actorAccess.permissions].sort(),['FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']);
+  for(const [action,expectedRevision] of [['SUBMIT',0],['REVIEW',0],['APPROVE',0]])await assert.rejects(roles.MAKER.transitionJournal({...ids,journalEntryId,action,expectedRevision,idempotencyKey:'browser-maker-denied-'+action.toLowerCase()}),error=>error.code==='42501');
+  await assert.rejects(roles.MAKER.postJournal({...ids,journalEntryId,expectedRevision:0,idempotencyKey:'browser-maker-denied-post'}),error=>error.code==='42501');
+  for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId,action,expectedRevision,idempotencyKey:'browser-acquisition-'+action.toLowerCase()});
+  await roles.JE_POSTER.postJournal({...ids,journalEntryId,expectedRevision:3,idempotencyKey:'browser-acquisition-post'});
+  const gl=await roles.JE_REVIEWER.readGeneralLedgerSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,periodId,limit:50}),lines=gl.rows.filter(row=>row.journal_entry_id===journalEntryId).sort((a,b)=>a.account_code.localeCompare(b.account_code));
+  assert.deepEqual(lines.map(row=>[row.account_code,row.debit_amount,row.credit_amount,row.member_ref]),[['150100','25000.0000','0.0000',null],['291001','0.0000','25000.0000','VENDOR-1']]);assert.ok(lines.every(row=>row.source_document_ids.length===1&&row.source_document_ids[0]===trace.documentId));
+  const financial=await roles.JE_REVIEWER.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId}),trial=financial.filter(row=>row.statement_type==='TRIAL_BALANCE'&&['150100','291001'].includes(row.account_code)).sort((a,b)=>a.account_code.localeCompare(b.account_code));
+  assert.deepEqual(trial.map(row=>[row.account_code,row.period_debit,row.period_credit,row.display_balance]),[['150100','25000.0000','0.0000','25000.0000'],['291001','0.0000','25000.0000','-25000.0000']]);assert.ok(trial.every(row=>row.journal_entry_ids.includes(journalEntryId)&&row.source_document_ids.includes(trace.documentId)));
+  const asset=(await roles.MAKER.readFixedAssetRegister({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-31'})).rows[0];assert.equal(asset.status,'ACTIVE');assert.equal(asset.posted_cost_balance,'25000.0000');assert.equal(asset.net_book_value,'25000.0000');
+  const posting=(await adminPool.query('SELECT count(*)::int n FROM fixed_asset_acquisition_posting WHERE tenant_id=$1 AND entity_id=$2 AND asset_id=$3 AND journal_entry_id=$4',[ids.tenantId,ids.entityId,receipt.fixed_asset_register_evidence_id,journalEntryId])).rows[0].n;assert.equal(posting,1);
+  return {journal_entry_id:journalEntryId,period_id:periodId,status:'POSTED',ledger_line_count:lines.length,source_document_id:trace.documentId,gl_lines:lines.map(row=>({ledger_line_id:row.ledger_line_id,account_code:row.account_code,debit_amount:row.debit_amount,credit_amount:row.credit_amount,source_document_ids:row.source_document_ids})),trial_balance:trial.map(row=>({account_code:row.account_code,period_debit:row.period_debit,period_credit:row.period_credit,display_balance:row.display_balance,source_document_ids:row.source_document_ids})),asset_status:asset.status,posted_cost_balance:asset.posted_cost_balance,maker_later_workflow_denied:true,identity_denials:[401,401],acquisition_posting_count:posting};
+ }});
+});
+
 pgTest('native fixed asset acquisition derives a source-bound Draft and prevents duplicate acquisition Post',async()=>{
  // Policy selection is based on period end, not the earlier invoice date.
  const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1',{policyEffectiveFrom:'2026-07-15'});
