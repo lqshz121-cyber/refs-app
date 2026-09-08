@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {NativeDocumentEntry,NativeDocumentEntryForm} from '../src/native-document-entry.jsx';
+import {NativeCreditAdjustmentEntry,NativeCreditAdjustmentEntryForm} from '../src/native-credit-adjustment-entry.jsx';
 import {NativeSettlementEntry,NativeSettlementForm} from '../src/native-settlement-entry.jsx';
 import {AuthoritativeDocumentWorkspace} from '../src/authoritative-workspace.jsx';
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222'};
@@ -81,6 +82,17 @@ for(const kind of ['AP_BILL','AR_INVOICE']){
 const page=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" config={config} currentActorAccess={access} scope={scope} accounts={accounts}/>);
 assert.match(page,/DRAFT ENTRY/);assert.match(page,/New bill/);
 const readonly=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" config={config}/>);assert.match(readonly,/READ ONLY/);assert.doesNotMatch(readonly,/New bill/);
+
+const creditAccess={entity_id:config.entityId,actor_id:'oidc|credit-maker',session_refresh_required:false,permissions:['AP.VIEW','AP.VENDOR_CREDIT.CREATE','AR.VIEW','AR.CREDIT_MEMO.CREATE','ATTACHMENT.CREATE']};
+for(const kind of ['AP_VENDOR_CREDIT','AR_CREDIT_MEMO']){
+  assert.equal(renderToStaticMarkup(<NativeCreditAdjustmentEntry config={config} kind={kind} scope={scope}/>),'');
+  assert.equal(renderToStaticMarkup(<NativeCreditAdjustmentEntry config={config} kind={kind} scope={{...scope,period_status:'CLOSED'}} access={creditAccess}/>),'');
+  const entry=renderToStaticMarkup(<NativeCreditAdjustmentEntry config={config} kind={kind} scope={scope} access={creditAccess}/>);assert.match(entry,/aria-expanded="false"/);assert.match(entry,/New (vendor credit|credit memo)/);
+  const form=renderToStaticMarkup(<NativeCreditAdjustmentEntryForm config={config} kind={kind} access={creditAccess} scope={scope} accounts={accounts}/>);
+  assert.match(form,/Scoped company/);assert.match(form,/inputMode="decimal"/);assert.match(form,/min="2026-08-01" max="2026-08-31"/);assert.match(form,/610000 · Office/);assert.doesNotMatch(form,/291001 · Control|localStorage|Post journal|Approve|type="number"|AR refund/);assert.match(form,/Uploaded when you save/);assert.match(form,/minLength="8"/);assert.match(form,/disabled="">Create draft/);
+}
+const creditOnly=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" config={config} currentActorAccess={creditAccess} scope={scope} accounts={accounts}/>);
+assert.match(creditOnly,/DRAFT ENTRY/);assert.match(creditOnly,/New vendor credit/);assert.doesNotMatch(creditOnly,/New bill/);
 console.log('Native document entry SSR: scoped capability gates, labels, precision and draft-only actions passed.');
 
 for(const kind of ['AP_PAYMENT','AR_RECEIPT']){

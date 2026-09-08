@@ -2551,8 +2551,8 @@ export async function createAuthoritativeAdjustment({config,kind,adjustment,idem
   catch{return unreachable('The browser could not confirm the adjustment command. Check the saved adjustment or retry with the same request key.');}
   if(!response.ok)return await failure(response);
   let result;try{result=await response.json();}catch{return unconfirmed();}
-  const receipt=result?.data;
-  if(![200,201].includes(response.status)||result?.ok!==true||!receipt||Array.isArray(receipt)
+  const receipt=result?.data,fields=kind==='AR_REFUND'?['business_adjustment_id','journal_entry_id','source_adjustment_id','status','revision','idempotent']:['business_adjustment_id','journal_entry_id','status','revision','idempotent'];
+  if(![200,201].includes(response.status)||result?.ok!==true||!exactAuditKeys(receipt,fields)
     ||!UUID.test(receipt.business_adjustment_id||'')||!UUID.test(receipt.journal_entry_id||'')
     ||receipt.status!=='DRAFT'||receipt.revision!==0||receipt.idempotent!==(response.status===200)
     ||kind==='AR_REFUND'&&(!UUID.test(receipt.source_adjustment_id||'')||receipt.source_adjustment_id!==adjustment?.sourceAdjustmentId))return unconfirmed();

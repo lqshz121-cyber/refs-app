@@ -12,8 +12,10 @@ import {AuthoritativeApArView} from './authoritative-ap-ar-view.jsx';
 import {NativeDocumentEntry} from './native-document-entry.jsx';
 import {SalesReceiptWorkspace} from './sales-receipt-workspace.jsx';
 import {salesReceiptEntryAccess} from './sales-receipt-entry.js';
+import {NativeCreditAdjustmentEntry} from './native-credit-adjustment-entry.jsx';
 import {NativeSettlementEntry} from './native-settlement-entry.jsx';
 import {nativeDocumentEntryAccess} from './native-document-entry.js';
+import {nativeCreditAdjustmentAccess} from './native-credit-adjustment-entry.js';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
 import {AuthoritativeSecondaryDisclosure} from './authoritative-secondary-disclosure.jsx';
 import {
@@ -189,8 +191,12 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     {label:'Invoices',value:documents.length,sub:'All records'}, {label:'Visible',value:page.total,sub:'After filters'}, {label:'Adjustments',value:adjustments.length,sub:'All records'}, {label:'Visible adjustments',value:visibleAdjustments.length,sub:'After filters'},
   ];
   if(!bill&&activeTab==='RECEIPTS')return <AuthoritativeApArView kind={kind} readOnly={!(salesReceiptEntryAccess(config,currentActorAccess)&&scope?.period_status==='OPEN')} className="authoritative-document-workspace stack" metrics={[]} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab}><SalesReceiptWorkspace config={config} access={currentActorAccess} scope={scope} fetcher={fetcher} onOpenDraft={onOpenDraft}/></AuthoritativeApArView>;
-  return <AuthoritativeApArView kind={kind} readOnly={!(nativeDocumentEntryAccess(config,bill?'AP_BILL':'AR_INVOICE',currentActorAccess)&&scope?.entity_id===config?.entityId&&scope?.period_id===config?.periodId&&scope?.period_status==='OPEN')} className="authoritative-document-workspace stack" headerClassName={`authoritative-document-page-head${bill?' authoritative-expense-page-head':''}`} metrics={metrics} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab} toolbar={bill?null:<p className="muted sm authoritative-api-scope">API read · filters do not change records.</p>}>
+  const openScope=scope?.entity_id===config?.entityId&&scope?.period_id===config?.periodId&&scope?.period_status==='OPEN';
+  const documentEntry=nativeDocumentEntryAccess(config,bill?'AP_BILL':'AR_INVOICE',currentActorAccess)&&openScope;
+  const creditEntry=nativeCreditAdjustmentAccess(config,bill?'AP_VENDOR_CREDIT':'AR_CREDIT_MEMO',currentActorAccess)&&openScope;
+  return <AuthoritativeApArView kind={kind} readOnly={!(documentEntry||creditEntry)} className="authoritative-document-workspace stack" headerClassName={`authoritative-document-page-head${bill?' authoritative-expense-page-head':''}`} metrics={metrics} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab} toolbar={bill?null:<p className="muted sm authoritative-api-scope">API read · filters do not change records.</p>}>
     <NativeDocumentEntry key={`${config?.entityId}:${config?.periodId}:${kind}`} config={config} kind={bill?'AP_BILL':'AR_INVOICE'} access={currentActorAccess} scope={scope} accounts={accounts} fetcher={fetcher} onOpenDraft={onOpenDraft} onRefresh={onRefresh}/>
+    <NativeCreditAdjustmentEntry key={`${config?.entityId}:${config?.periodId}:${kind}:credit`} config={config} kind={bill?'AP_VENDOR_CREDIT':'AR_CREDIT_MEMO'} access={currentActorAccess} scope={scope} accounts={accounts} fetcher={fetcher} onOpenDraft={onOpenDraft} onRefresh={onRefresh}/>
     {readScopes&&<p className="muted sm authoritative-period-read-counts" aria-label={`${workspaceLabel} authoritative period read counts`}>Period {readScopes.documents?.periodId||'Unavailable'} · {bill?'Bills':'Invoices'} {readScopes.documents?.totalCount??'—'} · Adjustments {readScopes.adjustments?.totalCount??'—'} · server-scoped GET</p>}
     <section className={`card authoritative-filter-card${bill?' authoritative-expense-filter-card':''}`} aria-label={`${workspaceLabel} API list filters`}>
     {!bill&&<div className="authoritative-filter-head"><div><h2>Filters</h2></div><span className="badge badge-muted">READ ONLY</span></div>}
