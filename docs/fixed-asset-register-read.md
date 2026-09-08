@@ -1,6 +1,6 @@
 # Authoritative fixed asset register and movement reads
 
-Migration 339 supersedes the public migration338 reader with V2. GET routes:
+Migration 339 supersedes the public migration 338 reader with V2. GET routes:
 
 - /api/v1/entities/{entityId}/fixed-assets/register
 - /api/v1/entities/{entityId}/fixed-assets/register/{assetId}
@@ -38,7 +38,7 @@ rejected. UUID ordering is stable; each request uses a fresh database snapshot.
 New records before a consumed ordering key require refreshing the list.
 Cross-request snapshot consistency is not promised. Key storage and cursor
 helper functions are not accessible to refs_app. Rollback removes the V2 read
-objects/index/private key and exactly restores338; accounting records remain.
+objects/index/private key and exactly restores migration 338; accounting records remain.
 
 The complete closed OpenAPI schemas are parity-tested against runtime schemas.
 Rows include policy/accounts, member trace, register source/hash/reviewer,
@@ -54,7 +54,7 @@ links receive explicit blocked lineage status. Full-journal ledger debit/credit
 totals and line count are separate from page contents: one journal may span
 pages. Per-page amounts must not be used to judge full-journal balance.
 
-EXACT_DISPOSAL_SOURCE means the movement's journal has the immutable337
+EXACT_DISPOSAL_SOURCE means the movement's journal has the immutable migration 337
 binding and its exact SOURCE_TO_JE link. Acquisition/depreciation/impairment
 journals without that authority report BLOCKED_MISSING_EXACT_SOURCE_BINDING;
 source fields remain null. Register sources are not inferred as their posting
@@ -71,9 +71,9 @@ source on a mixed account does not supply missing sources for earlier movements.
 Cursor negatives include another valid same-company asset and an authorized
 valid asset in a different tenant/company. Migration down/up is transactional.
 
-A separate retained-read fixture proves four pages over152 assets without
-repeats/omissions. A100001-asset PostgreSQL16 fixture reads first, next and deep
-pages in213ms in the recorded run, excluding99579ms fixture creation. This is
+A separate retained-read fixture proves four pages over 152 assets without
+repeats/omissions. A 100,001-asset PostgreSQL 16 fixture reads first, next and deep
+pages in 213 ms in the recorded run, excluding 99,579 ms of fixture creation. This is
 local bounded-read performance evidence, not live production capacity or native
 bulk creation workflow acceptance. OIDC test signature mutation now flips a
 decoded byte deterministically; production authentication is unchanged.
