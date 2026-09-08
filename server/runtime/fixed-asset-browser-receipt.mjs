@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
+
+export function readFixedAssetBrowserRepositoryState(root,exec=execFileSync){
+ const run=args=>exec('git',args,{cwd:root,encoding:'utf8'}).trim();
+ return {sha:run(['rev-parse','HEAD']),clean:run(['status','--porcelain'])===''};
+}
 
 export async function verifyFixedAssetBrowserReceipt(output,expectedSha){
  const result=JSON.parse(await readFile(resolve(output,'result.json'),'utf8'));

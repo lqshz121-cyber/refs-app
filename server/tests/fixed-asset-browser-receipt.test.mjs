@@ -4,7 +4,18 @@ import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve,dirname,basename} from 'node:path';
 import {createHash} from 'node:crypto';
-import {verifyFixedAssetBrowserReceipt} from '../runtime/fixed-asset-browser-receipt.mjs';
+import {readFixedAssetBrowserRepositoryState,verifyFixedAssetBrowserReceipt} from '../runtime/fixed-asset-browser-receipt.mjs';
+
+test('browser runner resolves both release and cleanliness from its own repository',()=>{
+ const calls=[],root=resolve('owned-repository'),sha='a'.repeat(40);
+ const state=readFixedAssetBrowserRepositoryState(root,(file,args,options)=>{
+  calls.push({file,args,options});
+  return args[0]==='rev-parse'?sha+'\n':'';
+ });
+ assert.deepEqual(state,{sha,clean:true});
+ assert.deepEqual(calls.map(call=>call.args),[['rev-parse','HEAD'],['status','--porcelain']]);
+ assert.ok(calls.every(call=>call.file==='git'&&call.options.cwd===root&&call.options.encoding==='utf8'));
+});
 
 test('browser receipt rejects wrong release, dirty code, missing checks and detached screenshots',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'refs-asset-receipt-')),sha='a'.repeat(40),screenshots=[],images=new Map();
