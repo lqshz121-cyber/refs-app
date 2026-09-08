@@ -50,6 +50,7 @@ import {AuthoritativeAuditLogWorkspace} from './authoritative-audit-log-workspac
 import {AuthoritativeAccountingSettingsWorkspace} from './authoritative-accounting-settings-workspace.jsx';
 import {AuthoritativeReportMappingsWorkspace} from './authoritative-report-mappings-workspace.jsx';
 import {createAuthoritativeReadGuard} from './authoritative-read-guard.js';
+import {canResumeFixedAssetAcquisitionJournal,resolveFixedAssetAcquisitionJournalScope} from './fixed-asset-acquisition-workflow.js';
 
 export const authoritativeRuntimeConfigured = (environment = globalThis) =>
   Boolean(accountingApiConfig(environment) && oidcRuntimeConfig(environment));
@@ -573,6 +574,22 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     applyScope(target);
     setSharedAccountingLoaded(false);setError(null);setRoute('journals');setWorkflowJournalId(receipt.journal_entry_id);
   },[config,scopeCatalog,boundFetcher,applyScope,setRoute,accountingReadGeneration]);
+  const assetJournalOriginRef=useRef(config);
+  assetJournalOriginRef.current=config;
+  const openAssetJournalWorkflow=useCallback(async(receipt,periodId)=>{
+    const origin=config;
+    const isCurrent=accountingReadGuard.current.begin('asset-acquisition',accountingReadGeneration);
+    if(!isCurrent())return;
+    const target=resolveFixedAssetAcquisitionJournalScope(config,scopeCatalog,periodId||receipt?.period_id);
+    if(!target||!receipt?.journal_entry_id){setError({code:'ASSET_JOURNAL_SCOPE_UNCONFIRMED',message:'Refresh the company periods before opening the saved asset acquisition journal.'});return;}
+    const targetConfig={...config,periodId:target.period_id};
+    const detail=await readAuthoritativeJournalEntryDetail({config:targetConfig,journalEntryId:receipt.journal_entry_id,fetcher:boundFetcher});
+    if(!isCurrent()||assetJournalOriginRef.current!==origin)return;
+    if(!detail.ok){setError(detail);return;}
+    if(!canResumeFixedAssetAcquisitionJournal(detail.journal.status)){setError({code:'ASSET_JOURNAL_NOT_RESUMABLE',message:'The saved asset acquisition journal is no longer available in the approval workflow. Refresh before continuing.'});return;}
+    applyScope(target);
+    setSharedAccountingLoaded(false);setError(null);setRoute('journals');setWorkflowJournalId(receipt.journal_entry_id);
+  },[config,scopeCatalog,boundFetcher,applyScope,setRoute,accountingReadGeneration]);
   const selectEntityScope=useCallback(entityId=>{
     const choices=scopeCatalog.filter(row=>row.entity_id===entityId).sort((a,b)=>b.period_start.localeCompare(a.period_start));
     applyScope(choices.find(row=>row.period_code===scopeMetadata?.period_code)||choices[0]);
@@ -673,7 +690,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'unit-cost-ledger' && <AuthoritativeReportsWorkspace key={`unit-cost-ledger-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="UNIT" workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Unit / Lot profitability" workspaceDescription="Unit and lot profitability reads only exact Unit dimensions retained on same-entity, same-period POSTED ledger lines. Select a canonical Unit reference to load its report, then drill back through the retained evidence. Unit transfer, pricing, and browser-side allocation workflows remain unavailable."/>}
         {phase === 'READY' && route === 'property-ops-pickup' && <AuthoritativePropertyRentWorkspace key={`property-ops-pickup-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} propertyPnlTitle="Property operating P&amp;L" onBack={()=>setRoute('overview')}/>}
         {phase === 'READY' && route === 'construction-loan' && <AuthoritativeReportsWorkspace key={`construction-loan-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'CASH_AND_CAPITAL',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Construction Loan" workspaceDescription="Construction-loan rollforward evidence is read from the existing OIDC-authenticated accounting API and requires approved mappings plus POSTED ledger evidence. Loan register, lender, commitment, and draw-management workflows remain unavailable until server contracts exist."/>}
-        {phase === 'READY' && route === 'fixed-assets' && <AuthoritativeFixedAssetsWorkspace key={`assets-${displayConfig?.entityId}-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onOpenJournalWorkflow={receipt=>openDraftJournalWorkflow(receipt,"ASSET_DRAFT_JOURNAL_NOT_FOUND")} accessState={accessState} onRetryAccess={()=>setWorkspaceRefreshVersion(value=>value+1)} onBack={()=>setRoute('overview')}/>}
+        {phase === 'READY' && route === 'fixed-assets' && <AuthoritativeFixedAssetsWorkspace key={`assets-${displayConfig?.entityId}-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onOpenJournalWorkflow={openAssetJournalWorkflow} accessState={accessState} onRetryAccess={()=>setWorkspaceRefreshVersion(value=>value+1)} onBack={()=>setRoute('overview')}/>}
         {phase === 'READY' && route === 'amortization' && <AuthoritativeAmortizationWorkspace key={`amortization-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onBack={()=>setRoute('overview')}/>}
         {phase === 'READY' && route === 'intercompany' && <AuthoritativeReportsWorkspace key={`intercompany-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'GROUP_AND_COMPARISON',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Intercompany" workspaceDescription="Intercompany reconciliation reads existing OIDC-authenticated, aligned-period evidence for two explicitly scoped entities. Elimination, adjustment, and intercompany posting workflows remain unavailable until server contracts exist."/>}
         {phase === 'READY' && route === 'consolidation' && <AuthoritativeReportsWorkspace key={`consolidation-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'GROUP_AND_COMPARISON',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE - GENERAL LEDGER" workspaceTitle="Consolidation" workspaceDescription="Consolidation evidence is read from existing OIDC-authenticated approved group snapshots and POSTED ledger evidence. Elimination creation, group maintenance, and browser-side consolidation workbooks remain unavailable until server contracts exist."/>}
