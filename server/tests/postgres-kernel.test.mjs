@@ -5110,6 +5110,21 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   });
   assert.equal(shanghaiCandidates[0].accounting_date,'2026-07-16');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM bank_match WHERE bank_source_id=$1',[bankSourceId])).rows[0].n,0);
+  const paymentCandidateApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'bank-payment-matcher'}),kernelFactory:async()=>matcher});
+  const candidateUrl=`/api/v1/entities/${ids.entityId}/bank/transactions/${bankSourceId}/payment-candidates`;
+  const paymentPage=await paymentCandidateApi({method:'GET',url:candidateUrl+'?limit=1',headers:{}});
+  assert.equal(paymentPage.status,200,JSON.stringify(paymentPage.body));
+  assert.equal(paymentPage.body.data.bank_revision,'0');assert.equal(paymentPage.body.data.next_id,null);
+  assert.deepEqual(paymentPage.body.data.rows.map(r=>[r.payment_occurrence_id,r.occurrence_revision,r.business_document_id,r.source_document_id,r.document_number,r.counterparty_name,r.journal_number,r.amount,r.ledger_line_id]),
+    [[exact.payment.payment_occurrence_id,'1',billId,null,'BILL-BANK-MATCH-1','Vendor','PAY-BANK-40','40.0000',candidates[0].ledger_line_id]]);
+  const lastPage=await matcher.readPaymentBankCandidates({...ids,bankSourceId,afterId:exact.payment.payment_occurrence_id,limit:1});assert.deepEqual(lastPage.rows,[]);assert.equal(lastPage.next_id,null);
+  await assert.rejects(matcher.readPaymentBankCandidates({...ids,bankSourceId,afterId:randomUUID()}),error=>error.code==='22023');
+  const deniedCandidates=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'candidate-viewer',['BANK.VIEW'])});
+  await assert.rejects(deniedCandidates.readPaymentBankCandidates({...ids,bankSourceId}),error=>error.code==='42501');
+  await migrateDownThrough(adminPool,'324_payment_bank_candidates.sql');
+  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_payment_bank_candidates(uuid,uuid,uuid,uuid,integer)') IS NULL missing")).rows[0].missing,true);
+  await migrateUp(adminPool);
+  assert.deepEqual((await matcher.readPaymentBankCandidates({...ids,bankSourceId,limit:1})),paymentPage.body.data);
   const matchArgs={...ids,bankSourceId,paymentOccurrenceId:exact.payment.payment_occurrence_id,expectedBankVersion:0,expectedOccurrenceVersion:1,reason:'Reviewed exact posted AP payment',idempotencyKey:'bank-match-exact-001'};
   const matchingBarrier=await adminPool.connect();let matching;
   try{
@@ -5122,6 +5137,7 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   const matchingOutcome=await matching;assert.equal(matchingOutcome.error,undefined);
   const created=matchingOutcome.value;const replay=await matcher.createBankPaymentMatch(matchArgs);
   assert.equal(created.status,'ACTIVE');assert.equal(created.idempotent,false);assert.equal(replay.idempotent,true);assert.equal(replay.bank_match_id,created.bank_match_id);
+  assert.deepEqual((await matcher.readPaymentBankCandidates({...ids,bankSourceId})).rows,[],'An active bank match removes payment candidates');
   const otherMatcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'other-bank-matcher',['BANK.MATCH.CREATE'])});
   await assert.rejects(otherMatcher.createBankPaymentMatch(matchArgs),error=>error.code==='42501');
   await assert.rejects(matcher.createBankPaymentMatch({...matchArgs,reason:'Changed reason for the same retry'}),error=>error.code==='23505');
@@ -5168,6 +5184,17 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   await assert.rejects(unmatcher.unmatchBankPayment({...unmatchArgs,reason:'Changed unmatch retry reason'}),error=>error.code==='23505');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type='BANK_PAYMENT_MATCH_UNMATCHED'",[created.bank_match_id])).rows[0].n,1);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type='BANK_PAYMENT_MATCH_UNMATCHED'",[created.bank_match_id])).rows[0].n,1);
+  const anotherPayment=await postPayment({number:'PAY-BANK-SECOND-40',suffix:'second-candidate'});
+  const expectedCandidates=[exact.payment.payment_occurrence_id,anotherPayment.payment.payment_occurrence_id].sort();
+  const firstCandidates=await matcher.readPaymentBankCandidates({...ids,bankSourceId,limit:1});
+  assert.deepEqual(firstCandidates.rows.map(r=>r.payment_occurrence_id),expectedCandidates.slice(0,1));assert.equal(firstCandidates.next_id,expectedCandidates[0]);
+  const secondCandidates=await matcher.readPaymentBankCandidates({...ids,bankSourceId,limit:1,afterId:firstCandidates.next_id});
+  assert.deepEqual(secondCandidates.rows.map(r=>r.payment_occurrence_id),expectedCandidates.slice(1));assert.equal(secondCandidates.next_id,null);
+  assert.deepEqual(await matcher.readPaymentBankCandidates({...ids,bankSourceId,limit:1}),firstCandidates,'Stable first-page read after historical unmatch');
+  const lockedCandidateStatement=randomUUID();
+  await adminPool.query("INSERT INTO reconciliation(reconciliation_id,tenant_id,entity_id,bank_account_ref,statement_ending_date,statement_ending_balance,difference,status,reconciled_by,reconciled_at) VALUES($1,$2,$3,'BANK-1','2026-08-31',0,0,'RECONCILED','test-signer',now())",[lockedCandidateStatement,ids.tenantId,ids.entityId]);
+  assert.deepEqual((await matcher.readPaymentBankCandidates({...ids,bankSourceId})).rows,[],'Signed statement candidates cannot offer an impossible match');
+  await adminPool.query('DELETE FROM reconciliation WHERE reconciliation_id=$1',[lockedCandidateStatement]);
   const reversal=await reversalMaker.createApPaymentReversal({...ids,sourceOccurrenceId:exact.payment.payment_occurrence_id,periodId:augustPeriod,journalNumber:'PAY-BANK-40-REV',journalDate:'2026-08-02',reason:'Reverse payment after controlled bank unmatch',idempotencyKey:'bank-match-reversal-002'});
   assert.equal(reversal.status,'DRAFT');
 
@@ -5193,6 +5220,55 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   const receiptMatch=await matcher.createBankPaymentMatch({...ids,bankSourceId:receiptBankSourceId,paymentOccurrenceId:receipt.payment_occurrence_id,expectedBankVersion:0,expectedOccurrenceVersion:1,reason:'Reviewed exact posted AR receipt',idempotencyKey:'bank-match-receipt-001'});
   assert.equal(receiptMatch.status,'ACTIVE');
   assert.equal((await unmatcher.unmatchBankPayment({...ids,bankSourceId:receiptBankSourceId,bankMatchId:receiptMatch.bank_match_id,expectedMatchVersion:0,reason:'Controller approved receipt unmatch',idempotencyKey:'bank-unmatch-receipt-001'})).status,'UNMATCHED');
+});
+
+pgTest('payment bank candidate keyset pages remain bounded over 100001 distinct posted traces',async()=>{
+  const ids=await seed({attachmentStatus:null}),trace=await attachAutoSource(ids),bankSourceId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-1','PERF-PAYMENT-CANDIDATES','2026-07-16','USD',-40)`,[bankSourceId,ids.tenantId,ids.entityId,trace.documentId]);
+  const {seedPaymentCandidateVolume}=await import('./helpers/payment-candidate-volume-fixture.mjs');
+  await seedPaymentCandidateVolume(adminPool,ids);
+  const counts=async()=>(await adminPool.query(`SELECT
+    (SELECT count(*)::int FROM payment_occurrence WHERE entity_id=$1) payments,
+    (SELECT count(DISTINCT posted_journal_entry_id)::int FROM payment_occurrence WHERE entity_id=$1) journals,
+    (SELECT count(*)::int FROM ledger_line WHERE entity_id=$1) ledger,
+    (SELECT count(*)::int FROM audit_event WHERE entity_id=$1) audit,
+    (SELECT count(*)::int FROM outbox_event WHERE entity_id=$1) outbox`,[ids.entityId])).rows[0];
+  const before=await counts();assert.equal(before.payments,100001);assert.equal(before.journals,100001);assert.equal(before.ledger,200002);
+  const matcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'volume-matcher',['BANK.MATCH.CREATE'])});
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'volume-matcher'}),kernelFactory:async()=>matcher});
+  const root=`/api/v1/entities/${ids.entityId}/bank/transactions/${bankSourceId}/payment-candidates`,get=query=>api({method:'GET',url:root+query,headers:{}});
+  const started=Date.now(),first=await get('?limit=100');assert.equal(first.status,200,JSON.stringify(first.body));
+  const firstMs=Date.now()-started;
+  assert.equal(first.body.data.rows.length,100);assert.equal(first.body.data.next_id,'00000000-0000-4000-8000-000000000100');
+  const second=await get(`?limit=100&afterId=${first.body.data.next_id}`);assert.equal(second.status,200);assert.equal(second.body.data.rows[0].payment_occurrence_id,'00000000-0000-4000-8000-000000000101');
+  const secondMs=Date.now()-started-firstMs;
+  const tail=await get('?limit=100&afterId=00000000-0000-4000-8000-000000100000');assert.equal(tail.status,200);assert.equal(tail.body.data.rows.length,1);assert.equal(tail.body.data.next_id,null);
+  assert.equal(tail.body.data.rows[0].amount,'40.0000');assert.equal(tail.body.data.rows[0].journal_number,'PERF-CANDIDATE-100001');
+  const elapsed=Date.now()-started;console.log(`# payment candidate first/second/deep pages over 100001 posted traces: ${elapsed}ms`);
+  console.log('# payment candidate page timings '+JSON.stringify({firstMs,secondMs,deepMs:elapsed-firstMs-secondMs,totalMs:elapsed}));
+  // Explain the exact migration candidate query, not an uninformative outer
+  // Function Scan. Parameters below mirror the bank row and requested page.
+  const sql=await readFile(new URL('../db/migrations/325_payment_candidate_query_order.sql',import.meta.url),'utf8');
+  let candidate=sql.slice(sql.indexOf('  WITH candidates AS MATERIALIZED ('),sql.indexOf('  ), page AS'))+'  ) SELECT * FROM candidates';
+  for(const [name,value] of Object.entries({'bank_row.bank_source_id':'$3::uuid','bank_row.bank_account_ref':'$4::text','bank_row.currency':'$5::char(3)','bank_row.amount':'$6::numeric','bank_row.transaction_date':'$7::date','p_bank_source':'$3::uuid','p_tenant':'$1::uuid','p_entity':'$2::uuid','p_after':'$8::uuid','p_limit':'$9::integer'}))candidate=candidate.replaceAll(name,value);
+  for(const afterId of [null,'00000000-0000-4000-8000-000000100000']){
+    // The function runs SECURITY DEFINER. Explain as the same isolated owner
+    // role; runtime RLS on direct tables would describe a different plan.
+    const plan=(await adminPool.query('EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) '+candidate,[ids.tenantId,ids.entityId,bankSourceId,'BANK-1','USD',-40,'2026-07-16',afterId,100])).rows[0]['QUERY PLAN'][0];
+    console.log('# payment candidate plan '+JSON.stringify({afterId,...plan}));
+    const checkVisited=node=>{
+      if(['payment_occurrence','journal_entry','journal_line','ledger_line'].includes(node['Relation Name'])){
+        const visited=((node['Actual Rows']||0)+(node['Rows Removed by Filter']||0))*(node['Actual Loops']||0);
+        assert.ok(visited<=1010,`Dense candidate page must not visit the complete ${node['Relation Name']} population: ${visited}`);
+      }
+      for(const child of node.Plans||[])checkVisited(child);
+    };
+    checkVisited(plan.Plan);
+    assert.ok(plan['Execution Time']<5000,'Candidate execution plan must remain bounded');
+  }
+  assert.deepEqual(await counts(),before,'Candidate pages do not mutate accounting or audit data');
+  assert.ok(elapsed<5000,'Three real API pages over 100001 posted traces must finish within five seconds');
 });
 
 pgTest('Stage 2 test-data chain traces one reconciled bank payment through its posted JE, GL, TB and report rows',async()=>{
