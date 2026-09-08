@@ -1745,6 +1745,12 @@ export class PostgresAccountingKernel{
     ),'SALES_RECEIPT_OPTIONS_UNAVAILABLE','Sales receipt options are unavailable').result);
   }
 
+  async readSalesReceiptBankCandidates({tenantId,entityId,bankSourceId,afterId=null,limit=50}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_sales_receipt_bank_candidates($1,$2,$3,$4,$5) AS result',[tenantId,entityId,bankSourceId,afterId,limit]
+    ),'SALES_RECEIPT_BANK_CANDIDATES_UNAVAILABLE','Cash sale bank candidates are unavailable').result);
+  }
+
   async readSalesReceipt({tenantId,entityId,receiptId}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_sales_receipt($1,$2,$3) AS result',[tenantId,entityId,receiptId]

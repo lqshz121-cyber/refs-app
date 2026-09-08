@@ -1,6 +1,7 @@
 import {validBusinessRecordKind,validBusinessRecord} from '../runtime/business-record-detail.mjs';
 import {validSalesReceiptSelection,validSalesReceiptDetail,validSalesReceiptPage} from '../runtime/sales-receipt-reads.mjs';
 import {validSalesReceiptOptionSelection,validSalesReceiptOptions} from '../runtime/sales-receipt-options.mjs';
+import {validSalesReceiptBankCandidates} from '../runtime/sales-receipt-bank-candidates.mjs';
 import {validCreditHistorySelection,validCreditHistory} from '../runtime/credit-allocation-history.mjs';
 import {validSettlementHistorySelection,validSettlementHistory} from '../runtime/settlement-history.mjs';
 import {createServer} from 'node:http';
@@ -740,6 +741,19 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!kernel||typeof kernel.readSettlementContext!=='function')throw new AccountingApiError(503,'SETTLEMENT_CONTEXT_UNAVAILABLE','Settlement context is unavailable');
         result=await kernel.readSettlementContext({tenantId:principal.tenantId,entityId,...selection});
         if(!validSettlementContext(result,{entityId,...selection}))throw new AccountingApiError(500,'SETTLEMENT_CONTEXT_INVALID','Settlement context did not match its scope or balances');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===8&&parts[4]==='bank'&&parts[5]==='transactions'&&parts[7]==='sales-receipt-candidates'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Candidate reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['afterId','limit']);
+        const selection={bankSourceId:requireUuid(parts[6],'bankSourceId').toLowerCase(),afterId:parsedUrl.searchParams.has('afterId')?requireUuid(parsedUrl.searchParams.get('afterId'),'afterId').toLowerCase():null,limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):50};
+        if(!Number.isInteger(selection.limit)||selection.limit<1||selection.limit>100||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Candidate page size is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readSalesReceiptBankCandidates!=='function')throw new AccountingApiError(503,'SALES_RECEIPT_BANK_CANDIDATES_UNAVAILABLE','Cash sale bank candidates are unavailable');
+        try{result=await kernel.readSalesReceiptBankCandidates({tenantId:principal.tenantId,entityId,...selection});}
+        catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'SALES_RECEIPT_BANK_CURSOR_INVALID','The cash sale cursor is invalid for this company. Refresh from the first page.');throw error;}
+        if(!validSalesReceiptBankCandidates(result,{entityId,...selection}))throw new AccountingApiError(500,'SALES_RECEIPT_BANK_CANDIDATES_INVALID','Cash sale candidates did not match the requested scope');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='ar'&&parts[5]==='sales-receipt-options'){
