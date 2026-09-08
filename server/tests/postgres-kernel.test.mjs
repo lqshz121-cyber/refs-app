@@ -7796,4 +7796,3 @@ pgTest('fixed asset attachment append and Post serialize in both transaction ord
   }finally{releaseCommit();try{await append.query('ROLLBACK');}catch{}if(postResult)await postResult;if(appendResult)await appendResult;append.release();}
  }
 });
-
