@@ -1,0 +1,23 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {randomUUID,webcrypto} from 'node:crypto';
+import {readAuthoritativeAcquisitionOptions,createAuthoritativeAssetAcquisition} from '../src/accounting-api.js';
+const tenantId=randomUUID(),entityId=randomUUID(),assetId=randomUUID(),hash='sha256:'+'a'.repeat(64);
+const config={tenantId,entityId,baseUrl:'https://accounting.example',getAccessToken:async()=> 'a'.repeat(48)};
+const options={schema_version:'FIXED_ASSET_ACQUISITION_OPTIONS_V1',tenant_id:tenantId,entity_id:entityId,asset_id:assetId,asset_tag:'Building 1',asset_status:'ACTIVE',currency:'USD',cost_basis:'25000.0000',asset_account_code:'150100',liability_account_code:'291001',vendor_ref:'VENDOR-1',period:{period_id:randomUUID(),period_code:'2026-07',starts_on:'2026-07-01',ends_on:'2026-07-31',status:'OPEN'},source:{source_document_id:randomUUID(),source_document_version:1,source_payload_hash:hash,accounting_date:'2026-07-01',document_no:'INV-1'},original_evidence:{evidence_id:randomUUID(),evidence_hash:hash},attachments:[{attachment_id:randomUUID(),name:'Invoice.pdf'}],attachment_status:'VERIFIED',acquisition_posted:false,disposal_recorded:false,requires_command_validation:true};
+const receipt={schema_version:'FIXED_ASSET_ACQUISITION_DRAFT_V1',journal_entry_id:randomUUID(),status:'DRAFT',revision:0,idempotent:false,binding_id:randomUUID(),asset_id:assetId,source_document_id:options.source.source_document_id,source_document_version:1,source_payload_hash:hash,source_link_id:randomUUID()};
+const command={config,options,journalNumber:'FA-1',journalDate:'2026-07-01',reason:'Record reviewed invoice acquisition',cryptoApi:webcrypto};
+test('acquisition client loads scoped options and rejects cross-company data',async()=>{
+ let seen;const result=await readAuthoritativeAcquisitionOptions({config,assetId,fetcher:async(url,init)=>{seen={url,init};return new Response(JSON.stringify({ok:true,data:options}),{status:200});}});assert.equal(result.ok,true);assert.equal(seen.init.method,'GET');assert.equal(seen.init.cache,'no-store');assert.equal(seen.init.credentials,'include');assert.match(seen.init.headers.authorization,/^Bearer /);
+ assert.equal((await readAuthoritativeAcquisitionOptions({config,assetId,fetcher:async()=>new Response(JSON.stringify({ok:true,data:{...options,entity_id:randomUUID()}}),{status:200})})).ok,false);
+});
+test('acquisition retry recovers original Draft using stable payload-bound identity and never client amounts',async()=>{
+ const requests=[];const fetcher=async(url,init)=>{requests.push({url,init});if(requests.length===1)throw new Error('response lost');return new Response(JSON.stringify({ok:true,data:{...receipt,idempotent:true}}),{status:200});};
+ assert.equal((await createAuthoritativeAssetAcquisition({...command,fetcher})).ok,false);const replay=await createAuthoritativeAssetAcquisition({...command,fetcher});assert.equal(replay.ok,true);assert.equal(replay.data.journal_entry_id,receipt.journal_entry_id);assert.equal(requests[0].init.headers['idempotency-key'],requests[1].init.headers['idempotency-key']);
+ const payload=JSON.parse(requests[1].init.body);assert.deepEqual(Object.keys(payload).sort(),['attachmentIds','expectedSourceVersion','journalDate','journalNumber','periodId','reason']);assert.deepEqual(payload.attachmentIds,[options.attachments[0].attachment_id]);assert.equal(payload.periodId,options.period.period_id);
+ await createAuthoritativeAssetAcquisition({...command,reason:'Record a corrected acquisition explanation',fetcher});assert.notEqual(requests[2].init.headers['idempotency-key'],requests[1].init.headers['idempotency-key']);
+});
+test('acquisition client blocks invalid form state and rejects mismatched successful receipts',async()=>{
+ let calls=0;const fetcher=async()=>{calls++;return new Response(JSON.stringify({ok:true,data:receipt}),{status:201});};
+ for(const patch of [{options:{...options,acquisition_posted:true}},{options:{...options,original_evidence:null}},{options:{...options,attachment_status:'UNVERIFIED'}},{journalDate:'2026-08-01'},{reason:'short'},{journalNumber:''},{config:{}}])assert.equal((await createAuthoritativeAssetAcquisition({...command,...patch,fetcher})).ok,false);assert.equal(calls,0);
+ for(const wrong of [{...receipt,asset_id:randomUUID()},{...receipt,status:'POSTED'},{...receipt,source_payload_hash:'sha256:'+'b'.repeat(64)},{...receipt,idempotent:true},{...receipt,can_post:true}])assert.equal((await createAuthoritativeAssetAcquisition({...command,fetcher:async()=>new Response(JSON.stringify({ok:true,data:wrong}),{status:201})})).ok,false);
+ assert.equal((await createAuthoritativeAssetAcquisition({...command,fetcher})).ok,true);
+});
