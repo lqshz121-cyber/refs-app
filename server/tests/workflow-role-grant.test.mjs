@@ -5,11 +5,25 @@ import {runtimeConfig} from '../runtime/config.mjs';
 import {grantStagingWorkflowRole} from '../runtime/workflow-role-grant.mjs';
 import {readFile} from 'node:fs/promises';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
+import {ADDITIONAL_WORKFLOW_ROLES} from '../runtime/additional-workflow-roles.mjs';
 import {AUTHORITATIVE_WORKFLOW_ROLES,WORKFLOW_SOD_GROUPS,assertWorkflowRoleSafety,authoritativeWorkflowRoleGrantConfig,grantAuthenticatedWorkflowRole,grantConfiguredServiceWorkflowRole} from '../runtime/workflow-role-grant.mjs';
 
 const validUntil='2026-08-24T00:00:00.000Z';
 const base={NODE_ENV:'production',REFS_DEPLOYMENT_ENV:'staging',REFS_WORKFLOW_ROLE_CONFIRM:'AUTHORITATIVE_WORKFLOW_ROLE_ONLY',REFS_STAGE1_TENANT_ID:'11111111-1111-4111-8111-111111111111',REFS_STAGE1_ENTITY_ID:'22222222-2222-4222-8222-222222222222',REFS_WORKFLOW_ROLE:'WBS_PAYABLE_MAKER',REFS_WORKFLOW_GRANT_VALID_UNTIL:validUntil,REFS_WORKFLOW_GRANT_EXPECTED_VERSION:'2',REFS_WORKFLOW_GRANT_IDEMPOTENCY_KEY:'workflow-maker-0001',REFS_AUTHENTICATED_ACCESS_TOKEN:'opaque',OIDC_ISSUER:'https://issuer.example',OIDC_AUDIENCE:'refs',OIDC_JWKS_URI:'https://issuer.example/jwks'};
 const permissions=role=>AUTHORITATIVE_WORKFLOW_ROLES[role].permissions;
+
+test('additional formal roles retain one native operation and reject mislabeled or mixed authority',()=>{
+  const seen=new Set();
+  for(const [name,{permission,authorityClass}] of Object.entries(ADDITIONAL_WORKFLOW_ROLES)){
+    assert.equal(seen.has(permission),false);seen.add(permission);
+    const definition=AUTHORITATIVE_WORKFLOW_ROLES[name];
+    assert.equal(definition.authorityClass,authorityClass);
+    assert.deepEqual(definition.permissions.filter(value=>!value.endsWith('.VIEW')),[permission]);
+    assert.equal(assertWorkflowRoleSafety(definition),definition);
+    assert.throws(()=>assertWorkflowRoleSafety({...definition,authorityClass:'UNRELATED'}),{code:'WORKFLOW_ROLE_SCOPE_DENIED'});
+    assert.throws(()=>assertWorkflowRoleSafety({...definition,permissions:[...definition.permissions,'GL.JE.POST']}),{code:'WORKFLOW_ROLE_SCOPE_DENIED'});
+  }
+});
 
 test('formal credit entry roles satisfy the actual browser access predicate',async()=>{
   const {nativeCreditAdjustmentAccess}=await import('../../src/native-credit-adjustment-entry.js');

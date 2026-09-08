@@ -1,5 +1,6 @@
 import {KernelError} from './db.mjs';
 import {PostgresGrantSync} from './grant-sync.mjs';
+import {ADDITIONAL_WORKFLOW_ROLES} from './additional-workflow-roles.mjs';
 import {RemoteJwksResolver,OidcJwtAuthenticator} from '../api/oidc-authenticator.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -12,6 +13,7 @@ const role=(authorityClass,permissions,{principalKind='HUMAN'}={})=>Object.freez
 // Each authenticated subject receives one frozen bundle. Write authority
 // stages never mix Draft, Submit, Review, Approve, or Post.
 export const AUTHORITATIVE_WORKFLOW_ROLES=Object.freeze({
+  ...Object.fromEntries(Object.entries(ADDITIONAL_WORKFLOW_ROLES).map(([name,definition])=>[name,role(definition.authorityClass,[...READ,definition.permission])])),
   COUNTERPARTY_MAKER:role('DRAFT',[...READ,'MASTER.COUNTERPARTY.PROPOSE']),
   COUNTERPARTY_APPROVER:role('APPROVE',[...READ,'MASTER.COUNTERPARTY.APPROVE']),
   WBS_SNAPSHOT_IMPORTER_SERVICE:role('SERVICE',['WBS.SNAPSHOT.IMPORT'],{principalKind:'SERVICE'}),
@@ -78,6 +80,8 @@ export const WORKFLOW_SOD_GROUPS=Object.freeze([
   Object.freeze(['BANK.RECONCILIATION.REOPEN','GL.PERIOD.REOPEN']),
 ]);
 const stageByPermission=new Map(WORKFLOW_SOD_GROUPS.flatMap((group,index)=>group.map(permission=>[permission,index])));
+const additionalAuthorityByPermission=new Map(Object.values(ADDITIONAL_WORKFLOW_ROLES).map(({permission,authorityClass})=>[permission,authorityClass]));
+for(const [permission,authorityClass] of additionalAuthorityByPermission)if(!stageByPermission.has(permission))stageByPermission.set(permission,`native:${authorityClass}`);
 
 export function assertWorkflowRoleSafety(definition){
   if(!definition||typeof definition.authorityClass!=='string'||!['HUMAN','SERVICE'].includes(definition.principalKind)||!Array.isArray(definition.permissions)||definition.permissions.length===0)throw new KernelError('WORKFLOW_ROLE_SCOPE_DENIED','Workflow role definition is incomplete');
@@ -87,6 +91,7 @@ export function assertWorkflowRoleSafety(definition){
     return definition;
   }
   if(definition.authorityClass==='SERVICE'||definition.permissions.some(permission=>SERVICE_ONLY.has(permission)))throw new KernelError('WORKFLOW_ROLE_SCOPE_DENIED','Human workflow roles cannot contain service-only permissions');
+  if(definition.permissions.some(permission=>additionalAuthorityByPermission.has(permission)&&additionalAuthorityByPermission.get(permission)!==definition.authorityClass))throw new KernelError('WORKFLOW_ROLE_SCOPE_DENIED','Human workflow permission does not match its native authority');
   const stages=new Set(definition.permissions.map(permission=>stageByPermission.get(permission)).filter(stage=>stage!==undefined));
   if(stages.size>1)throw new KernelError('WORKFLOW_ROLE_SCOPE_DENIED','Workflow role combines mutually exclusive authority stages');
   return definition;

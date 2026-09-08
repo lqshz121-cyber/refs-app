@@ -12,6 +12,7 @@ import {serializeOutboxEvent} from '../runtime/outbox-wire-contract.mjs';
 import {createAccountingApi} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
+import {ADDITIONAL_WORKFLOW_ROLES} from '../runtime/additional-workflow-roles.mjs';
 import {createWbsTestImportService,reconcileWbsTestImportActorGrants} from '../runtime/wbs-test-import-service.mjs';
 import {createControlledTestBankWorkflowService} from '../runtime/controlled-test-bank-workflow-service.mjs';
 import {createControlledTestBankMatchService} from '../runtime/controlled-test-bank-match-service.mjs';
@@ -2431,6 +2432,33 @@ pgTest('production reads fall back to existing read grants while invalid write a
   }finally{await new Promise(resolve=>server.close(resolve));}
   await adminPool.query("UPDATE runtime_actor_grant SET revoked_at=clock_timestamp() WHERE tenant_id=$1 AND actor_id=$2 AND permission='GL.JE.VIEW'",[ids.tenantId,actor]);
   await assert.rejects(issuer.issue({tenantId:ids.tenantId,readOnly:true}),error=>error.code==='42501');
+});
+
+pgTest('additional formal role catalog matches database authority and scopes every grant and revocation',async()=>{
+  const ids=await seed({status:'PENDING_REVIEW'}),foreign=await seed({tenantId:ids.tenantId,status:'DRAFT'});
+  const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+  for(const [name,{permission,authorityClass}] of Object.entries(ADDITIONAL_WORKFLOW_ROLES)){
+    const native=(await adminPool.query('SELECT h.authority_class,p.active FROM runtime_human_permission_authority h JOIN permission_catalog p USING(permission_code) WHERE h.permission_code=$1',[permission])).rows[0];
+    assert.deepEqual(native,{authority_class:authorityClass,active:true},name);
+    const actorId=`formal-catalog-${name}`,kernel=await formalWorkflowRoleKernel(ids,actorId,name);
+    const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})});
+    const context=await issuer.issue({tenantId:ids.tenantId});
+    await kernel.inSession(async client=>{
+      assert.equal((await client.query('SELECT refs_entity_has_permission($1,$2) allowed',[ids.entityId,permission])).rows[0].allowed,true,name);
+      assert.equal((await client.query('SELECT refs_entity_has_permission($1,$2) allowed',[foreign.entityId,permission])).rows[0].allowed,false,name);
+      assert.equal((await client.query("SELECT refs_entity_has_permission($1,'GL.JE.POST') allowed",[ids.entityId])).rows[0].allowed,false,name);
+    });
+    if(name==='JE_REJECTOR'){
+      const request={...ids,journalEntryId:ids.journalId,action:'REJECT',expectedRevision:0,reason:'Independent rejection requires correction',idempotencyKey:'formal-catalog-journal-reject'};
+      const result=await kernel.transitionJournal(request);assert.equal(result.status,'DRAFT');assert.equal(result.revision,1);
+      const replay=await kernel.transitionJournal(request);assert.equal(replay.idempotent,true);assert.equal(replay.revision,1);
+      assert.equal((await adminPool.query('SELECT status::text status FROM journal_entry WHERE journal_entry_id=$1',[ids.journalId])).rows[0].status,'DRAFT');
+      assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[ids.journalId])).rows[0].n,0);
+    }
+    await sync.reconcile({...ids,actorId,permissions:['GL.JE.VIEW'],authorityClass:'READ',validUntil:new Date(Date.now()+3600000).toISOString(),expectedVersion:1,idempotencyKey:`formal-revoke-${name}`});
+    const old=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>context});
+    assert.equal((await old.inSession(client=>client.query('SELECT refs_entity_has_permission($1,$2) allowed',[ids.entityId,permission]))).rows[0].allowed,false,name);
+  }
 });
 
 pgTest('credit entry formal roles upload and create exact Draft credits without later workflow authority',async()=>{
