@@ -6922,3 +6922,49 @@ pgTest('context issuance retry respects a concurrently revoked grant without ret
   assert.deepEqual(result.after,result.before,'Revoked authority must not retain an issued capability or audit');
   assert.equal(result.principalCalls,1);assert.equal(result.attemptedHashes.length,2);assert.equal(new Set(result.attemptedHashes).size,1);
 });
+
+pgTest('counterparty register isolates company and module permissions with stable active and inactive pages',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),other=await seed({status:'DRAFT',attachmentStatus:null});
+  const sibling=await seed({tenantId:ids.tenantId,status:'DRAFT',attachmentStatus:null});
+  for(const [ref,kind,name,active] of [['REG-01','VENDOR','Vendor 50%_',true],['REG-02','VENDOR','Inactive vendor',false],['REG-03','VENDOR','Third vendor',true],['REG-04','CUSTOMER','Customer',true]]){
+    await adminPool.query('INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name,active) VALUES($1,$2,$3,$4,$5,$6)',[ids.tenantId,ids.entityId,ref,kind,name,active]);
+  }
+  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name,active) VALUES($1,$2,'REG-SECRET','VENDOR','Other company',true)",[other.tenantId,other.entityId]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'register-reader',['AP.VIEW'])});
+  const read=(kind='VENDOR',status='ALL',query='REG-',after=null,limit=1)=>reader.inSession(async c=>(await c.query('SELECT refs_read_counterparty_register($1,$2,$3,$4,$5,$6,$7) value',[ids.tenantId,ids.entityId,kind,status,query,after,limit])).rows[0].value);
+  const first=await read();assert.equal(first.schema_version,'COUNTERPARTY_REGISTER_V1');assert.equal(first.entity_id,ids.entityId);assert.deepEqual(first.rows.map(r=>r.member_ref),['REG-01']);assert.equal(first.next_ref,'REG-01');
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'register-reader'}),kernelFactory:async()=>reader});
+  const http=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/counterparties?kind=VENDOR&status=ALL&query=REG-&limit=1`,body:null,headers:{}});
+  assert.equal(http.status,200);assert.equal(http.headers['cache-control'],'no-store');assert.deepEqual(http.body.data,first);
+  const second=await read('VENDOR','ALL','REG-',first.next_ref);assert.deepEqual(second.rows,[{member_ref:'REG-02',member_type:'VENDOR',display_name:'Inactive vendor',active:false}]);assert.equal(second.next_ref,'REG-02');
+  const third=await read('VENDOR','ALL','REG-',second.next_ref);assert.deepEqual(third.rows.map(r=>r.member_ref),['REG-03']);assert.equal(third.next_ref,null);
+  assert.deepEqual((await read('VENDOR','ACTIVE','REG-',null,100)).rows.map(r=>r.member_ref),['REG-01','REG-03']);
+  assert.deepEqual((await read('VENDOR','INACTIVE','REG-',null,100)).rows.map(r=>r.member_ref),['REG-02']);
+  assert.deepEqual((await read('VENDOR','ALL','50%_',null,100)).rows.map(r=>r.member_ref),['REG-01']);
+  await assert.rejects(read('CUSTOMER'),e=>e.code==='42501');
+  await assert.rejects(read('VENDOR','ALL','REG-',null,101),e=>e.code==='22023');
+  await assert.rejects(reader.inSession(c=>c.query('SELECT refs_read_counterparty_register($1,$2,$3)',[other.tenantId,other.entityId,'VENDOR'])),e=>e.code==='42501');
+  const deniedSibling=await api({method:'GET',url:`/api/v1/entities/${sibling.entityId}/counterparties?kind=VENDOR`,body:null,headers:{}});
+  assert.equal(deniedSibling.status,403);
+  const customerReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'register-customer-reader',['AR.VIEW'])});
+  const customers=await customerReader.readCounterpartyRegister({...ids,kind:'CUSTOMER',query:'REG-',limit:100});
+  assert.deepEqual(customers.rows.map(r=>r.member_ref),['REG-04']);
+  await assert.rejects(customerReader.readCounterpartyRegister({...ids,kind:'VENDOR'}),e=>e.code==='42501');
+  await migrateDownThrough(adminPool,'326_counterparty_register.sql');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM member_master WHERE tenant_id=$1 AND entity_id=$2 AND member_ref LIKE 'REG-%'",[ids.tenantId,ids.entityId])).rows[0].n,4);
+  await migrateUp(adminPool);assert.deepEqual((await read('VENDOR','ALL','REG-',null,100)).rows.map(r=>r.member_ref),['REG-01','REG-02','REG-03']);
+});
+
+pgTest('counterparty register pages 100001 masters without crossing kind or company',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name,active) SELECT $1,$2,'REG'||lpad(n::text,6,'0'),'VENDOR','Register performance '||n,true FROM generate_series(1,100001) n",[ids.tenantId,ids.entityId]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'register-volume-reader',['AP.VIEW'])});
+  const started=Date.now();
+  const first=await reader.readCounterpartyRegister({...ids,kind:'VENDOR',query:'Register performance',limit:100});
+  assert.equal(first.rows.length,100);assert.equal(first.next_ref,'REG000100');
+  const second=await reader.readCounterpartyRegister({...ids,kind:'VENDOR',query:'Register performance',afterRef:first.next_ref,limit:100});
+  assert.equal(second.rows[0].member_ref,'REG000101');assert.equal(second.next_ref,'REG000200');
+  const tail=await reader.readCounterpartyRegister({...ids,kind:'VENDOR',query:'Register performance',afterRef:'REG100000',limit:100});
+  assert.deepEqual(tail.rows.map(r=>r.member_ref),['REG100001']);assert.equal(tail.next_ref,null);
+  const elapsed=Date.now()-started;console.log('# counterparty register first/second/deep pages over 100001 rows: '+elapsed+'ms');assert.ok(elapsed<5000,'Three register pages must finish within five seconds');
+});

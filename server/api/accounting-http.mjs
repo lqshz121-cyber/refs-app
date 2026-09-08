@@ -1,3 +1,4 @@
+import {validCounterpartyRegisterSelection,validCounterpartyRegisterPage} from '../runtime/counterparty-register.mjs';
 import {validPaymentBankCandidates} from '../runtime/payment-bank-candidates.mjs';
 import {validBusinessRecordKind,validBusinessRecord} from '../runtime/business-record-detail.mjs';
 import {validSalesReceiptSelection,validSalesReceiptDetail,validSalesReceiptPage} from '../runtime/sales-receipt-reads.mjs';
@@ -842,6 +843,18 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!kernel||typeof kernel.readCreditUsageContext!=='function')throw new AccountingApiError(503,'CREDIT_USAGE_CONTEXT_UNAVAILABLE','Credit availability is unavailable');
         result=await kernel.readCreditUsageContext({tenantId:principal.tenantId,entityId,...selection});
         if(!validCreditUsageContext(result,{entityId,...selection}))throw new AccountingApiError(500,'CREDIT_USAGE_CONTEXT_INVALID','Credit availability did not match its scope or balances');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===5&&parts[4]==='counterparties'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Counterparty reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['kind','status','query','afterRef','limit']);
+        const selection={kind:parsedUrl.searchParams.get('kind'),status:parsedUrl.searchParams.get('status')??'ACTIVE',query:parsedUrl.searchParams.get('query')??'',afterRef:parsedUrl.searchParams.get('afterRef'),limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):50};
+        if(!validCounterpartyRegisterSelection(selection)||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Counterparty kind, search, cursor or page size is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readCounterpartyRegister!=='function')throw new AccountingApiError(503,'COUNTERPARTY_REGISTER_UNAVAILABLE','Counterparty choices are unavailable');
+        result=await kernel.readCounterpartyRegister({tenantId:principal.tenantId,entityId,...selection});
+        if(!validCounterpartyRegisterPage(result,{entityId,...selection}))throw new AccountingApiError(500,'COUNTERPARTY_REGISTER_INVALID','Counterparty choices did not match the requested scope');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='business-documents'&&parts[5]==='draft-counterparties'){

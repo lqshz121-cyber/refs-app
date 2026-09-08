@@ -1796,6 +1796,13 @@ export class PostgresAccountingKernel{
     ),'CREDIT_USAGE_CONTEXT_UNAVAILABLE','Credit availability is unavailable').result);
   }
 
+  async readCounterpartyRegister({tenantId,entityId,kind,status='ACTIVE',query='',afterRef=null,limit=50}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_counterparty_register($1,$2,$3,$4,$5,$6,$7) AS result',
+      [tenantId,entityId,kind,status,query,afterRef,limit]
+    ),'COUNTERPARTY_REGISTER_UNAVAILABLE','Counterparty register is unavailable').result);
+  }
+
   async readBusinessDocumentCounterparties({tenantId,entityId,documentKind,query='',afterRef=null,limit=50}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_business_document_counterparties($1,$2,$3,$4,$5,$6) AS result',
