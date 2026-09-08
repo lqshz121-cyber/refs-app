@@ -1,0 +1,9 @@
+# Owned PostgreSQL asset browser proof
+
+Run the dedicated server script test:fixed-asset-browser:e2e after npm ci in both the repository root and server. It requires Docker, Chromium and Playwright. Set POSTGRES_IMAGE to postgres:15-alpine or postgres:16-alpine, REFS_ASSET_BROWSER_OUTPUT to a fresh absolute evidence directory, and optionally REFS_PLAYWRIGHT_MODULE to an installed Playwright module path. Otherwise Playwright resolves from the normal Node module path. Existing output directories are rejected, and a successful database test without a fresh browser result is rejected.
+
+The runner creates a disposable PostgreSQL database through the standard fresh-fixture runner. Existing independent maker/submit/review/approve/post roles create the formal acquisition, depreciation, impairment and disposal fixture. A separate test-only VIEWER receives exactly FIXED_ASSET.REGISTER.VIEW, GL.JE.VIEW and GL.REPORT.VIEW through grant synchronization and context issuance. The browser sends only GET requests to a loopback HTTP adapter around the real accounting API handler. It obtains tenant identity from access/self. No user browser profile or live grant is used.
+
+Chromium exercises asset detail, acquisition Journal, exact GL line, disposal source, linked Journal, focus return, desktop/mobile layout, date changes (two versus eleven ledger lines) and refresh persistence. The receipt captures every API path/status, console/page errors, Git HEAD, worktree cleanliness and bundle SHA256. Screenshots are retained separately.
+
+This is a mounted asset-workspace integration test using actual PostgreSQL/API/HTTP responses and an isolated browser. Its bearer identity is a local fixture, not an OIDC login. It does not prove the deployed full application, production identity provider, native asset command forms or live accounting acceptance. Those remain separate requirements.

@@ -7426,6 +7426,16 @@ async function exerciseFixedAssetLedger(assessmentAfterDisposal=false,impairment
    for(const patch of [{object_type:'SOURCE_DOCUMENT'},{action:'READ'},{permission_used:'GL.JE.VIEW'},{actor_id:'unrelated-posting-user'},{actor_type:'SYSTEM'}])await adminPool.query('INSERT INTO audit_event SELECT r.* FROM jsonb_populate_record(NULL::audit_event,$1::jsonb) r',[JSON.stringify({...retainedAudit,...patch,audit_event_id:randomUUID()})]);
    const afterSpoof=await assetReader.readFixedAssetMovements({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-31',limit:100});for(const item of afterSpoof.rows){assert.equal(item.posting_audit_event_count,1);assert.equal(item.posting_audit_event_id,movements.find(prior=>prior.ledger_line_id===item.ledger_line_id).posting_audit_event_id);}
 
+
+   if(process.env.REFS_FIXED_ASSET_BROWSER_E2E==='1'){
+    const actorId='owned-asset-browser-reader',token='owned-asset-browser-'+randomUUID();
+    const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+    await sync.reconcile({tenantId:ids.tenantId,entityId:ids.entityId,actorId,permissions:['FIXED_ASSET.REGISTER.VIEW','GL.JE.VIEW','GL.REPORT.VIEW'],authorityClass:'VIEWER',validUntil:new Date(Date.now()+3600000).toISOString(),expectedVersion:0,idempotencyKey:'owned-asset-browser-read-grant'});
+    const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})}),kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})});
+    const api=createAccountingApi({authenticate:async request=>request.headers?.authorization==='Bearer '+token?{trusted:true,tenantId:ids.tenantId,actorId}:null,kernelFactory:async()=>kernel});
+    const {runFixedAssetBrowserProof}=await import('./helpers/fixed-asset-browser-proof.mjs');await runFixedAssetBrowserProof({api,token,ids,assetTag:row.asset_tag});
+   }
+
    const report=await roles.JE_REVIEWER.readGeneralLedgerSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,limit:50});assert.match(report.snapshot_token,/^sha256:/);
    for(const item of movements){assert.equal(item.ledger_lineage_status,'EXACT');assert.ok(item.ledger_source_link_id);assert.equal(item.ledger_source_link_count,1);assert.equal(item.posting_audit_event_count,1);assert.equal(item.journal_total_debit,item.journal_total_credit);assert.ok(item.journal_ledger_line_count>=2);const gl=report.rows.find(entry=>entry.ledger_line_id===item.ledger_line_id);assert.ok(gl,'same ledger row in GL snapshot');assert.equal(gl.journal_entry_id,item.journal_entry_id);assert.equal(gl.debit_amount,item.debit_amount);assert.equal(gl.credit_amount,item.credit_amount);
     if(item.journal_entry_id===disposal){assert.equal(item.source_binding_status,'EXACT_DISPOSAL_SOURCE');assert.equal(item.source_document_id,disposalTrace.documentId);assert.equal(item.source_payload_hash,hash('auto-doc'));assert.equal(item.source_document_version,1);assert.ok(item.source_link_id);}

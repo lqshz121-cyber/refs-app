@@ -57,6 +57,7 @@ test('the reachable audit mutation harness uses the cross-platform esbuild API, 
 // an operator-run release target. Adding a name here is a deliberate, reviewable decision;
 // forgetting to wire a plain Node suite is not.
 const INFRASTRUCTURE_BOUND_SERVER_SUITES=Object.freeze([
+  'test:fixed-asset-browser:e2e', // Requires owned Docker PostgreSQL and installed Chromium/Playwright.
   'test:attachments:containers',
   'test:backup:restore',
   'test:postgres:fixture:ai-exception-lineage',
