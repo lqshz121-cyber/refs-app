@@ -6543,6 +6543,16 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   const sourceClientFetch=async(url,options)=>{const requestUrl=new URL(url);const result=await saleBankReadApi({method:options.method,url:requestUrl.pathname+requestUrl.search,body:null,headers:options.headers});return {ok:result.status>=200&&result.status<300,status:result.status,json:async()=>JSON.parse(JSON.stringify(result.body))};};
   const browserCashBank=await readCashBank({config:sourceClientConfig,bankAccountRef:'BANK-1',fetcher:sourceClientFetch});
   assert.equal(browserCashBank.ok,true,JSON.stringify(browserCashBank));assertSaleSource(browserCashBank.rows.find(row=>row.bank_source_id===saleBankId));
+  const {readBankSalesReceiptJournal}=await import('../../src/bank-sales-receipt-detail.js');
+  const selectedCashBank=browserCashBank.rows.find(row=>row.bank_source_id===saleBankId);
+  assert.equal((await readBankSalesReceiptJournal({config:sourceClientConfig,row:selectedCashBank,fetcher:sourceClientFetch})).ok,false,'BANK.VIEW alone cannot read the linked Sales Receipt');
+  const sourceDrillReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'sale-source-drill-reader',['BANK.VIEW','AR.VIEW','GL.JE.VIEW'])});
+  const sourceDrillApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'sale-source-drill-reader'}),kernelFactory:async()=>sourceDrillReader});
+  const sourceDrillCalls=[],sourceDrillFetch=async(url,options)=>{assert.equal(options.method,'GET');assert.equal(options.body,undefined);sourceDrillCalls.push(url);const u=new URL(url),r=await sourceDrillApi({method:options.method,url:u.pathname+u.search,body:null,headers:options.headers});return {ok:r.status>=200&&r.status<300,status:r.status,json:async()=>JSON.parse(JSON.stringify(r.body))};};
+  const sourceDrill=await readBankSalesReceiptJournal({config:{...sourceClientConfig,periodId:randomUUID()},row:selectedCashBank,fetcher:sourceDrillFetch});
+  assert.equal(sourceDrill.ok,true,JSON.stringify(sourceDrill));assert.equal(sourceDrill.config.periodId,ids.periodId);assert.equal(sourceDrill.record.sales_receipt_id,receipt.sales_receipt_id);assert.equal(sourceDrillCalls.length,2);
+  assert.ok(sourceDrill.journal.lines.some(line=>line.journal_line_id===saleCandidate.journal_line_id&&line.ledger_line_id===saleCandidate.ledger_line_id));
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,ledgerBeforeMatch);
   assert.equal((await postedReadApi({method:'GET',url:sourceBankUrl,headers:{}})).status,403);
   const saleRecId=randomUUID();
   await adminPool.query(`INSERT INTO reconciliation(reconciliation_id,tenant_id,entity_id,bank_account_ref,statement_ending_date,statement_ending_balance,difference,status)
