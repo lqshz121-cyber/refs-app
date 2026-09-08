@@ -5239,15 +5239,17 @@ pgTest('payment bank candidate keyset pages remain bounded over 100001 distinct 
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'volume-matcher'}),kernelFactory:async()=>matcher});
   const root=`/api/v1/entities/${ids.entityId}/bank/transactions/${bankSourceId}/payment-candidates`,get=query=>api({method:'GET',url:root+query,headers:{}});
   const started=Date.now(),first=await get('?limit=100');assert.equal(first.status,200,JSON.stringify(first.body));
+  const firstMs=Date.now()-started;
   assert.equal(first.body.data.rows.length,100);assert.equal(first.body.data.next_id,'00000000-0000-4000-8000-000000000100');
   const second=await get(`?limit=100&afterId=${first.body.data.next_id}`);assert.equal(second.status,200);assert.equal(second.body.data.rows[0].payment_occurrence_id,'00000000-0000-4000-8000-000000000101');
+  const secondMs=Date.now()-started-firstMs;
   const tail=await get('?limit=100&afterId=00000000-0000-4000-8000-000000100000');assert.equal(tail.status,200);assert.equal(tail.body.data.rows.length,1);assert.equal(tail.body.data.next_id,null);
   assert.equal(tail.body.data.rows[0].amount,'40.0000');assert.equal(tail.body.data.rows[0].journal_number,'PERF-CANDIDATE-100001');
   const elapsed=Date.now()-started;console.log(`# payment candidate first/second/deep pages over 100001 posted traces: ${elapsed}ms`);
-  assert.ok(elapsed<5000,'Three real API pages over 100001 posted traces must finish within five seconds');
+  console.log('# payment candidate page timings '+JSON.stringify({firstMs,secondMs,deepMs:elapsed-firstMs-secondMs,totalMs:elapsed}));
   // Explain the exact migration candidate query, not an uninformative outer
   // Function Scan. Parameters below mirror the bank row and requested page.
-  const sql=await readFile(new URL('../db/migrations/324_payment_bank_candidates.sql',import.meta.url),'utf8');
+  const sql=await readFile(new URL('../db/migrations/325_payment_candidate_query_order.sql',import.meta.url),'utf8');
   let candidate=sql.slice(sql.indexOf('  WITH candidates AS MATERIALIZED ('),sql.indexOf('  ), page AS'))+'  ) SELECT * FROM candidates';
   for(const [name,value] of Object.entries({'bank_row.bank_source_id':'$3::uuid','bank_row.bank_account_ref':'$4::text','bank_row.currency':'$5::char(3)','bank_row.amount':'$6::numeric','bank_row.transaction_date':'$7::date','p_bank_source':'$3::uuid','p_tenant':'$1::uuid','p_entity':'$2::uuid','p_after':'$8::uuid','p_limit':'$9::integer'}))candidate=candidate.replaceAll(name,value);
   for(const afterId of [null,'00000000-0000-4000-8000-000000100000']){
@@ -5255,9 +5257,18 @@ pgTest('payment bank candidate keyset pages remain bounded over 100001 distinct 
     // role; runtime RLS on direct tables would describe a different plan.
     const plan=(await adminPool.query('EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) '+candidate,[ids.tenantId,ids.entityId,bankSourceId,'BANK-1','USD',-40,'2026-07-16',afterId,100])).rows[0]['QUERY PLAN'][0];
     console.log('# payment candidate plan '+JSON.stringify({afterId,...plan}));
+    const checkVisited=node=>{
+      if(['payment_occurrence','journal_entry','journal_line','ledger_line'].includes(node['Relation Name'])){
+        const visited=((node['Actual Rows']||0)+(node['Rows Removed by Filter']||0))*(node['Actual Loops']||0);
+        assert.ok(visited<=1010,`Dense candidate page must not visit the complete ${node['Relation Name']} population: ${visited}`);
+      }
+      for(const child of node.Plans||[])checkVisited(child);
+    };
+    checkVisited(plan.Plan);
     assert.ok(plan['Execution Time']<5000,'Candidate execution plan must remain bounded');
   }
   assert.deepEqual(await counts(),before,'Candidate pages do not mutate accounting or audit data');
+  assert.ok(elapsed<5000,'Three real API pages over 100001 posted traces must finish within five seconds');
 });
 
 pgTest('Stage 2 test-data chain traces one reconciled bank payment through its posted JE, GL, TB and report rows',async()=>{
