@@ -61,6 +61,13 @@ assert.doesNotMatch(mismatchedBankDetail,/Bank match candidate review|Active Mat
 const activeMatchDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={activeMatchRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}}/>);
 assert.match(activeMatchDetail,/Business source document/);assert.match(activeMatchDetail,/Journal entry/);assert.match(activeMatchDetail,/Journal line/);assert.match(activeMatchDetail,/Ledger line/);assert.match(activeMatchDetail,/Unavailable from the active-Match read/);assert.match(activeMatchDetail,/Matched by/);assert.match(activeMatchDetail,/Matched at/);assert.match(activeMatchDetail,/Match version/);assert.match(activeMatchDetail,/Active Match retained/);assert.match(activeMatchDetail,/Journal reference retained/);
 const historicalMatchDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={historicalMatchRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}} config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
+const cashMatchRow={...activeMatchRow,match_source_kind:'SALES_RECEIPT',payment_occurrence_id:null,business_source_document_id:null,sales_receipt_id:'77777777-7777-4777-8777-777777777777',sales_receipt_number:'SALE-001',sales_receipt_revision:'9007199254740993',ledger_line_id:'88888888-8888-4888-8888-888888888888',candidate_rule_code:'EXACT_POSTED_SALES_RECEIPT'};
+for(const status of ['ACTIVE','UNMATCHED']){
+  const markup=renderToStaticMarkup(<AuthoritativeBankDetail row={{...cashMatchRow,match_status:status}} scope={{entityId:config.entityId,bankAccountRef:'BANK-1'}} onBack={()=>{}}/>);
+  assert.match(markup,/<summary>Sales receipt SALE-001<\/summary>/);assert.match(markup,/Sales receipt ID/);
+  assert.match(markup,/77777777-7777-4777-8777-777777777777/);assert.match(markup,/88888888-8888-4888-8888-888888888888/);assert.match(markup,/9007199254740993/);
+  assert.doesNotMatch(markup,/Unavailable from the active-Match read/);assert.doesNotMatch(markup,/<i>Business source document<\/i>/);
+}
 assert.match(historicalMatchDetail,/Match correction blocked/);assert.match(historicalMatchDetail,/not ACTIVE/);assert.match(historicalMatchDetail,/READ ONLY HISTORY/);assert.doesNotMatch(historicalMatchDetail,/Unmatch evidence/);
 
 const reconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={reconciliationRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31'}}/>);
