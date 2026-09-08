@@ -5103,6 +5103,12 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   // native commands share the same nullable occurrence/source match contract.
   assert.equal((await adminPool.query('SELECT business_source_document_id FROM bank_match WHERE bank_match_id=$1',[created.bank_match_id])).rows[0].business_source_document_id,null);
   const readApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'bank-null-source-reader'}),kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bank-null-source-reader',['BANK.VIEW'])})});
+  const typedPaymentRead=await readApi({method:'GET',url:`/api/v1/entities/${ids.entityId}/bank/transactions?bankAccountRef=BANK-1`,headers:{}});
+  assert.equal(typedPaymentRead.status,200,JSON.stringify(typedPaymentRead.body));
+  const typedPaymentRow=typedPaymentRead.body.data.find(row=>row.bank_source_id===bankSourceId);
+  assert.equal(typedPaymentRow.match_source_kind,'PAYMENT');assert.equal(typedPaymentRow.payment_occurrence_id,exact.payment.payment_occurrence_id);
+  assert.equal(typedPaymentRow.sales_receipt_id,null);assert.equal(typedPaymentRow.sales_receipt_number,null);assert.equal(typedPaymentRow.sales_receipt_revision,null);
+  assert.equal(typedPaymentRow.ledger_line_id,evidence.ledger_line_id);
   const clientConfig={baseUrl:'https://fixture.example',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>'fixture-token-'.repeat(4)};
   const clientFetch=async(url,options)=>{const result=await readApi({method:options.method,url:new URL(url).pathname+new URL(url).search,body:null,headers:options.headers});return {ok:result.status>=200&&result.status<300,status:result.status,json:async()=>JSON.parse(JSON.stringify(result.body))};};
   const {refreshAuthoritativeBankTransactions,refreshAuthoritativeReconciliationWorksheet}=await import('../../src/accounting-api.js');
@@ -6520,6 +6526,36 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,ledgerBeforeMatch);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type='SALES_RECEIPT_BANK_MATCH_CREATED'",[matched.body.data.bank_match_id])).rows[0].n,1);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type='SALES_RECEIPT_BANK_MATCH_CREATED'",[matched.body.data.bank_match_id])).rows[0].n,1);
+  const saleBankReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'sale-bank-reader',['BANK.VIEW'])});
+  const saleBankReadApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'sale-bank-reader'}),kernelFactory:async()=>saleBankReader});
+  const sourceBankUrl=`${root}/bank/transactions?bankAccountRef=BANK-1`;
+  const typedBankRead=await saleBankReadApi({method:'GET',url:sourceBankUrl,headers:{}});
+  assert.equal(typedBankRead.status,200,JSON.stringify(typedBankRead.body));
+  const assertSaleSource=row=>{
+    assert.equal(row.match_source_kind,'SALES_RECEIPT');assert.equal(row.sales_receipt_id,receipt.sales_receipt_id);
+    assert.equal(row.sales_receipt_number,saleCandidate.receipt_number);assert.equal(row.sales_receipt_revision,'1');
+    assert.equal(row.payment_occurrence_id,null);assert.equal(row.business_source_document_id,null);
+    assert.equal(row.ledger_line_id,saleCandidate.ledger_line_id);assert.equal(row.amount,'1.2345');
+  };
+  assertSaleSource(typedBankRead.body.data.find(row=>row.bank_source_id===saleBankId));
+  assert.equal((await postedReadApi({method:'GET',url:sourceBankUrl,headers:{}})).status,403);
+  const saleRecId=randomUUID();
+  await adminPool.query(`INSERT INTO reconciliation(reconciliation_id,tenant_id,entity_id,bank_account_ref,statement_ending_date,statement_ending_balance,difference,status)
+    VALUES($1,$2,$3,'BANK-1','2026-07-31',1.2345,0,'DRAFT')`,[saleRecId,ids.tenantId,ids.entityId]);
+  const sourceWorksheetArgs={...ids,reconciliationId:saleRecId};
+  assertSaleSource((await saleBankReader.listReconciliationWorksheet(sourceWorksheetArgs)).find(row=>row.bank_source_id===saleBankId));
+  assertSaleSource(await saleBankReader.getReconciliationWorksheetItem({...sourceWorksheetArgs,bankSourceId:saleBankId}));
+  await migrateDownThrough(adminPool,'322_bank_match_typed_source_read.sql');
+  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_list_bank_transactions_v2(uuid,uuid,text,date,date,integer,integer)') IS NULL removed")).rows[0].removed,true);
+  assert.equal((await adminPool.query('SELECT sales_receipt_id FROM bank_match WHERE bank_match_id=$1',[matched.body.data.bank_match_id])).rows[0].sales_receipt_id,receipt.sales_receipt_id);
+  await migrateUp(adminPool);
+  assertSaleSource(await saleBankReader.getReconciliationWorksheetItem({...sourceWorksheetArgs,bankSourceId:saleBankId}));
+  const saleUnmatcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'sale-bank-unmatcher',['BANK.MATCH.UNMATCH'])});
+  await saleUnmatcher.unmatchBankPayment({...ids,bankSourceId:saleBankId,bankMatchId:matched.body.data.bank_match_id,expectedMatchVersion:0,reason:'Verify cash sale unmatched source history',idempotencyKey:'sale-source-unmatch-001'});
+  const history=(await saleBankReader.listBankTransactions({...ids,bankAccountRef:'BANK-1'})).find(row=>row.bank_source_id===saleBankId);
+  assert.equal(history.match_status,'UNMATCHED');assertSaleSource(history);
+  const unmatchedWorksheet=await saleBankReader.getReconciliationWorksheetItem({...sourceWorksheetArgs,bankSourceId:saleBankId});
+  for(const field of ['match_source_kind','sales_receipt_id','sales_receipt_number','sales_receipt_revision','payment_occurrence_id','ledger_line_id'])assert.equal(unmatchedWorksheet[field],null);
   assert.deepEqual(await counts(),{sales:1,documents:0,allocations:0});
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type=ANY($2::text[])',[receipt.sales_receipt_id,['SALES_RECEIPT_DRAFT_CREATED','SALES_RECEIPT_POSTED']])).rows[0].n,2);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type=ANY($2::text[])',[receipt.sales_receipt_id,['SALES_RECEIPT_DRAFT_CREATED','SALES_RECEIPT_POSTED']])).rows[0].n,2);
