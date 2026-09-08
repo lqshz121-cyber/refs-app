@@ -11,6 +11,23 @@ const validUntil='2026-08-24T00:00:00.000Z';
 const base={NODE_ENV:'production',REFS_DEPLOYMENT_ENV:'staging',REFS_WORKFLOW_ROLE_CONFIRM:'AUTHORITATIVE_WORKFLOW_ROLE_ONLY',REFS_STAGE1_TENANT_ID:'11111111-1111-4111-8111-111111111111',REFS_STAGE1_ENTITY_ID:'22222222-2222-4222-8222-222222222222',REFS_WORKFLOW_ROLE:'WBS_PAYABLE_MAKER',REFS_WORKFLOW_GRANT_VALID_UNTIL:validUntil,REFS_WORKFLOW_GRANT_EXPECTED_VERSION:'2',REFS_WORKFLOW_GRANT_IDEMPOTENCY_KEY:'workflow-maker-0001',REFS_AUTHENTICATED_ACCESS_TOKEN:'opaque',OIDC_ISSUER:'https://issuer.example',OIDC_AUDIENCE:'refs',OIDC_JWKS_URI:'https://issuer.example/jwks'};
 const permissions=role=>AUTHORITATIVE_WORKFLOW_ROLES[role].permissions;
 
+test('sales receipt entry has native Draft and upload without later accounting authority',()=>{
+  const role=AUTHORITATIVE_WORKFLOW_ROLES.AR_SALES_RECEIPT_ENTRY_MAKER;
+  assert.equal(role.authorityClass,'DRAFT');
+  assert.deepEqual(role.permissions.filter(p=>!p.endsWith('.VIEW')),['AR.SALES_RECEIPT.CREATE','ATTACHMENT.CREATE']);
+  assert.equal(assertWorkflowRoleSafety(role),role);
+  for(const permission of ['GL.JE.SUBMIT','GL.JE.REVIEW','GL.JE.APPROVE','GL.JE.POST'])assert.throws(()=>assertWorkflowRoleSafety({...role,permissions:[...role.permissions,permission]}),{code:'WORKFLOW_ROLE_SCOPE_DENIED'});
+});
+
+test('each service role resolves only its own configured worker identity',()=>{
+  const actors={OUTBOX_DISPATCH_ACTOR_ID:'outbox-worker',WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID:'wbs-worker',ATTACHMENT_SCANNER_ACTOR_ID:'scan-worker',ATTACHMENT_CLEANUP_ACTOR_ID:'cleanup-worker'};
+  for(const [role,key] of [['OUTBOX_DISPATCHER_SERVICE','OUTBOX_DISPATCH_ACTOR_ID'],['WBS_SNAPSHOT_IMPORTER_SERVICE','WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID'],['ATTACHMENT_SCANNER_SERVICE','ATTACHMENT_SCANNER_ACTOR_ID'],['ATTACHMENT_CLEANUP_SERVICE','ATTACHMENT_CLEANUP_ACTOR_ID']]){
+    const env={...base,...actors,REFS_WORKFLOW_ROLE:role};
+    assert.equal(authoritativeWorkflowRoleGrantConfig(env).serviceActorId,actors[key]);
+    assert.throws(()=>authoritativeWorkflowRoleGrantConfig({...env,[key]:''}),new RegExp(`${key} is required`));
+  }
+});
+
 test('counterparty maker and approver remain separate in runtime policy before grant synchronization',()=>{
   assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.COUNTERPARTY_MAKER.authorityClass,'DRAFT');
   assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.COUNTERPARTY_APPROVER.authorityClass,'APPROVE');

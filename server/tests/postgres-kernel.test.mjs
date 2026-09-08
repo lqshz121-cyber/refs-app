@@ -2376,14 +2376,14 @@ pgTest('production reads fall back to existing read grants while invalid write a
 });
 
 pgTest('attachment entry authority supports exact formal maker roles and denies unanchored or approval bundles',async()=>{
-  const ids=await seed({attachmentStatus:null});
+  const ids=await seed({attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'400000',accountName:'Sales revenue'}],extraMembers:[{memberRef:'CUSTOMER-ENTRY',memberType:'CUSTOMER',displayName:'Entry customer'}]});
   await migrateDownThrough(adminPool,'331_attachment_entry_authority.sql');
   assert.equal((await adminPool.query("SELECT to_regprocedure('refs_reconcile_actor_grants_v3(uuid,text,uuid,text[],text,timestamptz,bigint,text,text)') fn")).rows[0].fn,null);
   await migrateUp(adminPool);
   const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
   const validUntil=new Date(Date.now()+3600000).toISOString();
   const scope={tenantId:ids.tenantId,entityId:ids.entityId,validUntil,expectedVersion:0};
-  for(const roleName of ['AP_BILL_ENTRY_MAKER','AR_INVOICE_ENTRY_MAKER','AP_PAYMENT_ENTRY_MAKER','AR_RECEIPT_ENTRY_MAKER']){
+  for(const roleName of ['AP_BILL_ENTRY_MAKER','AR_INVOICE_ENTRY_MAKER','AP_PAYMENT_ENTRY_MAKER','AR_RECEIPT_ENTRY_MAKER','AR_SALES_RECEIPT_ENTRY_MAKER']){
     const role=AUTHORITATIVE_WORKFLOW_ROLES[roleName],actorId=`upload-entry-${roleName}`;
     const args={...scope,actorId,permissions:[...role.permissions],authorityClass:role.authorityClass,idempotencyKey:`entry-grant-${roleName}`};
     const result=await sync.reconcile(args);
@@ -2394,6 +2394,11 @@ pgTest('attachment entry authority supports exact formal maker roles and denies 
     const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})});
     const uploaded=await kernel.reserveAttachment({tenantId:ids.tenantId,entityId:ids.entityId,name:'entry.pdf',mediaType:'application/pdf',sizeBytes:42,contentHash:hash(roleName),storageRef:`object://attachments/${randomUUID()}`,storageVersion:'pending:entry-proof',idempotencyKey:`entry-upload-${roleName}`});
     assert.equal(uploaded.status,'PENDING');
+    if(roleName==='AR_SALES_RECEIPT_ENTRY_MAKER'){
+      const sale=await kernel.createNativeSalesReceipt({...ids,number:'ENTRY-SALE-1',customerRef:'CUSTOMER-ENTRY',bankMemberRef:'BANK-1',cashAccountCode:'111000',categoryAccountCode:'400000',date:'2026-07-18',currency:'USD',amount:'42.0000',reason:'Formal role cash sale',attachmentIds:[ids.attachmentId],idempotencyKey:'formal-entry-sale-0001'});
+      assert.equal(sale.status,'DRAFT');
+      assert.equal((await adminPool.query('SELECT created_by,status::text status FROM journal_entry WHERE journal_entry_id=$1',[sale.journal_entry_id])).rows[0].created_by,actorId);
+    }
     await kernel.inSession(async client=>{
       for(const permission of role.permissions)assert.equal((await client.query('SELECT refs_entity_has_permission($1,$2) allowed',[ids.entityId,permission])).rows[0].allowed,true);
       assert.equal((await client.query("SELECT refs_entity_has_permission($1,'GL.JE.POST') allowed",[ids.entityId])).rows[0].allowed,false);
@@ -2412,8 +2417,8 @@ pgTest('attachment entry authority supports exact formal maker roles and denies 
   const counts=await count();
   for(const [index,[authorityClass,permissions]] of invalid.entries())await assert.rejects(sync.reconcile({...scope,actorId:`bad-upload-${index}`,authorityClass,permissions,idempotencyKey:`invalid-upload-${index}`}),e=>e.code==='42501');
   assert.deepEqual(await count(),counts);
-  assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE grant_policy_version='SOD_FINITE_V2'")).rows[0].n,9);
-  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE event_type='ACTOR_GRANTS_RECONCILED' AND metadata->>'grant_policy_version'='SOD_FINITE_V2'")).rows[0].n,9);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE grant_policy_version='SOD_FINITE_V2'")).rows[0].n,11);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE event_type='ACTOR_GRANTS_RECONCILED' AND metadata->>'grant_policy_version'='SOD_FINITE_V2'")).rows[0].n,11);
   await assert.rejects(migrateDownThrough(adminPool,'331_attachment_entry_authority.sql'),e=>e.code==='55006');
   await migrateUp(adminPool);
   assert.deepEqual(await count(),counts);
