@@ -7528,6 +7528,12 @@ async function exerciseFixedAssetLedger(assessmentAfterDisposal=false,impairment
    do{const response=await movementApi({method:'GET',url:'/api/v1/entities/'+ids.entityId+'/fixed-assets/register/'+receipt.fixed_asset_register_evidence_id+'/movements?asOfDate=2026-07-31&limit=3'+(movementCursor?'&after='+encodeURIComponent(movementCursor):'')});assert.equal(response.status,200,JSON.stringify(response.body));movements.push(...response.body.data.rows);movementCursor=response.body.data.next_cursor;firstCursor??=movementCursor;assert.ok(movements.length<=11);}while(movementCursor);
    assert.equal(movements.length,includeImpairmentReversal?11:8);assert.equal(new Set(movements.map(item=>item.ledger_line_id)).size,movements.length);
 
+   const analysisReader=await formalWorkflowRoleKernel(ids,'asset-analysis-json-reader','AI_CONTROLLER_REVIEWER');
+   for(const method of ['getAiFixedAssetPostedReconciliation',...(impairmentPosted?['getAiFixedAssetImpairmentAssessments','getAiFixedAssetImpairmentPostedReconciliation']:[])]){
+    const analysisRows=await analysisReader[method]({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId});assert.ok(analysisRows.length>0,method+' must exercise a populated JSON result');
+    for(const evidence of analysisRows){assert.equal(evidence.fixed_asset_register_evidence_id,receipt.fixed_asset_register_evidence_id,method);assert.equal(evidence.period_id,ids.periodId,method);assert.ok(Object.keys(evidence).every(key=>!key.startsWith('refs_read_')),method+' must expose evidence rather than a driver column wrapper');}
+   }
+
    // Remove one proof family in the disposable fixture, use the real runtime
    // connection to read it, then restore the exact retained row in finally.
    for(const table of ['fixed_asset_original_source_binding','fixed_asset_acquisition_posting']){

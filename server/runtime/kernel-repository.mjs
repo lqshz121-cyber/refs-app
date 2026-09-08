@@ -2490,23 +2490,23 @@ export class PostgresAccountingKernel{
 
   async getAiBudgetVariancePolicy({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_budget_variance_policy($1,$2,$3) AS policy',[tenantId,entityId,accountingPeriodId])).rows[0]?.policy??null);}
 
-  async getAiPrepaidBalanceReconciliationSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_prepaid_balance_reconciliation_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+  async getAiPrepaidBalanceReconciliationSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_prepaid_balance_reconciliation_source($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
-  async getAiFixedAssetDepreciationGapSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_depreciation_gap_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+  async getAiFixedAssetDepreciationGapSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_fixed_asset_depreciation_gap_source($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
   async getAiFixedAssetDepreciationSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_fixed_asset_depreciation_source($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
-  async getAiFixedAssetPostedReconciliation({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_posted_reconciliation($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+  async getAiFixedAssetPostedReconciliation({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_fixed_asset_posted_reconciliation($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
-  async getAiFixedAssetDisposalGapSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_disposal_gap_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+  async getAiFixedAssetDisposalGapSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_fixed_asset_disposal_gap_source($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
   async getAiReviewedFixedAssetDisposals({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_reviewed_fixed_asset_disposals($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
 
-  async getAiFixedAssetPostDisposalDepreciation({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_post_disposal_depreciation($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+  async getAiFixedAssetPostDisposalDepreciation({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_fixed_asset_post_disposal_depreciation($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
-  async getAiFixedAssetImpairmentAssessments({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_impairment_assessments($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+  async getAiFixedAssetImpairmentAssessments({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_fixed_asset_impairment_assessments($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
-  async getAiFixedAssetImpairmentPostedReconciliation({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_impairment_posted_reconciliation($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+  async getAiFixedAssetImpairmentPostedReconciliation({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_fixed_asset_impairment_posted_reconciliation($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
   async getAiApAgingRiskSource({tenantId,entityId,asOfDate}){
     return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_ap_aging_risk_source($1,$2,$3::date)',[tenantId,entityId,asOfDate])).rows.map(row=>({...row,aging_date:publicDate(row.aging_date)})));
