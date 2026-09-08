@@ -1,3 +1,4 @@
+import {matchesAssetMovementJournal} from './asset-movement-journal-contract.js';
 import React,{useEffect,useRef,useState} from 'react';
 import {refreshAuthoritativeFixedAssetMovements,readAuthoritativeJournalEntryDetail,readAuthoritativeSourceDocumentDetail} from './accounting-api.js';
 import {AuthoritativeLineageDrill} from './authoritative-lineage-drill.jsx';
@@ -17,8 +18,8 @@ export function AuthoritativeFixedAssetMovements({config,assetId,asOfDate,fetche
   if(token!==generation.current)return;setBusy(false);
   if(!result.ok){setError(result.message);return;}
   if(kind==='JOURNAL'){
-   const journal=result.journal,line=journal.lines?.find(item=>item.journal_line_id===row.journal_line_id);
-   if(journal.status!=='POSTED'||journal.currency!==row.currency||!line||line.ledger_line_id!==row.ledger_line_id||line.account_code!==row.account_code||line.debit_amount!==row.debit_amount||line.credit_amount!==row.credit_amount){setError('The journal no longer matches the selected asset activity.');return;}
+   const journal=result.journal;
+   if(!matchesAssetMovementJournal(journal,row)){setError('The journal no longer matches the selected asset activity.');return;}
    setDrill({config:scoped,initial:{kind,journal,context:{entityId:config.entityId,periodId:row.accounting_period_id,journalId:journal.journal_entry_id,journalRevision:journal.revision,journalCurrency:journal.currency}}});
   }else{
    const detail=result.detail;

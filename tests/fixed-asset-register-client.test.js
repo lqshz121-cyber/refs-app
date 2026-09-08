@@ -1,3 +1,4 @@
+import {matchesAssetMovementJournal} from '../src/asset-movement-journal-contract.js';
 import {movementFixture} from '../server/tests/fixtures/fixed-asset-movement.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,3 +18,14 @@ test('invalid dates and missing sessions do not issue asset network requests',as
 test('asset response rejects missing trusted tenant and closed-state corruption',()=>{assert.equal(validateFixedAssetRegister(snapshot(),{entityId:id(1),asOfDate}),null);for(const patch of [{member_trace:[]},{unexpected:true},{disposal_source_payload_hash:'sha256:'+'c'.repeat(64)},{status:'REGISTERED',posted_ledger_line_count:0}])assert.equal(validateFixedAssetRegister(snapshot([{...asset,...patch}]),{tenantId:id(2),entityId:id(1),asOfDate}),null);});
 
 test('asset movement client preserves exact ledger identities and blocks cross-asset evidence',async()=>{const data=movementFixture({tenantId:id(2),entityId:id(1),assetId:id(3),asOfDate});let seen;const result=await refreshAuthoritativeFixedAssetMovements({config,assetId:id(3),asOfDate,fetcher:async(url,options)=>{seen={url,options};return reply(data);}});assert.equal(result.ok,true);assert.match(seen.url,/register.*movements/);assert.equal(seen.options.body,undefined);assert.equal(result.data.rows[0].source_binding_status,'BLOCKED_MISSING_EXACT_SOURCE_BINDING');assert.equal((await refreshAuthoritativeFixedAssetMovements({config,assetId:id(4),asOfDate,fetcher:async()=>reply(data)})).code,'FIXED_ASSET_PROTOCOL');});
+
+test('asset journal drill rejects drift outside the selected line and changed journal identity',()=>{
+ const row=movementFixture({tenantId:id(2),entityId:id(1),assetId:id(3),asOfDate}).rows[0];
+ const journal={...row,status:'POSTED',lines:[{...row,source_document_ids:[]},{journal_line_id:id(91),ledger_line_id:id(92),account_code:'300100',debit_amount:'0.0000',credit_amount:'25000.0000',dimensions:{},source_document_ids:[]}]};
+ assert.equal(matchesAssetMovementJournal(journal,row),true);
+ for(const field of ['journal_number','journal_date'])assert.equal(matchesAssetMovementJournal({...journal,[field]:'changed'},row),false);
+ assert.equal(matchesAssetMovementJournal({...journal,lines:journal.lines.slice(0,1)},row),false);
+ assert.equal(matchesAssetMovementJournal({...journal,lines:[journal.lines[0],{...journal.lines[1],credit_amount:'25001.0000'}]},row),false);
+ assert.equal(matchesAssetMovementJournal({...journal,lines:[{...journal.lines[0],dimensions:{fixed_asset_register_evidence_id:id(99)}},journal.lines[1]]},row),false);
+ assert.equal(matchesAssetMovementJournal({...journal,lines:[journal.lines[0],{...journal.lines[1],credit_amount:'-25000.0000'}]},row),false);
+});
