@@ -7300,8 +7300,15 @@ async function cloneAssetReadFixture(ids,baseId,suffix){
  await adminPool.query('INSERT INTO fixed_asset_register_evidence SELECT * FROM jsonb_populate_record(NULL::fixed_asset_register_evidence,$1::jsonb)',[JSON.stringify({...template.asset,fixed_asset_register_evidence_id:assetId,capitalization_proposal_id:proposalId,asset_tag:'CLONE-'+suffix,register_evidence_hash:hash('clone-asset-'+suffix)})]);return assetId;
 }
 
+pgTest('fixed asset mandatory acquisition migration roundtrips before retaining bindings',async()=>{
+ const name='343_fixed_asset_acquisition_required.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect();try{await client.query('BEGIN');await client.query(bodies.down);assert.equal((await client.query("SELECT count(*)::int n FROM pg_trigger WHERE tgname='fixed_asset_acquisition_required_guard'")).rows[0].n,0);await client.query(bodies.up);assert.equal((await client.query("SELECT count(*)::int n FROM pg_trigger WHERE tgname='fixed_asset_acquisition_required_guard'")).rows[0].n,1);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
 async function exerciseFixedAssetLedger(assessmentAfterDisposal=false,impairmentPosted=false,includeImpairmentReversal=false,bookedImpairmentAmount=5000,bindAssessment=true,wrongImpairmentExpense=false,bindDisposalSource=true,prebindSpare=false,futureMovement=false,readProof=false){
-  const {ids,trace,receipt}=await reviewedFixedAssetFixture();
+  const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
+  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
   const disposalTrace=await attachAutoSource({...ids,journalId:randomUUID()},{linkJournal:false,reuseApprovedSnapshots:true,sourceRecordPrefix:'DISPOSAL'});
   await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT',version=1 WHERE source_document_id=$1",[disposalTrace.documentId]);
   await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name) VALUES($1,$2,'680200','Impairment expense'),($1,$2,'159200','Accumulated impairment'),($1,$2,'780100','Asset disposal gain')",[ids.tenantId,ids.entityId]);
@@ -7318,7 +7325,7 @@ async function exerciseFixedAssetLedger(assessmentAfterDisposal=false,impairment
   const dimensions={fixed_asset_register_evidence_id:receipt.fixed_asset_register_evidence_id};
   const line=(line_no,account_code,debit_amount,credit_amount,member_ref=null)=>({line_no,account_code,debit_amount,credit_amount,member_ref,dimensions});
   async function postAssetJournal(number,date,lines,prepareOnly=false){
-    const created=await roles.AI_ACCOUNTING_DECISION_MAKER.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalNumber:number,journalDate:date,currency:'USD',description:'Reviewed fixture asset ledger transaction',attachmentIds:[ids.attachmentId],idempotencyKey:number+'-create',lines});
+    const created=number==='ASSET-ACQUISITION'?await roles.AI_ACCOUNTING_DECISION_MAKER.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:number,journalDate:date,expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Acquire building using independently reviewed source evidence.',idempotencyKey:number+'-native-create'}):await roles.AI_ACCOUNTING_DECISION_MAKER.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalNumber:number,journalDate:date,currency:'USD',description:'Reviewed fixture asset ledger transaction',attachmentIds:[ids.attachmentId],idempotencyKey:number+'-create',lines});
     let bindingRevision=0;
     if(number.startsWith('ASSET-DISPOSAL')&&bindDisposalSource){
       const bindingArgs={tenantId:ids.tenantId,entityId:ids.entityId,fixedAssetRegisterEvidenceId:receipt.fixed_asset_register_evidence_id,journalEntryId:created.journal_entry_id,sourceDocumentId:disposalTrace.documentId,expectedSourceHash:hash('auto-doc'),expectedRevision:0,reason:'Maker verified the retained disposal source and exact asset draft.',idempotencyKey:number+'-bind-source'};
@@ -7368,7 +7375,7 @@ async function exerciseFixedAssetLedger(assessmentAfterDisposal=false,impairment
     assert.equal((await adminPool.query('SELECT count(*)::int n FROM fixed_asset_disposal_posting WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);return;
   }
   if(futureMovement==='CONCURRENT'){
-    const future=await postAssetJournal('ASSET-FUTURE-ADJUSTMENT','2026-07-26',[line(1,'150100',1000,0),line(2,'291001',0,1000,'VENDOR-1')],true);
+    const future=await postAssetJournal('ASSET-FUTURE-ADJUSTMENT','2026-07-26',[line(1,'680100',1000,0),line(2,'159100',0,1000)],true);
     const disposal=await postAssetJournal('ASSET-DISPOSAL','2026-07-25',disposalLines,true);
     const candidates=[future,disposal];
     const outcomes=await Promise.allSettled(candidates.map((journalEntryId,index)=>roles.JE_POSTER.postJournal({...ids,journalEntryId,expectedRevision:index===0?3:4,idempotencyKey:'future-disposal-race-'+index})));
@@ -7381,7 +7388,7 @@ async function exerciseFixedAssetLedger(assessmentAfterDisposal=false,impairment
     assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='JOURNAL_POSTED'",[ids.tenantId,loser])).rows[0].n,0);return;
   }
   if(futureMovement){
-    await postAssetJournal('ASSET-FUTURE-ADJUSTMENT','2026-07-26',[line(1,'150100',1000,0),line(2,'291001',0,1000,'VENDOR-1')]);
+    await postAssetJournal('ASSET-FUTURE-ADJUSTMENT','2026-07-26',[line(1,'680100',1000,0),line(2,'159100',0,1000)]);
     const draft=await postAssetJournal('ASSET-DISPOSAL','2026-07-25',disposalLines,true);
     const baseline=(await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
     await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:draft,expectedRevision:4,idempotencyKey:'backdated-disposal-post'}),e=>e.code==='23514');
@@ -7444,8 +7451,8 @@ async function exerciseFixedAssetLedger(assessmentAfterDisposal=false,impairment
    await assert.rejects(assetReader.readFixedAssetMovements({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-24',after:firstCursor}),e=>e.code==='22023');
    const financial=await roles.JE_REVIEWER.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId}),units=value=>BigInt(value.replace('.',''));
    for(const accountCode of new Set(movements.map(item=>item.account_code))){const statement=financial.find(item=>item.statement_type==='TRIAL_BALANCE'&&item.account_code===accountCode),lines=movements.filter(item=>item.account_code===accountCode);assert.ok(statement,'trial balance account '+accountCode);const debit=lines.reduce((sum,item)=>sum+units(item.debit_amount),0n),credit=lines.reduce((sum,item)=>sum+units(item.credit_amount),0n);assert.equal(units(statement.period_debit),debit);assert.equal(units(statement.period_credit),credit);assert.equal(units(statement.ending_debit),debit);assert.equal(units(statement.ending_credit),credit);assert.equal(units(statement.display_balance),debit-credit);
-    for(const item of lines){assert.ok(statement.ledger_line_ids.includes(item.ledger_line_id));assert.ok(statement.journal_line_ids.includes(item.journal_line_id));assert.ok(statement.journal_entry_ids.includes(item.journal_entry_id));const gl=report.rows.find(entry=>entry.ledger_line_id===item.ledger_line_id);assert.deepEqual(gl.source_document_ids,item.journal_entry_id===disposal?[disposalTrace.documentId]:[]);}
-    const expectedSources=lines.some(item=>item.journal_entry_id===disposal)?[disposalTrace.documentId]:[];assert.deepEqual(statement.source_document_ids,expectedSources);assert.ok(!statement.source_document_ids.includes(trace.documentId),'register or valuation source must not be inferred as posting source');
+    for(const item of lines){assert.ok(statement.ledger_line_ids.includes(item.ledger_line_id));assert.ok(statement.journal_line_ids.includes(item.journal_line_id));assert.ok(statement.journal_entry_ids.includes(item.journal_entry_id));const gl=report.rows.find(entry=>entry.ledger_line_id===item.ledger_line_id);assert.deepEqual(gl.source_document_ids,item.journal_entry_id===disposal?[disposalTrace.documentId]:item.journal_entry_id===acquisition?[trace.documentId]:[]);}
+    const expectedSources=[...(lines.some(item=>item.journal_entry_id===disposal)?[disposalTrace.documentId]:[]),...(lines.some(item=>item.journal_entry_id===acquisition)?[trace.documentId]:[])].sort();assert.deepEqual([...statement.source_document_ids].sort(),expectedSources);assert.equal(statement.source_document_ids.includes(trace.documentId),lines.some(item=>item.journal_entry_id===acquisition),'acquisition source is traced only from the exact posted source link');
    }
    const movementQuery={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-31'};
    const earlier=await assetReader.readFixedAssetMovements({...movementQuery,asOfDate:'2026-07-14'});assert.equal(earlier.rows.length,2);assert.ok(earlier.rows.every(item=>item.journal_entry_id===acquisition));
@@ -7599,17 +7606,27 @@ pgTest('native fixed asset acquisition derives a source-bound Draft and prevents
  const after=await counts();assert.equal(after.journals,before.journals+1);assert.equal(after.ledger,before.ledger);assert.equal(after.bindings,1);assert.equal(after.audits,1);
  // A second unposted Draft remains possible, but only one may acquire the asset.
  const second=await maker.createFixedAssetAcquisition({...args,journalNumber:'NATIVE-ASSET-2',idempotencyKey:'native-asset-draft-2'});
- for(const d of [draft,second])for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:d.journal_entry_id,action,expectedRevision,idempotencyKey:d.journal_entry_id+'-'+action});
+ const manual=await maker.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalNumber:'MANUAL-ASSET-BYPASS',journalDate:'2026-07-02',currency:'USD',description:'Attempt manual asset acquisition bypass',attachmentIds:[ids.attachmentId],idempotencyKey:'manual-asset-bypass-create',lines:lines.map((l,i)=>({...l,line_no:i+1}))});
+ const missingDimension=await maker.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalNumber:'ASSET-WITHOUT-DIMENSION',journalDate:'2026-07-02',currency:'USD',description:'Attempt omitted asset dimension bypass',attachmentIds:[ids.attachmentId],idempotencyKey:'asset-missing-dimension-create',lines:lines.map((l,i)=>({...l,line_no:i+1,dimensions:{}}))});
+ for(const d of [draft,second,manual,missingDimension])for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:d.journal_entry_id,action,expectedRevision,idempotencyKey:d.journal_entry_id+'-'+action});
+ const beforeManual=await counts();
+ await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:missingDimension.journal_entry_id,expectedRevision:3,idempotencyKey:'missing-dimension-post'}),e=>e.code==='23514');assert.deepEqual(await counts(),beforeManual);
+ await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:manual.journal_entry_id,expectedRevision:3,idempotencyKey:'manual-before-native-post'}),e=>e.code==='23514');assert.deepEqual(await counts(),beforeManual);
  const beforeDrift=await counts();
  await adminPool.query('UPDATE source_document SET version=version+1 WHERE source_document_id=$1',[trace.documentId]);
  await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:'native-acquisition-stale-post'}),e=>e.code==='23514');
  assert.deepEqual(await counts(),beforeDrift);
  await adminPool.query('UPDATE source_document SET version=version-1 WHERE source_document_id=$1',[trace.documentId]);
- await roles.JE_POSTER.postJournal({...ids,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:'native-acquisition-post'});
+ const race=await Promise.allSettled([
+ roles.JE_POSTER.postJournal({...ids,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:'native-acquisition-post'}),
+ roles.JE_POSTER.postJournal({...ids,journalEntryId:manual.journal_entry_id,expectedRevision:3,idempotencyKey:'manual-racing-native-post'})]);
+ assert.equal(race[0].status,'fulfilled');assert.equal(race[1].status,'rejected');assert.equal(race[1].reason.code,'23514');
  const posted=await counts();assert.equal(posted.ledger,before.ledger+2);assert.equal(posted.postings,1);
  await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:second.journal_entry_id,expectedRevision:3,idempotencyKey:'native-acquisition-duplicate-post'}),e=>['23514','23505'].includes(e.code));
  assert.deepEqual(await counts(),posted);
+ await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:manual.journal_entry_id,expectedRevision:3,idempotencyKey:'manual-after-native-post'}),e=>e.code==='23514');assert.deepEqual(await counts(),posted);
  await assert.rejects(adminPool.query('DELETE FROM fixed_asset_acquisition_binding WHERE journal_entry_id=$1',[draft.journal_entry_id]),e=>e.code==='55000');
+ const rollback=await readFile(new URL('../db/migrations/down/343_fixed_asset_acquisition_required.sql',import.meta.url),'utf8'),client=await adminPool.connect();try{await client.query('BEGIN');await assert.rejects(client.query(rollback.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'')),e=>e.code==='55006');}finally{try{await client.query('ROLLBACK');}finally{client.release();}}assert.deepEqual(await counts(),posted);
 });
 
 pgTest('native fixed asset acquisition migration roundtrips its source binding and posting guard',async()=>{
@@ -7632,5 +7649,5 @@ pgTest('native fixed asset acquisition source evidence rejects appended attachme
  assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[draft.journal_entry_id])).rows[0].status,'APPROVED');
  const name='342_fixed_asset_acquisition_source_evidence.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
  for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
- const client=await adminPool.connect();try{await client.query('BEGIN');await client.query(bodies.down);await client.query(bodies.up);assert.equal((await client.query("SELECT has_function_privilege('refs_app','refs_asset_acquisition_attachment_snapshot(uuid,uuid,uuid)','EXECUTE') allowed")).rows[0].allowed,false);assert.match((await client.query("SELECT pg_get_functiondef(oid) body FROM pg_proc WHERE proname='refs_guard_bound_asset_acquisition_post'")).rows[0].body,/sl.source_document_line_id=binding.source_document_line_id/);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+ const client=await adminPool.connect();try{await client.query('BEGIN');await assert.rejects(client.query(bodies.down),e=>e.code==='55006');}finally{try{await client.query('ROLLBACK');}finally{client.release();}}assert.deepEqual(await counts(),before);assert.equal((await adminPool.query('SELECT cardinality(attachment_ids) n FROM fixed_asset_acquisition_binding WHERE binding_id=$1',[draft.binding_id])).rows[0].n,1);assert.match((await adminPool.query("SELECT pg_get_functiondef(oid) body FROM pg_proc WHERE proname='refs_guard_bound_asset_acquisition_post'")).rows[0].body,/sl.source_document_line_id=binding.source_document_line_id/);
 });

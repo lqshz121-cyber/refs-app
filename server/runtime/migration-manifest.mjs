@@ -347,5 +347,6 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"339_fixed_asset_read_integrity.sql","up":"eb5470ee0c20b532213ee6d298cdb52896fb8c0a7dc69d35e3d2636a02a6f5b9","down":"b6f580b42a985430f8419cfa8964dddd2904d95a379127c255ddd798892365c2"}),
   Object.freeze({"name":"340_fixed_asset_posting_audit_identity.sql","up":"cab31c6fa573e41341d7bb17f5d7d040a6ed644cf04b56eea3b5ff7168eeaa0b","down":"5c6079cfbe2dfdb9a579de5e00bfb80feb582a8cb7d7c87e86c7ebf3855527cd"}),
   Object.freeze({"name":"341_fixed_asset_acquisition_draft.sql","up":"334019e29eb8d256bbf543c06e1dee91bbfbe4fd15f091dc7c729df3286d0861","down":"38d307d13d8455524435027c97644fe170913b6923e459808bf27e66320d4212"}),
-  Object.freeze({"name":"342_fixed_asset_acquisition_source_evidence.sql","up":"416f678099e6b431e4f368ea37709f46eeb2aee8eabdb0909876114190e6f096","down":"08e1be841f13fde5fbabdb5092e8248866b45d30bf5ba6bac52d285cb55668d4"}),
+  Object.freeze({"name":"342_fixed_asset_acquisition_source_evidence.sql","up":"416f678099e6b431e4f368ea37709f46eeb2aee8eabdb0909876114190e6f096","down":"0402ed791e08c3343f0dd07287801b8a0e2e00d20407bdbb7e801c77b2278425"}),
+  Object.freeze({"name":"343_fixed_asset_acquisition_required.sql","up":"426670cde710e73b3ac04456c41e19147da301445f0011b6fc26f644a31925d1","down":"a7198d761fc446bd29137f36df94157859d0709c8f2efc4a6bdafbbc3118956c"}),
 ]);

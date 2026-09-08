@@ -1,4 +1,9 @@
 BEGIN;
+DO $$ BEGIN
+ IF EXISTS(SELECT 1 FROM fixed_asset_acquisition_binding WHERE attachment_ids IS NOT NULL OR attachment_snapshot_hash IS NOT NULL) THEN
+  RAISE EXCEPTION 'Retained acquisition attachment evidence prevents migration rollback' USING ERRCODE='55006';
+ END IF;
+END;$$;
 CREATE OR REPLACE FUNCTION refs_create_fixed_asset_acquisition(p_tenant uuid,p_entity uuid,p_asset uuid,p_period uuid,p_number text,p_date date,p_source_version bigint,p_attachments uuid[],p_reason text,p_key text,p_hash text) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE actor text:=refs_current_actor(); asset fixed_asset_register_evidence; proposal ai_invoice_capitalization_proposal;
