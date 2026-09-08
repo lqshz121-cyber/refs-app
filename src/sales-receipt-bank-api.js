@@ -26,7 +26,11 @@ export async function readSalesBankCandidates({config,bankSourceId,afterId=null,
  }catch{return fail('Matching sales receipts could not be loaded. Check the connection and retry.');}
 }
 const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value)))),v=>v.toString(16).padStart(2,'0')).join('');
-const keyFor=command=>digest(['SALES_BANK_MATCH_V1',command.baseUrl,command.entityId,command.bankSourceId,command.bankRevision,command.actorId,command.nonce,command.body]);
+const keyFor=command=>digest(['SALES_BANK_MATCH_V2',command.baseUrl,command.entityId,command.bankSourceId,command.bankRevision,command.actorId,command.nonce,command.body,command.trace]);
+const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key));
+export async function validSalesBankCommand({config,command,bankSourceId=command?.bankSourceId,actorId=command?.actorId}={}){
+ try{return !!(configured(config)&&exact(command,['baseUrl','entityId','bankSourceId','bankRevision','actorId','body','trace','nonce','idempotencyKey'])&&command.baseUrl===config.baseUrl&&command.entityId===config.entityId&&command.bankSourceId===bankSourceId&&command.actorId===actorId&&typeof actorId==='string'&&actorId.length>0&&actorId.length<=200&&actorId===actorId.trim()&&!/[\x00-\x1f\x7f]/.test(actorId)&&uuid(command.nonce)&&uuid(bankSourceId)&&exact(command.body,['salesReceiptId','expectedReceiptRevision','reason'])&&uuid(command.body.salesReceiptId)&&reasonValid(command.body.reason)&&Number.isSafeInteger(command.body.expectedReceiptRevision)&&command.body.expectedReceiptRevision>=0&&typeof command.bankRevision==='string'&&/^(0|[1-9]\d*)$/.test(command.bankRevision)&&Number.isSafeInteger(Number(command.bankRevision))&&exact(command.trace,['journal_entry_id','journal_line_id','ledger_line_id'])&&Object.values(command.trace).every(uuid)&&command.idempotencyKey==='sales-bank-'+await keyFor(command));}catch{return false;}
+}
 export async function prepareSalesBankMatch({config,bank,candidate,bankRevision,reason,expectedActorId,fetcher=globalThis.fetch}={}){
  const normalizedReason=typeof reason==='string'?reason.trim():reason;
  const page={schema_version:'SALES_RECEIPT_BANK_CANDIDATES_V1',entity_id:config?.entityId,bank_source_id:bank?.bank_source_id,bank_revision:bankRevision,after_id:null,limit:1,rows:[candidate],next_id:null};
@@ -36,7 +40,7 @@ export async function prepareSalesBankMatch({config,bank,candidate,bankRevision,
  command.nonce=crypto.randomUUID();command.idempotencyKey='sales-bank-'+await keyFor(command);return {ok:true,command:Object.freeze(command)};
 }
 export async function sendSalesBankMatch({config,command,fetcher=globalThis.fetch}={}){
- if(!configured(config)||command?.baseUrl!==config.baseUrl||command.entityId!==config.entityId||!uuid(command.nonce)||!uuid(command.bankSourceId)||!uuid(command.body?.salesReceiptId)||!reasonValid(command.body.reason)||!Number.isSafeInteger(command.body.expectedReceiptRevision)||command.body.expectedReceiptRevision<0||!/^\d+$/.test(command.bankRevision)||!Number.isSafeInteger(Number(command.bankRevision))||!['journal_entry_id','journal_line_id','ledger_line_id'].every(k=>uuid(command.trace?.[k]))||command.idempotencyKey!=='sales-bank-'+await keyFor(command))return fail('The saved match request does not belong to this company or has changed.');
+ if(!await validSalesBankCommand({config,command}))return fail('The saved match request does not belong to this company or has changed.');
  const access=await identity(config,fetcher);if(!access.ok)return access;if(access.actorId!==command.actorId)return fail('Restore the original sign-in to confirm this match request.');
  try{
   const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/bank/transactions/${command.bankSourceId}/sales-receipt-matches`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json',...access.headers,'idempotency-key':command.idempotencyKey,'if-match':`"${command.bankRevision}"`},body:JSON.stringify(command.body)});

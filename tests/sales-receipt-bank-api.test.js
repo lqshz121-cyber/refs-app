@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {readSalesBankCandidates,prepareSalesBankMatch,sendSalesBankMatch} from '../src/sales-receipt-bank-api.js';
+import {readSalesBankCandidates,prepareSalesBankMatch,sendSalesBankMatch,validSalesBankCommand} from '../src/sales-receipt-bank-api.js';
+import {reserveSalesBankIntent,readSalesBankIntent,releaseSalesBankIntent,SalesBankRecoveryError} from '../src/sales-receipt-bank-recovery.js';
 const id=n=>`${n.repeat(8)}-${n.repeat(4)}-4${n.repeat(3)}-8${n.repeat(3)}-${n.repeat(12)}`;
 const config={baseUrl:'https://fixture.example',entityId:id('1'),periodId:id('2'),getAccessToken:async()=>'fixture-token-'.repeat(4)};
 const bank={bank_source_id:id('3'),version:2,bank_account_ref:'BANK-1',currency:'USD',amount:'1.2345',bank_match_id:null};
@@ -7,6 +8,14 @@ const candidate={sales_receipt_id:id('4'),receipt_revision:'1',receipt_number:'S
 const access=actor=>({ok:true,data:{tenant_id:id('8'),entity_id:config.entityId,actor_id:actor,grant_set_version:1,permissions:['BANK.MATCH.CREATE'],configured_permissions:['BANK.MATCH.CREATE'],session_refresh_required:false}});
 const response=(body,status=200)=>({ok:status<400,status,json:async()=>body});
 const page={schema_version:'SALES_RECEIPT_BANK_CANDIDATES_V1',entity_id:config.entityId,bank_source_id:bank.bank_source_id,bank_revision:'2',after_id:null,limit:25,rows:[candidate],next_id:null};
+test('persisted match intent rejects changed scope, trace and command contents before access or POST',async()=>{
+ const prepared=await prepareSalesBankMatch({config,bank,candidate,bankRevision:'2',reason:'Reviewed matching receipt',expectedActorId:'matcher',fetcher:async()=>response(access('matcher'))});
+ assert.equal(prepared.ok,true);const command=structuredClone(prepared.command),scope={config,bankSourceId:bank.bank_source_id,actorId:'matcher'};
+ assert.equal(await validSalesBankCommand({...scope,command}),true);
+ for(const changed of [null,[],{...command,receipt:{}},{...command,bankRevision:2},{...command,bankRevision:'02'},{...command,actorId:'other'},{...command,entityId:id('9')},{...command,bankSourceId:id('9')},{...command,body:{...command.body,reason:'Another reason'}},{...command,trace:{...command.trace,journal_entry_id:id('9')}},{...command,trace:{...command.trace,journal_line_id:id('9')}},{...command,trace:{...command.trace,ledger_line_id:id('9')}}])assert.equal(await validSalesBankCommand({...scope,command:changed}),false);
+ let calls=0;const result=await sendSalesBankMatch({config,command:{...command,trace:{...command.trace,ledger_line_id:id('9')}},fetcher:async()=>{calls++;throw Error('must not fetch');}});assert.equal(result.ok,false);assert.equal(calls,0);
+ for(const run of [()=>reserveSalesBankIntent(scope,command,{indexedDB:null}),()=>readSalesBankIntent(scope,{indexedDB:null}),()=>releaseSalesBankIntent(scope,command.idempotencyKey,{indexedDB:null})])await assert.rejects(run,SalesBankRecoveryError);
+});
 test('cash sale candidate pages retain exact amount, source, revision and cursor scope',async()=>{
  let call;const read=await readSalesBankCandidates({config,bankSourceId:bank.bank_source_id,fetcher:async(url,options)=>{call={url,...options};return response({ok:true,data:page});}});
  assert.equal(read.ok,true);assert.equal(read.data.rows[0].amount,'1.2345');assert.equal(read.data.rows[0].date_delta_days,-1);assert.equal(call.method,'GET');assert.match(call.url,/sales-receipt-candidates\?limit=25$/);

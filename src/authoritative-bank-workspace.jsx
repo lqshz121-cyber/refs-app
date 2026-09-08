@@ -152,7 +152,7 @@ export const AuthoritativeBankTable=({rows=[],readAt=null,onOpen=()=>{}})=><sect
 
 export function AuthoritativeBankMatchReview(props){
   const [kind,setKind]=useState('PAYMENT'),[locked,setLocked]=useState(false);
-  if(props.row.bank_match_id&&props.row.match_status==='ACTIVE')return <PaymentBankMatchReview {...props}/>;
+  if(props.row.bank_match_id&&props.row.match_status==='ACTIVE')return <><PaymentBankMatchReview {...props}/>{props.row.match_source_kind==='SALES_RECEIPT'&&<SalesReceiptBankMatch key={`${props.config.baseUrl}:${props.config.entityId}:${props.row.bank_source_id}:recovery`} {...props} recoveryOnly/>}</>;
   return <><fieldset disabled={locked}><legend>Match to</legend><label><input type="radio" name="bank-match-kind" checked={kind==='PAYMENT'} onChange={()=>setKind('PAYMENT')}/> Payment</label><label><input type="radio" name="bank-match-kind" checked={kind==='SALES_RECEIPT'} onChange={()=>setKind('SALES_RECEIPT')}/> Sales receipt</label></fieldset>{kind==='SALES_RECEIPT'?<SalesReceiptBankMatch key={`${props.config.baseUrl}:${props.config.entityId}:${props.row.bank_source_id}:${props.row.version}`} {...props} onLockChange={setLocked}/>:<PaymentBankMatchReview {...props}/>}</>;
 }
 function PaymentBankMatchReview({row,config,fetcher,onChanged=()=>{}}){
