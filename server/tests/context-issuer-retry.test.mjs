@@ -27,11 +27,11 @@ test('context issuance retries statement and commit conflicts with one principal
   }
 });
 
-test('context issuance stops at the existing bounded serialization retry limit',async()=>{
-  const {pool,state}=simulatedPool(['40001','40001','40001','40001']);
+test('context issuance stops after the expanded bounded serialization retry limit',async()=>{
+  const {pool,state}=simulatedPool(Array(8).fill('40001'));
   const issuer=new PostgresContextIssuer(pool,{principalProvider:async()=>({trusted:true,actorId:'fixture-actor'})});
   await assert.rejects(issuer.issue({tenantId:'fixture-tenant'}),error=>error.code==='40001');
-  assert.equal(state.attempts,4);assert.equal(state.released,4);assert.equal(state.rollbacks,4);assert.equal(new Set(state.hashes).size,1);
+  assert.equal(state.attempts,8);assert.equal(state.released,8);assert.equal(state.rollbacks,8);assert.equal(new Set(state.hashes).size,1);
 });
 
 test('context issuance does not retry authorization denials or accept an untrusted principal',async()=>{

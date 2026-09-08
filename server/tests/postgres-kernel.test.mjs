@@ -1076,6 +1076,30 @@ pgTest('current actor access returns only the authenticated session permissions 
   await assert.rejects(()=>malformedKernel.readCurrentActorAccess({tenantId:ids.tenantId,entityId:ids.entityId}),error=>error.code==='42501');
 });
 
+async function formalWorkflowRoleKernel(ids,actorId,roleName,{idempotencyKey=`formal-${roleName.toLowerCase().replaceAll('_','-')}-grant`}={}){
+  const definition=AUTHORITATIVE_WORKFLOW_ROLES[roleName];
+  assert.ok(definition,`Unknown authoritative workflow role ${roleName}`);
+  assert.equal(definition.principalKind,'HUMAN',`${roleName} must be a human workflow role`);
+  const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+  await sync.reconcile({tenantId:ids.tenantId,entityId:ids.entityId,actorId,permissions:definition.permissions,authorityClass:definition.authorityClass,validUntil:new Date(Date.now()+60*60*1000).toISOString(),expectedVersion:0,idempotencyKey});
+  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})});
+  return new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})});
+}
+
+pgTest('parallel authorized read contexts complete under bounded serializable retry without leaking scope',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  const kernel=await formalWorkflowRoleKernel(ids,'parallel-ai-reader','AI_CONTROLLER_REVIEWER',{idempotencyKey:'parallel-ai-reader-role-grant-0001'});
+  let completed=0;
+  for(let round=0;round<8;round++){
+    const results=await Promise.all(Array.from({length:16},()=>kernel.readAiConstructionLoanDecisionSource({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10})));
+    assert.equal(results.every(rows=>Array.isArray(rows)&&rows.length===0),true);
+    completed+=results.length;
+  }
+  assert.equal(completed,128);
+  const contexts=(await adminPool.query("SELECT count(*)::int total,count(*) FILTER (WHERE actor_id='parallel-ai-reader' AND tenant_id=$1 AND bound_backend_pid IS NOT NULL AND bound_txid IS NOT NULL)::int bound,count(*) FILTER (WHERE actor_id='parallel-ai-reader' AND tenant_id<>$1)::int cross_tenant FROM runtime_auth_context",[ids.tenantId])).rows[0];
+  assert.deepEqual(contexts,{total:128,bound:128,cross_tenant:0});
+});
+
 pgTest('migration clean down and up is reversible from the fixed manifest',async()=>{
   await migrateDown(adminPool,{all:true});
   const missing=await adminPool.query("SELECT to_regclass('public.tenant') AS tenant_table");
