@@ -7248,7 +7248,7 @@ pgTest('counterparty register pages 100001 masters without crossing kind or comp
   const elapsed=Date.now()-started;console.log('# counterparty register first/second/deep pages over 100001 rows: '+elapsed+'ms');assert.ok(elapsed<5000,'Three register pages must finish within five seconds');
 });
 
-async function reviewedFixedAssetFixture(sourceVendor=null,{useOriginalSource=true,sourceLineHashOverride=null,policyEffectiveFrom='2026-01-01',policyEffectiveTo=null,policyScopeKey=null}={}){
+async function reviewedFixedAssetFixture(sourceVendor=null,{salvageValue='1000.0000',useOriginalSource=true,sourceLineHashOverride=null,policyEffectiveFrom='2026-01-01',policyEffectiveTo=null,policyScopeKey=null}={}){
   const ids=await seed({status:'DRAFT',attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'150100',accountName:'Building assets'},{accountCode:'159100',accountName:'Accumulated depreciation'},{accountCode:'680100',accountName:'Depreciation expense'}]});
   let trace,lineId,sourcePayloadHash=hash('auto-doc'),sourceLineHash=hash('capital-line'),memberTrace={project_ref:'PROJECT-1',property_ref:'PROPERTY-1',allocation_basis:'SOURCE_DIMENSIONED'};
   if(sourceVendor&&useOriginalSource){
@@ -7272,7 +7272,7 @@ async function reviewedFixedAssetFixture(sourceVendor=null,{useOriginalSource=tr
   const proposer=await formalWorkflowRoleKernel(ids,'asset-proposer','AI_CAPITALIZATION_PROPOSER');
   const proposal=await proposer.proposeAiInvoiceCapitalization({tenantId:ids.tenantId,entityId:ids.entityId,classificationEvidenceId:evidenceId,classificationHash,accountingPeriodId:ids.periodId,capitalizationTreatment:'FIXED_ASSET',assetAccountCode:'150100',liabilityAccountCode:'291001',assetClass:'BUILDING',memberTrace,placedInServiceDate:'2026-07-01',usefulLifeMonths:120,reason:'Independent policy supported building capitalization proposal.',idempotencyKey:'asset-capitalization-propose'});
   const reviewer=await formalWorkflowRoleKernel(ids,'asset-reviewer','FIXED_ASSET_REGISTER_REVIEWER');
-  const args={tenantId:ids.tenantId,entityId:ids.entityId,capitalizationProposalId:proposal.ai_invoice_capitalization_proposal_id,assetTag:'BUILDING-001',salvageValue:'1000.0000',accumulatedDepreciationAccountCode:'159100',depreciationExpenseAccountCode:'680100',depreciationMethod:'STRAIGHT_LINE',depreciationConvention:'FULL_MONTH',reason:'Reviewed source, capitalization policy, asset life and residual value.',idempotencyKey:'asset-register-review'};
+  const args={tenantId:ids.tenantId,entityId:ids.entityId,capitalizationProposalId:proposal.ai_invoice_capitalization_proposal_id,assetTag:'BUILDING-001',salvageValue,accumulatedDepreciationAccountCode:'159100',depreciationExpenseAccountCode:'680100',depreciationMethod:'STRAIGHT_LINE',depreciationConvention:'FULL_MONTH',reason:'Reviewed source, capitalization policy, asset life and residual value.',idempotencyKey:'asset-register-review'};
   const counts=async()=>(await adminPool.query(`SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM fixed_asset_register_evidence WHERE tenant_id=$1) registers,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='FIXED_ASSET_REGISTER_REVIEWED') audits,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox`,[ids.tenantId])).rows[0];
   const before=await counts();
   await assert.rejects(reviewer.reviewFixedAssetRegister({...args,entityId:randomUUID(),idempotencyKey:'asset-register-wrong-scope'}),e=>e.code==='42501');
@@ -7289,7 +7289,7 @@ async function reviewedFixedAssetFixture(sourceVendor=null,{useOriginalSource=tr
   await assert.rejects(selfReviewer.reviewFixedAssetRegister({...args,idempotencyKey:'asset-register-self-review'}),e=>e.code==='23514');
   assert.deepEqual(await counts(),beforeSelf);
   const receipt=await reviewer.reviewFixedAssetRegister(args),replay=await reviewer.reviewFixedAssetRegister(args);
-  assert.equal(receipt.status,'ACTIVE');assert.equal(receipt.cost_basis,'25000.0000');assert.equal(receipt.salvage_value,'1000.0000');assert.equal(receipt.source_document_id,trace.documentId);assert.equal(receipt.source_payload_hash,sourcePayloadHash);
+  assert.equal(receipt.status,'ACTIVE');assert.equal(receipt.cost_basis,'25000.0000');assert.equal(receipt.salvage_value,salvageValue);assert.equal(receipt.source_document_id,trace.documentId);assert.equal(receipt.source_payload_hash,sourcePayloadHash);
   assert.equal(replay.fixed_asset_register_evidence_id,receipt.fixed_asset_register_evidence_id);assert.equal(replay.idempotent,true);
   await assert.rejects(reviewer.reviewFixedAssetRegister({...args,assetTag:'CONFLICT'}),e=>e.code==='23505');
   const after=await counts();assert.equal(after.journals,before.journals);assert.equal(after.ledger,before.ledger);assert.equal(after.registers,before.registers+1);
@@ -8151,6 +8151,27 @@ pgTest('fixed asset attachment append and Post serialize in both transaction ord
    try{await rollbackClient.query('BEGIN');await assert.rejects(rollbackClient.query(down.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'')),e=>e.code==='55006');}finally{try{await rollbackClient.query('ROLLBACK');}finally{rollbackClient.release();}}
   }finally{releaseCommit();try{await append.query('ROLLBACK');}catch{}if(postResult)await postResult;if(appendResult)await appendResult;append.release();}
  }
+});
+
+pgTest('fixed asset depreciation schedule stops after useful life and clears rounding in the final month',async()=>{
+ const {detectFixedAssetDepreciationReviews}=await import('../runtime/ai-fixed-asset-depreciation-review.mjs');
+ for(const [salvageValue,basis,finalAmount] of [['999.9999','24000.0001','200.0001'],['1000.0001','23999.9999','199.9999']]){
+  const {ids,receipt}=await reviewedFixedAssetFixture(null,{salvageValue}),reader=await formalWorkflowRoleKernel(ids,'asset-depreciation-schedule-reader','AI_CONTROLLER_REVIEWER');
+  const periods=[['2026-06','2026-06-01','2026-06-30','0.0000','0.0000','25000.0000'],['2026-07','2026-07-01','2026-07-31','200.0000','200.0000','24800.0000'],['2036-05','2036-05-01','2036-05-31','200.0000','23800.0000','1200.0000'],['2036-06','2036-06-01','2036-06-30',finalAmount,basis,salvageValue],['2036-07','2036-07-01','2036-07-31','0.0000',basis,salvageValue]];
+  for(const [code,start,end,due,accumulated,net] of periods){
+   let periodId=ids.periodId;if(code!=='2026-07'){periodId=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status,ledger_code) VALUES($1,$2,$3,$4,$5,$6,'OPEN','PRIMARY')",[periodId,ids.tenantId,ids.entityId,code,start,end]);}
+   const rows=await reader.getAiFixedAssetDepreciationSource({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:periodId});assert.equal(rows.length,1);const row=rows[0];assert.equal(row.fixed_asset_register_evidence_id,receipt.fixed_asset_register_evidence_id);assert.equal(row.expected_period_depreciation,due,code+': due');assert.equal(row.expected_accumulated_depreciation,accumulated,code+': accumulated');assert.equal(row.expected_net_book_value,net,code+': net');
+   const analysis=detectFixedAssetDepreciationReviews(rows,{entityId:ids.entityId,accountingPeriodId:periodId});assert.equal(analysis.finding_count,due==='0.0000'?0:1);if(analysis.finding_count)assert.equal(analysis.findings[0].proposed_journal_entry.amount,due);assert.equal(analysis.action_flags.can_post,false);
+  }
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0,'schedule reads must never post depreciation');
+ }
+});
+
+pgTest('fixed asset depreciation schedule boundary migration restores the previous function and roundtrips',async()=>{
+ const name='353_fixed_asset_depreciation_schedule_boundary.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect(),definition="SELECT pg_get_functiondef('refs_read_ai_fixed_asset_depreciation_source(uuid,uuid,uuid)'::regprocedure) body";
+ try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0].body;await client.query(bodies.down);const old=(await client.query(definition)).rows[0].body;assert.match(old,/least\(r.useful_life_months/);assert.notEqual(old,before);await client.query(bodies.up);assert.equal((await client.query(definition)).rows[0].body,before);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });
 
 pgTest('fixed asset acquisition movement source migration restores V1 and roundtrips V2',async()=>{

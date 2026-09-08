@@ -2494,7 +2494,7 @@ export class PostgresAccountingKernel{
 
   async getAiFixedAssetDepreciationGapSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_depreciation_gap_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
 
-  async getAiFixedAssetDepreciationSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_depreciation_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+  async getAiFixedAssetDepreciationSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_fixed_asset_depreciation_source($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
   async getAiFixedAssetPostedReconciliation({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_posted_reconciliation($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
 
