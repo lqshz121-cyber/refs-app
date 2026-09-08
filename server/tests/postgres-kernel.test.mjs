@@ -7528,6 +7528,25 @@ async function exerciseFixedAssetLedger(assessmentAfterDisposal=false,impairment
    do{const response=await movementApi({method:'GET',url:'/api/v1/entities/'+ids.entityId+'/fixed-assets/register/'+receipt.fixed_asset_register_evidence_id+'/movements?asOfDate=2026-07-31&limit=3'+(movementCursor?'&after='+encodeURIComponent(movementCursor):'')});assert.equal(response.status,200,JSON.stringify(response.body));movements.push(...response.body.data.rows);movementCursor=response.body.data.next_cursor;firstCursor??=movementCursor;assert.ok(movements.length<=11);}while(movementCursor);
    assert.equal(movements.length,includeImpairmentReversal?11:8);assert.equal(new Set(movements.map(item=>item.ledger_line_id)).size,movements.length);
 
+   // Remove one proof family in the disposable fixture, use the real runtime
+   // connection to read it, then restore the exact retained row in finally.
+   for(const table of ['fixed_asset_original_source_binding','fixed_asset_acquisition_posting']){
+    const client=await adminPool.connect();let retained=null,committed=false;
+    try{
+     await client.query('BEGIN');
+     retained=(await client.query('SELECT to_jsonb(t) row FROM '+table+' t WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,acquisition])).rows[0].row;
+     await client.query('ALTER TABLE '+table+' DISABLE TRIGGER USER');
+     const removed=await client.query('DELETE FROM '+table+' WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,acquisition]);assert.equal(removed.rowCount,1,table);
+     await client.query('ALTER TABLE '+table+' ENABLE TRIGGER USER');await client.query('COMMIT');committed=true;
+     const result=await assetReader.readFixedAssetMovements({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-31',limit:100});
+     const missing=result.rows.filter(item=>item.journal_entry_id===acquisition);assert.equal(missing.length,2);
+     for(const item of missing){assert.equal(item.source_binding_status,'BLOCKED_MISSING_EXACT_SOURCE_BINDING',table);for(const field of ['source_document_id','source_payload_hash','source_document_version','source_link_id','acquisition_binding_id','disposal_binding_id'])assert.equal(item[field],null,table+':'+field);}
+     assert.ok(result.rows.filter(item=>item.journal_entry_id===disposal).every(item=>item.source_binding_status==='EXACT_DISPOSAL_SOURCE'));
+    }finally{try{if(committed){await client.query('BEGIN');await client.query('ALTER TABLE '+table+' DISABLE TRIGGER USER');await client.query('INSERT INTO '+table+' SELECT r.* FROM jsonb_populate_record(NULL::'+table+',$1::jsonb) r',[JSON.stringify(retained)]);await client.query('ALTER TABLE '+table+' ENABLE TRIGGER USER');await client.query('COMMIT');}else await client.query('ROLLBACK');}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
+   }
+   const restored=await assetReader.readFixedAssetMovements({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-31',limit:100});
+   assert.ok(restored.rows.filter(item=>item.journal_entry_id===acquisition).every(item=>item.source_binding_status==='EXACT_ACQUISITION_SOURCE'));
+
    const journalApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'asset-ledger-je_reviewer'}),kernelFactory:async()=>roles.JE_REVIEWER});
    for(const item of movements){const response=await journalApi({method:'GET',url:'/api/v1/entities/'+ids.entityId+'/journal-entries/'+item.journal_entry_id+'?periodId='+item.accounting_period_id});assert.equal(response.status,200,JSON.stringify(response.body));const wire=JSON.parse(JSON.stringify(response.body)).data;assert.ok(matchesAssetMovementJournal(wire,item),'real journal wire must match movement '+JSON.stringify({journal:wire.journal_number,journalPostedAt:wire.posted_at,movementPostedAt:item.posted_at}));}
    const retainedAudit=(await adminPool.query('SELECT to_jsonb(a) row FROM audit_event a WHERE audit_event_id=$1',[movements[0].posting_audit_event_id])).rows[0].row;
