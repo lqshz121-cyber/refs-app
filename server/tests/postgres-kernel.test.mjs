@@ -4864,7 +4864,24 @@ pgTest('reconciliation lifecycle is scoped, idempotent, separated by role, snaps
   const reviewed=await reviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REVIEW',expectedVersion:1,reason:'Reviewer verified complete statement evidence',idempotencyKey:'reconciliation-review-001'});
   assert.equal(reviewed.status,'IN_REVIEW');assert.equal(reviewed.revision,2);
   await assert.rejects(reviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Reviewer cannot sign own work',idempotencyKey:'reconciliation-signoff-bad-001'}),error=>error.code==='42501');
-  const signed=await signer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Independent controller statement sign off',idempotencyKey:'reconciliation-signoff-001'});
+  const accountBarrier=await adminPool.connect(),accountLock=`${ids.tenantId}:${ids.entityId}:BANK-1`;
+  let signing,unmatching;
+  const waitForAccountLock=async fragment=>{for(let attempt=0;attempt<200;attempt++){if((await adminPool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND wait_event='advisory' AND position($1 in query)>0) waiting",[fragment])).rows[0].waiting)return;await new Promise(resolve=>setTimeout(resolve,25));}throw Error('Command did not wait for account lock: '+fragment);};
+  try{
+    await accountBarrier.query('SELECT pg_advisory_lock(hashtextextended($1,0))',[accountLock]);
+    signing=signer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Independent controller statement sign off',idempotencyKey:'reconciliation-signoff-001'}).then(value=>({value}),error=>({error}));
+    await waitForAccountLock('refs_transition_reconciliation_adjustment_aware');
+    unmatching=unmatcher.unmatchBankPayment({...ids,bankSourceId,bankMatchId,expectedMatchVersion:0,reason:'Concurrent unmatch must respect signed evidence',idempotencyKey:'reconciliation-unmatch-concurrent-001'}).then(value=>({value}),error=>({error}));
+    await waitForAccountLock('refs_unmatch_bank_payment');
+  }finally{
+    await accountBarrier.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[accountLock]);accountBarrier.release();
+    await Promise.allSettled([signing,unmatching].filter(Boolean));
+  }
+  const signedOutcome=await signing,unmatchOutcome=await unmatching;
+  assert.equal(signedOutcome.error,undefined);assert.equal(unmatchOutcome.error?.code,'23514');
+  assert.equal((await adminPool.query('SELECT status FROM bank_match WHERE bank_match_id=$1',[bankMatchId])).rows[0].status,'ACTIVE');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key='reconciliation-unmatch-concurrent-001'",[ids.tenantId])).rows[0].n,0);
+  const signed=signedOutcome.value;
   assert.equal(signed.status,'RECONCILED');assert.ok(signed.snapshot_id);assert.match(signed.snapshot_hash,/^sha256:[0-9a-f]{64}$/);
   await assert.rejects(starter.startReconciliation({...startArgs,statementEndingDate:'2026-07-30',idempotencyKey:'reconciliation-retro-start-001'}),error=>error.code==='23514'&&/latest signed-off/i.test(error.message));
   await assert.rejects(unmatcher.unmatchBankPayment({...ids,bankSourceId,bankMatchId,expectedMatchVersion:0,reason:'Blocked while statement is signed',idempotencyKey:'reconciliation-unmatch-bad-001'}),error=>error.code==='23514'&&/reopened/i.test(error.message));
@@ -5094,8 +5111,28 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   assert.equal(shanghaiCandidates[0].accounting_date,'2026-07-16');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM bank_match WHERE bank_source_id=$1',[bankSourceId])).rows[0].n,0);
   const matchArgs={...ids,bankSourceId,paymentOccurrenceId:exact.payment.payment_occurrence_id,expectedBankVersion:0,expectedOccurrenceVersion:1,reason:'Reviewed exact posted AP payment',idempotencyKey:'bank-match-exact-001'};
-  const created=await matcher.createBankPaymentMatch(matchArgs);const replay=await matcher.createBankPaymentMatch(matchArgs);
+  const matchingBarrier=await adminPool.connect();let matching;
+  try{
+    await matchingBarrier.query('SELECT pg_advisory_lock(hashtextextended($1,0))',[`${ids.tenantId}:${ids.entityId}:BANK-1`]);
+    matching=matcher.createBankPaymentMatch(matchArgs).then(value=>({value}),error=>({error}));
+    let waiting=false;for(let attempt=0;attempt<200&&!waiting;attempt++){waiting=(await adminPool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND wait_event='advisory' AND query LIKE '%refs_create_bank_payment_match%') waiting")).rows[0].waiting;if(!waiting)await new Promise(resolve=>setTimeout(resolve,25));}
+    assert.equal(waiting,true,'Payment matching must wait for the reconciliation account lock');
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM bank_match WHERE bank_source_id=$1',[bankSourceId])).rows[0].n,0);
+  }finally{await matchingBarrier.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[`${ids.tenantId}:${ids.entityId}:BANK-1`]);matchingBarrier.release();if(matching)await matching;}
+  const matchingOutcome=await matching;assert.equal(matchingOutcome.error,undefined);
+  const created=matchingOutcome.value;const replay=await matcher.createBankPaymentMatch(matchArgs);
   assert.equal(created.status,'ACTIVE');assert.equal(created.idempotent,false);assert.equal(replay.idempotent,true);assert.equal(replay.bank_match_id,created.bank_match_id);
+  const otherMatcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'other-bank-matcher',['BANK.MATCH.CREATE'])});
+  await assert.rejects(otherMatcher.createBankPaymentMatch(matchArgs),error=>error.code==='42501');
+  await assert.rejects(matcher.createBankPaymentMatch({...matchArgs,reason:'Changed reason for the same retry'}),error=>error.code==='23505');
+  await assert.rejects(matcher.inSession(client=>client.query('SELECT refs_create_bank_payment_match($1,$2,$3,$4,$5,$6,$7,$8,NULL)',[ids.tenantId,ids.entityId,bankSourceId,exact.payment.payment_occurrence_id,0,1,matchArgs.reason,'null-bank-match-hash-001'])),error=>error.code==='22023');
+  const signedAccountId=randomUUID();await adminPool.query("INSERT INTO reconciliation(reconciliation_id,tenant_id,entity_id,bank_account_ref,statement_ending_date,statement_ending_balance,difference,status,reconciled_by,reconciled_at) VALUES($1,$2,$3,'BANK-1','2026-07-31',0,0,'RECONCILED','test-signer',now())",[signedAccountId,ids.tenantId,ids.entityId]);
+  await assert.rejects(matcher.createBankPaymentMatch({...matchArgs,idempotencyKey:'signed-bank-match-rejected-001'}),error=>error.code==='23514');
+  await adminPool.query('DELETE FROM reconciliation WHERE reconciliation_id=$1',[signedAccountId]);
+  await migrateDownThrough(adminPool,'323_bank_match_serialization.sql');
+  assert.equal((await adminPool.query('SELECT status FROM bank_match WHERE bank_match_id=$1',[created.bank_match_id])).rows[0].status,'ACTIVE');
+  await migrateUp(adminPool);assert.equal((await matcher.createBankPaymentMatch(matchArgs)).bank_match_id,created.bank_match_id);
+  await assert.rejects(otherMatcher.createBankPaymentMatch(matchArgs),error=>error.code==='42501');
   const evidence=(await adminPool.query('SELECT payment_occurrence_id,journal_entry_id,journal_line_id,ledger_line_id FROM bank_match WHERE bank_match_id=$1',[created.bank_match_id])).rows[0];
   assert.equal(evidence.payment_occurrence_id,exact.payment.payment_occurrence_id);assert.equal(evidence.journal_entry_id,exact.payment.journal_entry_id);assert.ok(evidence.journal_line_id);assert.ok(evidence.ledger_line_id);
   // Exercise real PostgreSQL -> API -> browser client readback with no imported
@@ -5126,6 +5163,11 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   const unmatchArgs={...ids,bankSourceId,bankMatchId:created.bank_match_id,expectedMatchVersion:0,reason:'Controller approved unmatch before payment reversal',idempotencyKey:'bank-unmatch-exact-001'};
   const unmatched=await unmatcher.unmatchBankPayment(unmatchArgs);const unmatchReplay=await unmatcher.unmatchBankPayment(unmatchArgs);
   assert.equal(unmatched.status,'UNMATCHED');assert.equal(unmatched.revision,1);assert.equal(unmatchReplay.idempotent,true);
+  const otherUnmatcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'other-bank-unmatcher',['BANK.MATCH.UNMATCH'])});
+  await assert.rejects(otherUnmatcher.unmatchBankPayment(unmatchArgs),error=>error.code==='42501');
+  await assert.rejects(unmatcher.unmatchBankPayment({...unmatchArgs,reason:'Changed unmatch retry reason'}),error=>error.code==='23505');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type='BANK_PAYMENT_MATCH_UNMATCHED'",[created.bank_match_id])).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type='BANK_PAYMENT_MATCH_UNMATCHED'",[created.bank_match_id])).rows[0].n,1);
   const reversal=await reversalMaker.createApPaymentReversal({...ids,sourceOccurrenceId:exact.payment.payment_occurrence_id,periodId:augustPeriod,journalNumber:'PAY-BANK-40-REV',journalDate:'2026-08-02',reason:'Reverse payment after controlled bank unmatch',idempotencyKey:'bank-match-reversal-002'});
   assert.equal(reversal.status,'DRAFT');
 
