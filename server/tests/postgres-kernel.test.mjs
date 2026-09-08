@@ -7805,6 +7805,21 @@ pgTest('fixed asset acquisition options read exact source attachments without bu
  assert.deepEqual(await maker.readFixedAssetAcquisitionOptions(args),response.body.data);assert.deepEqual(await counts(),before);
 });
 
+pgTest('fixed asset acquisition resume options bound pending journals and normalize blank source text',async()=>{
+ const fixture=await reviewedFixedAssetFixture('VENDOR-1'),{ids,trace,receipt}=fixture;
+ const maker=await formalWorkflowRoleKernel(ids,'asset-resume-maker','FIXED_ASSET_ACQUISITION_MAKER'),scope={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id};
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ const created=[];for(let index=0;index<21;index++)created.push(await maker.createFixedAssetAcquisition({...scope,periodId:ids.periodId,journalNumber:'RESUME-'+index,journalDate:'2026-07-01',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Retain Draft history for bounded acquisition resume proof.',idempotencyKey:'asset-resume-'+index}));
+ const options=await maker.readFixedAssetAcquisitionOptions(scope);assert.equal(options.schema_version,'FIXED_ASSET_ACQUISITION_OPTIONS_V2');assert.equal(options.evidence_status,'ACTIVE');assert.equal(options.placed_in_service_date,'2026-07-01');assert.equal(options.pending_journals.length,20);assert.equal(options.more_pending_journals,true);
+ const expected=created.map(row=>row.journal_entry_id).sort().slice(0,20);assert.deepEqual(options.pending_journals.map(row=>row.journal_entry_id),expected);assert.ok(options.pending_journals.every(row=>row.period_id===ids.periodId&&row.journal_date==='2026-07-01'&&row.status==='DRAFT'&&row.revision===0));
+ const legacy=await reviewedFixedAssetFixture('VENDOR-1',{useOriginalSource:false}),legacyMaker=await formalWorkflowRoleKernel(legacy.ids,'legacy-options-maker','FIXED_ASSET_ACQUISITION_MAKER');
+ await adminPool.query("UPDATE source_document SET document_no='   ' WHERE source_document_id=$1",[legacy.trace.documentId]);await adminPool.query("UPDATE source_document_line SET party_ref='' WHERE source_document_id=$1",[legacy.trace.documentId]);
+ const blank=await legacyMaker.readFixedAssetAcquisitionOptions({tenantId:legacy.ids.tenantId,entityId:legacy.ids.entityId,assetId:legacy.receipt.fixed_asset_register_evidence_id});assert.equal(blank.source.document_no,null);assert.equal(blank.vendor_ref,null);assert.equal(blank.original_evidence,null);
+ const name='351_fixed_asset_acquisition_resume_options.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect();try{await client.query('BEGIN');await client.query(bodies.down);assert.match((await client.query("SELECT pg_get_functiondef('refs_read_fixed_asset_acquisition_options(uuid,uuid,uuid)'::regprocedure) body")).rows[0].body,/FIXED_ASSET_ACQUISITION_OPTIONS_V1/);await client.query(bodies.up);assert.match((await client.query("SELECT pg_get_functiondef('refs_read_fixed_asset_acquisition_options(uuid,uuid,uuid)'::regprocedure) body")).rows[0].body,/FIXED_ASSET_ACQUISITION_OPTIONS_V2/);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+ assert.deepEqual(await maker.readFixedAssetAcquisitionOptions(scope),options);
+});
+
 pgTest('native fixed asset acquisition derives a source-bound Draft and prevents duplicate acquisition Post',async()=>{
  // Policy selection is based on period end, not the earlier invoice date.
  const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1',{policyEffectiveFrom:'2026-07-15'});
@@ -7832,6 +7847,7 @@ pgTest('native fixed asset acquisition derives a source-bound Draft and prevents
  const createdResponse=await acquisitionApi({...request,url:request.url.replace(routeAsset,routeAsset.toUpperCase())}),replayedResponse=await acquisitionApi(request);
  assert.equal(createdResponse.status,201,JSON.stringify(createdResponse.body));assert.equal(replayedResponse.status,200,JSON.stringify(replayedResponse.body));assert.equal(createdResponse.headers.etag,'"0"');
  const draft=createdResponse.body.data,replay=replayedResponse.body.data;
+ const pendingBefore=await maker.readFixedAssetAcquisitionOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId:args.assetId});assert.equal(pendingBefore.pending_journals.length,1);assert.equal(pendingBefore.pending_journals[0].journal_entry_id,draft.journal_entry_id);assert.equal(pendingBefore.more_pending_journals,false);
  const journalResponse=await acquisitionApi({method:'GET',url:`/api/v1/entities/${ids.entityId}/journal-entries/${draft.journal_entry_id}?periodId=${ids.periodId}`});assert.equal(journalResponse.status,200,JSON.stringify(journalResponse.body));
  assert.equal(draft.status,'DRAFT');assert.equal(draft.source_document_id,trace.documentId);assert.equal(draft.source_document_version,1);assert.equal(replay.journal_entry_id,draft.journal_entry_id);assert.equal(replay.idempotent,true);
  const original=(await adminPool.query('SELECT b.original_evidence_id,b.original_evidence_hash,o.evidence_id,o.evidence_hash FROM fixed_asset_original_source_binding b JOIN wbs_payable_original_row_evidence o ON o.evidence_id=b.original_evidence_id WHERE binding_id=$1',[draft.binding_id])).rows[0];
@@ -7862,6 +7878,7 @@ pgTest('native fixed asset acquisition derives a source-bound Draft and prevents
  roles.JE_POSTER.postJournal({...ids,journalEntryId:manual.journal_entry_id,expectedRevision:3,idempotencyKey:'manual-racing-native-post'})]);
  assert.equal(race[0].status,'fulfilled');assert.equal(race[1].status,'rejected');assert.equal(race[1].reason.code,'23514');await assertAcquisitionPostRolledBack(ids,manual.journal_entry_id,'manual-racing-native-post');
  const posted=await counts();assert.equal(posted.ledger,before.ledger+2);assert.equal(posted.postings,1);
+ const pendingAfter=await maker.readFixedAssetAcquisitionOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId:args.assetId});assert.equal(pendingAfter.acquisition_posted,true);assert.ok(pendingAfter.pending_journals.every(row=>row.journal_entry_id!==draft.journal_entry_id));assert.ok(pendingAfter.pending_journals.some(row=>row.journal_entry_id===second.journal_entry_id&&row.status==='APPROVED'));
  await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:second.journal_entry_id,expectedRevision:3,idempotencyKey:'native-acquisition-duplicate-post'}),e=>['23514','23505'].includes(e.code));
  assert.deepEqual(await counts(),posted);await assertAcquisitionPostRolledBack(ids,second.journal_entry_id,'native-acquisition-duplicate-post');
  await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:manual.journal_entry_id,expectedRevision:3,idempotencyKey:'manual-after-native-post'}),e=>e.code==='23514');assert.deepEqual(await counts(),posted);await assertAcquisitionPostRolledBack(ids,manual.journal_entry_id,'manual-after-native-post');
