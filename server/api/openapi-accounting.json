@@ -3974,6 +3974,15 @@
         "responses":{"200":{"$ref":"#/components/responses/WbsPayableEvidenceDetailOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/wbs/inbound/payables/reviews/{reviewEvidenceId}/acceptance-evidence": {
+      "get": {
+        "operationId":"getWbsPayableAcceptanceEvidence",
+        "summary":"Read one complete posted WBS Payable acceptance chain",
+        "description":"Requires WBS.AUTOREC.VIEW and AP.VIEW. Returns exact signed production source hashes, the immutable verified-clean attachment version, independent review and Draft evidence, four distinct Journal actors, and the posted AP Bill identity. It exposes no raw payload, object location, provider credential, signature, or command authority.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"reviewEvidenceId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "responses":{"200":{"description":"Complete retained acceptance evidence","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"object"}}}}}},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/inbound/payables/{wbsInboundRowId}/reviews": {
       "post": {
         "operationId": "reviewAdmittedWbsPayable",

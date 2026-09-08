@@ -1410,6 +1410,37 @@ pgTest('provider-signed Payable admission atomically reaches Review Draft four-r
   const posted=await journalPoster.postJournal({...ids,journalEntryId:drafted.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'wbs-payable-post-pg-0001'});
   assert.equal(posted.idempotent,false);
 
+  const acceptanceReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-acceptance-reader',['WBS.AUTOREC.VIEW','AP.VIEW'])});
+  const acceptance=await acceptanceReader.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id});
+  assert.deepEqual({
+    schema:acceptance.schema_version,scope:acceptance.scope,row:acceptance.source.wbs_inbound_row_id,
+    admission:acceptance.source.provider_signed_payable_admission_id,algorithm:acceptance.source.signature_algorithm,
+    record:acceptance.source.source_record_id,version:acceptance.source.source_version,
+    receipt:acceptance.source.receipt_hash,provider:acceptance.source.provider_receipt_hash,evidence:acceptance.source.evidence_hash,
+    review:acceptance.review.review_evidence_id,attachmentIds:acceptance.review.attachment_ids,
+    attachment:acceptance.attachments[0],draft:acceptance.draft.journal_entry_id,
+    business:acceptance.business_document,journal:acceptance.journal,
+  },{
+    schema:'WBS_PAYABLE_ACCEPTANCE_EVIDENCE_V1',scope:{tenant_id:ids.tenantId,entity_id:ids.entityId,period_id:ids.periodId},row:stored.wbs_inbound_row_id,
+    admission:created.wbs_provider_signed_payable_admission_id,algorithm:'Ed25519',
+    record:stored.source_record_id,version:stored.source_version,receipt:stored.receipt_hash,provider:providerReceiptHash,evidence:stored.evidence_hash,
+    review:reviewed.wbs_payable_review_evidence_id,attachmentIds:[attachmentId],
+    attachment:{attachment_id:attachmentId,content_hash:attachmentMeta.content_hash,storage_version:attachmentMeta.storage_version,finalization_status:'VERIFIED_CLEAN',scan_status:'CLEAN',verified_at:acceptance.attachments[0].verified_at,bound_by:'independent-attachment-binder'},
+    draft:drafted.journal_entry_id,
+    business:{business_document_id:drafted.business_document_id,source_document_id:reviewed.source_document_id,document_kind:'AP_BILL',currency:'USD',gross_amount:'89.1250',open_balance:'89.1250',status:'OPEN',posted_journal_entry_id:drafted.journal_entry_id,counterparty_ref:'VENDOR-PG',counterparty_name:'Signed WBS vendor'},
+    journal:{journal_entry_id:drafted.journal_entry_id,status:'POSTED',revision:4,created_by:'wbs-payable-maker',reviewed_by:'wbs-payable-journal-reviewer',approved_by:'wbs-payable-journal-approver',posted_by:'wbs-payable-journal-poster',posted_at:acceptance.journal.posted_at},
+  });
+  assert.match(acceptance.source.signed_package_hash,/^sha256:[0-9a-f]{64}$/);assert.match(acceptance.source.signed_receipt_hash,/^sha256:[0-9a-f]{64}$/);assert.ok(acceptance.source.signed_at);
+  const acceptanceWbsOnly=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'acceptance-wbs-only',['WBS.AUTOREC.VIEW'])});
+  await assert.rejects(acceptanceWbsOnly.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}),error=>error.code==='42501');
+
+  await migrateDown(adminPool);
+  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_wbs_payable_acceptance_evidence(uuid,uuid,uuid)') fn")).rows[0].fn,null);
+  await assert.rejects(acceptanceReader.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}),error=>error.code==='42883');
+  await migrateUp(adminPool);
+  assert.ok((await adminPool.query("SELECT to_regprocedure('refs_read_wbs_payable_acceptance_evidence(uuid,uuid,uuid)') fn")).rows[0].fn);
+  assert.deepEqual(await acceptanceReader.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}),acceptance);
+
   const postedState=(await adminPool.query(`SELECT d.status document_status,d.open_balance::text,d.draft_journal_entry_id,d.posted_journal_entry_id,j.status::text journal_status,s.status::text staging_status,s.version::text staging_version,
       (SELECT count(DISTINCT l.posting_batch_id)::int FROM ledger_line l WHERE l.tenant_id=d.tenant_id AND l.entity_id=d.entity_id AND l.journal_entry_id=j.journal_entry_id) posting_batches,
       (SELECT count(*)::int FROM ledger_line l WHERE l.tenant_id=d.tenant_id AND l.entity_id=d.entity_id AND l.journal_entry_id=j.journal_entry_id) ledger_lines
@@ -4874,11 +4905,24 @@ pgTest('reconciliation lifecycle is scoped, idempotent, separated by role, snaps
   const reviewed=await reviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REVIEW',expectedVersion:1,reason:'Reviewer verified complete statement evidence',idempotencyKey:'reconciliation-review-001'});
   assert.equal(reviewed.status,'IN_REVIEW');assert.equal(reviewed.revision,2);
   await assert.rejects(reviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Reviewer cannot sign own work',idempotencyKey:'reconciliation-signoff-bad-001'}),error=>error.code==='42501');
-  const signed=await signer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Independent controller statement sign off',idempotencyKey:'reconciliation-signoff-001'});
-  await assert.rejects(unmatcher.unmatchBankPayment({...ids,bankSourceId,bankMatchId,expectedMatchVersion:0,reason:'Concurrent unmatch must respect signed evidence',idempotencyKey:'reconciliation-unmatch-concurrent-001'}),error=>error.code==='23514');
+  const accountBarrier=await adminPool.connect(),accountLock=`${ids.tenantId}:${ids.entityId}:BANK-1`;
+  let signing,unmatching;
+  const waitForAccountLock=async fragment=>{for(let attempt=0;attempt<200;attempt++){if((await adminPool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND wait_event='advisory' AND position($1 in query)>0) waiting",[fragment])).rows[0].waiting)return;await new Promise(resolve=>setTimeout(resolve,25));}throw Error('Command did not wait for account lock: '+fragment);};
+  try{
+    await accountBarrier.query('SELECT pg_advisory_lock(hashtextextended($1,0))',[accountLock]);
+    signing=signer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Independent controller statement sign off',idempotencyKey:'reconciliation-signoff-001'}).then(value=>({value}),error=>({error}));
+    await waitForAccountLock('refs_transition_reconciliation_adjustment_aware');
+    unmatching=unmatcher.unmatchBankPayment({...ids,bankSourceId,bankMatchId,expectedMatchVersion:0,reason:'Concurrent unmatch must respect signed evidence',idempotencyKey:'reconciliation-unmatch-concurrent-001'}).then(value=>({value}),error=>({error}));
+    await waitForAccountLock('refs_unmatch_bank_payment');
+  }finally{
+    await accountBarrier.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[accountLock]);accountBarrier.release();
+    await Promise.allSettled([signing,unmatching].filter(Boolean));
+  }
+  const signedOutcome=await signing,unmatchOutcome=await unmatching;
+  assert.equal(signedOutcome.error,undefined);assert.equal(unmatchOutcome.error?.code,'23514');
   assert.equal((await adminPool.query('SELECT status FROM bank_match WHERE bank_match_id=$1',[bankMatchId])).rows[0].status,'ACTIVE');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key='reconciliation-unmatch-concurrent-001'",[ids.tenantId])).rows[0].n,0);
-
+  const signed=signedOutcome.value;
   assert.equal(signed.status,'RECONCILED');assert.ok(signed.snapshot_id);assert.match(signed.snapshot_hash,/^sha256:[0-9a-f]{64}$/);
   await assert.rejects(starter.startReconciliation({...startArgs,statementEndingDate:'2026-07-30',idempotencyKey:'reconciliation-retro-start-001'}),error=>error.code==='23514'&&/latest signed-off/i.test(error.message));
   await assert.rejects(unmatcher.unmatchBankPayment({...ids,bankSourceId,bankMatchId,expectedMatchVersion:0,reason:'Blocked while statement is signed',idempotencyKey:'reconciliation-unmatch-bad-001'}),error=>error.code==='23514'&&/reopened/i.test(error.message));
