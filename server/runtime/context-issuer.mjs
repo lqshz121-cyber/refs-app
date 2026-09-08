@@ -1,5 +1,5 @@
 import {createHash,randomBytes} from 'node:crypto';
-import {KernelError,requireRow,withTransaction} from './db.mjs';
+import {KernelError,requireRow,withTransaction,withSerializableRetry} from './db.mjs';
 
 const tokenHash=token=>'sha256:'+createHash('sha256').update(token).digest('hex');
 
@@ -18,7 +18,7 @@ export class PostgresContextIssuer{
     const principal=trustedPrincipal(await this.principalProvider());
     const contextToken=randomBytes(32).toString('base64url');
     const hash=tokenHash(contextToken);
-    const issued=await withTransaction(this.pool,async client=>requireRow(await client.query(
+    const issued=await withSerializableRetry(this.pool,async client=>requireRow(await client.query(
       readOnly===true?'SELECT issued.* FROM refs_issue_read_context($1,$2,$3,$4) AS issued':'SELECT issued.* FROM refs_issue_context($1,$2,$3,$4) AS issued',[principal.actorId,tenantId,hash,ttlSeconds]
     ),'CONTEXT_ISSUE_FAILED','Context issuer did not return a capability'));
     return {trusted:true,contextToken,expiresAt:issued.expires_at};

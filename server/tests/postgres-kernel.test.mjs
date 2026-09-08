@@ -4864,24 +4864,11 @@ pgTest('reconciliation lifecycle is scoped, idempotent, separated by role, snaps
   const reviewed=await reviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REVIEW',expectedVersion:1,reason:'Reviewer verified complete statement evidence',idempotencyKey:'reconciliation-review-001'});
   assert.equal(reviewed.status,'IN_REVIEW');assert.equal(reviewed.revision,2);
   await assert.rejects(reviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Reviewer cannot sign own work',idempotencyKey:'reconciliation-signoff-bad-001'}),error=>error.code==='42501');
-  const accountBarrier=await adminPool.connect(),accountLock=`${ids.tenantId}:${ids.entityId}:BANK-1`;
-  let signing,unmatching;
-  const waitForAccountLock=async fragment=>{for(let attempt=0;attempt<200;attempt++){if((await adminPool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND wait_event='advisory' AND position($1 in query)>0) waiting",[fragment])).rows[0].waiting)return;await new Promise(resolve=>setTimeout(resolve,25));}throw Error('Command did not wait for account lock: '+fragment);};
-  try{
-    await accountBarrier.query('SELECT pg_advisory_lock(hashtextextended($1,0))',[accountLock]);
-    signing=signer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Independent controller statement sign off',idempotencyKey:'reconciliation-signoff-001'}).then(value=>({value}),error=>({error}));
-    await waitForAccountLock('refs_transition_reconciliation_adjustment_aware');
-    unmatching=unmatcher.unmatchBankPayment({...ids,bankSourceId,bankMatchId,expectedMatchVersion:0,reason:'Concurrent unmatch must respect signed evidence',idempotencyKey:'reconciliation-unmatch-concurrent-001'}).then(value=>({value}),error=>({error}));
-    await waitForAccountLock('refs_unmatch_bank_payment');
-  }finally{
-    await accountBarrier.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[accountLock]);accountBarrier.release();
-    await Promise.allSettled([signing,unmatching].filter(Boolean));
-  }
-  const signedOutcome=await signing,unmatchOutcome=await unmatching;
-  assert.equal(signedOutcome.error,undefined);assert.equal(unmatchOutcome.error?.code,'23514');
+  const signed=await signer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Independent controller statement sign off',idempotencyKey:'reconciliation-signoff-001'});
+  await assert.rejects(unmatcher.unmatchBankPayment({...ids,bankSourceId,bankMatchId,expectedMatchVersion:0,reason:'Concurrent unmatch must respect signed evidence',idempotencyKey:'reconciliation-unmatch-concurrent-001'}),error=>error.code==='23514');
   assert.equal((await adminPool.query('SELECT status FROM bank_match WHERE bank_match_id=$1',[bankMatchId])).rows[0].status,'ACTIVE');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key='reconciliation-unmatch-concurrent-001'",[ids.tenantId])).rows[0].n,0);
-  const signed=signedOutcome.value;
+
   assert.equal(signed.status,'RECONCILED');assert.ok(signed.snapshot_id);assert.match(signed.snapshot_hash,/^sha256:[0-9a-f]{64}$/);
   await assert.rejects(starter.startReconciliation({...startArgs,statementEndingDate:'2026-07-30',idempotencyKey:'reconciliation-retro-start-001'}),error=>error.code==='23514'&&/latest signed-off/i.test(error.message));
   await assert.rejects(unmatcher.unmatchBankPayment({...ids,bankSourceId,bankMatchId,expectedMatchVersion:0,reason:'Blocked while statement is signed',idempotencyKey:'reconciliation-unmatch-bad-001'}),error=>error.code==='23514'&&/reopened/i.test(error.message));
@@ -6340,7 +6327,8 @@ pgTest('WBS TEST Bank retained checkpoint rejects changed chunk replay and resum
 
 pgTest('AI reads exactly one approved entity-period settings snapshot and rejects missing or drifted child bindings without writes',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null}),actor='ai-settings-reader',permissions=['AI.ACCOUNTING.SETTINGS.VIEW'];
-  const period=(await adminPool.query('SELECT period_id,period_code,starts_on,ends_on FROM accounting_period WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3',[ids.tenantId,ids.entityId,ids.periodId])).rows[0];
+  const period=(await adminPool.query(`SELECT period_id,period_code,to_char(starts_on,'YYYY-MM-DD') starts_on,to_char(ends_on,'YYYY-MM-DD') ends_on FROM accounting_period WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3`,[ids.tenantId,ids.entityId,ids.periodId])).rows[0];
+  assert.deepEqual([period.starts_on,period.ends_on],['2026-07-01','2026-07-31'],'Calendar dates must not shift through a local-midnight UTC conversion');
   const hashJson=async value=>(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) AS value',[JSON.stringify(value)])).rows[0].value;
   const coaRoles=['ACCUMULATED_AMORTIZATION','ACCUMULATED_DEPRECIATION','ACCRUED_LIABILITY','AP','AR','CASH','CWIP','CUSTOMER_DEPOSIT_LIABILITY','DEFERRED_REVENUE','EQUITY','ESCROW','EXPENSE','FIXED_ASSET','INTERCOMPANY_CLEARING','INTERCOMPANY_DUE_FROM','INTERCOMPANY_DUE_TO','INTERCOMPANY_ELIMINATION','INTEREST','LOAN','PREPAID','RETAINED_EARNINGS','REVENUE','SECURITY_DEPOSIT_ASSET','TAX_PAYABLE'];
   const coaClass=role=>['EXPENSE','INTEREST'].includes(role)?'EXPENSE':role==='REVENUE'?'REVENUE':['EQUITY','RETAINED_EARNINGS','INTERCOMPANY_ELIMINATION'].includes(role)?'EQUITY':['AP','ACCRUED_LIABILITY','LOAN','DEFERRED_REVENUE','TAX_PAYABLE','CUSTOMER_DEPOSIT_LIABILITY','INTERCOMPANY_DUE_TO'].includes(role)?'LIABILITY':'ASSET';
@@ -6349,8 +6337,8 @@ pgTest('AI reads exactly one approved entity-period settings snapshot and reject
     coa:{family:'AI_ACCOUNTING_COA_V1',snapshot:{schema_version:'AI_ACCOUNTING_COA_V1',settings:{currency:'USD',accounts:coaAccounts}}},
     vendor_treatment:{family:'AI_ACCOUNTING_VENDOR_TREATMENT_V1',snapshot:{schema_version:'AI_ACCOUNTING_VENDOR_TREATMENT_V1',settings:{default_treatment:'BLOCKED',vendor_rules:[{rule_id:'vendor-1',vendor_ref:'vendor-1',aliases:['Vendor One'],contract_keys:['contract_id'],service_keys:['service_code'],treatment:'EXPENSE',payment_terms_days:30,recurring:false,duplicate_normalization:true,source_requirements:['invoice_no'],effective_from:'2026-01-01',effective_to:null}]}}},
     project_property_cost_code:{family:'AI_ACCOUNTING_PROJECT_PROPERTY_COST_CODE_V1',snapshot:{schema_version:'AI_ACCOUNTING_PROJECT_PROPERTY_COST_CODE_V1',settings:{default_capitalization_treatment:'BLOCKED',dimension_rules:[{rule_id:'qualifying-project-1',scope_level:'PROJECT',project_ref:'project-1',property_ref:null,cost_code_ref:null,member_ref:null,ownership_requirement:'OPTIONAL',member_requirement:'OPTIONAL',capitalization_treatment:'CWIP',cwip_account_role:'CWIP',status:'ACTIVE',effective_from:'2026-01-01',effective_to:null,completion_date:null,pis_date:null}]}}},
-    period_close_policy:{family:'AI_ACCOUNTING_PERIOD_CLOSE_POLICY_V1',snapshot:{schema_version:'AI_ACCOUNTING_PERIOD_CLOSE_POLICY_V1',settings:{period_id:ids.periodId,period_code:period.period_code,period_start:period.starts_on.toISOString().slice(0,10),period_end:period.ends_on.toISOString().slice(0,10),period_status:'OPEN',cutoff_date:'2026-07-31',accrual_cutoff_date:'2026-07-31',prepaid_boundary_date:'2026-07-31',allow_post:true,posting_lock:false,hard_lock:false,soft_lock:false,reversal_policy:'NONE',prior_period_adjustment_policy:'BLOCKED',override_policy:'CONTROLLER_ONLY',business_calendar:'US',non_business_dates:[]}}},
-    tax:{family:'AI_ACCOUNTING_TAX_V1',snapshot:{schema_version:'AI_ACCOUNTING_TAX_V1',settings:{jurisdiction:'US',treatment:'GROSS',allocation_method:'STRAIGHT_LINE_DAILY',allocation_precision:'0.0001',coverage_start:period.starts_on.toISOString().slice(0,10),coverage_end:period.ends_on.toISOString().slice(0,10),residual_rule:'EXPENSE',expense_account_role:'EXPENSE',prepaid_account_role:'PREPAID',accrual_account_role:'ACCRUED_LIABILITY',tax_codes:[{code:'US-GROSS',rate:'0.0000',basis:'GROSS',recoverability:'NON_RECOVERABLE',expense_treatment:'EXPENSE',evidence_requirements:['invoice_no'],effective_from:'2026-01-01',effective_to:null}],effective_from:'2026-01-01',effective_to:null}}},intercompany:{family:'AI_ACCOUNTING_INTERCOMPANY_V1',snapshot:{schema_version:'AI_ACCOUNTING_INTERCOMPANY_V1',settings:{enabled:true,clearing_account_role:'INTERCOMPANY_CLEARING',entities:[{company_code:'ICPARTNER',counterparty_entity_id:'11111111-1111-4111-8111-111111111111',counterparty_approval_id:'22222222-2222-4222-8222-222222222222',counterparty_approval_hash:'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',currency:'USD',dimension_requirements:[],due_to_account_role:'INTERCOMPANY_DUE_TO',due_from_account_role:'INTERCOMPANY_DUE_FROM',elimination_account_role:'INTERCOMPANY_ELIMINATION',effective_from:'2026-01-01',effective_to:null}]}}},
+    period_close_policy:{family:'AI_ACCOUNTING_PERIOD_CLOSE_POLICY_V1',snapshot:{schema_version:'AI_ACCOUNTING_PERIOD_CLOSE_POLICY_V1',settings:{period_id:ids.periodId,period_code:period.period_code,period_start:period.starts_on,period_end:period.ends_on,period_status:'OPEN',cutoff_date:'2026-07-31',accrual_cutoff_date:'2026-07-31',prepaid_boundary_date:'2026-07-31',allow_post:true,posting_lock:false,hard_lock:false,soft_lock:false,reversal_policy:'NONE',prior_period_adjustment_policy:'BLOCKED',override_policy:'CONTROLLER_ONLY',business_calendar:'US',non_business_dates:[]}}},
+    tax:{family:'AI_ACCOUNTING_TAX_V1',snapshot:{schema_version:'AI_ACCOUNTING_TAX_V1',settings:{jurisdiction:'US',treatment:'GROSS',allocation_method:'STRAIGHT_LINE_DAILY',allocation_precision:'0.0001',coverage_start:period.starts_on,coverage_end:period.ends_on,residual_rule:'EXPENSE',expense_account_role:'EXPENSE',prepaid_account_role:'PREPAID',accrual_account_role:'ACCRUED_LIABILITY',tax_codes:[{code:'US-GROSS',rate:'0.0000',basis:'GROSS',recoverability:'NON_RECOVERABLE',expense_treatment:'EXPENSE',evidence_requirements:['invoice_no'],effective_from:'2026-01-01',effective_to:null}],effective_from:'2026-01-01',effective_to:null}}},intercompany:{family:'AI_ACCOUNTING_INTERCOMPANY_V1',snapshot:{schema_version:'AI_ACCOUNTING_INTERCOMPANY_V1',settings:{enabled:true,clearing_account_role:'INTERCOMPANY_CLEARING',entities:[{company_code:'ICPARTNER',counterparty_entity_id:'11111111-1111-4111-8111-111111111111',counterparty_approval_id:'22222222-2222-4222-8222-222222222222',counterparty_approval_hash:'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',currency:'USD',dimension_requirements:[],due_to_account_role:'INTERCOMPANY_DUE_TO',due_from_account_role:'INTERCOMPANY_DUE_FROM',elimination_account_role:'INTERCOMPANY_ELIMINATION',effective_from:'2026-01-01',effective_to:null}]}}},
     materiality:{family:'AI_ACCOUNTING_MATERIALITY_V1',snapshot:{schema_version:'AI_ACCOUNTING_MATERIALITY_V1',settings:{amount_drop_ratio:'0.5000',amount_drop_window_days:30,ap_aging_amount:'100.0000',ap_stale_days:30,balance_dormant_days:90,budget_variance_amount:'100.0000',currency:'USD',duplicate_amount:'100.0000',effective_from:'2026-01-01',effective_to:null,financial_statement_amount:'100.0000',loan_difference_amount:'100.0000',loan_excess_draw_amount:'100.0000',manual_je_amount:'100.0000',manual_round_amount:'1.0000',minimum_absolute_balance:'1.0000',minimum_open_amount:'1.0000',near_duplicate_amount:'100.0000',vendor_frequency_count:5,vendor_frequency_window_days:30}}},approval_thresholds:{family:'AI_ACCOUNTING_APPROVAL_THRESHOLDS_V1',snapshot:{schema_version:'AI_ACCOUNTING_APPROVAL_THRESHOLDS_V1',settings:{expense_amount_threshold:'100.0000',prepaid_amount_threshold:'100.0000',accrual_amount_threshold:'100.0000',cwip_amount_threshold:'100.0000',currency:'USD',approval_levels:['DRAFT','REVIEW','APPROVE','POST'].map(action=>({workflow:'AP',action,risk_band:'LOW',confidence_band:'HIGH',minimum_amount:'0.0000',maximum_amount:'999999.0000',preparer_role:'AP_PREPARER',reviewer_role:'AP_REVIEWER',approver_role:'CONTROLLER',poster_role:'GL_POSTER',override_policy:'CONTROLLER_ONLY',sod_constraints:['PREPARER_NE_REVIEWER','PREPARER_NE_APPROVER','PREPARER_NE_POSTER','REVIEWER_NE_APPROVER','REVIEWER_NE_POSTER','APPROVER_NE_POSTER'],effective_from:'2026-01-01',effective_to:null}))}}}
   };
   children.approval_thresholds.snapshot.settings.approval_levels=children.approval_thresholds.snapshot.settings.approval_levels.map(level=>({...level,submitter_role:level.preparer_role,submit_permission:'GL.JE.SUBMIT'}));
@@ -6363,7 +6351,7 @@ pgTest('AI reads exactly one approved entity-period settings snapshot and reject
     await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
       VALUES($1,$2,$3,$4,'ENTITY',$3::uuid::text,1,'2026-01-01','2027-01-01','APPROVED',$5::jsonb,$6,'settings-maker','settings-approver',now())`,[settingSnapshotId,ids.tenantId,ids.entityId,entry.family,JSON.stringify(entry.snapshot),snapshotHash]);
   }
-  const parentSnapshot={schema_version:'AI_ACCOUNTING_ENTITY_PERIOD_SETTINGS_SNAPSHOT_V1',company_code:'WBPA',period_id:ids.periodId,period_code:period.period_code,period_start:period.starts_on.toISOString().slice(0,10),period_end:period.ends_on.toISOString().slice(0,10),currency:'USD',...refs};
+  const parentSnapshot={schema_version:'AI_ACCOUNTING_ENTITY_PERIOD_SETTINGS_SNAPSHOT_V1',company_code:'WBPA',period_id:ids.periodId,period_code:period.period_code,period_start:period.starts_on,period_end:period.ends_on,currency:'USD',...refs};
   const parentHash=await hashJson(parentSnapshot),parentId=randomUUID();
   await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
     VALUES($1,$2,$3,'AI_ACCOUNTING_ENTITY_PERIOD_SETTINGS_V1','ENTITY',$3::uuid::text,$4,'2026-01-01','2027-01-01','APPROVED',$5::jsonb,$6,'settings-maker','settings-approver',now())`,[parentId,ids.tenantId,ids.entityId,version,JSON.stringify(parentSnapshot),parentHash]);
@@ -6802,4 +6790,135 @@ pgTest('sales receipt choices enforce current company and eligible masters with 
   await migrateDownThrough(adminPool,'319_sales_receipt_options.sql');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM member_master WHERE entity_id=$1',[ids.entityId])).rows[0].n,100006);
   await migrateUp(adminPool);assert.equal((await get('BANK')).status,200);
+});
+
+async function exerciseReconciliationRace(forceRetry){
+  const ids=await seed({status:'APPROVED',attachmentStatus:null});const billId=randomUUID();
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
+    VALUES($1,$2,$3,'AP_BILL','BILL-RECON-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'APPROVED','fixture')`,[billId,ids.tenantId,ids.entityId]);
+  const paymentMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-payment-maker',['AP.PAYMENT.CREATE'])});
+  const paymentSubmitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-payment-submitter',['GL.JE.SUBMIT'])});
+  const paymentReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-payment-reviewer',['GL.JE.REVIEW'])});
+  const paymentApprover=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-payment-approver',['GL.JE.APPROVE'])});
+  const paymentPoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-payment-poster',['GL.JE.POST'])});
+  const payment=await paymentMaker.createApPayment({...ids,businessDocumentId:billId,paymentNumber:'PAY-RECON-100',paymentDate:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:100,reason:'Reconciliation exact payment evidence',idempotencyKey:'recon-payment-create-001'});
+  const trace=await attachAutoSource({...ids,journalId:payment.journal_entry_id});
+  await paymentSubmitter.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'recon-payment-submit-001'});
+  await paymentReviewer.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'recon-payment-review-001'});
+  await paymentApprover.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'recon-payment-approve-001'});
+  await paymentPoster.postJournal({...ids,journalEntryId:payment.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'recon-payment-post-001'});
+  const bankSourceId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-1','BANK-RECON-1','2026-07-16','USD',-100)`,[bankSourceId,ids.tenantId,ids.entityId,trace.documentId]);
+  const matcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-matcher',['BANK.MATCH.CREATE'])});
+  const matched=await matcher.createBankPaymentMatch({...ids,bankSourceId,paymentOccurrenceId:payment.payment_occurrence_id,expectedBankVersion:0,expectedOccurrenceVersion:1,reason:'Exact posted payment selected for reconciliation',idempotencyKey:'recon-bank-match-001'});
+  const bankMatchId=matched.bank_match_id;
+  const starter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-starter',['BANK.RECONCILIATION.START'])});
+  const clearer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-clearer',['BANK.RECONCILIATION.CLEAR'])});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-reviewer',['BANK.RECONCILIATION.REVIEW'])});
+  let releaseSignoff,notifyPaused,notifyUnmatched,paused=false,injected=false,rollbackWaited=false;
+  const pauseReached=new Promise(resolve=>{notifyPaused=resolve;});
+  const pauseReleased=new Promise(resolve=>{releaseSignoff=resolve;});
+  const unmatchSettled=new Promise(resolve=>{notifyUnmatched=resolve;});
+  const signerPool={connect:async()=>{
+    const client=await runtimePool.connect();
+    return {release:()=>client.release(),query:async(sql,args)=>{
+      const result=await client.query(sql,args);
+      if(sql==='ROLLBACK'&&injected&&!rollbackWaited){rollbackWaited=true;await unmatchSettled;}
+      if(typeof sql==='string'&&sql.includes('refs_transition_reconciliation_adjustment_aware')&&args?.[3]==='SIGN_OFF'&&!paused){
+        paused=true;notifyPaused();await pauseReleased;
+        if(forceRetry){
+          injected=true;
+          await client.query("DO $retry$ BEGIN RAISE EXCEPTION 'Isolated sign-off retry fixture' USING ERRCODE='40001'; END; $retry$");
+        }
+      }
+      return result;
+    }};
+  }};
+  const signer=new PostgresAccountingKernel(signerPool,{sessionProvider:()=>trustedSession(ids,'recon-signer',['BANK.RECONCILIATION.SIGN_OFF'])});
+  const reopener=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-reopener',['BANK.RECONCILIATION.REOPEN'])});
+  const unmatcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-unmatcher',['BANK.MATCH.UNMATCH'])});
+  const startArgs={...ids,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31',statementOpeningBalance:'0.0000',statementEndingBalance:'-100.0000',reason:'Start July statement review',idempotencyKey:'reconciliation-start-001'};
+  const started=await starter.startReconciliation(startArgs),startReplay=await starter.startReconciliation(startArgs);
+  assert.equal(started.status,'DRAFT');assert.equal(started.revision,0);assert.equal(startReplay.idempotent,true);
+  await adminPool.query("UPDATE payment_occurrence SET status='DRAFT' WHERE payment_occurrence_id=$1",[payment.payment_occurrence_id]);
+  await assert.rejects(clearer.setReconciliationClearance({...ids,reconciliationId:started.reconciliation_id,bankSourceId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Changed occurrence must not clear',idempotencyKey:'reconciliation-clear-tampered-occurrence-001'}),error=>error.code==='23514'&&/exact actively matched/i.test(error.message));
+  await adminPool.query("UPDATE payment_occurrence SET status='POSTED' WHERE payment_occurrence_id=$1",[payment.payment_occurrence_id]);
+  const cleared=await clearer.setReconciliationClearance({...ids,reconciliationId:started.reconciliation_id,bankSourceId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Exact active match cleared',idempotencyKey:'reconciliation-clear-001'});
+  assert.equal(Number(cleared.difference),0);assert.equal(cleared.revision,1);
+  const reviewed=await reviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REVIEW',expectedVersion:1,reason:'Reviewer verified complete statement evidence',idempotencyKey:'reconciliation-review-001'});
+  assert.equal(reviewed.status,'IN_REVIEW');assert.equal(reviewed.revision,2);
+  await assert.rejects(reviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Reviewer cannot sign own work',idempotencyKey:'reconciliation-signoff-bad-001'}),error=>error.code==='42501');
+
+  const ledgerHash=async()=>(await adminPool.query("SELECT refs_jsonb_hash(COALESCE(jsonb_agg(to_jsonb(l) ORDER BY ledger_line_id),'[]'::jsonb)) hash FROM ledger_line l WHERE tenant_id=$1 AND entity_id=$2",[ids.tenantId,ids.entityId])).rows[0].hash;
+  const beforeLedger=await ledgerHash();
+  let signing,unmatching;
+  const waitForUnmatch=async()=>{for(let attempt=0;attempt<200;attempt++){
+    if((await adminPool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND wait_event='advisory' AND position('refs_unmatch_bank_payment' in query)>0) waiting")).rows[0].waiting)return;
+    await new Promise(resolve=>setTimeout(resolve,25));
+  }throw Error('Unmatch did not wait for the sign-off account lock');};
+  try{
+    signing=signer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Independent controller statement sign off',idempotencyKey:'reconciliation-signoff-001'}).then(value=>({value}),error=>({error}));
+    await Promise.race([pauseReached,signing.then(outcome=>{throw Error('Sign-off ended before holding account lock: '+String(outcome.error?.code));})]);
+    unmatching=unmatcher.unmatchBankPayment({...ids,bankSourceId,bankMatchId,expectedMatchVersion:0,reason:'Concurrent unmatch must respect signed evidence',idempotencyKey:'reconciliation-unmatch-concurrent-001'}).then(value=>({value}),error=>({error})).finally(()=>notifyUnmatched());
+    await waitForUnmatch();
+  }finally{
+    releaseSignoff();if(!unmatching)notifyUnmatched();
+    await Promise.allSettled([signing,unmatching].filter(Boolean));
+  }
+  const signedOutcome=await signing,unmatchOutcome=await unmatching;
+  const state=(await adminPool.query(`SELECT
+    (SELECT status FROM bank_match WHERE bank_match_id=$1) match_status,
+    (SELECT status FROM reconciliation WHERE reconciliation_id=$2) reconciliation_status,
+    (SELECT version::text FROM reconciliation WHERE reconciliation_id=$2) reconciliation_revision,
+    (SELECT count(*)::int FROM reconciliation_snapshot WHERE reconciliation_id=$2) snapshots,
+    (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$3 AND idempotency_key='reconciliation-signoff-001') sign_receipts,
+    (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$3 AND idempotency_key='reconciliation-unmatch-concurrent-001') unmatch_receipts,
+    (SELECT count(*)::int FROM audit_event WHERE object_id=$2 AND event_type='RECONCILIATION_SIGN_OFF') sign_audits,
+    (SELECT count(*)::int FROM outbox_event WHERE aggregate_id=$2 AND event_type='RECONCILIATION_SIGN_OFF') sign_events,
+    (SELECT count(*)::int FROM audit_event WHERE object_id=$1 AND event_type='BANK_PAYMENT_MATCH_UNMATCHED') unmatch_audits,
+    (SELECT count(*)::int FROM outbox_event WHERE aggregate_id=$1 AND event_type='BANK_PAYMENT_MATCH_UNMATCHED') unmatch_events`,[bankMatchId,started.reconciliation_id,ids.tenantId])).rows[0];
+  const diagnostic=JSON.stringify({forceRetry,injected,signError:signedOutcome.error?.code,unmatchError:unmatchOutcome.error?.code,state});
+  assert.equal(Number(Boolean(signedOutcome.value))+Number(Boolean(unmatchOutcome.value)),1,diagnostic);
+  if(signedOutcome.value){
+    assert.equal(unmatchOutcome.error?.code,'23514',diagnostic);
+    assert.equal(signedOutcome.value.status,'RECONCILED');
+    assert.deepEqual(state,{match_status:'ACTIVE',reconciliation_status:'RECONCILED',reconciliation_revision:'3',snapshots:1,sign_receipts:1,unmatch_receipts:0,sign_audits:1,sign_events:1,unmatch_audits:0,unmatch_events:0});
+  }else{
+    assert.equal(signedOutcome.error?.code,'23514',diagnostic);
+    assert.equal(unmatchOutcome.value.status,'UNMATCHED');
+    assert.deepEqual(state,{match_status:'UNMATCHED',reconciliation_status:'IN_REVIEW',reconciliation_revision:'2',snapshots:0,sign_receipts:0,unmatch_receipts:1,sign_audits:0,sign_events:0,unmatch_audits:1,unmatch_events:1});
+  }
+  if(forceRetry){assert.equal(injected,true);assert.equal(rollbackWaited,true);assert.equal(unmatchOutcome.value?.status,'UNMATCHED',diagnostic);}
+  assert.equal(await ledgerHash(),beforeLedger,'Sign-off/Unmatch race must not alter posted ledger evidence');
+  console.log('# reconciliation serialized race '+diagnostic);
+}
+
+pgTest('reconciliation sign-off and unmatch produce exactly one legal committed outcome',async()=>{await exerciseReconciliationRace(false);});
+pgTest('reconciliation sign-off rollback allows queued unmatch and leaves no stale snapshot or receipt',async()=>{await exerciseReconciliationRace(true);});
+
+pgTest('context issuance survives a concurrent grant refresh with one capability and one audit',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),actorId='context-grant-race-uploader';
+  await trustedSession(ids,actorId,['ATTACHMENT.CREATE']);
+  const {issueDuringGrantRefresh}=await import('./helpers/context-issue-grant-race-fixture.mjs');
+  const result=await issueDuringGrantRefresh({adminPool,issuerPool,ids,actorId});
+  console.log('# context issuance grant race '+JSON.stringify(result.diagnostic));
+  assert.equal(result.writerError,undefined,JSON.stringify(result.diagnostic));
+  assert.equal(result.outcome.error,undefined,JSON.stringify(result.diagnostic));
+  assert.deepEqual(result.after,{contexts:result.before.contexts+1,audits:result.before.audits+1});
+  assert.equal(result.principalCalls,1);assert.equal(result.attemptedHashes.length,2);assert.equal(new Set(result.attemptedHashes).size,1);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>result.outcome.value});
+  await reader.inSession(client=>client.query("SELECT refs_assert_scope($1,$2,'ATTACHMENT.CREATE')",[ids.tenantId,ids.entityId]));
+});
+
+pgTest('context issuance retry respects a concurrently revoked grant without retaining a capability',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),actorId='context-grant-race-revoked';
+  await trustedSession(ids,actorId,['ATTACHMENT.CREATE']);
+  const {issueDuringGrantRefresh}=await import('./helpers/context-issue-grant-race-fixture.mjs');
+  const result=await issueDuringGrantRefresh({adminPool,issuerPool,ids,actorId,revoke:true});
+  console.log('# context issuance revocation race '+JSON.stringify(result.diagnostic));
+  assert.equal(result.writerError,undefined,JSON.stringify(result.diagnostic));
+  assert.equal(result.outcome.error?.code,'42501',JSON.stringify(result.diagnostic));
+  assert.deepEqual(result.after,result.before,'Revoked authority must not retain an issued capability or audit');
+  assert.equal(result.principalCalls,1);assert.equal(result.attemptedHashes.length,2);assert.equal(new Set(result.attemptedHashes).size,1);
 });
