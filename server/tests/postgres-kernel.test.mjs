@@ -7190,3 +7190,42 @@ pgTest('counterparty register pages 100001 masters without crossing kind or comp
   assert.deepEqual(tail.rows.map(r=>r.member_ref),['REG100001']);assert.equal(tail.next_ref,null);
   const elapsed=Date.now()-started;console.log('# counterparty register first/second/deep pages over 100001 rows: '+elapsed+'ms');assert.ok(elapsed<5000,'Three register pages must finish within five seconds');
 });
+
+pgTest('formal fixed asset register review retains source evidence and forbids self review without posting',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null,extraAccounts:[{accountCode:'150100',accountName:'Building assets'},{accountCode:'159100',accountName:'Accumulated depreciation'},{accountCode:'680100',accountName:'Depreciation expense'}]});
+  const trace=await attachAutoSource(ids,{linkJournal:false});
+  await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT',version=1 WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,trace.documentId]);
+  const lineId=(await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,project_ref,property_ref) VALUES($1,$2,$3,'capital-invoice',1,25000,'DEBIT','PROJECT-1','PROPERTY-1') RETURNING source_document_line_id",[ids.tenantId,ids.entityId,trace.documentId])).rows[0].source_document_line_id;
+  const policyId=randomUUID(),policySnapshot={input_keys:{currency:'USD'},output_rules:{capitalization_threshold:'5000.0000'}},policyHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) snapshot_hash',[JSON.stringify(policySnapshot)])).rows[0].snapshot_hash,evidenceId=randomUUID(),classificationHash=hash('capital-classification');
+  await adminPool.query("INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at) VALUES($1,$2,$3,'AI_CAPITALIZATION_POLICY','ENTITY',$3::uuid::text,1,'2026-01-01','APPROVED',$4::jsonb,$5,'policy-maker','policy-approver',now())",[policyId,ids.tenantId,ids.entityId,JSON.stringify(policySnapshot),policyHash]);
+  await adminPool.query(`INSERT INTO ai_invoice_accounting_classification_evidence(ai_invoice_accounting_classification_evidence_id,tenant_id,entity_id,accounting_period_id,source_document_id,source_document_line_id,source_payload_hash,source_line_hash,classifier_version,classification,reason,confidence,required_human_fields,rule_id,policy_snapshot_id,policy_snapshot_hash,policy_evidence,classification_hash,status,created_by)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,'AI_INVOICE_ACCOUNTING_CLASSIFICATION_V2','CAPITALIZATION_REVIEW','Approved policy identifies a threshold-qualified construction cost.',0.99,$9::jsonb,'AI_CAPITALIZATION_POLICY_V1',$10,$11,'{}'::jsonb,$12,'REVIEW_REQUIRED','invoice-classifier')`,[evidenceId,ids.tenantId,ids.entityId,ids.periodId,trace.documentId,lineId,hash('auto-doc'),hash('capital-line'),JSON.stringify(['capital_account','placed_in_service_date','controller_approval']),policyId,policyHash,classificationHash]);
+
+  const proposer=await formalWorkflowRoleKernel(ids,'asset-proposer','AI_CAPITALIZATION_PROPOSER');
+  const proposal=await proposer.proposeAiInvoiceCapitalization({tenantId:ids.tenantId,entityId:ids.entityId,classificationEvidenceId:evidenceId,classificationHash,accountingPeriodId:ids.periodId,capitalizationTreatment:'FIXED_ASSET',assetAccountCode:'150100',liabilityAccountCode:'291001',assetClass:'BUILDING',memberTrace:{project_ref:'PROJECT-1',property_ref:'PROPERTY-1',allocation_basis:'SOURCE_DIMENSIONED'},placedInServiceDate:'2026-07-01',usefulLifeMonths:120,reason:'Independent policy supported building capitalization proposal.',idempotencyKey:'asset-capitalization-propose'});
+  const reviewer=await formalWorkflowRoleKernel(ids,'asset-reviewer','FIXED_ASSET_REGISTER_REVIEWER');
+  const args={tenantId:ids.tenantId,entityId:ids.entityId,capitalizationProposalId:proposal.ai_invoice_capitalization_proposal_id,assetTag:'BUILDING-001',salvageValue:'1000.0000',accumulatedDepreciationAccountCode:'159100',depreciationExpenseAccountCode:'680100',depreciationMethod:'STRAIGHT_LINE',depreciationConvention:'FULL_MONTH',reason:'Reviewed source, capitalization policy, asset life and residual value.',idempotencyKey:'asset-register-review'};
+  const counts=async()=>(await adminPool.query(`SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM fixed_asset_register_evidence WHERE tenant_id=$1) registers,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='FIXED_ASSET_REGISTER_REVIEWED') audits,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox`,[ids.tenantId])).rows[0];
+  const before=await counts();
+  await assert.rejects(reviewer.reviewFixedAssetRegister({...args,entityId:randomUUID(),idempotencyKey:'asset-register-wrong-scope'}),e=>e.code==='42501');
+  await assert.rejects(reviewer.reviewFixedAssetRegister({...args,salvageValue:'25000.0000',idempotencyKey:'asset-register-invalid-salvage'}),e=>e.code==='23514');
+  await assert.rejects(reviewer.reviewFixedAssetRegister({...args,accumulatedDepreciationAccountCode:'MISSING',idempotencyKey:'asset-register-missing-account'}),e=>e.code==='23503');
+  assert.deepEqual(await counts(),before);
+  const definition=AUTHORITATIVE_WORKFLOW_ROLES.FIXED_ASSET_REGISTER_REVIEWER;
+  const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+  await sync.reconcile({tenantId:ids.tenantId,entityId:ids.entityId,actorId:'asset-proposer',permissions:definition.permissions,authorityClass:definition.authorityClass,validUntil:new Date(Date.now()+3600000).toISOString(),expectedVersion:1,idempotencyKey:'asset-proposer-replace-review-role'});
+  const selfIssuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:'asset-proposer'})});
+  const selfReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>selfIssuer.issue({tenantId:ids.tenantId})});
+  // Context issuance is audited separately; rejected commands add no business evidence.
+  const beforeSelf=await counts();
+  await assert.rejects(selfReviewer.reviewFixedAssetRegister({...args,idempotencyKey:'asset-register-self-review'}),e=>e.code==='23514');
+  assert.deepEqual(await counts(),beforeSelf);
+  const receipt=await reviewer.reviewFixedAssetRegister(args),replay=await reviewer.reviewFixedAssetRegister(args);
+  assert.equal(receipt.status,'ACTIVE');assert.equal(receipt.cost_basis,'25000.0000');assert.equal(receipt.salvage_value,'1000.0000');assert.equal(receipt.source_document_id,trace.documentId);assert.equal(receipt.source_payload_hash,hash('auto-doc'));
+  assert.equal(replay.fixed_asset_register_evidence_id,receipt.fixed_asset_register_evidence_id);assert.equal(replay.idempotent,true);
+  await assert.rejects(reviewer.reviewFixedAssetRegister({...args,assetTag:'CONFLICT'}),e=>e.code==='23505');
+  const after=await counts();assert.equal(after.journals,before.journals);assert.equal(after.ledger,before.ledger);assert.equal(after.registers,before.registers+1);
+  for(const table of ['audit_event','outbox_event'])assert.equal((await adminPool.query('SELECT count(*)::int n FROM '+table+" WHERE tenant_id=$1 AND event_type='FIXED_ASSET_REGISTER_REVIEWED'",[ids.tenantId])).rows[0].n,1);
+  const stored=(await adminPool.query('SELECT reviewed_by,register_evidence_hash FROM fixed_asset_register_evidence WHERE fixed_asset_register_evidence_id=$1',[receipt.fixed_asset_register_evidence_id])).rows[0];assert.equal(stored.reviewed_by,'asset-reviewer');assert.equal(stored.register_evidence_hash,receipt.register_evidence_hash);
+  await assert.rejects(adminPool.query("UPDATE fixed_asset_register_evidence SET asset_tag='MUTATED' WHERE fixed_asset_register_evidence_id=$1",[receipt.fixed_asset_register_evidence_id]),e=>e.code==='55000');
+});
