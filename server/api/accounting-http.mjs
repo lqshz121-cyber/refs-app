@@ -2061,7 +2061,7 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         requireExactQuery(parsedUrl.searchParams,[]);
         if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Use expectedSourceVersion when creating an acquisition Draft');
         allowOnly(payload,['periodId','journalNumber','journalDate','expectedSourceVersion','attachmentIds','reason']);
-        const assetId=requireUuid(parts[6],'assetId'),periodId=requireUuid(payload.periodId,'periodId'),journalDate=requireIsoDate(payload.journalDate,'journalDate');
+        const assetId=requireUuid(parts[6],'assetId').toLowerCase(),periodId=requireUuid(payload.periodId,'periodId'),journalDate=requireIsoDate(payload.journalDate,'journalDate');
         const {journalNumber,expectedSourceVersion}=payload;
         if(typeof journalNumber!=='string'||journalNumber!==journalNumber.trim()||journalNumber.length<1||journalNumber.length>100||/[\u0000-\u001f\u007f]/.test(journalNumber))throw new AccountingApiError(400,'INVALID_JOURNAL_NUMBER','Enter a journal number of 1-100 characters');
         if(!Number.isSafeInteger(expectedSourceVersion)||expectedSourceVersion<1)throw new AccountingApiError(400,'INVALID_SOURCE_VERSION','expectedSourceVersion must be a positive safe integer');

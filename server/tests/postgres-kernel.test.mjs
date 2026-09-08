@@ -7804,7 +7804,7 @@ pgTest('native fixed asset acquisition derives a source-bound Draft and prevents
  const request={method:'POST',url:`/api/v1/entities/${ids.entityId}/fixed-assets/register/${routeAsset}/acquisitions`,headers:{'idempotency-key':commandKey},body:commandBody};
  const staleHttp=await acquisitionApi({...request,headers:{'idempotency-key':'native-http-stale-source'},body:{...commandBody,expectedSourceVersion:2}});
  assert.equal(staleHttp.status,412,JSON.stringify(staleHttp.body));assert.equal(staleHttp.body.code,'PRECONDITION_FAILED');assert.equal(staleHttp.headers['retry-after'],undefined);
- const createdResponse=await acquisitionApi(request),replayedResponse=await acquisitionApi(request);
+ const createdResponse=await acquisitionApi({...request,url:request.url.replace(routeAsset,routeAsset.toUpperCase())}),replayedResponse=await acquisitionApi(request);
  assert.equal(createdResponse.status,201,JSON.stringify(createdResponse.body));assert.equal(replayedResponse.status,200,JSON.stringify(replayedResponse.body));assert.equal(createdResponse.headers.etag,'"0"');
  const draft=createdResponse.body.data,replay=replayedResponse.body.data;
  assert.equal(draft.status,'DRAFT');assert.equal(draft.source_document_id,trace.documentId);assert.equal(draft.source_document_version,1);assert.equal(replay.journal_entry_id,draft.journal_entry_id);assert.equal(replay.idempotent,true);

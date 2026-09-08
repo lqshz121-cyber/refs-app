@@ -11,10 +11,10 @@ const setup=(action=async()=>receipt)=>{const calls=[];return {calls,api:createA
 
 test('acquisition HTTP passes authenticated scope to native command and returns a Draft receipt and replay',async()=>{
  const {api,calls}=setup(async()=>({...receipt,idempotent:calls.length>1}));
- const first=await api(request),replay=await api(request);
+ const first=await api({...request,url:request.url.replace(assetId,assetId.toUpperCase())}),replay=await api(request);
  assert.equal(first.status,201);assert.equal(replay.status,200);assert.equal(first.headers.etag,'"0"');assert.equal(first.headers['cache-control'],'no-store');
  assert.deepEqual(calls[0].args,{...body,tenantId,entityId,assetId,idempotencyKey:request.headers['idempotency-key']});assert.equal(calls[0].principal.actorId,'maker');
- assert.equal(first.body.data.status,'DRAFT');assert.equal(replay.body.data.journal_entry_id,first.body.data.journal_entry_id);
+ assert.equal(calls[1].args.assetId,assetId);assert.equal(first.body.data.status,'DRAFT');assert.equal(replay.body.data.journal_entry_id,first.body.data.journal_entry_id);
 });
 test('acquisition HTTP rejects injected authority, amounts, stale-format versions and malformed commands before persistence',async()=>{
  const {api,calls}=setup();
