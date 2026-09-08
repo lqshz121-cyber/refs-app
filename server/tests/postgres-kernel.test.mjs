@@ -2375,6 +2375,49 @@ pgTest('production reads fall back to existing read grants while invalid write a
   await assert.rejects(issuer.issue({tenantId:ids.tenantId,readOnly:true}),error=>error.code==='42501');
 });
 
+pgTest('attachment entry authority supports exact formal maker roles and denies unanchored or approval bundles',async()=>{
+  const ids=await seed({attachmentStatus:null});
+  await migrateDown(adminPool);
+  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_reconcile_actor_grants_v3(uuid,text,uuid,text[],text,timestamptz,bigint,text,text)') fn")).rows[0].fn,null);
+  await migrateUp(adminPool);
+  const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+  const validUntil=new Date(Date.now()+3600000).toISOString();
+  const scope={tenantId:ids.tenantId,entityId:ids.entityId,validUntil,expectedVersion:0};
+  for(const roleName of ['AP_BILL_ENTRY_MAKER','AR_INVOICE_ENTRY_MAKER','AP_PAYMENT_ENTRY_MAKER','AR_RECEIPT_ENTRY_MAKER']){
+    const role=AUTHORITATIVE_WORKFLOW_ROLES[roleName],actorId=`upload-entry-${roleName}`;
+    const args={...scope,actorId,permissions:[...role.permissions],authorityClass:role.authorityClass,idempotencyKey:`entry-grant-${roleName}`};
+    const result=await sync.reconcile(args);
+    assert.equal(result.version,1);assert.equal(result.authority_class,role.authorityClass);
+    assert.equal((await sync.reconcile(args)).idempotent,true);
+    await assert.rejects(sync.reconcile({...args,permissions:['ATTACHMENT.CREATE'],authorityClass:'ATTACHMENT_UPLOADER'}),e=>e.code==='23505');
+    const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})});
+    const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})});
+    const uploaded=await kernel.reserveAttachment({tenantId:ids.tenantId,entityId:ids.entityId,name:'entry.pdf',mediaType:'application/pdf',sizeBytes:42,contentHash:hash(roleName),storageRef:`object://attachments/${randomUUID()}`,storageVersion:'pending:entry-proof',idempotencyKey:`entry-upload-${roleName}`});
+    assert.equal(uploaded.status,'PENDING');
+    await kernel.inSession(async client=>{
+      for(const permission of role.permissions)assert.equal((await client.query('SELECT refs_entity_has_permission($1,$2) allowed',[ids.entityId,permission])).rows[0].allowed,true);
+      assert.equal((await client.query("SELECT refs_entity_has_permission($1,'GL.JE.POST') allowed",[ids.entityId])).rows[0].allowed,false);
+    });
+    const before=await issuer.issue({tenantId:ids.tenantId});
+    await assert.rejects(sync.reconcile({...args,permissions:['AP.VIEW'],authorityClass:'READ',idempotencyKey:`entry-stale-${roleName}`}),e=>e.code==='40001');
+    await sync.reconcile({...args,permissions:['AP.VIEW'],authorityClass:'READ',expectedVersion:1,idempotencyKey:`entry-revoke-${roleName}`});
+    const stale=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>before});
+    assert.equal((await stale.inSession(client=>client.query("SELECT refs_entity_has_permission($1,'ATTACHMENT.CREATE') allowed",[ids.entityId]))).rows[0].allowed,false);
+    await assert.rejects(stale.reserveAttachment({tenantId:ids.tenantId,entityId:ids.entityId,name:'revoked.pdf',mediaType:'application/pdf',sizeBytes:42,contentHash:hash(roleName),storageRef:`object://attachments/${randomUUID()}`,storageVersion:'pending:revoked-proof',idempotencyKey:`revoked-upload-${roleName}`}),e=>e.code==='42501');
+  }
+  await sync.reconcile({...scope,actorId:'upload-standalone',permissions:['ATTACHMENT.CREATE'],authorityClass:'ATTACHMENT_UPLOADER',idempotencyKey:'upload-standalone-grant'});
+  assert.equal((await new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:'upload-standalone'})}).issue({tenantId:ids.tenantId})).trusted,true);
+  const invalid=[['DRAFT',['ATTACHMENT.CREATE']],['REVIEW',['GL.JE.REVIEW','ATTACHMENT.CREATE']],['APPROVE',['GL.JE.APPROVE','ATTACHMENT.CREATE']],['POST',['GL.JE.POST','ATTACHMENT.CREATE']],['DRAFT',['AP.BILL.CREATE','ATTACHMENT.CREATE','ATTACHMENT.FINALIZE']],['DRAFT',['AP.BILL.CREATE','ATTACHMENT.CREATE','ATTACHMENT.CLEANUP']],['DRAFT',['AP.BILL.CREATE','ATTACHMENT.CREATE','GL.JE.APPROVE']]];
+  const count=async()=> (await adminPool.query(`SELECT (SELECT count(*) FROM runtime_grant_sync_receipt)::int receipts,(SELECT count(*) FROM runtime_actor_grant)::int grants,(SELECT count(*) FROM audit_event)::int audits,(SELECT count(*) FROM outbox_event)::int outbox`)).rows[0];
+  const counts=await count();
+  for(const [index,[authorityClass,permissions]] of invalid.entries())await assert.rejects(sync.reconcile({...scope,actorId:`bad-upload-${index}`,authorityClass,permissions,idempotencyKey:`invalid-upload-${index}`}),e=>e.code==='42501');
+  assert.deepEqual(await count(),counts);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE grant_policy_version='SOD_FINITE_V2'")).rows[0].n,9);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE event_type='ACTOR_GRANTS_RECONCILED' AND metadata->>'grant_policy_version'='SOD_FINITE_V2'")).rows[0].n,9);
+  await assert.rejects(migrateDown(adminPool),e=>e.code==='55006');
+  assert.deepEqual(await count(),counts);
+});
+
 pgTest('finite human role sync enforces exact replacement, service-only deny, expiry, and context SoD',async()=>{
   const ids=await seed(),actor='auth0|finite-human-role',validUntil=new Date(Date.now()+60*60*1000).toISOString();
   const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
@@ -2455,7 +2498,7 @@ pgTest('finite human role sync enforces exact replacement, service-only deny, ex
   assert.equal((await new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:'oidc|wbs-provider-admission-service'})}).issue({tenantId:ids.tenantId})).trusted,true);
   const internalService=await sync.reconcile({tenantId:ids.tenantId,actorId:'platform-internal-service',entityId:ids.entityId,permissions:['WBS.SNAPSHOT.IMPORT'],authorityClass:'SERVICE',validUntil:null,expectedVersion:0,idempotencyKey:'service-exception-null-0001'});
   assert.equal(internalService.authority_class,'SERVICE');assert.equal(internalService.valid_until,null);
-  assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE grant_policy_version='SOD_FINITE_V1' AND tenant_id=$1 AND entity_id=$2",[ids.tenantId,ids.entityId])).rows[0].n,14);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE grant_policy_version='SOD_FINITE_V2' AND tenant_id=$1 AND entity_id=$2",[ids.tenantId,ids.entityId])).rows[0].n,14);
   const down=await readFile(new URL('../db/migrations/down/274_runtime_grant_sod_expiry.sql',import.meta.url),'utf8');
   await assert.rejects(adminPool.query(down),error=>error.message==='Refusing migration 274 rollback: finite-expiry grant evidence exists');
 });
