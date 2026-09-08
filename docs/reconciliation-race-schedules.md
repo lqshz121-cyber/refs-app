@@ -1,0 +1,9 @@
+# Reconciliation race schedules
+
+The lifecycle test queued SIGN_OFF before UNMATCH behind one account advisory lock and assumed the first queued command must commit first. A serialization retry releases that lock and can change the winning transaction. A forced SQLSTATE 40001 after the first sign-off command reproduced the failing assertion on PostgreSQL 16: unmatch committed, the retried sign-off was rejected with 23514, and persisted state was UNMATCHED / IN_REVIEW. This is a legal serialized outcome, not proof that signed evidence was changed.
+
+The sequential lifecycle still verifies successful sign-off, immutable snapshot evidence, rejection of unmatch after sign-off, role separation, replay and reopen rules. Two separate race scenarios verify the actual invariant: exactly one operation commits. The sign-off winner must retain an ACTIVE match and exactly one snapshot, receipt, audit and outbox event. The unmatch winner must leave the reconciliation IN_REVIEW with no sign-off snapshot, receipt, audit or outbox event. Both cases fingerprint the posted ledger before and after the race.
+
+The rollback scenario uses a fixture-only pool wrapper. It pauses after the actual sign-off SQL while its transaction holds the account lock, waits until the competing unmatch is blocked, raises a real 40001, and lets the queued unmatch settle after rollback before the normal runtime retry continues. This deterministically covers the unmatch-first schedule without changing production SQL, timeouts or retry behavior. No first-arrival fairness guarantee is asserted.
+
+The reproduction log remains a deliberate failing test result. Fresh PostgreSQL 15 and 16 each passed all three revised scenarios with zero skips, including both committed schedules and exact rollback evidence. Full regression and independent review remain pending. The independent attachment reservation 503 failure remains unresolved and is not excused by this reconciliation finding.
