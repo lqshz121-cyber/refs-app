@@ -1,4 +1,5 @@
 import React, {useEffect,useState} from 'react';
+import {SalesReceiptBankMatch} from './sales-receipt-bank-match.jsx';
 import {createAuthoritativeBankPaymentMatch,createAuthoritativeReconciliationAdjustmentDraft,readAuthoritativeAdmittedBankStatement,refreshAuthoritativeAdmittedBankStatements,refreshAuthoritativeBankMatchCandidates,refreshAuthoritativeBankTransactions,refreshAuthoritativeReconciliation,refreshAuthoritativeReconciliationScopes,refreshAuthoritativeReconciliationWorksheet,setAuthoritativeReconciliationAdjustmentClearance,setAuthoritativeReconciliationClearance,startAuthoritativeReconciliationFromAdmittedStatement,transitionAuthoritativeReconciliation,unmatchAuthoritativeBankPayment} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 import {AuthoritativeWorkspaceView,AuthoritativeWorkspaceHeader} from './authoritative-workbench-view.jsx';
@@ -149,7 +150,12 @@ export const AuthoritativeBankTable=({rows=[],readAt=null,onOpen=()=>{}})=><sect
   </table></div>}
 </section>;
 
-export function AuthoritativeBankMatchReview({row,config,fetcher,onChanged=()=>{}}){
+export function AuthoritativeBankMatchReview(props){
+  const [kind,setKind]=useState('PAYMENT'),[locked,setLocked]=useState(false);
+  if(props.row.bank_match_id&&props.row.match_status==='ACTIVE')return <PaymentBankMatchReview {...props}/>;
+  return <><fieldset disabled={locked}><legend>Match to</legend><label><input type="radio" name="bank-match-kind" checked={kind==='PAYMENT'} onChange={()=>setKind('PAYMENT')}/> Payment</label><label><input type="radio" name="bank-match-kind" checked={kind==='SALES_RECEIPT'} onChange={()=>setKind('SALES_RECEIPT')}/> Sales receipt</label></fieldset>{kind==='SALES_RECEIPT'?<SalesReceiptBankMatch key={`${props.config.baseUrl}:${props.config.entityId}:${props.row.bank_source_id}:${props.row.version}`} {...props} onLockChange={setLocked}/>:<PaymentBankMatchReview {...props}/>}</>;
+}
+function PaymentBankMatchReview({row,config,fetcher,onChanged=()=>{}}){
   const [candidateState,setCandidateState]=useState({phase:'IDLE',candidates:[],error:null});
   const [reason,setReason]=useState('');
   const loadCandidates=async()=>{setCandidateState({phase:'LOADING',candidates:[],error:null});const result=await refreshAuthoritativeBankMatchCandidates({config,bankSourceId:row.bank_source_id,fetcher});setCandidateState(result.ok?{phase:'READY',candidates:result.candidates,error:null}:{phase:'ERROR',candidates:[],error:result});};
