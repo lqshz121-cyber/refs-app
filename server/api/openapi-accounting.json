@@ -7408,7 +7408,13 @@
           "version",
           "source_document_id",
           "source_ref",
-          "document_type"
+          "document_type",
+          "match_source_kind",
+          "payment_occurrence_id",
+          "sales_receipt_id",
+          "sales_receipt_number",
+          "sales_receipt_revision",
+          "ledger_line_id"
         ],
         "properties": {
           "bank_source_id": {
@@ -7523,6 +7529,52 @@
               "null"
             ],
             "pattern": "^[0-9]+$"
+          },
+          "match_source_kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "SALES_RECEIPT",
+              "PAYMENT",
+              "IMPORTED_SOURCE",
+              null
+            ]
+          },
+          "payment_occurrence_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "sales_receipt_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "sales_receipt_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sales_receipt_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "ledger_line_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -8153,7 +8205,13 @@
           "currency",
           "amount",
           "match_status",
-          "clearance_state"
+          "clearance_state",
+          "match_source_kind",
+          "payment_occurrence_id",
+          "sales_receipt_id",
+          "sales_receipt_number",
+          "sales_receipt_revision",
+          "ledger_line_id"
         ],
         "properties": {
           "reconciliation_id": {
@@ -8278,6 +8336,52 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "match_source_kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "SALES_RECEIPT",
+              "PAYMENT",
+              "IMPORTED_SOURCE",
+              null
+            ]
+          },
+          "payment_occurrence_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "sales_receipt_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "sales_receipt_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sales_receipt_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "ledger_line_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         }
       },
