@@ -162,6 +162,12 @@ const periodEnvelope=data=>({ok:true,data,scope:periodScope(data)});
   const matchedBank={...validBank,bank_match_id:'33333333-3333-4333-8333-333333333333',match_status:'ACTIVE',business_source_document_id:'44444444-4444-4444-8444-444444444444',journal_entry_id:'55555555-5555-4555-8555-555555555555',journal_line_id:'66666666-6666-4666-8666-666666666666',candidate_rule_code:'EXACT_POSTED_PAYMENT',amount_delta:'0.0000',currency_match:true,date_delta_days:0,matched_by:'auth0|actor',matched_at:'2026-07-16T00:00:00.000Z',match_version:'1'};
   const readBankRows=async data=>refreshAuthoritativeBankTransactions({config,bankAccountRef:'BANK-1',fetcher:async()=>({ok:true,json:async()=>({ok:true,data})})});
   assert.equal((await readBankRows([matchedBank])).ok,true);
+  for(const dateDelta of [-31,-1,0,1,31]){
+    const signedDateRead=await readBankRows([{...matchedBank,date_delta_days:dateDelta}]);
+    assert.equal(signedDateRead.ok,true,'posted bank matching retains signed date differences');
+    assert.equal(signedDateRead.rows[0].date_delta_days,dateDelta);
+  }
+  for(const dateDelta of [0.5,'-1',Number.MAX_SAFE_INTEGER+1])assert.equal((await readBankRows([{...matchedBank,date_delta_days:dateDelta}])).code,'ACCOUNTING_API_PROTOCOL');
   assert.equal((await readBankRows([{...matchedBank,business_source_document_id:null}])).ok,true,'native payment matches retain journal trace without an imported business source');
   for(const invalid of [{...validBank,external_bank_line_id:''},{...validBank,transaction_date:'2026-02-30'},{...validBank,source_ref:'\u0000'},{...validBank,bank_match_id:null,match_status:'ACTIVE'},{...matchedBank,match_status:'MATCHED'},{...matchedBank,business_source_document_id:'invalid'},{...matchedBank,business_source_document_id:null,journal_entry_id:null},{...matchedBank,business_source_document_id:null,candidate_rule_code:'OTHER'},{...matchedBank,journal_entry_id:null},{...matchedBank,amount_delta:'0'},{...matchedBank,currency_match:'true'},{...matchedBank,matched_at:'not-a-time'},{...matchedBank,match_version:'-1'}])assert.equal((await readBankRows([invalid])).code,'ACCOUNTING_API_PROTOCOL');
   assert.equal((await readBankRows([validBank,{...validBank,external_bank_line_id:'BANK-LINE-2'}])).code,'ACCOUNTING_API_PROTOCOL','duplicate bank source IDs must fail closed');
