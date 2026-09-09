@@ -4,6 +4,24 @@ import {EventEmitter} from 'node:events';
 import {PassThrough} from 'node:stream';
 import {setTimeout as delay} from 'node:timers/promises';
 import {FIXTURES,fixtureResult,readTapSummary,runFixture,selectFixtures} from '../runtime/run-postgres-fixture-suite.mjs';
+import {dropIamRaceDatabase} from './helpers/iam-race-database-cleanup.mjs';
+
+test('IAM race cleanup reserves a connection, bounds DDL time and restores its prior query timeout',async()=>{
+  const calls=[],releases=[],name='refs_iam_race_0123456789abcdef_test';
+  const pool={connect:async()=>({query:async(sql,args)=>{calls.push([sql,args]);return {rows:[{timeout:'10s'}]};},release:error=>releases.push(error)})};
+  await dropIamRaceDatabase(pool,name);
+  assert.deepEqual(calls,[["SELECT current_setting('statement_timeout') AS timeout",undefined],["SELECT set_config('statement_timeout',$1,false)",['600000']],[`DROP DATABASE "${name}"`,undefined],["SELECT set_config('statement_timeout',$1,false)",['10s']]]);
+  assert.deepEqual(releases,[undefined]);
+  for(const unsafe of ['refs_kernel_gate_test','production','refs_iam_race_0123456789abcdef_test"; DROP DATABASE production;'])await assert.rejects(dropIamRaceDatabase({connect:()=>{throw Error('must not connect');}},unsafe),/only the generated IAM race database/);
+});
+
+test('IAM cleanup preserves the test failure and discards a connection whose timeout cannot be restored',async()=>{
+  const primary=new Error('original assertion'),dropError=new Error('drop timed out'),resetError=new Error('connection lost'),releases=[];
+  const pool={connect:async()=>({query:async(sql,args)=>{if(sql.startsWith('DROP'))throw dropError;if(args?.[0]==='10s')throw resetError;return {rows:[{timeout:'10s'}]};},release:error=>releases.push(error)})};
+  await assert.rejects(dropIamRaceDatabase(pool,'refs_iam_race_0123456789abcdef_test',primary),error=>error instanceof AggregateError&&error.errors.length===3&&error.errors[0]===primary&&error.errors[1]===dropError&&error.errors[2]===resetError);
+  assert.deepEqual(releases,[resetError]);
+  await assert.rejects(dropIamRaceDatabase({connect:async()=>{throw dropError;}},'refs_iam_race_0123456789abcdef_test',primary),error=>error instanceof AggregateError&&error.errors[0]===primary&&error.errors[1]===dropError);
+});
 
 test('PostgreSQL fixture suite names each isolated accounting closure explicitly',()=>{
   assert.deepEqual(FIXTURES.map(item=>item.id),['controlled-ap-close','ar-rent-pickup-close','signed-wbs-payable-post','signed-cost-cwip-post','signed-bank-same-source-close','bank-reconcile-close','bank-match-unmatch-controls','wbs-autorec-reserve-release','reconciliation-governance-snapshot','reconciliation-lifecycle-close','ai-exception-lineage','ai-amortization-human-close','dimension-profitability-close','cash-flow-close','cwip-rollforward-close','construction-loan-rollforward-close','prepaid-rollforward-close','intercompany-reconciliation-close','budget-vs-actual-close','consolidation-close','insurance-pc-mapping-controller','wbs-autorec-event-foundation','real-estate-profitability-lineage','real-estate-reports']);

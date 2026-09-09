@@ -1,3 +1,4 @@
+import {AuthoritativeFixedAssetsWorkspace} from '../src/authoritative-fixed-assets-workspace.jsx';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import React from 'react';
@@ -16,7 +17,8 @@ assert.ok(AUTHORITATIVE_ROUTES.includes('ai-audit'));
 assert.ok(AUTHORITATIVE_ROUTES.includes('bill-payments'),'the observed Expenses navigation must keep Bill payments discoverable without granting a payment route');
 assert.equal(navigationItemForRoute('bill-payments')?.availability,'API_UNAVAILABLE','Bill payments must fail closed until a retained payment-evidence reader exists');
 assert.ok(AUTHORITATIVE_ROUTES.includes('vendors'),'the observed Expenses navigation must keep Vendors discoverable without granting a vendor-master route');
-assert.equal(navigationItemForRoute('vendors')?.availability,'API_UNAVAILABLE','Vendors must fail closed until a permission-scoped vendor-master reader exists');
+assert.equal(navigationItemForRoute('vendors')?.availability,'API_READ','Vendors use the company-scoped master reader');
+assert.equal(navigationItemForRoute('customers')?.availability,'API_READ','Customers use the independently AR-permissioned master reader');
 assert.ok(AUTHORITATIVE_ROUTES.includes('contractors'),'the observed Expenses navigation must keep Contractors discoverable without granting a tax or payment route');
 assert.equal(navigationItemForRoute('contractors')?.availability,'API_UNAVAILABLE','Contractors must fail closed until a permission-scoped contractor reader exists');
 assert.ok(AUTHORITATIVE_ROUTES.includes('1099s'),'the observed Expenses navigation must keep 1099s discoverable without granting a filing route');
@@ -32,7 +34,7 @@ assert.equal(navigationItemForRoute('audit-log')?.availability,'API_READ','Audit
 assert.ok(AUTHORITATIVE_ROUTES.includes('my-accountant'),'the observed QBO My accountant entry must remain discoverable without granting collaboration or invitation authority');
 assert.equal(navigationItemForRoute('my-accountant')?.availability,'API_UNAVAILABLE','My accountant must fail closed until a permission-scoped accountant-collaboration reader exists');
 assert.ok(AUTHORITATIVE_ROUTES.includes('fixed-assets'),'the observed Accounting navigation must keep Fixed assets discoverable without granting asset or depreciation authority');
-assert.equal(navigationItemForRoute('fixed-assets')?.availability,'API_UNAVAILABLE','Fixed assets must fail closed until an immutable asset-register reader exists');
+assert.equal(navigationItemForRoute('fixed-assets')?.availability,'API_READ','Fixed assets uses the authoritative register reader');
 assert.ok(AUTHORITATIVE_ROUTES.includes('rules'),'the observed Accounting navigation must keep Rules discoverable without granting rule or automation authority');
 assert.equal(navigationItemForRoute('rules')?.availability,'API_UNAVAILABLE','Rules must fail closed until an immutable rule reader exists');
 for (const [route, label] of [
@@ -57,7 +59,7 @@ assert.equal(navigationItemForRoute('settings')?.availability,'API_READ','Accoun
 assert.equal(navigationItemForRoute('month-end-close')?.availability,'API_COMMAND','Month-End Close must use the evidence-bound close command');
 assert.equal(navigationItemForRoute('period-management')?.availability,'API_READ','Period Management must expose the immutable close-readiness reader');
 assert.equal(navigationItemForRoute('mapping')?.availability,'API_READ','Mapping Center must expose only the complete approved account-to-report mapping reader');
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'accounting-analysis-report', 'ai-audit', 'ai-je-workbench', 'amortization', 'audit-log', 'bank', 'bank-batch-pipeline', 'chart-of-accounts', 'consolidation', 'construction-loan', 'general-ledger', 'integration-hub', 'intercompany', 'journals', 'mapping', 'overview', 'payables', 'period-management', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'reconciliation', 'reports', 'settings', 'source-documents', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['vendors', 'customers', 'account-inquiry', 'accounting-analysis-report', 'ai-audit', 'ai-je-workbench', 'amortization', 'audit-log', 'bank', 'bank-batch-pipeline', 'chart-of-accounts', 'consolidation', 'construction-loan', 'fixed-assets', 'general-ledger', 'integration-hub', 'intercompany', 'journals', 'mapping', 'overview', 'payables', 'period-management', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'reconciliation', 'reports', 'settings', 'source-documents', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
 const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation','Source & Staging']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}} onTogglePanel={() => {}}/>);
 const inertToggleMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
@@ -229,9 +231,8 @@ const myAccountantUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailab
 assert.match(myAccountantUnavailableMarkup,/My accountant is not available yet/);assert.match(myAccountantUnavailableMarkup,/role="status"/);
 assert.match(navigationItemForRoute('my-accountant').requirements.join(' '),/Permission-scoped, entity-bound accountant collaboration records/);
 assert.doesNotMatch(myAccountantUnavailableMarkup,/Invite accountant|Change role|Subscribe|Find an expert|Intuit Experts|Grant access/,'the unavailable My accountant route must not reproduce invitations, permission changes, subscriptions, or external-service actions');
-const fixedAssetsUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('fixed-assets')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
-assert.match(fixedAssetsUnavailableMarkup,/Fixed assets is not available yet/);assert.match(fixedAssetsUnavailableMarkup,/role="status"/);
-assert.doesNotMatch(fixedAssetsUnavailableMarkup,/How it works|See reports|Add multiple assets|Add an asset|automate your fixed asset depreciation/,'the unavailable Fixed assets route must not reproduce onboarding, creation, or automatic-depreciation actions');
+const fixedAssetsMarkup=renderToStaticMarkup(<AuthoritativeFixedAssetsWorkspace config={{entityId:'entity-1',periodId:'period-1'}}/>);
+assert.match(fixedAssetsMarkup,/Fixed assets/);assert.match(fixedAssetsMarkup,/As of date/);assert.match(fixedAssetsMarkup,/Loading assets/);
 const rulesUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('rules')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.match(rulesUnavailableMarkup,/Rules is not available yet/);assert.match(rulesUnavailableMarkup,/role="status"/);
 assert.doesNotMatch(rulesUnavailableMarkup,/New rule|Bank rules|Integration rules|Search by name or conditions|All rules|Priority|Conditions|Auto-post|Edit|reorder|categorise|categorize|match|post/,'the unavailable Rules route must not reproduce rule filters, rows, mutations, or automatic accounting actions');

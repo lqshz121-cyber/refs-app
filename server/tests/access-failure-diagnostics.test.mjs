@@ -3,6 +3,35 @@ import assert from 'node:assert/strict';
 import {reportAccessFailure} from '../api/access-failure-diagnostics.mjs';
 import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
 
+test('kernel acquires a transaction before issuing a fresh context for every retry',async()=>{
+  const events=[];
+  const pool={connect:async()=>{
+    events.push('connect');
+    return {query:async sql=>{
+      events.push(sql);
+      if(sql.startsWith('SELECT session_user'))return {rowCount:1,rows:[{session_user:'refs_runtime',current_user:'refs_runtime',is_superuser:false}]};
+      return {rowCount:1,rows:[]};
+    },release(){events.push('release');}};
+  }};
+  let sessionCalls=0,workCalls=0;
+  const kernel=new PostgresAccountingKernel(pool,{sessionProvider:async()=>{
+    sessionCalls+=1;events.push(`session:${sessionCalls}`);
+    return {trusted:true,contextToken:String(sessionCalls).repeat(40)};
+  }});
+  const result=await kernel.inSession(async()=>{
+    workCalls+=1;
+    if(workCalls===1)throw Object.assign(new Error('retry'),{code:'40001'});
+    return 'ok';
+  });
+  assert.equal(result,'ok');
+  assert.equal(sessionCalls,2);
+  for(const marker of ['session:1','session:2']){
+    const index=events.indexOf(marker);
+    assert.equal(events[index-1],'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE');
+    assert.match(events[index+1],/^SELECT session_user/);
+  }
+});
+
 test('database timeout diagnostics retain a closed stage and never raw database details',async()=>{
   for(const stage of ['CONTEXT_ISSUE','CONTEXT_BIND','DATABASE_OPERATION']){
     const failure=Object.assign(new Error('private query and token'),{code:'57014'});

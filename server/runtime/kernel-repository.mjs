@@ -21,6 +21,7 @@ function publicDate(value){
 
 const WBS_TEST_BANK_FINALIZE_STATEMENT_TIMEOUT='120s';
 const WBS_TEST_BANK_BATCH_STATEMENT_TIMEOUT='120s';
+const WBS_FINAL1_RETAIN_STATEMENT_TIMEOUT='120s';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class PostgresAccountingKernel{
@@ -33,8 +34,9 @@ export class PostgresAccountingKernel{
   async inSession(work){
     let databaseStage='CONTEXT_ISSUE';
     try{
-    const session=assertTrustedSession(await this.sessionProvider());
     return await withSerializableRetry(this.pool,async client=>{
+      databaseStage='CONTEXT_ISSUE';
+      const session=assertTrustedSession(await this.sessionProvider());
       databaseStage='RUNTIME_IDENTITY';
       const identity=requireRow(await client.query(`SELECT session_user,current_user,
         COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname=session_user),false) AS is_superuser`),'DB_IDENTITY_MISSING','Database identity is unavailable');
@@ -605,6 +607,7 @@ export class PostgresAccountingKernel{
 
   async retainWbsProviderFinal1SourceEvidence({tenantId,entityId,delivery,artifacts,plan,idempotencyKey}){
     return this.inSession(async client=>{
+      await client.query("SELECT set_config('statement_timeout',$1,true)",[WBS_FINAL1_RETAIN_STATEMENT_TIMEOUT]);
       if(['BANK','COST','PROPERTY'].includes(delivery?.domain)){
         const requestHash=requireRow(await client.query(
           'SELECT refs_wbs_final1_business_evidence_hash($1,$2,$3::jsonb,$4::jsonb,$5::jsonb) AS request_hash',
@@ -690,12 +693,64 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>{const args=[tenantId,entityId,capitalizationProposalId,assetTag,salvageValue,accumulatedDepreciationAccountCode,depreciationExpenseAccountCode,depreciationMethod,depreciationConvention,reason];const requestHash=requireRow(await client.query('SELECT refs_review_fixed_asset_register_hash($1,$2,$3,$4,$5::numeric,$6,$7,$8,$9,$10) request_hash',args),'FIXED_ASSET_REGISTER_REVIEW_HASH_FAILED','Fixed asset register review hash was not produced').request_hash;return requireRow(await client.query('SELECT refs_review_fixed_asset_register($1,$2,$3,$4,$5::numeric,$6,$7,$8,$9,$10,$11,$12) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_REGISTER_REVIEW_FAILED','Fixed asset register review did not return a result').result;});
   }
 
+  async readFixedAssetMovements({tenantId,entityId,assetId,asOfDate,limit=50,after=null}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_fixed_asset_movements($1,$2,$3,$4::date,$5,$6) AS result',[tenantId,entityId,assetId,asOfDate,limit,after]),'FIXED_ASSET_MOVEMENTS_MISSING','Asset movements unavailable').result);
+  }
+
+  async readFixedAssetRegister({tenantId,entityId,asOfDate,limit=50,after=null,assetId=null}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_fixed_asset_register_v2($1,$2,$3::date,$4,$5,$6) AS result',[tenantId,entityId,asOfDate,limit,after,assetId]),'FIXED_ASSET_READ_MISSING','Fixed asset register read unavailable').result);
+  }
+
+  async readFixedAssetAcquisitionOptions({tenantId,entityId,assetId}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_fixed_asset_acquisition_options($1,$2,$3) result',[tenantId,entityId,assetId]),'FIXED_ASSET_ACQUISITION_OPTIONS_MISSING','Acquisition options unavailable').result);
+  }
+
+  async createFixedAssetAcquisition({tenantId,entityId,assetId,periodId,journalNumber,journalDate,expectedSourceVersion,attachmentIds,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,assetId,periodId,journalNumber,journalDate,expectedSourceVersion,attachmentIds,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_create_fixed_asset_acquisition_hash($1,$2,$3,$4,$5,$6::date,$7::bigint,$8::uuid[],$9) request_hash',args),'FIXED_ASSET_ACQUISITION_HASH_FAILED','Acquisition hash missing').request_hash;
+      return requireRow(await client.query('SELECT refs_create_fixed_asset_acquisition($1,$2,$3,$4,$5,$6::date,$7::bigint,$8::uuid[],$9,$10,$11) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_ACQUISITION_FAILED','Acquisition Draft missing').result;
+    });
+  }
+
+  async readFixedAssetDepreciationOptions({tenantId,entityId,assetId,periodId}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_fixed_asset_depreciation_options($1,$2,$3,$4) result',[tenantId,entityId,assetId,periodId]),'FIXED_ASSET_DEPRECIATION_OPTIONS_MISSING','Depreciation options unavailable').result);
+  }
+
+  async createFixedAssetDepreciation({tenantId,entityId,assetId,periodId,journalNumber,journalDate,expectedRegisterEvidenceHash,expectedScheduleHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,assetId,periodId,journalNumber,journalDate,expectedRegisterEvidenceHash,expectedScheduleHash,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_create_fixed_asset_depreciation_hash($1,$2,$3,$4,$5,$6::date,$7,$8,$9) request_hash',args),'FIXED_ASSET_DEPRECIATION_HASH_FAILED','Depreciation hash missing').request_hash;
+      return requireRow(await client.query('SELECT refs_create_fixed_asset_depreciation($1,$2,$3,$4,$5,$6::date,$7,$8,$9,$10,$11) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_DEPRECIATION_FAILED','Depreciation Draft missing').result;
+    });
+  }
+
+  async readFixedAssetDisposalOptions({tenantId,entityId,assetId,periodId,disposalDate}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_fixed_asset_disposal_options($1,$2,$3,$4,$5::date) result',[tenantId,entityId,assetId,periodId,disposalDate]),'FIXED_ASSET_DISPOSAL_OPTIONS_MISSING','Disposal options unavailable').result);
+  }
+
+  async createFixedAssetDisposal({tenantId,entityId,assetId,periodId,journalNumber,disposalDate,sourceDocumentId,expectedSourceVersion,expectedSourceHash,proceedsAccountCode,proceedsMemberRef,gainLossAccountCode,expectedOptionsHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,assetId,periodId,journalNumber,disposalDate,sourceDocumentId,expectedSourceVersion,expectedSourceHash,proceedsAccountCode,proceedsMemberRef,gainLossAccountCode,expectedOptionsHash,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_create_fixed_asset_disposal_hash($1,$2,$3,$4,$5,$6::date,$7,$8::bigint,$9,$10,$11,$12,$13,$14) request_hash',args),'FIXED_ASSET_DISPOSAL_HASH_FAILED','Disposal hash missing').request_hash;
+      return requireRow(await client.query('SELECT refs_create_fixed_asset_disposal($1,$2,$3,$4,$5,$6::date,$7,$8::bigint,$9,$10,$11,$12,$13,$14,$15,$16) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_DISPOSAL_FAILED','Disposal Draft missing').result;
+    });
+  }
+
+  async bindFixedAssetDisposalSource({tenantId,entityId,fixedAssetRegisterEvidenceId,journalEntryId,sourceDocumentId,expectedSourceHash,expectedRevision,reason,idempotencyKey}){
+    return this.inSession(async client=>{const args=[tenantId,entityId,fixedAssetRegisterEvidenceId,journalEntryId,sourceDocumentId,expectedSourceHash,expectedRevision,reason];const requestHash=requireRow(await client.query('SELECT refs_bind_fixed_asset_disposal_source_hash($1,$2,$3,$4,$5,$6,$7,$8) request_hash',args),'FIXED_ASSET_SOURCE_HASH_FAILED','Source binding hash missing').request_hash;return requireRow(await client.query('SELECT refs_bind_fixed_asset_disposal_source($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_SOURCE_BIND_FAILED','Source binding response missing').result;});
+  }
+
   async reviewFixedAssetDisposal({tenantId,entityId,fixedAssetRegisterEvidenceId,accountingPeriodId,disposalSourceDocumentId,disposalDate,accumulatedDepreciation,proceeds,reason,idempotencyKey}){
     return this.inSession(async client=>{const args=[tenantId,entityId,fixedAssetRegisterEvidenceId,accountingPeriodId,disposalSourceDocumentId,disposalDate,accumulatedDepreciation,proceeds,reason];const requestHash=requireRow(await client.query('SELECT refs_review_fixed_asset_disposal_hash($1,$2,$3,$4,$5,$6::date,$7::numeric,$8::numeric,$9) request_hash',args),'FIXED_ASSET_DISPOSAL_REVIEW_HASH_FAILED','Fixed asset disposal review hash was not produced').request_hash;return requireRow(await client.query('SELECT refs_review_fixed_asset_disposal($1,$2,$3,$4,$5,$6::date,$7::numeric,$8::numeric,$9,$10,$11) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_DISPOSAL_REVIEW_FAILED','Fixed asset disposal review did not return a result').result;});
   }
 
   async reviewFixedAssetImpairment({tenantId,entityId,fixedAssetRegisterEvidenceId,accountingPeriodId,valuationSourceDocumentId,assessmentDate,recoverableAmount,impairmentExpenseAccountCode,accumulatedImpairmentAccountCode,reason,idempotencyKey}){
     return this.inSession(async client=>{const args=[tenantId,entityId,fixedAssetRegisterEvidenceId,accountingPeriodId,valuationSourceDocumentId,assessmentDate,recoverableAmount,impairmentExpenseAccountCode,accumulatedImpairmentAccountCode,reason];const requestHash=requireRow(await client.query('SELECT refs_review_fixed_asset_impairment_hash($1,$2,$3,$4,$5,$6::date,$7::numeric,$8,$9,$10) request_hash',args),'FIXED_ASSET_IMPAIRMENT_REVIEW_HASH_FAILED','Fixed asset impairment review hash was not produced').request_hash;return requireRow(await client.query('SELECT refs_review_fixed_asset_impairment($1,$2,$3,$4,$5,$6::date,$7::numeric,$8,$9,$10,$11,$12) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_IMPAIRMENT_REVIEW_FAILED','Fixed asset impairment review did not return a result').result;});
+  }
+
+  async reviewFixedAssetPostImpairmentPolicy({tenantId,entityId,fixedAssetRegisterEvidenceId,impairmentAssessmentEvidenceId,effectivePeriodId,remainingUsefulLifeMonths,convention,reason,idempotencyKey}){
+    return this.inSession(async client=>{const args=[tenantId,entityId,fixedAssetRegisterEvidenceId,impairmentAssessmentEvidenceId,effectivePeriodId,remainingUsefulLifeMonths,convention,reason];const requestHash=requireRow(await client.query('SELECT refs_review_fixed_asset_post_impairment_policy_hash($1,$2,$3,$4,$5,$6,$7,$8) request_hash',args),'FIXED_ASSET_POST_IMPAIRMENT_POLICY_HASH_FAILED','Post-impairment depreciation policy hash was not produced').request_hash;return requireRow(await client.query('SELECT refs_review_fixed_asset_post_impairment_policy($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_POST_IMPAIRMENT_POLICY_REVIEW_FAILED','Post-impairment depreciation policy review did not return a result').result;});
   }
 
   async listAiConstructionLoanEntryProposals({tenantId,entityId,limit=50}){
@@ -1451,6 +1506,12 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getWbsPayableAcceptanceEvidence({tenantId,entityId,reviewEvidenceId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_payable_acceptance_evidence($1,$2,$3) AS result',[tenantId,entityId,reviewEvidenceId]
+    ),'WBS_PAYABLE_ACCEPTANCE_EVIDENCE_NOT_FOUND','Complete retained WBS Payable acceptance evidence was not found').result);
+  }
+
   // The database function is REFS-owned and verifies receipt-backed WBS
   // sources under locks. It never invokes WBS and never creates or posts JE.
   async executeWbsAutoRecIntent({tenantId,entityId,intent}){
@@ -1614,12 +1675,12 @@ export class PostgresAccountingKernel{
   async createApVendorCredit(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
-        'SELECT refs_ap_vendor_credit_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS request_hash',
-        [args.tenantId,args.entityId,args.periodId,args.creditNumber,args.creditDate,args.vendorRef,args.vendorName,args.amount,JSON.stringify(args.lines),args.reason]
+        'SELECT refs_ap_vendor_credit_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS request_hash',
+        [args.tenantId,args.entityId,args.periodId,args.creditNumber,args.creditDate,args.vendorRef,args.vendorName,args.amount,JSON.stringify(args.lines),args.reason,args.attachmentIds]
       ),'AP_VENDOR_CREDIT_HASH_FAILED','AP vendor credit hash was not produced').request_hash;
       const row=requireRow(await client.query(
-        'SELECT refs_create_ap_vendor_credit($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) AS result',
-        [args.tenantId,args.entityId,args.periodId,args.creditNumber,args.creditDate,args.vendorRef,args.vendorName,args.amount,JSON.stringify(args.lines),args.reason,args.idempotencyKey,requestHash]
+        'SELECT refs_create_ap_vendor_credit($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) AS result',
+        [args.tenantId,args.entityId,args.periodId,args.creditNumber,args.creditDate,args.vendorRef,args.vendorName,args.amount,JSON.stringify(args.lines),args.reason,args.attachmentIds,args.idempotencyKey,requestHash]
       ),'AP_VENDOR_CREDIT_FAILED','AP vendor credit Draft creation did not return a result');
       return row.result;
     });
@@ -1745,6 +1806,12 @@ export class PostgresAccountingKernel{
     ),'SALES_RECEIPT_OPTIONS_UNAVAILABLE','Sales receipt options are unavailable').result);
   }
 
+  async readPaymentBankCandidates({tenantId,entityId,bankSourceId,afterId=null,limit=50}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_payment_bank_candidates($1,$2,$3,$4,$5) AS result',[tenantId,entityId,bankSourceId,afterId,limit]
+    ),'PAYMENT_BANK_CANDIDATES_UNAVAILABLE','Payment bank candidates are unavailable').result);
+  }
+
   async readSalesReceiptBankCandidates({tenantId,entityId,bankSourceId,afterId=null,limit=50}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_sales_receipt_bank_candidates($1,$2,$3,$4,$5) AS result',[tenantId,entityId,bankSourceId,afterId,limit]
@@ -1788,6 +1855,39 @@ export class PostgresAccountingKernel{
       'SELECT refs_read_credit_usage_context($1,$2,$3,$4,$5) AS result',
       [tenantId,entityId,action,businessAdjustmentId,periodId]
     ),'CREDIT_USAGE_CONTEXT_UNAVAILABLE','Credit availability is unavailable').result);
+  }
+
+  async readCounterpartyDetail({tenantId,entityId,kind,memberRef}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_counterparty_detail($1,$2,$3,$4) AS result',[tenantId,entityId,kind,memberRef]
+    ),'COUNTERPARTY_DETAIL_UNAVAILABLE','Counterparty detail is unavailable').result);
+  }
+
+  async readCounterpartyChanges({tenantId,entityId,kind,status='PENDING',memberRef=null,afterId=null,limit=25}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_counterparty_changes($1,$2,$3,$4,$5,$6,$7) AS result',[tenantId,entityId,kind,status,memberRef,afterId,limit]
+    ),'COUNTERPARTY_CHANGES_UNAVAILABLE','Counterparty changes are unavailable').result);
+  }
+
+  async proposeCounterpartyChange({tenantId,entityId,kind,memberRef,changeType,expectedVersion,displayName,active,reason,idempotencyKey}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_propose_counterparty_change($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+      [tenantId,entityId,kind,memberRef,changeType,expectedVersion,displayName,active,reason,idempotencyKey]
+    ),'COUNTERPARTY_CHANGE_UNAVAILABLE','Counterparty change is unavailable').result);
+  }
+
+  async reviewCounterpartyChange({tenantId,entityId,changeId,expectedVersion,decision,reason,idempotencyKey}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_review_counterparty_change($1,$2,$3,$4,$5,$6,$7) AS result',
+      [tenantId,entityId,changeId,expectedVersion,decision,reason,idempotencyKey]
+    ),'COUNTERPARTY_CHANGE_UNAVAILABLE','Counterparty review is unavailable').result);
+  }
+
+  async readCounterpartyRegister({tenantId,entityId,kind,status='ACTIVE',query='',afterRef=null,limit=50}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_counterparty_register($1,$2,$3,$4,$5,$6,$7) AS result',
+      [tenantId,entityId,kind,status,query,afterRef,limit]
+    ),'COUNTERPARTY_REGISTER_UNAVAILABLE','Counterparty register is unavailable').result);
   }
 
   async readBusinessDocumentCounterparties({tenantId,entityId,documentKind,query='',afterRef=null,limit=50}){
@@ -2421,23 +2521,23 @@ export class PostgresAccountingKernel{
 
   async getAiBudgetVariancePolicy({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_budget_variance_policy($1,$2,$3) AS policy',[tenantId,entityId,accountingPeriodId])).rows[0]?.policy??null);}
 
-  async getAiPrepaidBalanceReconciliationSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_prepaid_balance_reconciliation_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+  async getAiPrepaidBalanceReconciliationSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_prepaid_balance_reconciliation_source($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
-  async getAiFixedAssetDepreciationGapSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_depreciation_gap_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+  async getAiFixedAssetDepreciationGapSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_fixed_asset_depreciation_gap_source($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
-  async getAiFixedAssetDepreciationSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_depreciation_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+  async getAiFixedAssetDepreciationSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_fixed_asset_depreciation_source($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
-  async getAiFixedAssetPostedReconciliation({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_posted_reconciliation($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+  async getAiFixedAssetPostedReconciliation({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_fixed_asset_posted_reconciliation($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
-  async getAiFixedAssetDisposalGapSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_disposal_gap_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+  async getAiFixedAssetDisposalGapSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_fixed_asset_disposal_gap_source($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
   async getAiReviewedFixedAssetDisposals({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_reviewed_fixed_asset_disposals($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
 
-  async getAiFixedAssetPostDisposalDepreciation({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_post_disposal_depreciation($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+  async getAiFixedAssetPostDisposalDepreciation({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_fixed_asset_post_disposal_depreciation($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
-  async getAiFixedAssetImpairmentAssessments({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_impairment_assessments($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+  async getAiFixedAssetImpairmentAssessments({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_fixed_asset_impairment_assessments($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
-  async getAiFixedAssetImpairmentPostedReconciliation({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_impairment_posted_reconciliation($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+  async getAiFixedAssetImpairmentPostedReconciliation({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_fixed_asset_impairment_posted_reconciliation($1,$2,$3) AS data',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.data));}
 
   async getAiApAgingRiskSource({tenantId,entityId,asOfDate}){
     return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_ap_aging_risk_source($1,$2,$3::date)',[tenantId,entityId,asOfDate])).rows.map(row=>({...row,aging_date:publicDate(row.aging_date)})));
@@ -2583,8 +2683,8 @@ export class PostgresAccountingKernel{
   async createArCreditMemo(args){
     return this.inSession(async client=>{
       const lines=typeof args.lines==='string'?args.lines:JSON.stringify(args.lines);
-      const requestHash=requireRow(await client.query('SELECT refs_ar_credit_memo_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS request_hash',[args.tenantId,args.entityId,args.periodId,args.memoNumber,args.memoDate,args.customerRef,args.customerName,args.amount,lines,args.reason]),'AR_CREDIT_MEMO_HASH_FAILED','AR credit memo hash was not produced').request_hash;
-      const row=requireRow(await client.query('SELECT refs_create_ar_credit_memo($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) AS result',[args.tenantId,args.entityId,args.periodId,args.memoNumber,args.memoDate,args.customerRef,args.customerName,args.amount,lines,args.reason,args.idempotencyKey,requestHash]),'AR_CREDIT_MEMO_FAILED','AR credit memo Draft creation did not return a result');
+      const requestHash=requireRow(await client.query('SELECT refs_ar_credit_memo_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS request_hash',[args.tenantId,args.entityId,args.periodId,args.memoNumber,args.memoDate,args.customerRef,args.customerName,args.amount,lines,args.reason,args.attachmentIds]),'AR_CREDIT_MEMO_HASH_FAILED','AR credit memo hash was not produced').request_hash;
+      const row=requireRow(await client.query('SELECT refs_create_ar_credit_memo($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) AS result',[args.tenantId,args.entityId,args.periodId,args.memoNumber,args.memoDate,args.customerRef,args.customerName,args.amount,lines,args.reason,args.attachmentIds,args.idempotencyKey,requestHash]),'AR_CREDIT_MEMO_FAILED','AR credit memo Draft creation did not return a result');
       return row.result;
     });
   }

@@ -103,10 +103,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Entity- and period-scoped recognition schedules with immutable source, schedule revision, dates, accounts, currency, amount, status, Journal, ledger, and audit identifiers.',
       'Read-only list, detail, and report endpoints; settings, rule changes, schedule creation, automatic Journal generation, and posting remain unavailable.',
     ]),
-    item('fixed-assets', 'Fixed assets', 'API_UNAVAILABLE', [
-      'Entity-scoped fixed-asset register rows with immutable asset identity/revision, dates, cost, residual value, method/life, accumulated depreciation, net book value, status, accounts, source, Journal, ledger, and audit identifiers.',
-      'Read-only list, detail, and report endpoints; asset creation, bulk import, edits, depreciation generation, disposal, and posting remain unavailable.',
-    ]),
+    item('fixed-assets', 'Fixed assets', 'API_READ'),
     // QBO calls this surface Prepaid expenses. REFS keeps its stronger
     // Amortization Center controls behind that familiar accounting label.
     item('amortization', 'Prepaid expenses', 'API_READ'),
@@ -122,10 +119,8 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
   ]),
   group('Payables & Receivables', [
     item('payables', 'Expense transactions', 'API_READ'),
-    item('vendors', 'Vendors', 'API_UNAVAILABLE', [
-      'Entity-scoped vendor master rows with immutable vendor identity, company, contact, tax-status, and open-balance facts.',
-      'Read-only search, paging, and detail endpoints; vendor creation, bill creation, payment, email, print, export, and tax actions remain unavailable.',
-    ]),
+    item('vendors', 'Vendors', 'API_READ'),
+    item('customers', 'Customers', 'API_READ'),
     item('bill-payments', 'Bill payments', 'API_UNAVAILABLE', [
       'Entity- and period-scoped retained Bill Payment evidence with immutable Bill, payment, Journal, ledger, and audit identifiers.',
       'Read-only list and detail endpoints; payment initiation, approval, void, release, and external money movement remain unavailable.',

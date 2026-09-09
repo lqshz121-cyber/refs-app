@@ -1,5 +1,6 @@
 import {KernelError} from './db.mjs';
 import {PostgresGrantSync} from './grant-sync.mjs';
+import {ADDITIONAL_WORKFLOW_ROLES} from './additional-workflow-roles.mjs';
 import {RemoteJwksResolver,OidcJwtAuthenticator} from '../api/oidc-authenticator.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -12,10 +13,17 @@ const role=(authorityClass,permissions,{principalKind='HUMAN'}={})=>Object.freez
 // Each authenticated subject receives one frozen bundle. Write authority
 // stages never mix Draft, Submit, Review, Approve, or Post.
 export const AUTHORITATIVE_WORKFLOW_ROLES=Object.freeze({
+  ...Object.fromEntries(Object.entries(ADDITIONAL_WORKFLOW_ROLES).map(([name,definition])=>[name,role(definition.authorityClass,[...READ,definition.permission])])),
+  COUNTERPARTY_MAKER:role('DRAFT',[...READ,'MASTER.COUNTERPARTY.PROPOSE']),
+  COUNTERPARTY_APPROVER:role('APPROVE',[...READ,'MASTER.COUNTERPARTY.APPROVE']),
   WBS_SNAPSHOT_IMPORTER_SERVICE:role('SERVICE',['WBS.SNAPSHOT.IMPORT'],{principalKind:'SERVICE'}),
   ATTACHMENT_SCANNER_SERVICE:role('SERVICE',['ATTACHMENT.FINALIZE'],{principalKind:'SERVICE'}),
   ATTACHMENT_CLEANUP_SERVICE:role('SERVICE',['ATTACHMENT.CLEANUP'],{principalKind:'SERVICE'}),
   OUTBOX_DISPATCHER_SERVICE:role('SERVICE',['OUTBOX.DISPATCH'],{principalKind:'SERVICE'}),
+  FIXED_ASSET_VIEWER:role('VIEWER',['FIXED_ASSET.REGISTER.VIEW']),
+  FIXED_ASSET_ACQUISITION_MAKER:role('DRAFT',['FIXED_ASSET.ACQUISITION.DRAFT','FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']),
+  FIXED_ASSET_DEPRECIATION_MAKER:role('DRAFT',['FIXED_ASSET.DEPRECIATION.DRAFT','FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']),
+  FIXED_ASSET_DISPOSAL_MAKER:role('DRAFT',['FIXED_ASSET.DISPOSAL.DRAFT','FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']),
   AUDIT_READER:role('ANALYSIS',['AUDIT.VIEW']),
   WBS_OPERATOR_ATTESTER:role('ATTEST',['WBS.AUTOREC.VIEW','WBS.PAYABLE.OPERATOR_ATTEST']),
   AI_CONTROLLER_REVIEWER:role('ANALYSIS',[...READ,'AI.ANALYSIS.EXPLAIN','AI.AMORTIZATION.VIEW','AI.ACCOUNTING.SETTINGS.VIEW']),
@@ -31,18 +39,21 @@ export const AUTHORITATIVE_WORKFLOW_ROLES=Object.freeze({
   WBS_PAYABLE_MAKER:role('DRAFT',[...READ,'AP.BILL.CREATE']),
   AP_BILL_ENTRY_MAKER:role('DRAFT',[...READ,'AP.BILL.CREATE','ATTACHMENT.CREATE']),
   AR_INVOICE_ENTRY_MAKER:role('DRAFT',[...READ,'AR.INVOICE.CREATE','ATTACHMENT.CREATE']),
+  AR_SALES_RECEIPT_ENTRY_MAKER:role('DRAFT',[...READ,'AR.SALES_RECEIPT.CREATE','ATTACHMENT.CREATE']),
   WBS_H1_PAYABLE_DRAFT_MAKER:role('DRAFT',[...READ,'WBS.H1.PAYABLE.DRAFT','GL.JE.CREATE']),
   WBS_H1_ACCOUNTING_RECONCILER:role('RECONCILE',[...READ,'WBS.H1.ACCOUNTING.RECONCILE']),
   AP_PAYMENT_MAKER:role('PAYMENT',[...READ,'AP.PAYMENT.CREATE']),
   AP_PAYMENT_ENTRY_MAKER:role('PAYMENT',[...READ,'AP.PAYMENT.CREATE','ATTACHMENT.CREATE']),
   AP_PAYMENT_REVERSAL_MAKER:role('REVERSAL',[...READ,'AP.PAYMENT.REVERSE']),
   AP_VENDOR_CREDIT_MAKER:role('ADJUSTMENT',[...READ,'AP.VENDOR_CREDIT.CREATE']),
+  AP_VENDOR_CREDIT_ENTRY_MAKER:role('ADJUSTMENT',[...READ,'AP.VENDOR_CREDIT.CREATE','ATTACHMENT.CREATE']),
   AP_VENDOR_CREDIT_ALLOCATOR:role('ALLOCATION',[...READ,'AP.VENDOR_CREDIT.APPLY']),
   AR_INVOICE_MAKER:role('DRAFT',[...READ,'AR.INVOICE.CREATE']),
   AR_RECEIPT_MAKER:role('RECEIPT',[...READ,'AR.RECEIPT.CREATE']),
   AR_RECEIPT_ENTRY_MAKER:role('RECEIPT',[...READ,'AR.RECEIPT.CREATE','ATTACHMENT.CREATE']),
   AR_RECEIPT_REVERSAL_MAKER:role('REVERSAL',[...READ,'AR.RECEIPT.REVERSE']),
   AR_CREDIT_MEMO_MAKER:role('ADJUSTMENT',[...READ,'AR.CREDIT_MEMO.CREATE']),
+  AR_CREDIT_MEMO_ENTRY_MAKER:role('ADJUSTMENT',[...READ,'AR.CREDIT_MEMO.CREATE','ATTACHMENT.CREATE']),
   AR_CREDIT_MEMO_ALLOCATOR:role('ALLOCATION',[...READ,'AR.CREDIT_MEMO.APPLY']),
   AR_REFUND_MAKER:role('REFUND',[...READ,'AR.REFUND.CREATE']),
   JE_REVIEWER:role('REVIEW',[...READ,'GL.JE.REVIEW']),
@@ -63,16 +74,18 @@ export const AUTHORITATIVE_WORKFLOW_ROLES=Object.freeze({
 
 // Migration 274 installs the equivalent pairwise database matrix.
 export const WORKFLOW_SOD_GROUPS=Object.freeze([
-  Object.freeze(['GL.JE.CREATE','GL.JE.AUTO.CREATE','AP.BILL.CREATE','AR.INVOICE.CREATE','AP.PAYMENT.CREATE','AP.PAYMENT.REVERSE','AP.VENDOR_CREDIT.CREATE','AP.VENDOR_CREDIT.APPLY','AR.RECEIPT.CREATE','AR.RECEIPT.REVERSE','AR.CREDIT_MEMO.CREATE','AR.CREDIT_MEMO.APPLY','AR.REFUND.CREATE','AI.AMORTIZATION.DRAFT','PREPAID.AMORTIZATION.DRAFT','WBS.COST.CWIP.DRAFT','WBS.PROPERTY.RENT.DRAFT','WBS.H1.PAYABLE.DRAFT','BANK.RECONCILIATION.START','BANK.RECONCILIATION.CLEAR','BANK.RECONCILIATION.ADJUSTMENT_DRAFT','BANK.MATCH.CREATE']),
+  Object.freeze(['MASTER.COUNTERPARTY.PROPOSE','GL.JE.CREATE','GL.JE.AUTO.CREATE','AP.BILL.CREATE','AR.INVOICE.CREATE','AR.SALES_RECEIPT.CREATE','AP.PAYMENT.CREATE','AP.PAYMENT.REVERSE','AP.VENDOR_CREDIT.CREATE','AP.VENDOR_CREDIT.APPLY','AR.RECEIPT.CREATE','AR.RECEIPT.REVERSE','AR.CREDIT_MEMO.CREATE','AR.CREDIT_MEMO.APPLY','AR.REFUND.CREATE','AI.AMORTIZATION.DRAFT','PREPAID.AMORTIZATION.DRAFT','WBS.COST.CWIP.DRAFT','WBS.PROPERTY.RENT.DRAFT','WBS.H1.PAYABLE.DRAFT','BANK.RECONCILIATION.START','BANK.RECONCILIATION.CLEAR','BANK.RECONCILIATION.ADJUSTMENT_DRAFT','BANK.MATCH.CREATE']),
   Object.freeze(['GL.JE.SUBMIT']),
   Object.freeze(['GL.JE.REVIEW','BANK.MATCH.REVIEW','BANK.RECONCILIATION.REVIEW','PREPAID.AMORTIZATION.REVIEW']),
-  Object.freeze(['GL.JE.APPROVE','BANK.RECONCILIATION.SIGN_OFF','GL.REPORT.SNAPSHOT.APPROVE']),
+  Object.freeze(['MASTER.COUNTERPARTY.APPROVE','GL.JE.APPROVE','BANK.RECONCILIATION.SIGN_OFF','GL.REPORT.SNAPSHOT.APPROVE']),
   Object.freeze(['GL.JE.POST']),
   Object.freeze(['BANK.MATCH.UNMATCH']),
   Object.freeze(['GL.PERIOD.CLOSE']),
   Object.freeze(['BANK.RECONCILIATION.REOPEN','GL.PERIOD.REOPEN']),
 ]);
 const stageByPermission=new Map(WORKFLOW_SOD_GROUPS.flatMap((group,index)=>group.map(permission=>[permission,index])));
+const additionalAuthorityByPermission=new Map(Object.values(ADDITIONAL_WORKFLOW_ROLES).map(({permission,authorityClass})=>[permission,authorityClass]));
+for(const [permission,authorityClass] of additionalAuthorityByPermission)if(!stageByPermission.has(permission))stageByPermission.set(permission,`native:${authorityClass}`);
 
 export function assertWorkflowRoleSafety(definition){
   if(!definition||typeof definition.authorityClass!=='string'||!['HUMAN','SERVICE'].includes(definition.principalKind)||!Array.isArray(definition.permissions)||definition.permissions.length===0)throw new KernelError('WORKFLOW_ROLE_SCOPE_DENIED','Workflow role definition is incomplete');
@@ -82,6 +95,7 @@ export function assertWorkflowRoleSafety(definition){
     return definition;
   }
   if(definition.authorityClass==='SERVICE'||definition.permissions.some(permission=>SERVICE_ONLY.has(permission)))throw new KernelError('WORKFLOW_ROLE_SCOPE_DENIED','Human workflow roles cannot contain service-only permissions');
+  if(definition.permissions.some(permission=>additionalAuthorityByPermission.has(permission)&&additionalAuthorityByPermission.get(permission)!==definition.authorityClass))throw new KernelError('WORKFLOW_ROLE_SCOPE_DENIED','Human workflow permission does not match its native authority');
   const stages=new Set(definition.permissions.map(permission=>stageByPermission.get(permission)).filter(stage=>stage!==undefined));
   if(stages.size>1)throw new KernelError('WORKFLOW_ROLE_SCOPE_DENIED','Workflow role combines mutually exclusive authority stages');
   return definition;
@@ -122,7 +136,13 @@ export function workflowRolePolicyConfig(environment){
   if(!validUtc(validUntil))throw new KernelError('WORKFLOW_ROLE_CONFIG_INVALID','Workflow role grant expiry must be a canonical UTC timestamp');
   const common={tenantId,entityId,role:roleName,principalKind:definition.principalKind,authorityClass:definition.authorityClass,permissions:[...definition.permissions],validUntil,expectedVersion,idempotencyKey};
   if(definition.principalKind==='SERVICE'){
-    const actorKey=roleName==='OUTBOX_DISPATCHER_SERVICE'?'OUTBOX_DISPATCH_ACTOR_ID':'WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID';
+    const actorKey={
+      OUTBOX_DISPATCHER_SERVICE:'OUTBOX_DISPATCH_ACTOR_ID',
+      WBS_SNAPSHOT_IMPORTER_SERVICE:'WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID',
+      ATTACHMENT_SCANNER_SERVICE:'ATTACHMENT_SCANNER_ACTOR_ID',
+      ATTACHMENT_CLEANUP_SERVICE:'ATTACHMENT_CLEANUP_ACTOR_ID',
+    }[roleName];
+    if(!actorKey)throw new KernelError('WORKFLOW_ROLE_CONFIG_INVALID','Service workflow role has no configured identity source');
     return Object.freeze({...common,serviceActorId:required(environment,actorKey)});
   }
   return Object.freeze({...common,accessToken:required(environment,'REFS_AUTHENTICATED_ACCESS_TOKEN'),issuer:required(environment,'OIDC_ISSUER'),audience:required(environment,'OIDC_AUDIENCE'),jwksUri:required(environment,'OIDC_JWKS_URI')});

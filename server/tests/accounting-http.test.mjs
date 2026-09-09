@@ -1,3 +1,4 @@
+import {movementFixture} from './fixtures/fixed-asset-movement.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';import {randomUUID} from 'node:crypto';
 import {createAccountingApi,createAccountingHttpServer} from '../api/accounting-http.mjs';
 
@@ -129,6 +130,14 @@ test('transition and post require optimistic concurrency and route authoritative
   assert.equal(response.status,412);assert.equal(response.body.code,'WEAK_IF_MATCH_REJECTED');
   response=await command(`/api/v1/entities/${entityId}/journal-entries/${journalEntryId}/transitions/review`,{reason:'reviewed'},{'If-Match':'3'});
   assert.equal(response.status,400);assert.equal(response.body.code,'INVALID_IF_MATCH');
+});
+
+test('journal Post maps fixed asset depreciation evidence guards without retry advice',async()=>{
+  const path=`/api/v1/entities/${entityId}/journal-entries/${journalEntryId}/post`,request={method:'POST',url:path,body:{periodId},headers:{'Idempotency-Key':'depreciation-post-guard','If-Match':'"3"'}};
+  for(const [code,message,status,responseCode] of [['40001','Acquisition source changed before depreciation',412,'PRECONDITION_FAILED'],['0A000','Post-impairment depreciation policy is required',409,'FIXED_ASSET_POST_IMPAIRMENT_POLICY_REQUIRED']]){
+    const guarded=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'poster'}),kernelFactory:async()=>({postJournal:async()=>{throw Object.assign(new Error(message),{code});}})});
+    const response=await guarded(request);assert.equal(response.status,status);assert.equal(response.body.code,responseCode);assert.equal(response.headers['retry-after'],undefined);
+  }
 });
 
 test('successful mutations return a strong ETag only for an authoritative revision',async()=>{
@@ -641,17 +650,19 @@ test('signed reconciliation snapshot is an authenticated immutable no-store read
 });
 
 test('AR Credit Memo route creates only a Draft adjustment from trusted scope',async()=>{
-  calls.length=0;const response=await command('/api/v1/entities/'+entityId+'/ar/credit-memos',{periodId,memoNumber:'CM-1',memoDate:'2026-07-20',customerRef:'CUSTOMER-1',customerName:'Customer',amount:10,lines:[{line_no:1,account_code:'400000',amount:10}],reason:'Approved customer credit memo'});
-  assert.equal(response.status,201);assert.equal(calls[0][0],'createArCreditMemo');assert.equal(calls[0][1].tenantId,tenantId);assert.equal(calls[0][1].amount,10);
+  calls.length=0;const attachmentId=randomUUID(),response=await command('/api/v1/entities/'+entityId+'/ar/credit-memos',{periodId,memoNumber:'CM-1',memoDate:'2026-07-20',customerRef:'CUSTOMER-1',customerName:'Customer',amount:10,lines:[{line_no:1,account_code:'400000',amount:10}],reason:'Approved customer credit memo',attachmentIds:[attachmentId]});
+  assert.equal(response.status,201);assert.equal(calls[0][0],'createArCreditMemo');assert.equal(calls[0][1].tenantId,tenantId);assert.equal(calls[0][1].amount,10);assert.deepEqual(calls[0][1].attachmentIds,[attachmentId]);
+  assert.equal((await command('/api/v1/entities/'+entityId+'/ar/credit-memos',{periodId,memoNumber:'CM-1',memoDate:'2026-07-20',customerRef:'CUSTOMER-1',customerName:'Customer',amount:10,lines:[{line_no:1,account_code:'400000',amount:10}],reason:'Approved customer credit memo'})).status,400);
 });
 
 test('AP Vendor Credit route creates only a Draft command from trusted tenant entity scope',async()=>{
-  calls.length=0;const body={periodId,creditNumber:'VC-1',creditDate:'2026-08-02',vendorRef:'V-100',vendorName:'Vendor',amount:125.25,lines:[{line_no:1,account_code:'610000',amount:125.25,dimensions:{property:'P1'}}],reason:'Vendor price adjustment'};
+  calls.length=0;const body={periodId,creditNumber:'VC-1',creditDate:'2026-08-02',vendorRef:'V-100',vendorName:'Vendor',amount:125.25,lines:[{line_no:1,account_code:'610000',amount:125.25,dimensions:{property:'P1'}}],reason:'Vendor price adjustment',attachmentIds:[randomUUID()]};
   const response=await command(`/api/v1/entities/${entityId}/ap/vendor-credits`,body);
   assert.equal(response.status,201);assert.equal(calls[0][0],'createApVendorCredit');
   assert.deepEqual(calls[0][1],{...body,tenantId,entityId,idempotencyKey:'idem-key-0001'});
   assert.equal((await command(`/api/v1/entities/${entityId}/ap/vendor-credits`,{...body,tenantId:randomUUID()})).status,400);
   assert.equal((await command(`/api/v1/entities/${entityId}/ap/vendor-credits`,{...body,unexpected:true})).status,400);
+  assert.equal((await command(`/api/v1/entities/${entityId}/ap/vendor-credits`,{...body,attachmentIds:[body.attachmentIds[0],body.attachmentIds[0]]})).status,400);
 });
 
 test('AP Vendor Credit allocation route creates only a pending reservation from trusted scope',async()=>{
@@ -776,4 +787,41 @@ test('current actor access read is self-only bodyless no-store diagnostics',asyn
   response=await accessApi({method:'GET',url:path,body:null,headers:{'Idempotency-Key':'not-allowed'}});assert.equal(response.status,400);assert.equal(response.body.code,'IDEMPOTENCY_KEY_NOT_ALLOWED');
   response=await accessApi({method:'GET',url:path,body:null,headers:{'If-Match':'\"0\"'}});assert.equal(response.status,400);assert.equal(response.body.code,'IF_MATCH_NOT_ALLOWED');
   response=await accessApi({method:'GET',url:path,body:{actorId:'someone-else'},headers:{}});assert.equal(response.status,400);assert.equal(response.body.code,'IDENTITY_FIELD_FORBIDDEN');
+});
+
+
+test('disposal source binding takes server identity and header revision with a closed request',async()=>{
+  const assetId=randomUUID(),sourceId=randomUUID(),bindingId=randomUUID(),seen=[];
+  const routeApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'source-maker'}),kernelFactory:async()=>({bindFixedAssetDisposalSource:async args=>{seen.push(args);return {schema_version:'FIXED_ASSET_DISPOSAL_SOURCE_BINDING_V1',binding_id:bindingId,journal_entry_id:journalEntryId,fixed_asset_register_evidence_id:assetId,source_document_id:sourceId,source_link_id:randomUUID(),source_payload_hash:'sha256:'+'a'.repeat(64),source_document_version:1,status:'DRAFT',revision:1,idempotent:false};}})});
+  const req={method:'POST',url:'/api/v1/entities/'+entityId+'/fixed-assets/disposal-source-bindings',headers:{'Idempotency-Key':'disposal-source-bind-unit','If-Match':'"0"'},body:{fixedAssetRegisterEvidenceId:assetId,journalEntryId,sourceDocumentId:sourceId,expectedSourceHash:'sha256:'+'a'.repeat(64),reason:'Retained source checked against the disposal draft.'}};
+  const response=await routeApi(req);assert.equal(response.status,201);assert.equal(seen.length,1);assert.equal(seen[0].tenantId,tenantId);assert.equal(seen[0].entityId,entityId);assert.equal(seen[0].expectedRevision,0);assert.equal(seen[0].idempotencyKey,'disposal-source-bind-unit');
+  const injected=await routeApi({...req,body:{...req.body,actorId:'other'}});assert.equal(injected.status,400);assert.equal(seen.length,1);
+  const missing=await routeApi({...req,headers:{'Idempotency-Key':'disposal-source-bind-no-revision'}});assert.equal(missing.status,428);assert.equal(seen.length,1);
+});
+
+test('disposal source binding rejects mismatched or incomplete backend receipts',async()=>{
+ const assetId=randomUUID(),sourceId=randomUUID();
+ const valid={schema_version:'FIXED_ASSET_DISPOSAL_SOURCE_BINDING_V1',binding_id:randomUUID(),fixed_asset_register_evidence_id:assetId,journal_entry_id:journalEntryId,source_document_id:sourceId,source_link_id:randomUUID(),source_payload_hash:'sha256:'+'a'.repeat(64),source_document_version:1,status:'DRAFT',revision:1,idempotent:false};
+ for(const patch of [{fixed_asset_register_evidence_id:randomUUID()},{journal_entry_id:randomUUID()},{source_document_id:randomUUID()},{source_payload_hash:'sha256:'+'b'.repeat(64)},{source_link_id:null},{source_document_version:0},{source_document_version:'1'},{revision:2},{idempotent:undefined}]){
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'source-maker'}),kernelFactory:async()=>({bindFixedAssetDisposalSource:async()=>({...valid,...patch})})});
+  const response=await api({method:'POST',url:'/api/v1/entities/'+entityId+'/fixed-assets/disposal-source-bindings',headers:{'Idempotency-Key':'invalid-receipt','If-Match':'"0"'},body:{fixedAssetRegisterEvidenceId:assetId,journalEntryId,sourceDocumentId:sourceId,expectedSourceHash:valid.source_payload_hash,reason:'Verified retained disposal source.'}});assert.equal(response.status,500,JSON.stringify(patch));
+ }
+});
+
+test('asset register reads scope, dates and pagination and rejects corrupted balances',async()=>{
+ const assetId=randomUUID(),seen=[];let invalid=false;
+ const row={fixed_asset_register_evidence_id:assetId,tenant_id:tenantId,entity_id:entityId,as_of_date:'2026-07-31',status:'ACTIVE',cost_basis:'25000.0000',salvage_value:'0.0000',posted_cost_balance:'25000.0000',accumulated_depreciation:'2000.0000',accumulated_impairment:'5000.0000',net_book_value:'18000.0000',asset_tag:'A1',asset_class:'Equipment',currency:'USD',placed_in_service_date:'2026-07-02',useful_life_months:60,depreciation_method:'STRAIGHT_LINE',depreciation_convention:'FULL_MONTH',asset_account_code:'150100',accumulated_depreciation_account_code:'159100',depreciation_expense_account_code:'680100',capitalization_proposal_id:randomUUID(),source_document_id:randomUUID(),source_payload_hash:'sha256:'+'a'.repeat(64),register_evidence_hash:'sha256:'+'b'.repeat(64),reviewed_by:'reviewer',reviewed_at:'2026-07-02T00:00:00Z',member_trace:{project_ref:'P1',property_ref:'B1',allocation_basis:'SOURCE_DIMENSIONED'},posted_ledger_line_count:6,disposal_journal_entry_id:null,disposal_binding_id:null,fixed_asset_disposal_evidence_id:null,disposal_date:null,disposal_source_document_id:null,disposal_source_payload_hash:null,disposal_source_document_version:null,disposal_source_link_id:null};
+ const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'asset-reader'}),kernelFactory:async()=>({readFixedAssetRegister:async args=>{seen.push(args);return {schema_version:'FIXED_ASSET_REGISTER_READ_V2',population_basis:'PLACED_IN_SERVICE_DATE',tenant_id:tenantId,entity_id:entityId,as_of_date:'2026-07-31',basis:'POSTED_PRIMARY_LEDGER',rows:[{...row,...(invalid?{net_book_value:18000}:{})}],next_cursor:null};}})});
+ const url='/api/v1/entities/'+entityId+'/fixed-assets/register?asOfDate=2026-07-31&limit=10';
+ const result=await api({method:'GET',url});assert.equal(result.status,200);assert.equal(result.headers['cache-control'],'no-store');assert.equal(seen[0].tenantId,tenantId);assert.equal(seen[0].limit,10);
+ const detail=await api({method:'GET',url:'/api/v1/entities/'+entityId+'/fixed-assets/register/'+assetId+'?asOfDate=2026-07-31'});assert.equal(detail.status,200);assert.equal(seen[1].assetId,assetId);
+ for(const request of [{method:'GET',url:url+'&actorId=other'},{method:'GET',url,body:{}},{method:'GET',url,headers:{'If-Match':'"0"'}},{method:'GET',url:url.replace('limit=10','limit=101')},{method:'GET',url:url.replace('asOfDate=2026-07-31&','')}]){assert.equal((await api(request)).status,400);}
+ assert.equal(seen.length,2);invalid=true;assert.equal((await api({method:'GET',url})).status,500);
+});
+
+test('asset movement HTTP closes scope query headers missing assets and invalid receipts',async()=>{
+ const assetId=randomUUID(),seen=[],fixture=movementFixture({tenantId,entityId,assetId});let mode='OK';const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'asset-viewer'}),kernelFactory:async()=>({readFixedAssetMovements:async args=>{seen.push(args);if(mode==='MISSING')throw Object.assign(new Error('missing'),{code:'P0002'});if(mode==='INVALID')return {...fixture,rows:[{...fixture.rows[0],source_document_id:randomUUID()}]};return fixture;}})});
+ const url='/api/v1/entities/'+entityId+'/fixed-assets/register/'+assetId+'/movements?asOfDate=2026-07-31&limit=5';const good=await api({method:'GET',url});assert.equal(good.status,200);assert.equal(seen[0].tenantId,tenantId);assert.equal(seen[0].assetId,assetId);assert.equal(good.headers['cache-control'],'no-store');
+ for(const request of [{method:'GET',url,body:{}},{method:'GET',url,headers:{'Idempotency-Key':'no-read-write'}},{method:'GET',url:url+'&actorId=other'},{method:'GET',url:url+'&after='+randomUUID()},{method:'GET',url:url.replace('limit=5','limit=101')}])assert.equal((await api(request)).status,400);assert.equal(seen.length,1);mode='MISSING';assert.equal((await api({method:'GET',url})).status,404);mode='INVALID';assert.equal((await api({method:'GET',url})).status,500);
+ const unavailable=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'asset-viewer'}),kernelFactory:async()=>({})});assert.equal((await unavailable({method:'GET',url})).status,503);
 });

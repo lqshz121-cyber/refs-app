@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {NativeDocumentEntry,NativeDocumentEntryForm} from '../src/native-document-entry.jsx';
+import {NativeCreditAdjustmentEntry,NativeCreditAdjustmentEntryForm} from '../src/native-credit-adjustment-entry.jsx';
 import {NativeSettlementEntry,NativeSettlementForm} from '../src/native-settlement-entry.jsx';
 import {AuthoritativeDocumentWorkspace} from '../src/authoritative-workspace.jsx';
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222'};
@@ -56,12 +57,13 @@ for(const kind of ['AP_BILL','AR_INVOICE']){
 const accounts=[{period_id:config.periodId,account_code:'610000',account_name:'Office',active:true,requires_member:false},{period_id:config.periodId,account_code:'291001',account_name:'Control',active:true,requires_member:true}];
 const refundAccess={...access,permissions:['AR.REFUND.CREATE','ATTACHMENT.CREATE']};
 const credit={business_adjustment_id:config.periodId,adjustment_kind:'AR_CREDIT_MEMO',status:'POSTED',period_id:config.periodId,amount:'12.3400',currency:'USD',version:'1',accounting_date:'2026-08-01'};
+const adjustmentContext=(row,side)=>({entityId:config.entityId,periodId:config.periodId,adjustmentId:row.business_adjustment_id,adjustmentVersion:Number(row.version),adjustmentKind:row.adjustment_kind,adjustmentSide:side,adjustmentPeriodId:row.period_id});
 for(const [kind,side,permission] of [['AP_VENDOR_CREDIT','AP','AP.VENDOR_CREDIT.APPLY'],['AR_CREDIT_MEMO','AR','AR.CREDIT_MEMO.APPLY']]){
   const allocationAccess={...access,permissions:[permission]},adjustment={...credit,adjustment_kind:kind};
   assert.equal(renderToStaticMarkup(<NativeCreditAllocationEntry config={config} kind={kind} sourceAdjustmentId={credit.business_adjustment_id} access={access}/>),'');
-  const detail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail config={config} entityId={config.entityId} adjustment={adjustment} side={side} currentActorAccess={allocationAccess}/>);
+  const detail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail config={config} entityId={config.entityId} adjustment={adjustment} returnContext={adjustmentContext(adjustment,side)} side={side} currentActorAccess={allocationAccess}/>);
   assert.match(detail,/Apply credit/);
-  assert.doesNotMatch(renderToStaticMarkup(<AuthoritativeAdjustmentDetail config={config} entityId={config.entityId} adjustment={{...adjustment,status:'DRAFT'}} side={side} currentActorAccess={allocationAccess}/>),/Apply credit/);
+  assert.doesNotMatch(renderToStaticMarkup(<AuthoritativeAdjustmentDetail config={config} entityId={config.entityId} adjustment={{...adjustment,status:'DRAFT'}} returnContext={adjustmentContext(adjustment,side)} side={side} currentActorAccess={allocationAccess}/>),/Apply credit/);
   const form=renderToStaticMarkup(<NativeCreditAllocationForm config={config} kind={kind} sourceAdjustmentId={credit.business_adjustment_id} access={allocationAccess}/>);
   assert.match(form,/applies existing posted credit immediately/);assert.match(form,/inputMode="decimal"/);assert.doesNotMatch(form,/Save draft|Open saved draft/);
 }
@@ -69,7 +71,7 @@ assert.equal(renderToStaticMarkup(<NativeRefundEntry config={config} sourceAdjus
 assert.match(renderToStaticMarkup(<NativeRefundEntry config={config} sourceAdjustmentId={credit.business_adjustment_id} access={refundAccess} scopes={[scope]}/>),/Refund credit/);
 const refundForm=renderToStaticMarkup(<NativeRefundForm config={config} sourceAdjustmentId={credit.business_adjustment_id} access={refundAccess}/>);
 assert.match(refundForm,/Refund customer credit/);assert.match(refundForm,/inputMode="decimal"/);assert.match(refundForm,/Supporting document/);assert.match(refundForm,/disabled="">Save draft/);assert.doesNotMatch(refundForm,/Post journal|Approve|type="number"/);
-const creditView=row=>renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={row} side="AR" entityId={config.entityId} config={config} currentActorAccess={refundAccess} scopes={[scope]}/>);
+const creditView=row=>renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={row} returnContext={adjustmentContext(row,'AR')} side="AR" entityId={config.entityId} config={config} currentActorAccess={refundAccess} scopes={[scope]}/>);
 assert.match(creditView(credit),/Refund credit/);assert.doesNotMatch(creditView({...credit,status:'DRAFT'}),/Refund credit/);assert.doesNotMatch(creditView({...credit,adjustment_kind:'AR_REFUND'}),/Refund credit/);
 for(const kind of ['AP_BILL','AR_INVOICE']){
   assert.equal(renderToStaticMarkup(<NativeDocumentEntry config={config} kind={kind} scope={scope}/>),'');
@@ -81,6 +83,17 @@ for(const kind of ['AP_BILL','AR_INVOICE']){
 const page=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" config={config} currentActorAccess={access} scope={scope} accounts={accounts}/>);
 assert.match(page,/DRAFT ENTRY/);assert.match(page,/New bill/);
 const readonly=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" config={config}/>);assert.match(readonly,/READ ONLY/);assert.doesNotMatch(readonly,/New bill/);
+
+const creditAccess={entity_id:config.entityId,actor_id:'oidc|credit-maker',session_refresh_required:false,permissions:['AP.VIEW','AP.VENDOR_CREDIT.CREATE','AR.VIEW','AR.CREDIT_MEMO.CREATE','ATTACHMENT.CREATE']};
+for(const kind of ['AP_VENDOR_CREDIT','AR_CREDIT_MEMO']){
+  assert.equal(renderToStaticMarkup(<NativeCreditAdjustmentEntry config={config} kind={kind} scope={scope}/>),'');
+  assert.equal(renderToStaticMarkup(<NativeCreditAdjustmentEntry config={config} kind={kind} scope={{...scope,period_status:'CLOSED'}} access={creditAccess}/>),'');
+  const entry=renderToStaticMarkup(<NativeCreditAdjustmentEntry config={config} kind={kind} scope={scope} access={creditAccess}/>);assert.match(entry,/aria-expanded="false"/);assert.match(entry,/New (vendor credit|credit memo)/);
+  const form=renderToStaticMarkup(<NativeCreditAdjustmentEntryForm config={config} kind={kind} access={creditAccess} scope={scope} accounts={accounts}/>);
+  assert.match(form,/Scoped company/);assert.match(form,/inputMode="decimal"/);assert.match(form,/min="2026-08-01" max="2026-08-31"/);assert.match(form,/610000 · Office/);assert.doesNotMatch(form,/291001 · Control|localStorage|Post journal|Approve|type="number"|AR refund/);assert.match(form,/Uploaded when you save/);assert.match(form,/minLength="8"/);assert.match(form,/disabled="">Create draft/);
+}
+const creditOnly=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" config={config} currentActorAccess={creditAccess} scope={scope} accounts={accounts}/>);
+assert.match(creditOnly,/DRAFT ENTRY/);assert.match(creditOnly,/New vendor credit/);assert.doesNotMatch(creditOnly,/New bill/);
 console.log('Native document entry SSR: scoped capability gates, labels, precision and draft-only actions passed.');
 
 for(const kind of ['AP_PAYMENT','AR_RECEIPT']){

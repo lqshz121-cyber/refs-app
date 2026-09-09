@@ -5,11 +5,75 @@ import {runtimeConfig} from '../runtime/config.mjs';
 import {grantStagingWorkflowRole} from '../runtime/workflow-role-grant.mjs';
 import {readFile} from 'node:fs/promises';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
+import {ADDITIONAL_WORKFLOW_ROLES} from '../runtime/additional-workflow-roles.mjs';
 import {AUTHORITATIVE_WORKFLOW_ROLES,WORKFLOW_SOD_GROUPS,assertWorkflowRoleSafety,authoritativeWorkflowRoleGrantConfig,grantAuthenticatedWorkflowRole,grantConfiguredServiceWorkflowRole} from '../runtime/workflow-role-grant.mjs';
 
 const validUntil='2026-08-24T00:00:00.000Z';
+test('asset acquisition maker can reach the form and Draft without workflow escalation',()=>{
+ const role=AUTHORITATIVE_WORKFLOW_ROLES.FIXED_ASSET_ACQUISITION_MAKER;
+ assert.equal(role.authorityClass,'DRAFT');assert.equal(role.principalKind,'HUMAN');
+ assert.deepEqual([...role.permissions].sort(),['FIXED_ASSET.ACQUISITION.DRAFT','FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']);
+ assert.equal(role.permissions.includes('FIXED_ASSET.DEPRECIATION.DRAFT'),false);
+ assert.ok(Object.isFrozen(role));assert.ok(Object.isFrozen(role.permissions));
+});
+test('asset depreciation maker can read retained evidence and create only a Draft',()=>{
+ const role=AUTHORITATIVE_WORKFLOW_ROLES.FIXED_ASSET_DEPRECIATION_MAKER;
+ assert.equal(role.authorityClass,'DRAFT');assert.equal(role.principalKind,'HUMAN');
+ assert.deepEqual([...role.permissions].sort(),['FIXED_ASSET.DEPRECIATION.DRAFT','FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']);
+ assert.equal(role.permissions.includes('FIXED_ASSET.ACQUISITION.DRAFT'),false);
+ assert.ok(Object.isFrozen(role));assert.ok(Object.isFrozen(role.permissions));
+});
 const base={NODE_ENV:'production',REFS_DEPLOYMENT_ENV:'staging',REFS_WORKFLOW_ROLE_CONFIRM:'AUTHORITATIVE_WORKFLOW_ROLE_ONLY',REFS_STAGE1_TENANT_ID:'11111111-1111-4111-8111-111111111111',REFS_STAGE1_ENTITY_ID:'22222222-2222-4222-8222-222222222222',REFS_WORKFLOW_ROLE:'WBS_PAYABLE_MAKER',REFS_WORKFLOW_GRANT_VALID_UNTIL:validUntil,REFS_WORKFLOW_GRANT_EXPECTED_VERSION:'2',REFS_WORKFLOW_GRANT_IDEMPOTENCY_KEY:'workflow-maker-0001',REFS_AUTHENTICATED_ACCESS_TOKEN:'opaque',OIDC_ISSUER:'https://issuer.example',OIDC_AUDIENCE:'refs',OIDC_JWKS_URI:'https://issuer.example/jwks'};
 const permissions=role=>AUTHORITATIVE_WORKFLOW_ROLES[role].permissions;
+
+test('additional formal roles retain one native operation and reject mislabeled or mixed authority',()=>{
+  const seen=new Set();
+  for(const [name,{permission,authorityClass}] of Object.entries(ADDITIONAL_WORKFLOW_ROLES)){
+    assert.equal(seen.has(permission),false);seen.add(permission);
+    const definition=AUTHORITATIVE_WORKFLOW_ROLES[name];
+    assert.equal(definition.authorityClass,authorityClass);
+    assert.deepEqual(definition.permissions.filter(value=>!value.endsWith('.VIEW')),[permission]);
+    assert.equal(assertWorkflowRoleSafety(definition),definition);
+    assert.throws(()=>assertWorkflowRoleSafety({...definition,authorityClass:'UNRELATED'}),{code:'WORKFLOW_ROLE_SCOPE_DENIED'});
+    assert.throws(()=>assertWorkflowRoleSafety({...definition,permissions:[...definition.permissions,'GL.JE.POST']}),{code:'WORKFLOW_ROLE_SCOPE_DENIED'});
+  }
+});
+
+test('formal credit entry roles satisfy the actual browser access predicate',async()=>{
+  const {nativeCreditAdjustmentAccess}=await import('../../src/native-credit-adjustment-entry.js');
+  for(const [name,kind] of [['AP_VENDOR_CREDIT_ENTRY_MAKER','AP_VENDOR_CREDIT'],['AR_CREDIT_MEMO_ENTRY_MAKER','AR_CREDIT_MEMO']]){
+    const role=AUTHORITATIVE_WORKFLOW_ROLES[name];
+    assert.equal(role.authorityClass,'ADJUSTMENT');
+    assert.equal(nativeCreditAdjustmentAccess({entityId:base.REFS_STAGE1_ENTITY_ID},kind,{entity_id:base.REFS_STAGE1_ENTITY_ID,actor_id:'credit-entry-user',session_refresh_required:false,permissions:[...role.permissions]}),true);
+    for(const permission of ['GL.JE.SUBMIT','GL.JE.REVIEW','GL.JE.APPROVE','GL.JE.POST'])assert.throws(()=>assertWorkflowRoleSafety({...role,permissions:[...role.permissions,permission]}),{code:'WORKFLOW_ROLE_SCOPE_DENIED'});
+  }
+});
+
+test('sales receipt entry has native Draft and upload without later accounting authority',()=>{
+  const role=AUTHORITATIVE_WORKFLOW_ROLES.AR_SALES_RECEIPT_ENTRY_MAKER;
+  assert.equal(role.authorityClass,'DRAFT');
+  assert.deepEqual(role.permissions.filter(p=>!p.endsWith('.VIEW')),['AR.SALES_RECEIPT.CREATE','ATTACHMENT.CREATE']);
+  assert.equal(assertWorkflowRoleSafety(role),role);
+  for(const permission of ['GL.JE.SUBMIT','GL.JE.REVIEW','GL.JE.APPROVE','GL.JE.POST'])assert.throws(()=>assertWorkflowRoleSafety({...role,permissions:[...role.permissions,permission]}),{code:'WORKFLOW_ROLE_SCOPE_DENIED'});
+});
+
+test('each service role resolves only its own configured worker identity',()=>{
+  const actors={OUTBOX_DISPATCH_ACTOR_ID:'outbox-worker',WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID:'wbs-worker',ATTACHMENT_SCANNER_ACTOR_ID:'scan-worker',ATTACHMENT_CLEANUP_ACTOR_ID:'cleanup-worker'};
+  for(const [role,key] of [['OUTBOX_DISPATCHER_SERVICE','OUTBOX_DISPATCH_ACTOR_ID'],['WBS_SNAPSHOT_IMPORTER_SERVICE','WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID'],['ATTACHMENT_SCANNER_SERVICE','ATTACHMENT_SCANNER_ACTOR_ID'],['ATTACHMENT_CLEANUP_SERVICE','ATTACHMENT_CLEANUP_ACTOR_ID']]){
+    const env={...base,...actors,REFS_WORKFLOW_ROLE:role};
+    assert.equal(authoritativeWorkflowRoleGrantConfig(env).serviceActorId,actors[key]);
+    assert.throws(()=>authoritativeWorkflowRoleGrantConfig({...env,[key]:''}),new RegExp(`${key} is required`));
+  }
+});
+
+test('counterparty maker and approver remain separate in runtime policy before grant synchronization',()=>{
+  assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.COUNTERPARTY_MAKER.authorityClass,'DRAFT');
+  assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.COUNTERPARTY_APPROVER.authorityClass,'APPROVE');
+  for(const permissions of [['MASTER.COUNTERPARTY.PROPOSE','MASTER.COUNTERPARTY.APPROVE'],['MASTER.COUNTERPARTY.PROPOSE','GL.JE.APPROVE'],['MASTER.COUNTERPARTY.APPROVE','GL.JE.CREATE']]){
+    assert.throws(()=>assertWorkflowRoleSafety({authorityClass:'DRAFT',principalKind:'HUMAN',permissions}),{code:'WORKFLOW_ROLE_SCOPE_DENIED'});
+  }
+  for(const role of ['COUNTERPARTY_MAKER','COUNTERPARTY_APPROVER'])assert.equal(assertWorkflowRoleSafety(AUTHORITATIVE_WORKFLOW_ROLES[role]),AUTHORITATIVE_WORKFLOW_ROLES[role]);
+});
 
 test('native document entry roles allow support upload and exactly one Draft kind without scanner or later workflow authority',()=>{
   for(const [name,createPermission,other] of [['AP_BILL_ENTRY_MAKER','AP.BILL.CREATE','AR.INVOICE.CREATE'],['AR_INVOICE_ENTRY_MAKER','AR.INVOICE.CREATE','AP.BILL.CREATE']]){
@@ -130,13 +194,13 @@ test('authenticated role grant derives actor and sends finite single-authority e
     calls.push({sql,args});
     if(sql==='BEGIN ISOLATION LEVEL SERIALIZABLE')return {};
     if(sql.includes('session_user')&&sql.includes('current_user'))return {rowCount:1,rows:[{session_user:'refs_grant_sync',current_user:'refs_grant_sync'}]};
-    if(sql.startsWith('SELECT refs_grant_request_hash_v2'))return {rowCount:1,rows:[{request_hash:'sha256:request'}]};
-    if(sql.startsWith('SELECT refs_reconcile_actor_grants_v2'))return {rowCount:1,rows:[{result:{permissions:[...config.permissions].reverse(),authority_class:'DRAFT',valid_until:validUntil,version:3,idempotent:false}}]};
+    if(sql.startsWith('SELECT refs_grant_request_hash_v3'))return {rowCount:1,rows:[{request_hash:'sha256:request'}]};
+    if(sql.startsWith('SELECT refs_reconcile_actor_grants_v3'))return {rowCount:1,rows:[{result:{permissions:[...config.permissions].reverse(),authority_class:'DRAFT',valid_until:validUntil,version:3,idempotent:false}}]};
     return {rowCount:0,rows:[]};
   },release(){}})};
   const result=await grantAuthenticatedWorkflowRole(pool,config,{authenticator:{authenticate:async()=>({tenantId:config.tenantId,actorId:'auth0|maker'})}});
   assert.deepEqual(result,{role:'WBS_PAYABLE_MAKER',authorityClass:'DRAFT',validUntil,idempotent:false,version:3,permissionCount:config.permissions.length});
-  const reconcile=calls.find(call=>call.sql.startsWith('SELECT refs_reconcile_actor_grants_v2'));
+  const reconcile=calls.find(call=>call.sql.startsWith('SELECT refs_reconcile_actor_grants_v3'));
   assert.equal(reconcile.args[1],'auth0|maker');assert.deepEqual(reconcile.args[3],config.permissions);
   assert.equal(reconcile.args[4],'DRAFT');assert.equal(reconcile.args[5],validUntil);
 });
@@ -155,13 +219,13 @@ test('provider service role is finite, exact, platform-synced, and unavailable t
     calls.push({sql,args});
     if(sql==='BEGIN ISOLATION LEVEL SERIALIZABLE')return {};
     if(sql.includes('session_user')&&sql.includes('current_user'))return {rowCount:1,rows:[{session_user:'refs_grant_sync',current_user:'refs_grant_sync'}]};
-    if(sql.startsWith('SELECT refs_grant_request_hash_v2'))return {rowCount:1,rows:[{request_hash:'sha256:service'}]};
-    if(sql.startsWith('SELECT refs_reconcile_actor_grants_v2'))return {rowCount:1,rows:[{result:{permissions:['WBS.SNAPSHOT.IMPORT'],authority_class:'SERVICE',valid_until:validUntil,version:3,idempotent:false}}]};
+    if(sql.startsWith('SELECT refs_grant_request_hash_v3'))return {rowCount:1,rows:[{request_hash:'sha256:service'}]};
+    if(sql.startsWith('SELECT refs_reconcile_actor_grants_v3'))return {rowCount:1,rows:[{result:{permissions:['WBS.SNAPSHOT.IMPORT'],authority_class:'SERVICE',valid_until:validUntil,version:3,idempotent:false}}]};
     return {rowCount:0,rows:[]};
   },release(){}})};
   const result=await grantConfiguredServiceWorkflowRole(pool,serviceConfig);
   assert.equal(result.role,'WBS_SNAPSHOT_IMPORTER_SERVICE');
-  const reconcile=calls.find(call=>call.sql.startsWith('SELECT refs_reconcile_actor_grants_v2'));
+  const reconcile=calls.find(call=>call.sql.startsWith('SELECT refs_reconcile_actor_grants_v3'));
   assert.equal(reconcile.args[1],'oidc|wbs-provider-admission-service');assert.equal(reconcile.args[4],'SERVICE');assert.equal(reconcile.args[5],validUntil);
   await assert.rejects(grantAuthenticatedWorkflowRole(pool,serviceConfig,{authenticator:{authenticate:async()=>({tenantId:serviceConfig.tenantId,actorId:'auth0|human'})}}),error=>error.code==='WORKFLOW_ROLE_SCOPE_DENIED');
   await assert.rejects(grantConfiguredServiceWorkflowRole(pool,{...serviceConfig,serviceActorId:'short'}),error=>error.code==='WORKFLOW_ROLE_SERVICE_PRINCIPAL_DENIED');
@@ -172,4 +236,11 @@ test('outbox dispatcher uses its dedicated service actor and exact replacement b
   const config=authoritativeWorkflowRoleGrantConfig({...base,REFS_WORKFLOW_ROLE:'OUTBOX_DISPATCHER_SERVICE',OUTBOX_DISPATCH_ACTOR_ID:'service|refs-outbox-dispatch',REFS_AUTHENTICATED_ACCESS_TOKEN:undefined,OIDC_ISSUER:undefined,OIDC_AUDIENCE:undefined,OIDC_JWKS_URI:undefined});
   assert.equal(config.serviceActorId,'service|refs-outbox-dispatch');assert.equal(config.principalKind,'SERVICE');assert.equal(config.authorityClass,'SERVICE');assert.deepEqual(config.permissions,['OUTBOX.DISPATCH']);
   assert.throws(()=>authoritativeWorkflowRoleGrantConfig({...base,REFS_WORKFLOW_ROLE:'OUTBOX_DISPATCHER_SERVICE',OUTBOX_DISPATCH_ACTOR_ID:''}),error=>error.code==='WORKFLOW_ROLE_CONFIG_MISSING');
+});
+
+test('bill void rejects the unused legacy role and retains real approval roles',()=>{
+ assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.AP_BILL_VOID_APPROVER,undefined);
+ assert.throws(()=>authoritativeWorkflowRoleGrantConfig({...base,REFS_WORKFLOW_ROLE:'AP_BILL_VOID_APPROVER'}),error=>error.code==='WORKFLOW_ROLE_CONFIG_INVALID');
+ assert.ok(AUTHORITATIVE_WORKFLOW_ROLES.AP_BILL_VOID_MAKER.permissions.includes('AP.BILL.VOID.CREATE'));
+ assert.ok(AUTHORITATIVE_WORKFLOW_ROLES.JE_APPROVER.permissions.includes('GL.JE.APPROVE'));
 });

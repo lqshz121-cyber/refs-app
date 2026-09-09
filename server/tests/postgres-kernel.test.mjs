@@ -1,3 +1,4 @@
+import {matchesAssetMovementJournal} from '../../src/asset-movement-journal-contract.js';
 import test,{after,before} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,generateKeyPairSync,randomUUID,sign} from 'node:crypto';
@@ -12,6 +13,7 @@ import {serializeOutboxEvent} from '../runtime/outbox-wire-contract.mjs';
 import {createAccountingApi} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
+import {ADDITIONAL_WORKFLOW_ROLES} from '../runtime/additional-workflow-roles.mjs';
 import {createWbsTestImportService,reconcileWbsTestImportActorGrants} from '../runtime/wbs-test-import-service.mjs';
 import {createControlledTestBankWorkflowService} from '../runtime/controlled-test-bank-workflow-service.mjs';
 import {createControlledTestBankMatchService} from '../runtime/controlled-test-bank-match-service.mjs';
@@ -45,6 +47,8 @@ import {AUTHORITATIVE_WORKFLOW_ROLES} from '../runtime/workflow-role-grant.mjs';
 import {proveSnapshotImportAtomicity} from './helpers/wbs-h1-snapshot-atomicity-fixture.mjs';
 import {productionIamAttestationFixture} from './helpers/production-iam-attestation-fixture.mjs';
 import {productionIamSealRaceFixture} from './helpers/production-iam-seal-race-fixture.mjs';
+import {proveCounterpartyMaintenance} from './helpers/counterparty-maintenance-fixture.mjs';
+import {proveCounterpartyMaintenanceReads} from './helpers/counterparty-maintenance-reads-fixture.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -82,6 +86,62 @@ pgTest('production IAM ceremony attests immutable installation before OIDC and p
 
 pgTest('production IAM seal and staging grant serialize across physical connections and stale snapshots',async()=>{
   await productionIamSealRaceFixture({adminPool,config});
+});
+
+pgTest('original payable evidence migration roundtrips with its later dependency chain before retaining source rows',async()=>{
+ const name='348_wbs_payable_original_row_evidence.sql',start=MIGRATION_MANIFEST.findIndex(row=>row.name===name);assert.ok(start>=0,`Missing ${name} from migration manifest`);
+ const tail=MIGRATION_MANIFEST.slice(start),bodies=new Map();
+ for(const entry of tail)for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+entry.name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies.set(`${direction}:${entry.name}`,sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,''));}
+ const client=await adminPool.connect();try{await client.query('BEGIN');for(const entry of [...tail].reverse())await client.query(bodies.get(`down:${entry.name}`));assert.equal((await client.query("SELECT to_regclass('wbs_payable_original_row_evidence') table_name")).rows[0].table_name,null);for(const entry of tail)await client.query(bodies.get(`up:${entry.name}`));assert.equal((await client.query("SELECT has_table_privilege('refs_app','wbs_payable_original_row_evidence','INSERT') allowed")).rows[0].allowed,false);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('original payable evidence retains canonical raw facts and rejects source mutations and mismatched replay',async()=>{
+ const ids=await seed({status:'DRAFT'}),importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'original-payable-importer',['WBS.SNAPSHOT.IMPORT'])});
+ const retained=await retainFinal1PayableFixture({pool:adminPool,kernel:importer,ids,amount:'25000.0000'});
+ const evidence=(await adminPool.query('SELECT * FROM wbs_payable_original_row_evidence WHERE tenant_id=$1',[ids.tenantId])).rows[0];
+ assert.deepEqual(evidence.raw_row,retained.plan.staging_rows[0].raw_row);assert.equal(evidence.raw_row_hash,canonicalRequestHash(evidence.raw_row));assert.equal(evidence.source_document_id,retained.sourceDocumentId);assert.equal(evidence.source_line_snapshot.amount,25000);
+ const args={tenantId:ids.tenantId,entityId:ids.entityId,delivery:retained.delivery,artifacts:retained.artifacts,plan:retained.plan,idempotencyKey:'wbs-ai-e2e-final1-001'};
+ assert.equal((await importer.retainWbsProviderFinal1SourceEvidence(args)).idempotent,true);
+ const audits=(await adminPool.query("SELECT after_hash,metadata,actor_id,actor_type,permission_used FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_PAYABLE_ORIGINAL_EVIDENCE_RETAINED'",[ids.tenantId])).rows;
+ assert.equal(audits.length,1);assert.equal(audits[0].after_hash,evidence.evidence_hash);assert.equal(audits[0].metadata.evidence_id,evidence.evidence_id);
+ assert.equal(audits[0].actor_id,'original-payable-importer');assert.equal(audits[0].actor_type,'SERVICE_ACCOUNT');assert.equal(audits[0].permission_used,'WBS.SNAPSHOT.IMPORT');
+ const events=(await adminPool.query("SELECT payload FROM outbox_event WHERE tenant_id=$1 AND event_type='WBS_PAYABLE_ORIGINAL_EVIDENCE_RETAINED'",[ids.tenantId])).rows;
+ assert.equal(events.length,1);assert.equal(events[0].payload.evidence_hash,evidence.evidence_hash);
+ for(const [field,value] of [['party_ref','OTHER-VENDOR'],['project_ref','OTHER-PROJECT'],['property_ref','OTHER-PROPERTY'],['amount',25001],['external_dimension_refs',{signed_charge_code:'OTHER'}]]){
+  await assert.rejects(adminPool.query('UPDATE source_document_line SET '+field+'=$2 WHERE source_document_line_id=$1',[evidence.source_document_line_id,value]),e=>e.code==='23514');
+ }
+ await assert.rejects(adminPool.query('DELETE FROM source_document_line WHERE source_document_line_id=$1',[evidence.source_document_line_id]),e=>e.code==='23514');
+ await assert.rejects(adminPool.query("UPDATE source_document SET currency='EUR' WHERE source_document_id=$1",[retained.sourceDocumentId]),e=>e.code==='23514');
+ await adminPool.query('UPDATE source_document SET version=version+1 WHERE source_document_id=$1',[retained.sourceDocumentId]);
+ assert.deepEqual((await adminPool.query('SELECT to_jsonb(l) value FROM source_document_line l WHERE source_document_line_id=$1',[evidence.source_document_line_id])).rows[0].value,evidence.source_line_snapshot);
+ const plan=structuredClone(retained.plan);plan.staging_rows[0].normalized.vendorRef='OTHER-VENDOR';
+ await assert.rejects(importer.retainWbsProviderFinal1SourceEvidence({...args,plan,idempotencyKey:'original-normalized-drift'}),e=>e.code==='23514');
+ const changedRaw=structuredClone(retained.plan);changedRaw.staging_rows[0].raw_row.vendor_no='OTHER-VENDOR';
+ await assert.rejects(importer.retainWbsProviderFinal1SourceEvidence({...args,plan:changedRaw,idempotencyKey:'original-raw-hash-drift'}),e=>e.code==='23514');
+ assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_payable_original_row_evidence WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,1);
+ const client=await adminPool.connect();try{await client.query('BEGIN');const down=await readFile(new URL('../db/migrations/down/348_wbs_payable_original_row_evidence.sql',import.meta.url),'utf8');await assert.rejects(client.query(down.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'')),e=>e.code==='55006');}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('original payable evidence refuses to certify a historical replay without original capture',async()=>{
+ const ids=await seed({status:'DRAFT'}),importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'original-history-importer',['WBS.SNAPSHOT.IMPORT'])});
+ const retained=await retainFinal1PayableFixture({pool:adminPool,kernel:importer,ids});
+ const client=await adminPool.connect();try{
+  await client.query('BEGIN');await client.query('ALTER TABLE wbs_payable_original_row_evidence DISABLE TRIGGER wbs_payable_original_row_append_only');
+  await client.query('DELETE FROM wbs_payable_original_row_evidence WHERE tenant_id=$1',[ids.tenantId]);
+  await client.query('ALTER TABLE wbs_payable_original_row_evidence ENABLE TRIGGER wbs_payable_original_row_append_only');await client.query('COMMIT');
+ }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+ await adminPool.query("UPDATE source_document_line SET party_ref='HISTORICAL-DRIFT' WHERE source_document_id=$1",[retained.sourceDocumentId]);
+ await assert.rejects(importer.retainWbsProviderFinal1SourceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,delivery:retained.delivery,artifacts:retained.artifacts,plan:retained.plan,idempotencyKey:'wbs-ai-e2e-final1-001'}),e=>e.code==='55006');
+ // Refresh mutable source tuple xmin inside the replay transaction. The
+ // append-only retained row must still prove this is historical evidence.
+ await adminPool.query("CREATE FUNCTION refs_owned_refresh_source_xmin(p_document uuid) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$ BEGIN UPDATE source_document SET status=status WHERE source_document_id=p_document; UPDATE source_document_line SET amount=amount WHERE source_document_id=p_document; END;$$");
+ try{
+  const pool={connect:async()=>{const client=await runtimePool.connect();return {query:async(...args)=>{if(String(args[0]).startsWith('SELECT refs_retain_wbs_final1_source_evidence_with_signed_controls('))await client.query('SELECT refs_owned_refresh_source_xmin($1)',[retained.sourceDocumentId]);return client.query(...args);},release:()=>client.release()};}};
+  const replay=new PostgresAccountingKernel(pool,{sessionProvider:importer.sessionProvider});
+  await assert.rejects(replay.retainWbsProviderFinal1SourceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,delivery:retained.delivery,artifacts:retained.artifacts,plan:retained.plan,idempotencyKey:'wbs-ai-e2e-final1-001'}),e=>e.code==='55006');
+ }finally{await adminPool.query('DROP FUNCTION refs_owned_refresh_source_xmin(uuid)');}
+ assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_payable_original_row_evidence WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);
+ assert.equal((await adminPool.query('SELECT party_ref FROM source_document_line WHERE source_document_id=$1',[retained.sourceDocumentId])).rows[0].party_ref,'HISTORICAL-DRIFT');
 });
 
 pgTest('AI vendor monthly spend reads one complete signed current-source population across the approved history window',async()=>{
@@ -356,6 +416,40 @@ async function migrateDownThrough(pool,targetMigration){
   }
 }
 
+// Exercise one migration's SQL and restoration without rolling back unrelated
+// newer features that deliberately retain their own immutable evidence.
+async function probeMigrationRoundTrip(pool,name,signature){
+  const entry=MIGRATION_MANIFEST.find(item=>item.name===name);assert.ok(entry);
+  const read=async direction=>{
+    const sql=await readFile(new URL(`../db/migrations/${direction==='down'?'down/':''}${name}`,import.meta.url),'utf8');
+    assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);
+    return sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'').trim();
+  };
+  const down=await read('down'),up=await read('up'),client=await pool.connect();
+  try{
+    await client.query('BEGIN');
+    assert.ok((await client.query('SELECT to_regprocedure($1) fn',[signature])).rows[0].fn);
+    await client.query(down);
+    assert.equal((await client.query('SELECT to_regprocedure($1) fn',[signature])).rows[0].fn,null);
+    await client.query(up);
+    assert.ok((await client.query('SELECT to_regprocedure($1) fn',[signature])).rows[0].fn);
+  }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+}
+
+// Deliberate legacy-corruption fixture, never a supported master-data mutation.
+async function injectCounterpartyIdentityDrift(sql,args){
+  await assert.rejects(adminPool.query(sql,args),error=>error.code==='23514');
+  const client=await adminPool.connect();
+  try{
+    await client.query('BEGIN');
+    await client.query('ALTER TABLE member_master DISABLE TRIGGER counterparty_version_guard');
+    await client.query(sql,args);
+    await client.query('ALTER TABLE member_master ENABLE TRIGGER counterparty_version_guard');
+    await client.query('COMMIT');
+  }catch(error){await client.query('ROLLBACK');throw error;}
+  finally{client.release();}
+}
+
 const hash=value=>`sha256:${createHash('sha256').update(String(value)).digest('hex')}`;
 
 pgTest('AI Full Controller model WAL is actor-bound, idempotent, recoverable, audited, and accounting read-only',async()=>{
@@ -431,13 +525,14 @@ async function seed({status='APPROVED',journalType='MANUAL',attachmentStatus='VE
     VALUES($1,$2,$3,$4,$5,$6,$7,'2026-07-15','USD','maker',$8,$9)`,[journalId,tenantId,entityId,periodId,`JE-${journalId.slice(0,8)}`,journalType,status,actors[0],actors[1]]);
   const lines=journalLines||[{lineNo:1,accountCode:'111000',debit:100,credit:0,memberRef:'BANK-1'},{lineNo:2,accountCode:'291001',debit:0,credit:100,memberRef:'VENDOR-1'}];
   for(const line of lines)await adminPool.query('INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref,dimensions) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)',[tenantId,entityId,periodId,journalId,line.lineNo,line.accountCode,line.debit,line.credit,line.memberRef??null,JSON.stringify(line.dimensions??{})]);
+  let attachmentId=null;
   if(attachmentStatus){
-    const attachmentId=randomUUID();
+    attachmentId=randomUUID();
     await adminPool.query(`INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,verified_at,scan_status,finalization_status,finalized_at)
       VALUES($1,$2,$3,$4,'application/pdf',10,$5,$6,$7,'maker',now(),CASE WHEN $8='VERIFIED_CLEAN' THEN now() END,CASE WHEN $8='VERIFIED_CLEAN' THEN 'CLEAN' WHEN $8='REJECTED' THEN 'REJECTED' ELSE 'PENDING' END,$8,CASE WHEN $8='VERIFIED_CLEAN' THEN now() END)`,[attachmentId,tenantId,entityId,attachmentName,hash('attachment'),attachmentStorageRef??`object://attachments/${attachmentId}`,attachmentStorageVersion,attachmentStatus]);
     await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,journal_entry_id,attachment_id,created_by) VALUES($1,$2,'JE_ATTACHMENT',$3,$4,'maker')",[tenantId,entityId,journalId,attachmentId]);
   }
-  return {tenantId,entityId,sourceEntityId,periodId,journalId};
+  return {tenantId,entityId,sourceEntityId,periodId,journalId,attachmentId};
 }
 
 async function attachAutoSource(ids,{effectiveFrom='2026-01-01T00:00:00Z',effectiveTo=null,mappingPriority=0,evaluatedAt=null,linkJournal=true,reuseApprovedSnapshots=false,sourceSystem='WBS',sourceModule='bankFeed',sourceRecordPrefix='AUTO'}={}){
@@ -501,6 +596,14 @@ async function trustedSession(ids,actorId='poster',permissions=['GL.JE.POST']){
 }
 
 const sessionProvider=(ids,actorId='poster',permissions=['GL.JE.POST'])=>()=>trustedSession(ids,actorId,permissions);
+
+pgTest('counterparty maintenance applies reviewed changes with version isolation and atomic audit',async()=>{
+  await proveCounterpartyMaintenance({adminPool,runtimePool,seed,trustedSession,migrateDownThrough,migrateUp});
+});
+
+pgTest('counterparty maintenance detail and history preserve scoped versions and review evidence',async()=>{
+  await proveCounterpartyMaintenanceReads({adminPool,runtimePool,seed,trustedSession,migrateDownThrough,migrateUp});
+});
 
 pgTest('company catalog returns every allowed period in a 120-company tenant and respects revocation',async()=>{
   const ids=await seed({status:'DRAFT'}),actor='company-catalog-reader';
@@ -696,7 +799,7 @@ pgTest('WBS Final-1 Controller167 persists five-domain signed controls and exact
   const knownVector=(await adminPool.query('SELECT refs_canonical_jsonb_text($1::jsonb) canonical_body,refs_wbs_final1_control_totals_hash($1::jsonb) control_totals_hash',[JSON.stringify(knownControlTotals)])).rows[0];
   assert.deepEqual(knownVector,{canonical_body:knownCanonicalBody,control_totals_hash:knownControlTotalsHash});
   const payableControls=controls(['125.2500']),payableDelivery={...deliveryBase('PAYABLES'),...payableControls,plan_hash:hash('payable-plan')};
-  const payableRowHash=hash('payable-row'),payableRecord=randomUUID(),payablePlan={status:'NORMALIZED_FINAL1_PAYABLE_STAGING_PLAN',plan_hash:payableDelivery.plan_hash,provenance:{tenant_id:ids.tenantId,entity_id:ids.entityId,company_code:'WBPA',snapshot_id:payableDelivery.snapshot_id,currency:'USD',source_row_count:1,source_surface:{database:'wbsdata',table:'account_book_payable_info'}},staging_rows:[{source_record_id:payableRecord,source_primary_key:payableRecord,source_row_ordinal:0,source_version:'final1:payable:v1',raw_row_hash:payableRowHash,raw_row:{ap_guid:payableRecord,company_code:'WBPA',amount:'125.2500',posting_date:'2026-01-15',incurred_date:null,vendor_no:'VENDOR-1',vendor_name:'Vendor',invoice_no:'INV-1',invoice_date:null,business_id:null,service_period_start:null,service_period_end:null,recurring_obligation_id:null,contract_id:null,charge_code:null,service_frequency:null,obligation_status:null},provider_snapshot_id:payableDelivery.snapshot_id,provider_company_code:'WBPA',provider_package_hash:payableDelivery.package_hash,provider_raw_package_hash:payableDelivery.package_raw_hash,currency:'USD',source_module:'BGDATA.payable',source_surface:{database:'wbsdata',table:'account_book_payable_info'},normalized:{apGuId:payableRecord,amount:'125.2500',invoiceNo:'INV-1',vendorRef:'VENDOR-1',vendorName:'Vendor',postingDate:'2026-01-15',incurredDate:null,invoiceDate:null,businessId:null,description:'Signed payable',projectRef:null},outcome:'STAGING_REVIEW_REQUIRED',exception_codes:['WBS_PAYABLE_ATTACHMENT_REQUIRED','WBS_PAYABLE_MAPPING_REVIEW_REQUIRED'],can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false}],can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false};
+  const payableRecord=randomUUID(),payableRawRow={ap_guid:payableRecord,company_code:'WBPA',amount:'125.2500',posting_date:'2026-01-15',incurred_date:null,vendor_no:'VENDOR-1',vendor_name:'Vendor',invoice_no:'INV-1',invoice_date:null,business_id:null,service_period_start:null,service_period_end:null,recurring_obligation_id:null,contract_id:null,charge_code:null,service_frequency:null,obligation_status:null},payableRowHash=canonicalRequestHash(payableRawRow),payablePlan={status:'NORMALIZED_FINAL1_PAYABLE_STAGING_PLAN',plan_hash:payableDelivery.plan_hash,provenance:{tenant_id:ids.tenantId,entity_id:ids.entityId,company_code:'WBPA',snapshot_id:payableDelivery.snapshot_id,currency:'USD',source_row_count:1,source_surface:{database:'wbsdata',table:'account_book_payable_info'}},staging_rows:[{source_record_id:payableRecord,source_primary_key:payableRecord,source_row_ordinal:0,source_version:'final1:payable:v1',raw_row_hash:payableRowHash,raw_row:payableRawRow,provider_snapshot_id:payableDelivery.snapshot_id,provider_company_code:'WBPA',provider_package_hash:payableDelivery.package_hash,provider_raw_package_hash:payableDelivery.package_raw_hash,currency:'USD',source_module:'BGDATA.payable',source_surface:{database:'wbsdata',table:'account_book_payable_info'},normalized:{apGuId:payableRecord,amount:'125.2500',invoiceNo:'INV-1',vendorRef:'VENDOR-1',vendorName:'Vendor',postingDate:'2026-01-15',incurredDate:null,invoiceDate:null,businessId:null,description:'Signed payable',projectRef:null},outcome:'STAGING_REVIEW_REQUIRED',exception_codes:['WBS_PAYABLE_ATTACHMENT_REQUIRED','WBS_PAYABLE_MAPPING_REVIEW_REQUIRED'],can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false}],can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false};
   const payable=await kernel.retainWbsProviderFinal1SourceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,delivery:payableDelivery,artifacts:artifactsFor(payableDelivery),plan:payablePlan,idempotencyKey:'wbs-final1-payable-pg-001'});
   assert.equal(payable.status,'WBS_FINAL1_RETAINED_SOURCE_EVIDENCE');assert.equal(payable.row_count,1);assert.equal(payable.can_write_wbs,false);assert.equal((await kernel.retainWbsProviderFinal1SourceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,delivery:payableDelivery,artifacts:artifactsFor(payableDelivery),plan:payablePlan,idempotencyKey:'wbs-final1-payable-pg-001'})).idempotent,true);
   const payablePersistedControl=(await adminPool.query('SELECT control_totals,control_totals_hash FROM wbs_final1_signed_control_total WHERE tenant_id=$1 AND entity_id=$2 AND wbs_final1_retained_evidence_admission_id=$3',[ids.tenantId,ids.entityId,payableDelivery.admission_id])).rows[0];
@@ -759,7 +862,7 @@ pgTest('WBS Final-1 Controller167 persists five-domain signed controls and exact
   const population500=buildPayablePopulation(500),population500Before=await writeCounts();
   const retained500=await kernel.retainWbsProviderFinal1SourceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,delivery:population500.delivery,artifacts:artifactsFor(population500.delivery),plan:population500.plan,idempotencyKey:'wbs-final1-payable-population-500'});
   assert.equal(retained500.row_count,500);assert.equal((await kernel.retainWbsProviderFinal1SourceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,delivery:population500.delivery,artifacts:artifactsFor(population500.delivery),plan:population500.plan,idempotencyKey:'wbs-final1-payable-population-500'})).idempotent,true);
-  const population500After=await writeCounts();assert.equal(population500After.retained,population500Before.retained+500);assert.equal(population500After.documents,population500Before.documents+500);assert.equal(population500After.document_lines,population500Before.document_lines+500);
+  const population500After=await writeCounts();assert.equal(population500After.retained,population500Before.retained+500);assert.equal(population500After.documents,population500Before.documents+500);assert.equal(population500After.document_lines,population500Before.document_lines+500);assert.equal((await runtimePool.query('SHOW statement_timeout')).rows[0].statement_timeout,'10s');
   const population501=buildPayablePopulation(501),population501Before=await writeCounts();
   await assert.rejects(kernel.retainWbsProviderFinal1SourceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,delivery:population501.delivery,artifacts:artifactsFor(population501.delivery),plan:population501.plan,idempotencyKey:'wbs-final1-payable-population-501'}),error=>['22023','23514'].includes(error.code));
   const population501After=await writeCounts();assert.deepEqual({...population501After,audit:population501Before.audit},population501Before,'501 Final-1 Payables rows must fail before retained/source/accounting/outbox writes');
@@ -1063,6 +1166,30 @@ pgTest('current actor access returns only the authenticated session permissions 
     return session;
   }});
   await assert.rejects(()=>malformedKernel.readCurrentActorAccess({tenantId:ids.tenantId,entityId:ids.entityId}),error=>error.code==='42501');
+});
+
+async function formalWorkflowRoleKernel(ids,actorId,roleName,{idempotencyKey=`formal-${roleName.toLowerCase().replaceAll('_','-')}-grant`}={}){
+  const definition=AUTHORITATIVE_WORKFLOW_ROLES[roleName];
+  assert.ok(definition,`Unknown authoritative workflow role ${roleName}`);
+  assert.equal(definition.principalKind,'HUMAN',`${roleName} must be a human workflow role`);
+  const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+  await sync.reconcile({tenantId:ids.tenantId,entityId:ids.entityId,actorId,permissions:definition.permissions,authorityClass:definition.authorityClass,validUntil:new Date(Date.now()+60*60*1000).toISOString(),expectedVersion:0,idempotencyKey});
+  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})});
+  return new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})});
+}
+
+pgTest('parallel authorized read contexts complete under bounded serializable retry without leaking scope',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  const kernel=await formalWorkflowRoleKernel(ids,'parallel-ai-reader','AI_CONTROLLER_REVIEWER',{idempotencyKey:'parallel-ai-reader-role-grant-0001'});
+  let completed=0;
+  for(let round=0;round<8;round++){
+    const results=await Promise.all(Array.from({length:16},()=>kernel.readAiConstructionLoanDecisionSource({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10})));
+    assert.equal(results.every(rows=>Array.isArray(rows)&&rows.length===0),true);
+    completed+=results.length;
+  }
+  assert.equal(completed,128);
+  const contexts=(await adminPool.query("SELECT count(*)::int total,count(*) FILTER (WHERE actor_id='parallel-ai-reader' AND tenant_id=$1 AND bound_backend_pid IS NOT NULL AND bound_txid IS NOT NULL)::int bound,count(*) FILTER (WHERE actor_id='parallel-ai-reader' AND tenant_id<>$1)::int cross_tenant FROM runtime_auth_context",[ids.tenantId])).rows[0];
+  assert.deepEqual(contexts,{total:128,bound:128,cross_tenant:0});
 });
 
 pgTest('migration clean down and up is reversible from the fixed manifest',async()=>{
@@ -1399,6 +1526,37 @@ pgTest('provider-signed Payable admission atomically reaches Review Draft four-r
   assert.equal((await journalApprover.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'wbs-payable-approve-pg-0001'})).status,'APPROVED');
   const posted=await journalPoster.postJournal({...ids,journalEntryId:drafted.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'wbs-payable-post-pg-0001'});
   assert.equal(posted.idempotent,false);
+
+  const acceptanceReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-acceptance-reader',['WBS.AUTOREC.VIEW','AP.VIEW'])});
+  const acceptance=await acceptanceReader.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id});
+  assert.deepEqual({
+    schema:acceptance.schema_version,scope:acceptance.scope,row:acceptance.source.wbs_inbound_row_id,
+    admission:acceptance.source.provider_signed_payable_admission_id,algorithm:acceptance.source.signature_algorithm,
+    record:acceptance.source.source_record_id,version:acceptance.source.source_version,
+    receipt:acceptance.source.receipt_hash,provider:acceptance.source.provider_receipt_hash,evidence:acceptance.source.evidence_hash,
+    review:acceptance.review.review_evidence_id,attachmentIds:acceptance.review.attachment_ids,
+    attachment:acceptance.attachments[0],draft:acceptance.draft.journal_entry_id,
+    business:acceptance.business_document,journal:acceptance.journal,
+  },{
+    schema:'WBS_PAYABLE_ACCEPTANCE_EVIDENCE_V1',scope:{tenant_id:ids.tenantId,entity_id:ids.entityId,period_id:ids.periodId},row:stored.wbs_inbound_row_id,
+    admission:created.wbs_provider_signed_payable_admission_id,algorithm:'Ed25519',
+    record:stored.source_record_id,version:stored.source_version,receipt:stored.receipt_hash,provider:providerReceiptHash,evidence:stored.evidence_hash,
+    review:reviewed.wbs_payable_review_evidence_id,attachmentIds:[attachmentId],
+    attachment:{attachment_id:attachmentId,content_hash:attachmentMeta.content_hash,storage_version:attachmentMeta.storage_version,finalization_status:'VERIFIED_CLEAN',scan_status:'CLEAN',verified_at:acceptance.attachments[0].verified_at,bound_by:'independent-attachment-binder'},
+    draft:drafted.journal_entry_id,
+    business:{business_document_id:drafted.business_document_id,source_document_id:reviewed.source_document_id,document_kind:'AP_BILL',currency:'USD',gross_amount:'89.1250',open_balance:'89.1250',status:'OPEN',posted_journal_entry_id:drafted.journal_entry_id,counterparty_ref:'VENDOR-PG',counterparty_name:'Signed WBS vendor'},
+    journal:{journal_entry_id:drafted.journal_entry_id,status:'POSTED',revision:4,created_by:'wbs-payable-maker',reviewed_by:'wbs-payable-journal-reviewer',approved_by:'wbs-payable-journal-approver',posted_by:'wbs-payable-journal-poster',posted_at:acceptance.journal.posted_at},
+  });
+  assert.match(acceptance.source.signed_package_hash,/^sha256:[0-9a-f]{64}$/);assert.match(acceptance.source.signed_receipt_hash,/^sha256:[0-9a-f]{64}$/);assert.ok(acceptance.source.signed_at);
+  const acceptanceWbsOnly=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'acceptance-wbs-only',['WBS.AUTOREC.VIEW'])});
+  await assert.rejects(acceptanceWbsOnly.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}),error=>error.code==='42501');
+
+  await migrateDownThrough(adminPool,'329_wbs_payable_acceptance_evidence_read.sql');
+  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_wbs_payable_acceptance_evidence(uuid,uuid,uuid)') fn")).rows[0].fn,null);
+  await assert.rejects(acceptanceReader.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}),error=>error.code==='42883');
+  await migrateUp(adminPool);
+  assert.ok((await adminPool.query("SELECT to_regprocedure('refs_read_wbs_payable_acceptance_evidence(uuid,uuid,uuid)') fn")).rows[0].fn);
+  assert.deepEqual(await acceptanceReader.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}),acceptance);
 
   const postedState=(await adminPool.query(`SELECT d.status document_status,d.open_balance::text,d.draft_journal_entry_id,d.posted_journal_entry_id,j.status::text journal_status,s.status::text staging_status,s.version::text staging_version,
       (SELECT count(DISTINCT l.posting_batch_id)::int FROM ledger_line l WHERE l.tenant_id=d.tenant_id AND l.entity_id=d.entity_id AND l.journal_entry_id=j.journal_entry_id) posting_batches,
@@ -2333,6 +2491,109 @@ pgTest('production reads fall back to existing read grants while invalid write a
   await assert.rejects(issuer.issue({tenantId:ids.tenantId,readOnly:true}),error=>error.code==='42501');
 });
 
+pgTest('additional formal role catalog matches database authority and scopes every grant and revocation',async()=>{
+  const ids=await seed({status:'PENDING_REVIEW'}),foreign=await seed({tenantId:ids.tenantId,status:'DRAFT'});
+  const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+  for(const [name,{permission,authorityClass}] of Object.entries(ADDITIONAL_WORKFLOW_ROLES)){
+    const native=(await adminPool.query('SELECT h.authority_class,p.active FROM runtime_human_permission_authority h JOIN permission_catalog p USING(permission_code) WHERE h.permission_code=$1',[permission])).rows[0];
+    assert.deepEqual(native,{authority_class:authorityClass,active:true},name);
+    const actorId=`formal-catalog-${name}`,kernel=await formalWorkflowRoleKernel(ids,actorId,name);
+    const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})});
+    const context=await issuer.issue({tenantId:ids.tenantId});
+    await kernel.inSession(async client=>{
+      assert.equal((await client.query('SELECT refs_entity_has_permission($1,$2) allowed',[ids.entityId,permission])).rows[0].allowed,true,name);
+      assert.equal((await client.query('SELECT refs_entity_has_permission($1,$2) allowed',[foreign.entityId,permission])).rows[0].allowed,false,name);
+      assert.equal((await client.query("SELECT refs_entity_has_permission($1,'GL.JE.POST') allowed",[ids.entityId])).rows[0].allowed,false,name);
+    });
+    if(name==='JE_REJECTOR'){
+      const request={...ids,journalEntryId:ids.journalId,action:'REJECT',expectedRevision:0,reason:'Independent rejection requires correction',idempotencyKey:'formal-catalog-journal-reject'};
+      const result=await kernel.transitionJournal(request);assert.equal(result.status,'DRAFT');assert.equal(result.revision,1);
+      const replay=await kernel.transitionJournal(request);assert.equal(replay.idempotent,true);assert.equal(replay.revision,1);
+      assert.equal((await adminPool.query('SELECT status::text status FROM journal_entry WHERE journal_entry_id=$1',[ids.journalId])).rows[0].status,'DRAFT');
+      assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[ids.journalId])).rows[0].n,0);
+    }
+    await sync.reconcile({...ids,actorId,permissions:['GL.JE.VIEW'],authorityClass:'READ',validUntil:new Date(Date.now()+3600000).toISOString(),expectedVersion:1,idempotencyKey:`formal-revoke-${name}`});
+    const old=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>context});
+    assert.equal((await old.inSession(client=>client.query('SELECT refs_entity_has_permission($1,$2) allowed',[ids.entityId,permission]))).rows[0].allowed,false,name);
+  }
+});
+
+pgTest('credit entry formal roles upload and create exact Draft credits without later workflow authority',async()=>{
+  const ids=await seed({attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'400000',accountName:'Returns'}],extraMembers:[{memberRef:'CUSTOMER-CREDIT',memberType:'CUSTOMER',displayName:'Credit customer'}]});
+  await migrateDownThrough(adminPool,'333_credit_entry_attachment_authority.sql');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_human_additive_permission_authority WHERE authority_class='ADJUSTMENT'")).rows[0].n,0);
+  await migrateUp(adminPool);
+  const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+  const scope={tenantId:ids.tenantId,entityId:ids.entityId,validUntil:new Date(Date.now()+3600000).toISOString(),expectedVersion:0};
+  for(const roleName of ['AP_VENDOR_CREDIT_ENTRY_MAKER','AR_CREDIT_MEMO_ENTRY_MAKER']){
+    const role=AUTHORITATIVE_WORKFLOW_ROLES[roleName],actorId=`credit-entry-${roleName}`;
+    await sync.reconcile({...scope,actorId,permissions:[...role.permissions],authorityClass:role.authorityClass,idempotencyKey:`credit-role-${roleName}`});
+    const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})});
+    const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})});
+    const reserved=await kernel.reserveAttachment({...ids,name:'credit.pdf',mediaType:'application/pdf',sizeBytes:42,contentHash:hash(roleName),storageRef:`object://attachments/${randomUUID()}`,storageVersion:'pending:credit',idempotencyKey:`credit-upload-${roleName}`});
+    assert.equal(reserved.status,'PENDING');
+    const common={...ids,amount:42,lines:[{line_no:1,account_code:'400000',amount:42,description:'Credit support'}],reason:'Formal credit entry',attachmentIds:[ids.attachmentId],idempotencyKey:`credit-draft-${roleName}`};
+    const create=()=>roleName.startsWith('AP_')?kernel.createApVendorCredit({...common,creditNumber:'FORMAL-VC-1',creditDate:'2026-07-18',vendorRef:'VENDOR-1',vendorName:'Vendor'}):kernel.createArCreditMemo({...common,memoNumber:'FORMAL-CM-1',memoDate:'2026-07-18',customerRef:'CUSTOMER-CREDIT',customerName:'Credit customer'});
+    const created=await create(),replayed=await create();assert.equal(created.status,'DRAFT');assert.equal(replayed.idempotent,true);assert.equal(replayed.journal_entry_id,created.journal_entry_id);
+    const journal=(await adminPool.query('SELECT created_by,status::text status,journal_type::text journal_type FROM journal_entry WHERE journal_entry_id=$1',[created.journal_entry_id])).rows[0];
+    assert.deepEqual(journal,{created_by:actorId,status:'DRAFT',journal_type:'MANUAL'});
+    await kernel.inSession(async client=>{for(const permission of ['GL.JE.SUBMIT','GL.JE.REVIEW','GL.JE.APPROVE','GL.JE.POST','AP.VENDOR_CREDIT.APPLY','AR.CREDIT_MEMO.APPLY','ATTACHMENT.FINALIZE'])assert.equal((await client.query('SELECT refs_entity_has_permission($1,$2) allowed',[ids.entityId,permission])).rows[0].allowed,false);});
+  }
+  for(const [index,permissions] of [['ATTACHMENT.CREATE'],['AP.VENDOR_CREDIT.CREATE','ATTACHMENT.CREATE','GL.JE.APPROVE'],['AR.CREDIT_MEMO.CREATE','ATTACHMENT.CREATE','AR.CREDIT_MEMO.APPLY']].entries())await assert.rejects(sync.reconcile({...scope,actorId:`bad-credit-role-${index}`,permissions,authorityClass:'ADJUSTMENT',idempotencyKey:`bad-credit-role-${index}`}),e=>e.code==='42501');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE authority_class='ADJUSTMENT'")).rows[0].n,2);
+  await assert.rejects(migrateDownThrough(adminPool,'333_credit_entry_attachment_authority.sql'),e=>e.code==='55006');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE status='DRAFT'")).rows[0].n,2);
+});
+
+pgTest('attachment entry authority supports exact formal maker roles and denies unanchored or approval bundles',async()=>{
+  const ids=await seed({attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'400000',accountName:'Sales revenue'}],extraMembers:[{memberRef:'CUSTOMER-ENTRY',memberType:'CUSTOMER',displayName:'Entry customer'}]});
+  await migrateDownThrough(adminPool,'331_attachment_entry_authority.sql');
+  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_reconcile_actor_grants_v3(uuid,text,uuid,text[],text,timestamptz,bigint,text,text)') fn")).rows[0].fn,null);
+  await migrateUp(adminPool);
+  const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+  const validUntil=new Date(Date.now()+3600000).toISOString();
+  const scope={tenantId:ids.tenantId,entityId:ids.entityId,validUntil,expectedVersion:0};
+  for(const roleName of ['AP_BILL_ENTRY_MAKER','AR_INVOICE_ENTRY_MAKER','AP_PAYMENT_ENTRY_MAKER','AR_RECEIPT_ENTRY_MAKER','AR_SALES_RECEIPT_ENTRY_MAKER']){
+    const role=AUTHORITATIVE_WORKFLOW_ROLES[roleName],actorId=`upload-entry-${roleName}`;
+    const args={...scope,actorId,permissions:[...role.permissions],authorityClass:role.authorityClass,idempotencyKey:`entry-grant-${roleName}`};
+    const result=await sync.reconcile(args);
+    assert.equal(result.version,1);assert.equal(result.authority_class,role.authorityClass);
+    assert.equal((await sync.reconcile(args)).idempotent,true);
+    await assert.rejects(sync.reconcile({...args,permissions:['ATTACHMENT.CREATE'],authorityClass:'ATTACHMENT_UPLOADER'}),e=>e.code==='23505');
+    const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})});
+    const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})});
+    const uploaded=await kernel.reserveAttachment({tenantId:ids.tenantId,entityId:ids.entityId,name:'entry.pdf',mediaType:'application/pdf',sizeBytes:42,contentHash:hash(roleName),storageRef:`object://attachments/${randomUUID()}`,storageVersion:'pending:entry-proof',idempotencyKey:`entry-upload-${roleName}`});
+    assert.equal(uploaded.status,'PENDING');
+    if(roleName==='AR_SALES_RECEIPT_ENTRY_MAKER'){
+      const sale=await kernel.createNativeSalesReceipt({...ids,number:'ENTRY-SALE-1',customerRef:'CUSTOMER-ENTRY',bankMemberRef:'BANK-1',cashAccountCode:'111000',categoryAccountCode:'400000',date:'2026-07-18',currency:'USD',amount:'42.0000',reason:'Formal role cash sale',attachmentIds:[ids.attachmentId],idempotencyKey:'formal-entry-sale-0001'});
+      assert.equal(sale.status,'DRAFT');
+      assert.equal((await adminPool.query('SELECT created_by,status::text status FROM journal_entry WHERE journal_entry_id=$1',[sale.journal_entry_id])).rows[0].created_by,actorId);
+    }
+    await kernel.inSession(async client=>{
+      for(const permission of role.permissions)assert.equal((await client.query('SELECT refs_entity_has_permission($1,$2) allowed',[ids.entityId,permission])).rows[0].allowed,true);
+      assert.equal((await client.query("SELECT refs_entity_has_permission($1,'GL.JE.POST') allowed",[ids.entityId])).rows[0].allowed,false);
+    });
+    const before=await issuer.issue({tenantId:ids.tenantId});
+    await assert.rejects(sync.reconcile({...args,permissions:['AP.VIEW'],authorityClass:'READ',idempotencyKey:`entry-stale-${roleName}`}),e=>e.code==='40001');
+    await sync.reconcile({...args,permissions:['AP.VIEW'],authorityClass:'READ',expectedVersion:1,idempotencyKey:`entry-revoke-${roleName}`});
+    const stale=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>before});
+    assert.equal((await stale.inSession(client=>client.query("SELECT refs_entity_has_permission($1,'ATTACHMENT.CREATE') allowed",[ids.entityId]))).rows[0].allowed,false);
+    await assert.rejects(stale.reserveAttachment({tenantId:ids.tenantId,entityId:ids.entityId,name:'revoked.pdf',mediaType:'application/pdf',sizeBytes:42,contentHash:hash(roleName),storageRef:`object://attachments/${randomUUID()}`,storageVersion:'pending:revoked-proof',idempotencyKey:`revoked-upload-${roleName}`}),e=>e.code==='42501');
+  }
+  await sync.reconcile({...scope,actorId:'upload-standalone',permissions:['ATTACHMENT.CREATE'],authorityClass:'ATTACHMENT_UPLOADER',idempotencyKey:'upload-standalone-grant'});
+  assert.equal((await new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:'upload-standalone'})}).issue({tenantId:ids.tenantId})).trusted,true);
+  const invalid=[['DRAFT',['ATTACHMENT.CREATE']],['REVIEW',['GL.JE.REVIEW','ATTACHMENT.CREATE']],['APPROVE',['GL.JE.APPROVE','ATTACHMENT.CREATE']],['POST',['GL.JE.POST','ATTACHMENT.CREATE']],['DRAFT',['AP.BILL.CREATE','ATTACHMENT.CREATE','ATTACHMENT.FINALIZE']],['DRAFT',['AP.BILL.CREATE','ATTACHMENT.CREATE','ATTACHMENT.CLEANUP']],['DRAFT',['AP.BILL.CREATE','ATTACHMENT.CREATE','GL.JE.APPROVE']]];
+  const count=async()=> (await adminPool.query(`SELECT (SELECT count(*) FROM runtime_grant_sync_receipt)::int receipts,(SELECT count(*) FROM runtime_actor_grant)::int grants,(SELECT count(*) FROM audit_event)::int audits,(SELECT count(*) FROM outbox_event)::int outbox`)).rows[0];
+  const counts=await count();
+  for(const [index,[authorityClass,permissions]] of invalid.entries())await assert.rejects(sync.reconcile({...scope,actorId:`bad-upload-${index}`,authorityClass,permissions,idempotencyKey:`invalid-upload-${index}`}),e=>e.code==='42501');
+  assert.deepEqual(await count(),counts);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE grant_policy_version='SOD_FINITE_V2'")).rows[0].n,11);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE event_type='ACTOR_GRANTS_RECONCILED' AND metadata->>'grant_policy_version'='SOD_FINITE_V2'")).rows[0].n,11);
+  await assert.rejects(migrateDownThrough(adminPool,'331_attachment_entry_authority.sql'),e=>e.code==='55006');
+  await migrateUp(adminPool);
+  assert.deepEqual(await count(),counts);
+});
+
 pgTest('finite human role sync enforces exact replacement, service-only deny, expiry, and context SoD',async()=>{
   const ids=await seed(),actor='auth0|finite-human-role',validUntil=new Date(Date.now()+60*60*1000).toISOString();
   const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
@@ -2413,7 +2674,10 @@ pgTest('finite human role sync enforces exact replacement, service-only deny, ex
   assert.equal((await new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:'oidc|wbs-provider-admission-service'})}).issue({tenantId:ids.tenantId})).trusted,true);
   const internalService=await sync.reconcile({tenantId:ids.tenantId,actorId:'platform-internal-service',entityId:ids.entityId,permissions:['WBS.SNAPSHOT.IMPORT'],authorityClass:'SERVICE',validUntil:null,expectedVersion:0,idempotencyKey:'service-exception-null-0001'});
   assert.equal(internalService.authority_class,'SERVICE');assert.equal(internalService.valid_until,null);
-  assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE grant_policy_version='SOD_FINITE_V1' AND tenant_id=$1 AND entity_id=$2",[ids.tenantId,ids.entityId])).rows[0].n,14);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE grant_policy_version='SOD_FINITE_V2' AND tenant_id=$1 AND entity_id=$2",[ids.tenantId,ids.entityId])).rows[0].n,14);
+  // The retained V2 API still creates V1 evidence and keeps its original rollback guard.
+  await grantSyncPool.query("SELECT refs_reconcile_actor_grants_v2($1,'legacy-compatible-reader',$2,ARRAY['AP.VIEW'],'READ',$3,0,'legacy-compatible-reader-0001',refs_grant_request_hash_v2($1,'legacy-compatible-reader',$2,ARRAY['AP.VIEW'],'READ',$3,0))",[ids.tenantId,ids.entityId,validUntil]);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE grant_policy_version='SOD_FINITE_V1' AND actor_id='legacy-compatible-reader'")).rows[0].n,1);
   const down=await readFile(new URL('../db/migrations/down/274_runtime_grant_sod_expiry.sql',import.meta.url),'utf8');
   await assert.rejects(adminPool.query(down),error=>error.message==='Refusing migration 274 rollback: finite-expiry grant evidence exists');
 });
@@ -2987,8 +3251,8 @@ pgTest('retained WBS Payable and approved settings drive the production AI decis
   const pendingAttachmentId=randomUUID();await adminPool.query(`INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,scan_status,finalization_status) VALUES($1,$2,$3,'pending-support.pdf','application/pdf',10,$4,$5,'pending-support-v1','wbs-provider',now(),'PENDING','PENDING')`,[pendingAttachmentId,ids.tenantId,ids.entityId,hash('pending-support'),`s3://refs-wbs-ai-e2e/${pendingAttachmentId}`]);await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'wbs-provider')",[ids.tenantId,ids.entityId,retainedSource.sourceDocumentId,pendingAttachmentId]);let unsafe=await decisionService.analyze({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10});assert.equal(unsafe.packets[0].classification,'BLOCKED');assert.equal(unsafe.packets[0].source.completeness_status,'INCOMPLETE');assert.equal(unsafe.packets[0].source.source_detail.execution_evidence.attachments.length,2);assert.deepEqual(unsafe.packets[0].proposed_journal.lines,[]);await adminPool.query('ALTER TABLE source_link DISABLE TRIGGER USER');await adminPool.query('DELETE FROM source_link WHERE source_document_id=$1 AND attachment_id=$2',[retainedSource.sourceDocumentId,pendingAttachmentId]);await adminPool.query('ALTER TABLE source_link ENABLE TRIGGER USER');
   await adminPool.query("UPDATE account_master SET active=false WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId]);await assert.rejects(decisionService.analyze({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10}),error=>error.code==='AI_ACCOUNTING_ACCOUNT_MASTER_INVALID');await adminPool.query("UPDATE account_master SET active=true,required_member_type='CUSTOMER' WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId]);await assert.rejects(decisionService.analyze({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10}),error=>error.code==='AI_ACCOUNTING_ACCOUNT_MASTER_INVALID');await adminPool.query("UPDATE account_master SET required_member_type='VENDOR' WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId]);
   await adminPool.query("UPDATE member_master SET active=false WHERE tenant_id=$1 AND entity_id=$2 AND member_ref='VENDOR-1'",[ids.tenantId,ids.entityId]);unsafe=await decisionService.analyze({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10});assert.equal(unsafe.packets[0].classification,'BLOCKED');assert.deepEqual(unsafe.packets[0].proposed_journal.lines,[]);assert.deepEqual(unsafe.packets[0].expected_report_deltas,[]);
-  await adminPool.query("UPDATE member_master SET active=true,member_type='CUSTOMER' WHERE tenant_id=$1 AND entity_id=$2 AND member_ref='VENDOR-1'",[ids.tenantId,ids.entityId]);unsafe=await decisionService.analyze({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10});assert.equal(unsafe.packets[0].classification,'BLOCKED');assert.deepEqual(unsafe.packets[0].proposed_journal.lines,[]);
-  await adminPool.query("UPDATE member_master SET member_type='VENDOR' WHERE tenant_id=$1 AND entity_id=$2 AND member_ref='VENDOR-1'",[ids.tenantId,ids.entityId]);const payablePopulation=await aiKernel.readAiAccountingDecisionPopulation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,pageSize:10}),payableIdentity=payablePopulation.invoice_rows.map(row=>({tenant_id:row.tenant_id,entity_id:row.entity_id,accounting_period_id:row.accounting_period_id,source_kind:'INVOICE',accounting_date:row.accounting_date,source_document_id:row.source_document_id,line_no:row.line_no,source_document_line_id:row.source_document_line_id,source_payload_hash:row.source_payload_hash,source_line_hash:row.source_line_hash,retained_outcome:row.retained_outcome,retained_exception_codes:row.retained_exception_codes,source_status:row.source_status})),payableDatabasePopulationHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) value',[JSON.stringify(payableIdentity)])).rows[0].value;assert.equal(payablePopulation.population_hash,payableDatabasePopulationHash);assert.equal(payablePopulation.population_validation_hash,canonicalRequestHash(payableIdentity));assert.deepEqual(payablePopulation.invoice_rows[0].retained_exception_codes,['WBS_PAYABLE_ATTACHMENT_REQUIRED','WBS_PAYABLE_MAPPING_REVIEW_REQUIRED']);const batch=await decisionService.analyze({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10});assert.equal(batch.row_count,1);assert.equal(batch.packets[0].classification,'EXPENSE',JSON.stringify(batch.packets[0]));assert.equal(batch.packets[0].settings_snapshot_id,settings.settingsSnapshotId);assert.equal(batch.packets[0].source.admission_status,'ADMITTED');assert.deepEqual(batch.packets[0].source.exception_codes,[]);assert.deepEqual(batch.packets[0].proposed_journal.lines.map(row=>[row.account_code,row.side,row.amount,row.member_ref]),[['610000','DEBIT','125.0000',null],['291001','CREDIT','125.0000','VENDOR-1']]);
+  await injectCounterpartyIdentityDrift("UPDATE member_master SET active=true,member_type='CUSTOMER' WHERE tenant_id=$1 AND entity_id=$2 AND member_ref='VENDOR-1'",[ids.tenantId,ids.entityId]);unsafe=await decisionService.analyze({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10});assert.equal(unsafe.packets[0].classification,'BLOCKED');assert.deepEqual(unsafe.packets[0].proposed_journal.lines,[]);
+  await injectCounterpartyIdentityDrift("UPDATE member_master SET member_type='VENDOR' WHERE tenant_id=$1 AND entity_id=$2 AND member_ref='VENDOR-1'",[ids.tenantId,ids.entityId]);const payablePopulation=await aiKernel.readAiAccountingDecisionPopulation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,pageSize:10}),payableIdentity=payablePopulation.invoice_rows.map(row=>({tenant_id:row.tenant_id,entity_id:row.entity_id,accounting_period_id:row.accounting_period_id,source_kind:'INVOICE',accounting_date:row.accounting_date,source_document_id:row.source_document_id,line_no:row.line_no,source_document_line_id:row.source_document_line_id,source_payload_hash:row.source_payload_hash,source_line_hash:row.source_line_hash,retained_outcome:row.retained_outcome,retained_exception_codes:row.retained_exception_codes,source_status:row.source_status})),payableDatabasePopulationHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) value',[JSON.stringify(payableIdentity)])).rows[0].value;assert.equal(payablePopulation.population_hash,payableDatabasePopulationHash);assert.equal(payablePopulation.population_validation_hash,canonicalRequestHash(payableIdentity));assert.deepEqual(payablePopulation.invoice_rows[0].retained_exception_codes,['WBS_PAYABLE_ATTACHMENT_REQUIRED','WBS_PAYABLE_MAPPING_REVIEW_REQUIRED']);const batch=await decisionService.analyze({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:10});assert.equal(batch.row_count,1);assert.equal(batch.packets[0].classification,'EXPENSE',JSON.stringify(batch.packets[0]));assert.equal(batch.packets[0].settings_snapshot_id,settings.settingsSnapshotId);assert.equal(batch.packets[0].source.admission_status,'ADMITTED');assert.deepEqual(batch.packets[0].source.exception_codes,[]);assert.deepEqual(batch.packets[0].proposed_journal.lines.map(row=>[row.account_code,row.side,row.amount,row.member_ref]),[['610000','DEBIT','125.0000',null],['291001','CREDIT','125.0000','VENDOR-1']]);
   const retainArgs={tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,packets:batch.packets,populationCount:batch.population.total_count,populationHash:batch.population.population_hash,idempotencyKey:'wbs-ai-decision-run-e2e-001'},run=await aiKernel.retainAiAccountingDecisionBatch(retainArgs),decision=run.receipts[0];assert.equal(decision.packet_status,'READY_FOR_HUMAN_REVIEW');assert.equal(decision.source_document_id,batch.packets[0].source.source_document_id);assert.equal((await aiKernel.retainAiAccountingDecisionBatch(retainArgs)).idempotent,true);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'AP_PREPARER',['GL.JE.VIEW','GL.JE.CREATE'])});
   const awaitingQueue=await maker.readAiAccountingDecisionQueue({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId,limit:25,offset:0});assert.equal(awaitingQueue.total_count,1);assert.equal(awaitingQueue.population_complete,true);assert.equal(awaitingQueue.rows[0].ai_accounting_decision_id,decision.ai_accounting_decision_id);assert.equal(awaitingQueue.rows[0].workflow_state,'AWAITING_HUMAN_DECISION');assert.equal(awaitingQueue.rows[0].action_flags.can_accept_or_reject,true);assert.equal(awaitingQueue.rows[0].action_flags.can_create_draft,false);assert.equal(awaitingQueue.rows[0].action_flags.can_post,false);
@@ -3594,8 +3858,9 @@ pgTest('authenticated HTTP posts a vendor credit and atomically applies it to an
   });
   const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':`"${revision}"`})}});
   const root=`/api/v1/entities/${ids.entityId}`;
-  const created=await send('http-credit-maker',`${root}/ap/vendor-credits`,{periodId:ids.periodId,creditNumber:'VC-HTTP-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Vendor credit'}],reason:'HTTP vendor price adjustment'},'http-credit-create');
+  const created=await send('http-credit-maker',`${root}/ap/vendor-credits`,{periodId:ids.periodId,creditNumber:'VC-HTTP-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Vendor credit'}],reason:'HTTP vendor price adjustment',attachmentIds:[ids.attachmentId]},'http-credit-create');
   assert.equal(created.status,201);const credit=created.body.data;
+  assert.deepEqual((await adminPool.query('SELECT j.journal_type,sl.attachment_id FROM journal_entry j JOIN source_link sl ON sl.tenant_id=j.tenant_id AND sl.entity_id=j.entity_id AND sl.journal_entry_id=j.journal_entry_id AND sl.link_type=\'JE_ATTACHMENT\' WHERE j.journal_entry_id=$1',[credit.journal_entry_id])).rows,[{journal_type:'MANUAL',attachment_id:ids.attachmentId}]);
   await attachAutoSource({...ids,journalId:credit.journal_entry_id});
   const journalPath=`${root}/journal-entries/${credit.journal_entry_id}`;
   assert.equal((await send('http-credit-submitter',`${journalPath}/transitions/submit`,{},'http-credit-submit',0)).status,201);
@@ -3632,8 +3897,9 @@ pgTest('authenticated HTTP posts an AR credit memo, applies it and refunds only 
   });
   const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':`"${revision}"`})}});
   const root=`/api/v1/entities/${ids.entityId}`;
-  const memoResponse=await send(makerId,`${root}/ar/credit-memos`,{periodId:ids.periodId,memoNumber:'CM-HTTP-100',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:[{line_no:1,account_code:'410000',amount:100,description:'Customer credit'}],reason:'HTTP customer credit correction'},'http-memo-create');
+  const memoResponse=await send(makerId,`${root}/ar/credit-memos`,{periodId:ids.periodId,memoNumber:'CM-HTTP-100',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:[{line_no:1,account_code:'410000',amount:100,description:'Customer credit'}],reason:'HTTP customer credit correction',attachmentIds:[ids.attachmentId]},'http-memo-create');
   assert.equal(memoResponse.status,201);const memo=memoResponse.body.data;
+  assert.deepEqual((await adminPool.query('SELECT j.journal_type,sl.attachment_id FROM journal_entry j JOIN source_link sl ON sl.tenant_id=j.tenant_id AND sl.entity_id=j.entity_id AND sl.journal_entry_id=j.journal_entry_id AND sl.link_type=\'JE_ATTACHMENT\' WHERE j.journal_entry_id=$1',[memo.journal_entry_id])).rows,[{journal_type:'MANUAL',attachment_id:ids.attachmentId}]);
   await attachAutoSource({...ids,journalId:memo.journal_entry_id});
   const advance=async(journalId,prefix)=>{
     const path=`${root}/journal-entries/${journalId}`;
@@ -4219,7 +4485,7 @@ pgTest('AP payment and reversal keep aging and the 291001 control balance in loc
 });
 
 pgTest('AP vendor credit posted first then partial and full apply updates bill atomically',async()=>{
-  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',
     extraAccounts:[{accountCode:'610000',accountName:'Expense'}],
     journalLines:[{lineNo:1,accountCode:'610000',debit:100,credit:0},{lineNo:2,accountCode:'291001',debit:0,credit:100,memberRef:'VENDOR-1'}]});const billId=randomUUID();
   const source=await attachAutoSource(ids);
@@ -4228,13 +4494,18 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by) VALUES($1,$2,$3,$4,'AP_BILL','BILL-CREDIT-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[billId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-maker',['AP.VENDOR_CREDIT.CREATE'])});
   const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-submitter',['GL.JE.SUBMIT'])});
-  await assert.rejects(maker.createApVendorCredit({...ids,creditNumber:'VC-CONTROL-BAD',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1'}],reason:'Reject control-account counterpart',idempotencyKey:'vendor-credit-control-bad'}),error=>error.code==='23514');
+  const other=await seed({status:'DRAFT'}),validCredit={...ids,creditNumber:'VC-EVIDENCE',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Credit'}],reason:'Vendor credit evidence'};
+  await assert.rejects(maker.createApVendorCredit({...validCredit,attachmentIds:[],idempotencyKey:'vendor-credit-evidence-empty'}),error=>error.code==='22023');
+  await assert.rejects(maker.createApVendorCredit({...validCredit,attachmentIds:[ids.attachmentId,ids.attachmentId],idempotencyKey:'vendor-credit-evidence-duplicate'}),error=>error.code==='22023');
+  await assert.rejects(maker.createApVendorCredit({...validCredit,attachmentIds:[other.attachmentId],idempotencyKey:'vendor-credit-evidence-cross-company'}),error=>error.code==='23503');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE tenant_id=$1 AND adjustment_kind='AP_VENDOR_CREDIT'",[ids.tenantId])).rows[0].n,0);
+  await assert.rejects(maker.createApVendorCredit({...ids,creditNumber:'VC-CONTROL-BAD',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1'}],reason:'Reject control-account counterpart',attachmentIds:[ids.attachmentId],idempotencyKey:'vendor-credit-control-bad'}),error=>error.code==='23514');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE adjustment_kind='AP_VENDOR_CREDIT'",[])).rows[0].n,0);
-  const credit=await maker.createApVendorCredit({...ids,creditNumber:'VC-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Credit'}],reason:'Vendor credit',idempotencyKey:'vendor-credit-100'});
+  const credit=await maker.createApVendorCredit({...ids,creditNumber:'VC-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Credit'}],reason:'Vendor credit',attachmentIds:[ids.attachmentId],idempotencyKey:'vendor-credit-100'});
+  assert.deepEqual((await adminPool.query('SELECT j.journal_type,sl.attachment_id FROM journal_entry j JOIN source_link sl ON sl.tenant_id=j.tenant_id AND sl.entity_id=j.entity_id AND sl.journal_entry_id=j.journal_entry_id WHERE j.journal_entry_id=$1',[credit.journal_entry_id])).rows,[{journal_type:'MANUAL',attachment_id:ids.attachmentId}]);
   const draftRecordReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'AP_VENDOR_CREDIT-draft-record-reader',['AP.VIEW'])});
   const draftRecord=await draftRecordReader.readBusinessRecord({tenantId:ids.tenantId,entityId:ids.entityId,recordId:credit.business_adjustment_id,recordKind:'AP_VENDOR_CREDIT'});
   assert.equal(draftRecord.record.status,'DRAFT');assert.equal(draftRecord.record.journal_status,'DRAFT');assert.equal(draftRecord.record.journal_entry_id,credit.journal_entry_id);assert.equal(draftRecord.record.amount,'100.0000');
-  await attachAutoSource({...ids,journalId:credit.journal_entry_id},{reuseApprovedSnapshots:true});
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-reviewer',['GL.JE.REVIEW'])});
   const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-approver',['GL.JE.APPROVE'])});
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-poster',['GL.JE.POST'])});
@@ -4355,7 +4626,7 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
 });
 
 pgTest('AR credit memo posted first then partial and full apply updates invoice atomically',async()=>{
-  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN',
     extraAccounts:[{accountCode:'400000',accountName:'Revenue'},{accountCode:'410000',accountName:'Sales returns'}],
     extraMembers:[{memberRef:'CUSTOMER-1',memberType:'CUSTOMER',displayName:'Customer'}],
     journalLines:[{lineNo:1,accountCode:'120200',debit:100,credit:0,memberRef:'CUSTOMER-1'},{lineNo:2,accountCode:'400000',debit:0,credit:100}]});const invoiceId=randomUUID();
@@ -4365,13 +4636,13 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by) VALUES($1,$2,$3,$4,'AR_INVOICE','INV-CREDIT-1','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[invoiceId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-maker',['AR.CREDIT_MEMO.CREATE'])});
   const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-submitter',['GL.JE.SUBMIT'])});
-  await assert.rejects(maker.createArCreditMemo({...ids,memoNumber:'CM-CONTROL-BAD',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'120200',amount:100,member_ref:'CUSTOMER-1'}]),reason:'Reject control-account counterpart',idempotencyKey:'ar-credit-control-bad'}),error=>error.code==='23514');
+  await assert.rejects(maker.createArCreditMemo({...ids,memoNumber:'CM-CONTROL-BAD',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'120200',amount:100,member_ref:'CUSTOMER-1'}]),reason:'Reject control-account counterpart',attachmentIds:[ids.attachmentId],idempotencyKey:'ar-credit-control-bad'}),error=>error.code==='23514');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE adjustment_kind='AR_CREDIT_MEMO'",[])).rows[0].n,0);
-  const memo=await maker.createArCreditMemo({...ids,memoNumber:'CM-100',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'410000',amount:100,description:'Memo'}]),reason:'Credit memo',idempotencyKey:'ar-credit-100'});
+  const memo=await maker.createArCreditMemo({...ids,memoNumber:'CM-100',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'410000',amount:100,description:'Memo'}]),reason:'Credit memo',attachmentIds:[ids.attachmentId],idempotencyKey:'ar-credit-100'});
+  assert.deepEqual((await adminPool.query('SELECT j.journal_type,sl.attachment_id FROM journal_entry j JOIN source_link sl ON sl.tenant_id=j.tenant_id AND sl.entity_id=j.entity_id AND sl.journal_entry_id=j.journal_entry_id WHERE j.journal_entry_id=$1',[memo.journal_entry_id])).rows,[{journal_type:'MANUAL',attachment_id:ids.attachmentId}]);
   const draftRecordReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'AR_CREDIT_MEMO-draft-record-reader',['AR.VIEW'])});
   const draftRecord=await draftRecordReader.readBusinessRecord({tenantId:ids.tenantId,entityId:ids.entityId,recordId:memo.business_adjustment_id,recordKind:'AR_CREDIT_MEMO'});
   assert.equal(draftRecord.record.status,'DRAFT');assert.equal(draftRecord.record.journal_status,'DRAFT');assert.equal(draftRecord.record.journal_entry_id,memo.journal_entry_id);assert.equal(draftRecord.record.amount,'100.0000');
-  await attachAutoSource({...ids,journalId:memo.journal_entry_id},{reuseApprovedSnapshots:true});
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-reviewer',['GL.JE.REVIEW'])});
   const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-approver',['GL.JE.APPROVE'])});
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-poster',['GL.JE.POST'])});
@@ -4485,7 +4756,7 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
 });
 
 for(const native of [false,true])pgTest(`${native?'native':'legacy'} AR refund posts against available posted credit and rejects over-refund atomically`,async()=>{
-  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:native?'VERIFIED_CLEAN':null,
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN',
     extraAccounts:[{accountCode:'400000',accountName:'Revenue'},{accountCode:'410000',accountName:'Sales returns'}],
     extraMembers:[{memberRef:'CUSTOMER-1',memberType:'CUSTOMER',displayName:'Customer'}],
     journalLines:[{lineNo:1,accountCode:'120200',debit:100,credit:0,memberRef:'CUSTOMER-1'},{lineNo:2,accountCode:'400000',debit:0,credit:100}]});const invoiceId=randomUUID();
@@ -4496,8 +4767,7 @@ for(const native of [false,true])pgTest(`${native?'native':'legacy'} AR refund p
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by) VALUES($1,$2,$3,$4,'AR_INVOICE','INV-REFUND-1','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[invoiceId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-credit-maker',['AR.CREDIT_MEMO.CREATE'])});
   const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-submitter',['GL.JE.SUBMIT'])});
-  const memo=await maker.createArCreditMemo({...ids,memoNumber:'CM-REFUND',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'410000',amount:100,description:'Memo'}]),reason:'Refund source credit',idempotencyKey:'refund-credit-source'});
-  await attachAutoSource({...ids,journalId:memo.journal_entry_id},{reuseApprovedSnapshots:true});
+  const memo=await maker.createArCreditMemo({...ids,memoNumber:'CM-REFUND',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'410000',amount:100,description:'Memo'}]),reason:'Refund source credit',attachmentIds:[ids.attachmentId],idempotencyKey:'refund-credit-source'});
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-reviewer',['GL.JE.REVIEW'])});
   const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-approver',['GL.JE.APPROVE'])});
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-poster',['GL.JE.POST'])});
@@ -4582,7 +4852,7 @@ for(const native of [false,true])pgTest(`${native?'native':'legacy'} AR refund p
 
 pgTest('refund and credit allocation serialize against the same available credit',async()=>{
   const native=true;
-  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:native?'VERIFIED_CLEAN':null,
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN',
     extraAccounts:[{accountCode:'400000',accountName:'Revenue'},{accountCode:'410000',accountName:'Sales returns'}],
     extraMembers:[{memberRef:'CUSTOMER-1',memberType:'CUSTOMER',displayName:'Customer'}],
     journalLines:[{lineNo:1,accountCode:'120200',debit:100,credit:0,memberRef:'CUSTOMER-1'},{lineNo:2,accountCode:'400000',debit:0,credit:100}]});const invoiceId=randomUUID();
@@ -4593,8 +4863,7 @@ pgTest('refund and credit allocation serialize against the same available credit
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by) VALUES($1,$2,$3,$4,'AR_INVOICE','INV-REFUND-1','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[invoiceId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-credit-maker',['AR.CREDIT_MEMO.CREATE'])});
   const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-submitter',['GL.JE.SUBMIT'])});
-  const memo=await maker.createArCreditMemo({...ids,memoNumber:'CM-REFUND',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'410000',amount:100,description:'Memo'}]),reason:'Refund source credit',idempotencyKey:'refund-credit-source'});
-  await attachAutoSource({...ids,journalId:memo.journal_entry_id},{reuseApprovedSnapshots:true});
+  const memo=await maker.createArCreditMemo({...ids,memoNumber:'CM-REFUND',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'410000',amount:100,description:'Memo'}]),reason:'Refund source credit',attachmentIds:[ids.attachmentId],idempotencyKey:'refund-credit-source'});
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-reviewer',['GL.JE.REVIEW'])});
   const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-approver',['GL.JE.APPROVE'])});
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-poster',['GL.JE.POST'])});
@@ -4625,7 +4894,7 @@ pgTest('refund and credit allocation serialize against the same available credit
 });
 
 pgTest('credit allocation history retains states and keyset-pages 100001 recorded fixtures',async()=>{
-  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN',
     extraAccounts:[{accountCode:'610000',accountName:'Expense'}],
     journalLines:[{lineNo:1,accountCode:'610000',debit:100,credit:0},{lineNo:2,accountCode:'291001',debit:0,credit:100,memberRef:'VENDOR-1'}]});const billId=randomUUID();
   const source=await attachAutoSource(ids);
@@ -4634,10 +4903,9 @@ pgTest('credit allocation history retains states and keyset-pages 100001 recorde
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by) VALUES($1,$2,$3,$4,'AP_BILL','BILL-CREDIT-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[billId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-maker',['AP.VENDOR_CREDIT.CREATE'])});
   const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-submitter',['GL.JE.SUBMIT'])});
-  await assert.rejects(maker.createApVendorCredit({...ids,creditNumber:'VC-CONTROL-BAD',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1'}],reason:'Reject control-account counterpart',idempotencyKey:'vendor-credit-control-bad'}),error=>error.code==='23514');
+  await assert.rejects(maker.createApVendorCredit({...ids,creditNumber:'VC-CONTROL-BAD',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1'}],reason:'Reject control-account counterpart',attachmentIds:[ids.attachmentId],idempotencyKey:'vendor-credit-control-bad'}),error=>error.code==='23514');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE adjustment_kind='AP_VENDOR_CREDIT'",[])).rows[0].n,0);
-  const credit=await maker.createApVendorCredit({...ids,creditNumber:'VC-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Credit'}],reason:'Vendor credit',idempotencyKey:'vendor-credit-100'});
-  await attachAutoSource({...ids,journalId:credit.journal_entry_id},{reuseApprovedSnapshots:true});
+  const credit=await maker.createApVendorCredit({...ids,creditNumber:'VC-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Credit'}],reason:'Vendor credit',attachmentIds:[ids.attachmentId],idempotencyKey:'vendor-credit-100'});
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-reviewer',['GL.JE.REVIEW'])});
   const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-approver',['GL.JE.APPROVE'])});
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-poster',['GL.JE.POST'])});
@@ -4686,7 +4954,7 @@ pgTest('credit allocation history retains states and keyset-pages 100001 recorde
 });
 
 pgTest('credit target lookup searches all source periods and keyset-pages 100001 eligible fixtures',async()=>{
-  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN',
     extraAccounts:[{accountCode:'610000',accountName:'Expense'}],
     journalLines:[{lineNo:1,accountCode:'610000',debit:100,credit:0},{lineNo:2,accountCode:'291001',debit:0,credit:100,memberRef:'VENDOR-1'}]});const billId=randomUUID();
   const source=await attachAutoSource(ids);
@@ -4695,10 +4963,9 @@ pgTest('credit target lookup searches all source periods and keyset-pages 100001
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by) VALUES($1,$2,$3,$4,'AP_BILL','BILL-CREDIT-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[billId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-maker',['AP.VENDOR_CREDIT.CREATE'])});
   const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-submitter',['GL.JE.SUBMIT'])});
-  await assert.rejects(maker.createApVendorCredit({...ids,creditNumber:'VC-CONTROL-BAD',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1'}],reason:'Reject control-account counterpart',idempotencyKey:'vendor-credit-control-bad'}),error=>error.code==='23514');
+  await assert.rejects(maker.createApVendorCredit({...ids,creditNumber:'VC-CONTROL-BAD',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1'}],reason:'Reject control-account counterpart',attachmentIds:[ids.attachmentId],idempotencyKey:'vendor-credit-control-bad'}),error=>error.code==='23514');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE adjustment_kind='AP_VENDOR_CREDIT'",[])).rows[0].n,0);
-  const credit=await maker.createApVendorCredit({...ids,creditNumber:'VC-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Credit'}],reason:'Vendor credit',idempotencyKey:'vendor-credit-100'});
-  await attachAutoSource({...ids,journalId:credit.journal_entry_id},{reuseApprovedSnapshots:true});
+  const credit=await maker.createApVendorCredit({...ids,creditNumber:'VC-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Credit'}],reason:'Vendor credit',attachmentIds:[ids.attachmentId],idempotencyKey:'vendor-credit-100'});
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-reviewer',['GL.JE.REVIEW'])});
   const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-approver',['GL.JE.APPROVE'])});
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-poster',['GL.JE.POST'])});
@@ -4753,15 +5020,15 @@ pgTest('AP bill void posts in a new open period and leaves the original Posted J
   const billId=randomUUID();
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,source_document_id,posted_journal_entry_id,created_by) VALUES($1,$2,$3,'AP_BILL','BILL-VOID-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'APPROVED',$4,$5,'fixture')`,[billId,ids.tenantId,ids.entityId,trace.documentId,ids.journalId]);
   const augustPeriod=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
-  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bill-void-maker',['AP.BILL.VOID.CREATE'])});
-  const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bill-void-submitter',['GL.JE.SUBMIT'])});
+  const maker=await formalWorkflowRoleKernel(ids,'bill-void-maker','AP_BILL_VOID_MAKER');
+  const submitter=await formalWorkflowRoleKernel(ids,'bill-void-submitter','JE_SUBMITTER');
   const draft=await maker.createApBillVoid({...ids,businessDocumentId:billId,periodId:augustPeriod,expectedVersion:0,journalNumber:'BILL-VOID-1-REV',journalDate:'2026-08-02',reason:'Void duplicate bill',idempotencyKey:'bill-void-create'});
   await submitter.transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'bill-void-submit'});
-  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bill-void-reviewer',['GL.JE.REVIEW'])});
+  const reviewer=await formalWorkflowRoleKernel(ids,'bill-void-reviewer','JE_REVIEWER');
   await reviewer.transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'bill-void-review'});
-  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bill-void-approver',['GL.JE.APPROVE'])});
+  const approver=await formalWorkflowRoleKernel(ids,'bill-void-approver','JE_APPROVER');
   await approver.transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'bill-void-approve'});
-  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bill-void-poster',['GL.JE.POST'])});
+  const poster=await formalWorkflowRoleKernel(ids,'bill-void-poster','JE_POSTER');
   await poster.postJournal({...ids,journalEntryId:draft.journal_entry_id,periodId:augustPeriod,expectedRevision:3,idempotencyKey:'bill-void-post'});
   const bill=(await adminPool.query('SELECT status,open_balance,version FROM business_document WHERE business_document_id=$1',[billId])).rows[0];
   assert.deepEqual(bill,{status:'VOID',open_balance:'0.0000',version:'1'});
@@ -5110,6 +5377,21 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   });
   assert.equal(shanghaiCandidates[0].accounting_date,'2026-07-16');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM bank_match WHERE bank_source_id=$1',[bankSourceId])).rows[0].n,0);
+  const paymentCandidateApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'bank-payment-matcher'}),kernelFactory:async()=>matcher});
+  const candidateUrl=`/api/v1/entities/${ids.entityId}/bank/transactions/${bankSourceId}/payment-candidates`;
+  const paymentPage=await paymentCandidateApi({method:'GET',url:candidateUrl+'?limit=1',headers:{}});
+  assert.equal(paymentPage.status,200,JSON.stringify(paymentPage.body));
+  assert.equal(paymentPage.body.data.bank_revision,'0');assert.equal(paymentPage.body.data.next_id,null);
+  assert.deepEqual(paymentPage.body.data.rows.map(r=>[r.payment_occurrence_id,r.occurrence_revision,r.business_document_id,r.source_document_id,r.document_number,r.counterparty_name,r.journal_number,r.amount,r.ledger_line_id]),
+    [[exact.payment.payment_occurrence_id,'1',billId,null,'BILL-BANK-MATCH-1','Vendor','PAY-BANK-40','40.0000',candidates[0].ledger_line_id]]);
+  const lastPage=await matcher.readPaymentBankCandidates({...ids,bankSourceId,afterId:exact.payment.payment_occurrence_id,limit:1});assert.deepEqual(lastPage.rows,[]);assert.equal(lastPage.next_id,null);
+  await assert.rejects(matcher.readPaymentBankCandidates({...ids,bankSourceId,afterId:randomUUID()}),error=>error.code==='22023');
+  const deniedCandidates=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'candidate-viewer',['BANK.VIEW'])});
+  await assert.rejects(deniedCandidates.readPaymentBankCandidates({...ids,bankSourceId}),error=>error.code==='42501');
+  await migrateDownThrough(adminPool,'324_payment_bank_candidates.sql');
+  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_payment_bank_candidates(uuid,uuid,uuid,uuid,integer)') IS NULL missing")).rows[0].missing,true);
+  await migrateUp(adminPool);
+  assert.deepEqual((await matcher.readPaymentBankCandidates({...ids,bankSourceId,limit:1})),paymentPage.body.data);
   const matchArgs={...ids,bankSourceId,paymentOccurrenceId:exact.payment.payment_occurrence_id,expectedBankVersion:0,expectedOccurrenceVersion:1,reason:'Reviewed exact posted AP payment',idempotencyKey:'bank-match-exact-001'};
   const matchingBarrier=await adminPool.connect();let matching;
   try{
@@ -5122,6 +5404,7 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   const matchingOutcome=await matching;assert.equal(matchingOutcome.error,undefined);
   const created=matchingOutcome.value;const replay=await matcher.createBankPaymentMatch(matchArgs);
   assert.equal(created.status,'ACTIVE');assert.equal(created.idempotent,false);assert.equal(replay.idempotent,true);assert.equal(replay.bank_match_id,created.bank_match_id);
+  assert.deepEqual((await matcher.readPaymentBankCandidates({...ids,bankSourceId})).rows,[],'An active bank match removes payment candidates');
   const otherMatcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'other-bank-matcher',['BANK.MATCH.CREATE'])});
   await assert.rejects(otherMatcher.createBankPaymentMatch(matchArgs),error=>error.code==='42501');
   await assert.rejects(matcher.createBankPaymentMatch({...matchArgs,reason:'Changed reason for the same retry'}),error=>error.code==='23505');
@@ -5168,6 +5451,26 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   await assert.rejects(unmatcher.unmatchBankPayment({...unmatchArgs,reason:'Changed unmatch retry reason'}),error=>error.code==='23505');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type='BANK_PAYMENT_MATCH_UNMATCHED'",[created.bank_match_id])).rows[0].n,1);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type='BANK_PAYMENT_MATCH_UNMATCHED'",[created.bank_match_id])).rows[0].n,1);
+  const anotherPayment=await postPayment({number:'PAY-BANK-SECOND-40',suffix:'second-candidate'});
+  const expectedCandidates=[exact.payment.payment_occurrence_id,anotherPayment.payment.payment_occurrence_id].sort();
+  const firstCandidates=await matcher.readPaymentBankCandidates({...ids,bankSourceId,limit:1});
+  assert.deepEqual(firstCandidates.rows.map(r=>r.payment_occurrence_id),expectedCandidates.slice(0,1));assert.equal(firstCandidates.next_id,expectedCandidates[0]);
+  const secondCandidates=await matcher.readPaymentBankCandidates({...ids,bankSourceId,limit:1,afterId:firstCandidates.next_id});
+  assert.deepEqual(secondCandidates.rows.map(r=>r.payment_occurrence_id),expectedCandidates.slice(1));assert.equal(secondCandidates.next_id,null);
+  assert.deepEqual(await matcher.readPaymentBankCandidates({...ids,bankSourceId,limit:1}),firstCandidates,'Stable first-page read after historical unmatch');
+  const lockedCandidateStatement=randomUUID();
+  await adminPool.query("INSERT INTO reconciliation(reconciliation_id,tenant_id,entity_id,bank_account_ref,statement_ending_date,statement_ending_balance,difference,status,reconciled_by,reconciled_at) VALUES($1,$2,$3,'BANK-1','2026-08-31',0,0,'RECONCILED','test-signer',now())",[lockedCandidateStatement,ids.tenantId,ids.entityId]);
+  assert.deepEqual((await matcher.readPaymentBankCandidates({...ids,bankSourceId})).rows,[],'Signed statement candidates cannot offer an impossible match');
+  await adminPool.query('DELETE FROM reconciliation WHERE reconciliation_id=$1',[lockedCandidateStatement]);
+  const {readPaymentBankCandidates,preparePaymentBankMatch,sendPaymentBankMatch}=await import('../../src/payment-bank-api.js');
+  const paymentUiConfig={baseUrl:'https://fixture.example',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>'fixture-token-'.repeat(4)};
+  const paymentUiFetch=async(url,options)=>{const result=await paymentCandidateApi({method:options.method,url:new URL(url).pathname+new URL(url).search,headers:options.headers,body:options.body?JSON.parse(options.body):null});return {ok:result.status>=200&&result.status<300,status:result.status,json:async()=>JSON.parse(JSON.stringify(result.body))};};
+  const uiPage=await readPaymentBankCandidates({config:paymentUiConfig,bankSourceId,fetcher:paymentUiFetch});assert.equal(uiPage.ok,true,JSON.stringify(uiPage));assert.equal(uiPage.data.rows.length,2);
+  const uiPrepared=await preparePaymentBankMatch({config:paymentUiConfig,bank:{bank_source_id:bankSourceId,version:0,bank_account_ref:'BANK-1',currency:'USD',amount:'-40.0000',bank_match_id:created.bank_match_id,match_status:'UNMATCHED'},candidate:uiPage.data.rows[1],bankRevision:uiPage.data.bank_revision,reason:'Explicitly selected the second posted payment',expectedActorId:'bank-payment-matcher',fetcher:paymentUiFetch});
+  assert.equal(uiPrepared.ok,true,JSON.stringify(uiPrepared));
+  const uiMatched=await sendPaymentBankMatch({config:paymentUiConfig,command:uiPrepared.command,fetcher:paymentUiFetch});assert.equal(uiMatched.ok,true,JSON.stringify(uiMatched));assert.equal(uiMatched.data.payment_occurrence_id,uiPage.data.rows[1].payment_occurrence_id);
+  const uiReplay=await sendPaymentBankMatch({config:paymentUiConfig,command:uiPrepared.command,fetcher:paymentUiFetch});assert.equal(uiReplay.ok,true,JSON.stringify(uiReplay));assert.equal(uiReplay.data.idempotent,true);assert.equal(uiReplay.data.bank_match_id,uiMatched.data.bank_match_id);
+  await unmatcher.unmatchBankPayment({...ids,bankSourceId,bankMatchId:uiMatched.data.bank_match_id,expectedMatchVersion:0,reason:'Restore the candidate test bank transaction after client proof',idempotencyKey:'payment-ui-client-unmatch-001'});
   const reversal=await reversalMaker.createApPaymentReversal({...ids,sourceOccurrenceId:exact.payment.payment_occurrence_id,periodId:augustPeriod,journalNumber:'PAY-BANK-40-REV',journalDate:'2026-08-02',reason:'Reverse payment after controlled bank unmatch',idempotencyKey:'bank-match-reversal-002'});
   assert.equal(reversal.status,'DRAFT');
 
@@ -5193,6 +5496,55 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   const receiptMatch=await matcher.createBankPaymentMatch({...ids,bankSourceId:receiptBankSourceId,paymentOccurrenceId:receipt.payment_occurrence_id,expectedBankVersion:0,expectedOccurrenceVersion:1,reason:'Reviewed exact posted AR receipt',idempotencyKey:'bank-match-receipt-001'});
   assert.equal(receiptMatch.status,'ACTIVE');
   assert.equal((await unmatcher.unmatchBankPayment({...ids,bankSourceId:receiptBankSourceId,bankMatchId:receiptMatch.bank_match_id,expectedMatchVersion:0,reason:'Controller approved receipt unmatch',idempotencyKey:'bank-unmatch-receipt-001'})).status,'UNMATCHED');
+});
+
+pgTest('payment bank candidate keyset pages remain bounded over 100001 distinct posted traces',async()=>{
+  const ids=await seed({attachmentStatus:null}),trace=await attachAutoSource(ids),bankSourceId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-1','PERF-PAYMENT-CANDIDATES','2026-07-16','USD',-40)`,[bankSourceId,ids.tenantId,ids.entityId,trace.documentId]);
+  const {seedPaymentCandidateVolume}=await import('./helpers/payment-candidate-volume-fixture.mjs');
+  await seedPaymentCandidateVolume(adminPool,ids);
+  const counts=async()=>(await adminPool.query(`SELECT
+    (SELECT count(*)::int FROM payment_occurrence WHERE entity_id=$1) payments,
+    (SELECT count(DISTINCT posted_journal_entry_id)::int FROM payment_occurrence WHERE entity_id=$1) journals,
+    (SELECT count(*)::int FROM ledger_line WHERE entity_id=$1) ledger,
+    (SELECT count(*)::int FROM audit_event WHERE entity_id=$1) audit,
+    (SELECT count(*)::int FROM outbox_event WHERE entity_id=$1) outbox`,[ids.entityId])).rows[0];
+  const before=await counts();assert.equal(before.payments,100001);assert.equal(before.journals,100001);assert.equal(before.ledger,200002);
+  const matcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'volume-matcher',['BANK.MATCH.CREATE'])});
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'volume-matcher'}),kernelFactory:async()=>matcher});
+  const root=`/api/v1/entities/${ids.entityId}/bank/transactions/${bankSourceId}/payment-candidates`,get=query=>api({method:'GET',url:root+query,headers:{}});
+  const started=Date.now(),first=await get('?limit=100');assert.equal(first.status,200,JSON.stringify(first.body));
+  const firstMs=Date.now()-started;
+  assert.equal(first.body.data.rows.length,100);assert.equal(first.body.data.next_id,'00000000-0000-4000-8000-000000000100');
+  const second=await get(`?limit=100&afterId=${first.body.data.next_id}`);assert.equal(second.status,200);assert.equal(second.body.data.rows[0].payment_occurrence_id,'00000000-0000-4000-8000-000000000101');
+  const secondMs=Date.now()-started-firstMs;
+  const tail=await get('?limit=100&afterId=00000000-0000-4000-8000-000000100000');assert.equal(tail.status,200);assert.equal(tail.body.data.rows.length,1);assert.equal(tail.body.data.next_id,null);
+  assert.equal(tail.body.data.rows[0].amount,'40.0000');assert.equal(tail.body.data.rows[0].journal_number,'PERF-CANDIDATE-100001');
+  const elapsed=Date.now()-started;console.log(`# payment candidate first/second/deep pages over 100001 posted traces: ${elapsed}ms`);
+  console.log('# payment candidate page timings '+JSON.stringify({firstMs,secondMs,deepMs:elapsed-firstMs-secondMs,totalMs:elapsed}));
+  // Explain the exact migration candidate query, not an uninformative outer
+  // Function Scan. Parameters below mirror the bank row and requested page.
+  const sql=await readFile(new URL('../db/migrations/325_payment_candidate_query_order.sql',import.meta.url),'utf8');
+  let candidate=sql.slice(sql.indexOf('  WITH candidates AS MATERIALIZED ('),sql.indexOf('  ), page AS'))+'  ) SELECT * FROM candidates';
+  for(const [name,value] of Object.entries({'bank_row.bank_source_id':'$3::uuid','bank_row.bank_account_ref':'$4::text','bank_row.currency':'$5::char(3)','bank_row.amount':'$6::numeric','bank_row.transaction_date':'$7::date','p_bank_source':'$3::uuid','p_tenant':'$1::uuid','p_entity':'$2::uuid','p_after':'$8::uuid','p_limit':'$9::integer'}))candidate=candidate.replaceAll(name,value);
+  for(const afterId of [null,'00000000-0000-4000-8000-000000100000']){
+    // The function runs SECURITY DEFINER. Explain as the same isolated owner
+    // role; runtime RLS on direct tables would describe a different plan.
+    const plan=(await adminPool.query('EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) '+candidate,[ids.tenantId,ids.entityId,bankSourceId,'BANK-1','USD',-40,'2026-07-16',afterId,100])).rows[0]['QUERY PLAN'][0];
+    console.log('# payment candidate plan '+JSON.stringify({afterId,...plan}));
+    const checkVisited=node=>{
+      if(['payment_occurrence','journal_entry','journal_line','ledger_line'].includes(node['Relation Name'])){
+        const visited=((node['Actual Rows']||0)+(node['Rows Removed by Filter']||0))*(node['Actual Loops']||0);
+        assert.ok(visited<=1010,`Dense candidate page must not visit the complete ${node['Relation Name']} population: ${visited}`);
+      }
+      for(const child of node.Plans||[])checkVisited(child);
+    };
+    checkVisited(plan.Plan);
+    assert.ok(plan['Execution Time']<5000,'Candidate execution plan must remain bounded');
+  }
+  assert.deepEqual(await counts(),before,'Candidate pages do not mutate accounting or audit data');
+  assert.ok(elapsed<5000,'Three real API pages over 100001 posted traces must finish within five seconds');
 });
 
 pgTest('Stage 2 test-data chain traces one reconciled bank payment through its posted JE, GL, TB and report rows',async()=>{
@@ -6255,7 +6607,8 @@ pgTest('WBS TEST Bank retained checkpoint rejects changed chunk replay and resum
 
 pgTest('AI reads exactly one approved entity-period settings snapshot and rejects missing or drifted child bindings without writes',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null}),actor='ai-settings-reader',permissions=['AI.ACCOUNTING.SETTINGS.VIEW'];
-  const period=(await adminPool.query('SELECT period_id,period_code,starts_on,ends_on FROM accounting_period WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3',[ids.tenantId,ids.entityId,ids.periodId])).rows[0];
+  const period=(await adminPool.query(`SELECT period_id,period_code,to_char(starts_on,'YYYY-MM-DD') starts_on,to_char(ends_on,'YYYY-MM-DD') ends_on FROM accounting_period WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3`,[ids.tenantId,ids.entityId,ids.periodId])).rows[0];
+  assert.deepEqual([period.starts_on,period.ends_on],['2026-07-01','2026-07-31'],'Calendar dates must not shift through a local-midnight UTC conversion');
   const hashJson=async value=>(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) AS value',[JSON.stringify(value)])).rows[0].value;
   const coaRoles=['ACCUMULATED_AMORTIZATION','ACCUMULATED_DEPRECIATION','ACCRUED_LIABILITY','AP','AR','CASH','CWIP','CUSTOMER_DEPOSIT_LIABILITY','DEFERRED_REVENUE','EQUITY','ESCROW','EXPENSE','FIXED_ASSET','INTERCOMPANY_CLEARING','INTERCOMPANY_DUE_FROM','INTERCOMPANY_DUE_TO','INTERCOMPANY_ELIMINATION','INTEREST','LOAN','PREPAID','RETAINED_EARNINGS','REVENUE','SECURITY_DEPOSIT_ASSET','TAX_PAYABLE'];
   const coaClass=role=>['EXPENSE','INTEREST'].includes(role)?'EXPENSE':role==='REVENUE'?'REVENUE':['EQUITY','RETAINED_EARNINGS','INTERCOMPANY_ELIMINATION'].includes(role)?'EQUITY':['AP','ACCRUED_LIABILITY','LOAN','DEFERRED_REVENUE','TAX_PAYABLE','CUSTOMER_DEPOSIT_LIABILITY','INTERCOMPANY_DUE_TO'].includes(role)?'LIABILITY':'ASSET';
@@ -6264,8 +6617,8 @@ pgTest('AI reads exactly one approved entity-period settings snapshot and reject
     coa:{family:'AI_ACCOUNTING_COA_V1',snapshot:{schema_version:'AI_ACCOUNTING_COA_V1',settings:{currency:'USD',accounts:coaAccounts}}},
     vendor_treatment:{family:'AI_ACCOUNTING_VENDOR_TREATMENT_V1',snapshot:{schema_version:'AI_ACCOUNTING_VENDOR_TREATMENT_V1',settings:{default_treatment:'BLOCKED',vendor_rules:[{rule_id:'vendor-1',vendor_ref:'vendor-1',aliases:['Vendor One'],contract_keys:['contract_id'],service_keys:['service_code'],treatment:'EXPENSE',payment_terms_days:30,recurring:false,duplicate_normalization:true,source_requirements:['invoice_no'],effective_from:'2026-01-01',effective_to:null}]}}},
     project_property_cost_code:{family:'AI_ACCOUNTING_PROJECT_PROPERTY_COST_CODE_V1',snapshot:{schema_version:'AI_ACCOUNTING_PROJECT_PROPERTY_COST_CODE_V1',settings:{default_capitalization_treatment:'BLOCKED',dimension_rules:[{rule_id:'qualifying-project-1',scope_level:'PROJECT',project_ref:'project-1',property_ref:null,cost_code_ref:null,member_ref:null,ownership_requirement:'OPTIONAL',member_requirement:'OPTIONAL',capitalization_treatment:'CWIP',cwip_account_role:'CWIP',status:'ACTIVE',effective_from:'2026-01-01',effective_to:null,completion_date:null,pis_date:null}]}}},
-    period_close_policy:{family:'AI_ACCOUNTING_PERIOD_CLOSE_POLICY_V1',snapshot:{schema_version:'AI_ACCOUNTING_PERIOD_CLOSE_POLICY_V1',settings:{period_id:ids.periodId,period_code:period.period_code,period_start:period.starts_on.toISOString().slice(0,10),period_end:period.ends_on.toISOString().slice(0,10),period_status:'OPEN',cutoff_date:'2026-07-31',accrual_cutoff_date:'2026-07-31',prepaid_boundary_date:'2026-07-31',allow_post:true,posting_lock:false,hard_lock:false,soft_lock:false,reversal_policy:'NONE',prior_period_adjustment_policy:'BLOCKED',override_policy:'CONTROLLER_ONLY',business_calendar:'US',non_business_dates:[]}}},
-    tax:{family:'AI_ACCOUNTING_TAX_V1',snapshot:{schema_version:'AI_ACCOUNTING_TAX_V1',settings:{jurisdiction:'US',treatment:'GROSS',allocation_method:'STRAIGHT_LINE_DAILY',allocation_precision:'0.0001',coverage_start:period.starts_on.toISOString().slice(0,10),coverage_end:period.ends_on.toISOString().slice(0,10),residual_rule:'EXPENSE',expense_account_role:'EXPENSE',prepaid_account_role:'PREPAID',accrual_account_role:'ACCRUED_LIABILITY',tax_codes:[{code:'US-GROSS',rate:'0.0000',basis:'GROSS',recoverability:'NON_RECOVERABLE',expense_treatment:'EXPENSE',evidence_requirements:['invoice_no'],effective_from:'2026-01-01',effective_to:null}],effective_from:'2026-01-01',effective_to:null}}},intercompany:{family:'AI_ACCOUNTING_INTERCOMPANY_V1',snapshot:{schema_version:'AI_ACCOUNTING_INTERCOMPANY_V1',settings:{enabled:true,clearing_account_role:'INTERCOMPANY_CLEARING',entities:[{company_code:'ICPARTNER',counterparty_entity_id:'11111111-1111-4111-8111-111111111111',counterparty_approval_id:'22222222-2222-4222-8222-222222222222',counterparty_approval_hash:'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',currency:'USD',dimension_requirements:[],due_to_account_role:'INTERCOMPANY_DUE_TO',due_from_account_role:'INTERCOMPANY_DUE_FROM',elimination_account_role:'INTERCOMPANY_ELIMINATION',effective_from:'2026-01-01',effective_to:null}]}}},
+    period_close_policy:{family:'AI_ACCOUNTING_PERIOD_CLOSE_POLICY_V1',snapshot:{schema_version:'AI_ACCOUNTING_PERIOD_CLOSE_POLICY_V1',settings:{period_id:ids.periodId,period_code:period.period_code,period_start:period.starts_on,period_end:period.ends_on,period_status:'OPEN',cutoff_date:'2026-07-31',accrual_cutoff_date:'2026-07-31',prepaid_boundary_date:'2026-07-31',allow_post:true,posting_lock:false,hard_lock:false,soft_lock:false,reversal_policy:'NONE',prior_period_adjustment_policy:'BLOCKED',override_policy:'CONTROLLER_ONLY',business_calendar:'US',non_business_dates:[]}}},
+    tax:{family:'AI_ACCOUNTING_TAX_V1',snapshot:{schema_version:'AI_ACCOUNTING_TAX_V1',settings:{jurisdiction:'US',treatment:'GROSS',allocation_method:'STRAIGHT_LINE_DAILY',allocation_precision:'0.0001',coverage_start:period.starts_on,coverage_end:period.ends_on,residual_rule:'EXPENSE',expense_account_role:'EXPENSE',prepaid_account_role:'PREPAID',accrual_account_role:'ACCRUED_LIABILITY',tax_codes:[{code:'US-GROSS',rate:'0.0000',basis:'GROSS',recoverability:'NON_RECOVERABLE',expense_treatment:'EXPENSE',evidence_requirements:['invoice_no'],effective_from:'2026-01-01',effective_to:null}],effective_from:'2026-01-01',effective_to:null}}},intercompany:{family:'AI_ACCOUNTING_INTERCOMPANY_V1',snapshot:{schema_version:'AI_ACCOUNTING_INTERCOMPANY_V1',settings:{enabled:true,clearing_account_role:'INTERCOMPANY_CLEARING',entities:[{company_code:'ICPARTNER',counterparty_entity_id:'11111111-1111-4111-8111-111111111111',counterparty_approval_id:'22222222-2222-4222-8222-222222222222',counterparty_approval_hash:'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',currency:'USD',dimension_requirements:[],due_to_account_role:'INTERCOMPANY_DUE_TO',due_from_account_role:'INTERCOMPANY_DUE_FROM',elimination_account_role:'INTERCOMPANY_ELIMINATION',effective_from:'2026-01-01',effective_to:null}]}}},
     materiality:{family:'AI_ACCOUNTING_MATERIALITY_V1',snapshot:{schema_version:'AI_ACCOUNTING_MATERIALITY_V1',settings:{amount_drop_ratio:'0.5000',amount_drop_window_days:30,ap_aging_amount:'100.0000',ap_stale_days:30,balance_dormant_days:90,budget_variance_amount:'100.0000',currency:'USD',duplicate_amount:'100.0000',effective_from:'2026-01-01',effective_to:null,financial_statement_amount:'100.0000',loan_difference_amount:'100.0000',loan_excess_draw_amount:'100.0000',manual_je_amount:'100.0000',manual_round_amount:'1.0000',minimum_absolute_balance:'1.0000',minimum_open_amount:'1.0000',near_duplicate_amount:'100.0000',vendor_frequency_count:5,vendor_frequency_window_days:30}}},approval_thresholds:{family:'AI_ACCOUNTING_APPROVAL_THRESHOLDS_V1',snapshot:{schema_version:'AI_ACCOUNTING_APPROVAL_THRESHOLDS_V1',settings:{expense_amount_threshold:'100.0000',prepaid_amount_threshold:'100.0000',accrual_amount_threshold:'100.0000',cwip_amount_threshold:'100.0000',currency:'USD',approval_levels:['DRAFT','REVIEW','APPROVE','POST'].map(action=>({workflow:'AP',action,risk_band:'LOW',confidence_band:'HIGH',minimum_amount:'0.0000',maximum_amount:'999999.0000',preparer_role:'AP_PREPARER',reviewer_role:'AP_REVIEWER',approver_role:'CONTROLLER',poster_role:'GL_POSTER',override_policy:'CONTROLLER_ONLY',sod_constraints:['PREPARER_NE_REVIEWER','PREPARER_NE_APPROVER','PREPARER_NE_POSTER','REVIEWER_NE_APPROVER','REVIEWER_NE_POSTER','APPROVER_NE_POSTER'],effective_from:'2026-01-01',effective_to:null}))}}}
   };
   children.approval_thresholds.snapshot.settings.approval_levels=children.approval_thresholds.snapshot.settings.approval_levels.map(level=>({...level,submitter_role:level.preparer_role,submit_permission:'GL.JE.SUBMIT'}));
@@ -6278,7 +6631,7 @@ pgTest('AI reads exactly one approved entity-period settings snapshot and reject
     await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
       VALUES($1,$2,$3,$4,'ENTITY',$3::uuid::text,1,'2026-01-01','2027-01-01','APPROVED',$5::jsonb,$6,'settings-maker','settings-approver',now())`,[settingSnapshotId,ids.tenantId,ids.entityId,entry.family,JSON.stringify(entry.snapshot),snapshotHash]);
   }
-  const parentSnapshot={schema_version:'AI_ACCOUNTING_ENTITY_PERIOD_SETTINGS_SNAPSHOT_V1',company_code:'WBPA',period_id:ids.periodId,period_code:period.period_code,period_start:period.starts_on.toISOString().slice(0,10),period_end:period.ends_on.toISOString().slice(0,10),currency:'USD',...refs};
+  const parentSnapshot={schema_version:'AI_ACCOUNTING_ENTITY_PERIOD_SETTINGS_SNAPSHOT_V1',company_code:'WBPA',period_id:ids.periodId,period_code:period.period_code,period_start:period.starts_on,period_end:period.ends_on,currency:'USD',...refs};
   const parentHash=await hashJson(parentSnapshot),parentId=randomUUID();
   await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
     VALUES($1,$2,$3,'AI_ACCOUNTING_ENTITY_PERIOD_SETTINGS_V1','ENTITY',$3::uuid::text,$4,'2026-01-01','2027-01-01','APPROVED',$5::jsonb,$6,'settings-maker','settings-approver',now())`,[parentId,ids.tenantId,ids.entityId,version,JSON.stringify(parentSnapshot),parentHash]);
@@ -6544,12 +6897,12 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   await adminPool.query(`INSERT INTO bank_match(bank_match_id,tenant_id,entity_id,bank_source_id,sales_receipt_id,journal_entry_id,journal_line_id,ledger_line_id,candidate_rule_code,amount_delta,currency_match,date_delta_days,status,matched_by)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,'EXACT_POSTED_SALES_RECEIPT',0,true,0,'ACTIVE','synthetic-read-fixture')`,[syntheticMatchId,ids.tenantId,ids.entityId,saleBankId,receipt.sales_receipt_id,receipt.journal_entry_id,saleCandidate.journal_line_id,saleCandidate.ledger_line_id]);
   assert.equal((await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.rows.length,0);
-  await assert.rejects(migrateDownThrough(adminPool,'320_sales_receipt_bank_evidence.sql'),/Retained sales receipt bank match history prevents destructive rollback/);
+  await assert.rejects(probeMigrationRoundTrip(adminPool,'320_sales_receipt_bank_evidence.sql','refs_read_sales_receipt_bank_candidates(uuid,uuid,uuid,uuid,integer)'),/Retained sales receipt bank match history prevents destructive rollback/);
   await adminPool.query("UPDATE bank_match SET status='UNMATCHED',unmatched_by='synthetic-read-fixture',unmatched_at=clock_timestamp(),version=version+1 WHERE bank_match_id=$1",[syntheticMatchId]);
-  await assert.rejects(migrateDownThrough(adminPool,'320_sales_receipt_bank_evidence.sql'),/Retained sales receipt bank match history prevents destructive rollback/);
+  await assert.rejects(probeMigrationRoundTrip(adminPool,'320_sales_receipt_bank_evidence.sql','refs_read_sales_receipt_bank_candidates(uuid,uuid,uuid,uuid,integer)'),/Retained sales receipt bank match history prevents destructive rollback/);
   assert.equal((await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.rows.length,1);
   await adminPool.query('DELETE FROM bank_match WHERE bank_match_id=$1',[syntheticMatchId]);
-  await migrateDownThrough(adminPool,'320_sales_receipt_bank_evidence.sql');await migrateUp(adminPool);
+  await probeMigrationRoundTrip(adminPool,'320_sales_receipt_bank_evidence.sql','refs_read_sales_receipt_bank_candidates(uuid,uuid,uuid,uuid,integer)');await migrateUp(adminPool);
   assert.equal((await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.rows[0].sales_receipt_id,receipt.sales_receipt_id);
   const matchUrl=`${root}/bank/transactions/${saleBankId}/sales-receipt-matches`;
   const matchRevision=(await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.bank_revision;
@@ -6604,8 +6957,7 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   const browserCashWorksheet=await readCashWorksheet({config:sourceClientConfig,reconciliationId:saleRecId,fetcher:sourceClientFetch});
   assert.equal(browserCashWorksheet.ok,true,JSON.stringify(browserCashWorksheet));assertSaleSource(browserCashWorksheet.rows.find(row=>row.bank_source_id===saleBankId));
   assertSaleSource(await saleBankReader.getReconciliationWorksheetItem({...sourceWorksheetArgs,bankSourceId:saleBankId}));
-  await migrateDownThrough(adminPool,'322_bank_match_typed_source_read.sql');
-  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_list_bank_transactions_v2(uuid,uuid,text,date,date,integer,integer)') IS NULL removed")).rows[0].removed,true);
+  await probeMigrationRoundTrip(adminPool,'322_bank_match_typed_source_read.sql','refs_list_bank_transactions_v2(uuid,uuid,text,date,date,integer,integer)');
   assert.equal((await adminPool.query('SELECT sales_receipt_id FROM bank_match WHERE bank_match_id=$1',[matched.body.data.bank_match_id])).rows[0].sales_receipt_id,receipt.sales_receipt_id);
   await migrateUp(adminPool);
   assertSaleSource(await saleBankReader.getReconciliationWorksheetItem({...sourceWorksheetArgs,bankSourceId:saleBankId}));
@@ -6629,7 +6981,7 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[badReceipt.journal_entry_id])).rows[0].status,'APPROVED');
   assert.equal((await adminPool.query('SELECT status FROM sales_receipt WHERE sales_receipt_id=$1',[badReceipt.sales_receipt_id])).rows[0].status,'DRAFT');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM outbox_event WHERE aggregate_id IN ($1,$2)',[badReceipt.sales_receipt_id,badReceipt.journal_entry_id])).rows[0].n,before);
-  await assert.rejects(migrateDownThrough(adminPool,'317_native_sales_receipt.sql'),/Retained sales receipt bank match history prevents destructive rollback/);
+  await assert.rejects(probeMigrationRoundTrip(adminPool,'320_sales_receipt_bank_evidence.sql','refs_read_sales_receipt_bank_candidates(uuid,uuid,uuid,uuid,integer)'),/Retained sales receipt bank match history prevents destructive rollback/);
   assert.equal((await counts()).sales,2);
 });
 
@@ -6714,7 +7066,1403 @@ pgTest('sales receipt choices enforce current company and eligible masters with 
     assert.deepEqual(tail.body.data.rows.map(r=>r.ref),['PF100001']);assert.equal(tail.body.data.next_ref,null);
   }
   assert.ok(Date.now()-started<5000,'Four bounded option reads over 100001 customers and categories must finish within five seconds');
-  await migrateDownThrough(adminPool,'319_sales_receipt_options.sql');
+  await probeMigrationRoundTrip(adminPool,'319_sales_receipt_options.sql','refs_read_sales_receipt_options(uuid,uuid,text,text,text,integer)');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM member_master WHERE entity_id=$1',[ids.entityId])).rows[0].n,100006);
   await migrateUp(adminPool);assert.equal((await get('BANK')).status,200);
+});
+
+async function exerciseReconciliationRace(forceRetry){
+  const ids=await seed({status:'APPROVED',attachmentStatus:null});const billId=randomUUID();
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
+    VALUES($1,$2,$3,'AP_BILL','BILL-RECON-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'APPROVED','fixture')`,[billId,ids.tenantId,ids.entityId]);
+  const paymentMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-payment-maker',['AP.PAYMENT.CREATE'])});
+  const paymentSubmitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-payment-submitter',['GL.JE.SUBMIT'])});
+  const paymentReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-payment-reviewer',['GL.JE.REVIEW'])});
+  const paymentApprover=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-payment-approver',['GL.JE.APPROVE'])});
+  const paymentPoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-payment-poster',['GL.JE.POST'])});
+  const payment=await paymentMaker.createApPayment({...ids,businessDocumentId:billId,paymentNumber:'PAY-RECON-100',paymentDate:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:100,reason:'Reconciliation exact payment evidence',idempotencyKey:'recon-payment-create-001'});
+  const trace=await attachAutoSource({...ids,journalId:payment.journal_entry_id});
+  await paymentSubmitter.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'recon-payment-submit-001'});
+  await paymentReviewer.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'recon-payment-review-001'});
+  await paymentApprover.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'recon-payment-approve-001'});
+  await paymentPoster.postJournal({...ids,journalEntryId:payment.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'recon-payment-post-001'});
+  const bankSourceId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-1','BANK-RECON-1','2026-07-16','USD',-100)`,[bankSourceId,ids.tenantId,ids.entityId,trace.documentId]);
+  const matcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-matcher',['BANK.MATCH.CREATE'])});
+  const matched=await matcher.createBankPaymentMatch({...ids,bankSourceId,paymentOccurrenceId:payment.payment_occurrence_id,expectedBankVersion:0,expectedOccurrenceVersion:1,reason:'Exact posted payment selected for reconciliation',idempotencyKey:'recon-bank-match-001'});
+  const bankMatchId=matched.bank_match_id;
+  const starter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-starter',['BANK.RECONCILIATION.START'])});
+  const clearer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-clearer',['BANK.RECONCILIATION.CLEAR'])});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-reviewer',['BANK.RECONCILIATION.REVIEW'])});
+  let releaseSignoff,notifyPaused,notifyUnmatched,paused=false,injected=false,rollbackWaited=false;
+  const pauseReached=new Promise(resolve=>{notifyPaused=resolve;});
+  const pauseReleased=new Promise(resolve=>{releaseSignoff=resolve;});
+  const unmatchSettled=new Promise(resolve=>{notifyUnmatched=resolve;});
+  const signerPool={connect:async()=>{
+    const client=await runtimePool.connect();
+    return {release:()=>client.release(),query:async(sql,args)=>{
+      const result=await client.query(sql,args);
+      if(sql==='ROLLBACK'&&injected&&!rollbackWaited){rollbackWaited=true;await unmatchSettled;}
+      if(typeof sql==='string'&&sql.includes('refs_transition_reconciliation_adjustment_aware')&&args?.[3]==='SIGN_OFF'&&!paused){
+        paused=true;notifyPaused();await pauseReleased;
+        if(forceRetry){
+          injected=true;
+          await client.query("DO $retry$ BEGIN RAISE EXCEPTION 'Isolated sign-off retry fixture' USING ERRCODE='40001'; END; $retry$");
+        }
+      }
+      return result;
+    }};
+  }};
+  const signer=new PostgresAccountingKernel(signerPool,{sessionProvider:()=>trustedSession(ids,'recon-signer',['BANK.RECONCILIATION.SIGN_OFF'])});
+  const reopener=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-reopener',['BANK.RECONCILIATION.REOPEN'])});
+  const unmatcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-unmatcher',['BANK.MATCH.UNMATCH'])});
+  const startArgs={...ids,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31',statementOpeningBalance:'0.0000',statementEndingBalance:'-100.0000',reason:'Start July statement review',idempotencyKey:'reconciliation-start-001'};
+  const started=await starter.startReconciliation(startArgs),startReplay=await starter.startReconciliation(startArgs);
+  assert.equal(started.status,'DRAFT');assert.equal(started.revision,0);assert.equal(startReplay.idempotent,true);
+  await adminPool.query("UPDATE payment_occurrence SET status='DRAFT' WHERE payment_occurrence_id=$1",[payment.payment_occurrence_id]);
+  await assert.rejects(clearer.setReconciliationClearance({...ids,reconciliationId:started.reconciliation_id,bankSourceId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Changed occurrence must not clear',idempotencyKey:'reconciliation-clear-tampered-occurrence-001'}),error=>error.code==='23514'&&/exact actively matched/i.test(error.message));
+  await adminPool.query("UPDATE payment_occurrence SET status='POSTED' WHERE payment_occurrence_id=$1",[payment.payment_occurrence_id]);
+  const cleared=await clearer.setReconciliationClearance({...ids,reconciliationId:started.reconciliation_id,bankSourceId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Exact active match cleared',idempotencyKey:'reconciliation-clear-001'});
+  assert.equal(Number(cleared.difference),0);assert.equal(cleared.revision,1);
+  const reviewed=await reviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REVIEW',expectedVersion:1,reason:'Reviewer verified complete statement evidence',idempotencyKey:'reconciliation-review-001'});
+  assert.equal(reviewed.status,'IN_REVIEW');assert.equal(reviewed.revision,2);
+  await assert.rejects(reviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Reviewer cannot sign own work',idempotencyKey:'reconciliation-signoff-bad-001'}),error=>error.code==='42501');
+
+  const ledgerHash=async()=>(await adminPool.query("SELECT refs_jsonb_hash(COALESCE(jsonb_agg(to_jsonb(l) ORDER BY ledger_line_id),'[]'::jsonb)) hash FROM ledger_line l WHERE tenant_id=$1 AND entity_id=$2",[ids.tenantId,ids.entityId])).rows[0].hash;
+  const beforeLedger=await ledgerHash();
+  let signing,unmatching;
+  const waitForUnmatch=async()=>{for(let attempt=0;attempt<200;attempt++){
+    if((await adminPool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND wait_event='advisory' AND position('refs_unmatch_bank_payment' in query)>0) waiting")).rows[0].waiting)return;
+    await new Promise(resolve=>setTimeout(resolve,25));
+  }throw Error('Unmatch did not wait for the sign-off account lock');};
+  try{
+    signing=signer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Independent controller statement sign off',idempotencyKey:'reconciliation-signoff-001'}).then(value=>({value}),error=>({error}));
+    await Promise.race([pauseReached,signing.then(outcome=>{throw Error('Sign-off ended before holding account lock: '+String(outcome.error?.code));})]);
+    unmatching=unmatcher.unmatchBankPayment({...ids,bankSourceId,bankMatchId,expectedMatchVersion:0,reason:'Concurrent unmatch must respect signed evidence',idempotencyKey:'reconciliation-unmatch-concurrent-001'}).then(value=>({value}),error=>({error})).finally(()=>notifyUnmatched());
+    await waitForUnmatch();
+  }finally{
+    releaseSignoff();if(!unmatching)notifyUnmatched();
+    await Promise.allSettled([signing,unmatching].filter(Boolean));
+  }
+  const signedOutcome=await signing,unmatchOutcome=await unmatching;
+  const state=(await adminPool.query(`SELECT
+    (SELECT status FROM bank_match WHERE bank_match_id=$1) match_status,
+    (SELECT status FROM reconciliation WHERE reconciliation_id=$2) reconciliation_status,
+    (SELECT version::text FROM reconciliation WHERE reconciliation_id=$2) reconciliation_revision,
+    (SELECT count(*)::int FROM reconciliation_snapshot WHERE reconciliation_id=$2) snapshots,
+    (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$3 AND idempotency_key='reconciliation-signoff-001') sign_receipts,
+    (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$3 AND idempotency_key='reconciliation-unmatch-concurrent-001') unmatch_receipts,
+    (SELECT count(*)::int FROM audit_event WHERE object_id=$2 AND event_type='RECONCILIATION_SIGN_OFF') sign_audits,
+    (SELECT count(*)::int FROM outbox_event WHERE aggregate_id=$2 AND event_type='RECONCILIATION_SIGN_OFF') sign_events,
+    (SELECT count(*)::int FROM audit_event WHERE object_id=$1 AND event_type='BANK_PAYMENT_MATCH_UNMATCHED') unmatch_audits,
+    (SELECT count(*)::int FROM outbox_event WHERE aggregate_id=$1 AND event_type='BANK_PAYMENT_MATCH_UNMATCHED') unmatch_events`,[bankMatchId,started.reconciliation_id,ids.tenantId])).rows[0];
+  const diagnostic=JSON.stringify({forceRetry,injected,signError:signedOutcome.error?.code,unmatchError:unmatchOutcome.error?.code,state});
+  assert.equal(Number(Boolean(signedOutcome.value))+Number(Boolean(unmatchOutcome.value)),1,diagnostic);
+  if(signedOutcome.value){
+    assert.equal(unmatchOutcome.error?.code,'23514',diagnostic);
+    assert.equal(signedOutcome.value.status,'RECONCILED');
+    assert.deepEqual(state,{match_status:'ACTIVE',reconciliation_status:'RECONCILED',reconciliation_revision:'3',snapshots:1,sign_receipts:1,unmatch_receipts:0,sign_audits:1,sign_events:1,unmatch_audits:0,unmatch_events:0});
+  }else{
+    assert.equal(signedOutcome.error?.code,'23514',diagnostic);
+    assert.equal(unmatchOutcome.value.status,'UNMATCHED');
+    assert.deepEqual(state,{match_status:'UNMATCHED',reconciliation_status:'IN_REVIEW',reconciliation_revision:'2',snapshots:0,sign_receipts:0,unmatch_receipts:1,sign_audits:0,sign_events:0,unmatch_audits:1,unmatch_events:1});
+  }
+  if(forceRetry){assert.equal(injected,true);assert.equal(rollbackWaited,true);assert.equal(unmatchOutcome.value?.status,'UNMATCHED',diagnostic);}
+  assert.equal(await ledgerHash(),beforeLedger,'Sign-off/Unmatch race must not alter posted ledger evidence');
+  console.log('# reconciliation serialized race '+diagnostic);
+}
+
+pgTest('reconciliation sign-off and unmatch produce exactly one legal committed outcome',async()=>{await exerciseReconciliationRace(false);});
+pgTest('reconciliation sign-off rollback allows queued unmatch and leaves no stale snapshot or receipt',async()=>{await exerciseReconciliationRace(true);});
+
+pgTest('context issuance survives a concurrent grant refresh with one capability and one audit',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),actorId='context-grant-race-uploader';
+  await trustedSession(ids,actorId,['ATTACHMENT.CREATE']);
+  const {issueDuringGrantRefresh}=await import('./helpers/context-issue-grant-race-fixture.mjs');
+  const result=await issueDuringGrantRefresh({adminPool,issuerPool,ids,actorId});
+  console.log('# context issuance grant race '+JSON.stringify(result.diagnostic));
+  assert.equal(result.writerError,undefined,JSON.stringify(result.diagnostic));
+  assert.equal(result.outcome.error,undefined,JSON.stringify(result.diagnostic));
+  assert.deepEqual(result.after,{contexts:result.before.contexts+1,audits:result.before.audits+1});
+  assert.equal(result.principalCalls,1);assert.equal(result.attemptedHashes.length,2);assert.equal(new Set(result.attemptedHashes).size,1);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>result.outcome.value});
+  await reader.inSession(client=>client.query("SELECT refs_assert_scope($1,$2,'ATTACHMENT.CREATE')",[ids.tenantId,ids.entityId]));
+});
+
+pgTest('context issuance retry respects a concurrently revoked grant without retaining a capability',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),actorId='context-grant-race-revoked';
+  await trustedSession(ids,actorId,['ATTACHMENT.CREATE']);
+  const {issueDuringGrantRefresh}=await import('./helpers/context-issue-grant-race-fixture.mjs');
+  const result=await issueDuringGrantRefresh({adminPool,issuerPool,ids,actorId,revoke:true});
+  console.log('# context issuance revocation race '+JSON.stringify(result.diagnostic));
+  assert.equal(result.writerError,undefined,JSON.stringify(result.diagnostic));
+  assert.equal(result.outcome.error?.code,'42501',JSON.stringify(result.diagnostic));
+  assert.deepEqual(result.after,result.before,'Revoked authority must not retain an issued capability or audit');
+  assert.equal(result.principalCalls,1);assert.equal(result.attemptedHashes.length,2);assert.equal(new Set(result.attemptedHashes).size,1);
+});
+
+pgTest('counterparty register isolates company and module permissions with stable active and inactive pages',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),other=await seed({status:'DRAFT',attachmentStatus:null});
+  const sibling=await seed({tenantId:ids.tenantId,status:'DRAFT',attachmentStatus:null});
+  for(const [ref,kind,name,active] of [['REG-01','VENDOR','Vendor 50%_',true],['REG-02','VENDOR','Inactive vendor',false],['REG-03','VENDOR','Third vendor',true],['REG-04','CUSTOMER','Customer',true]]){
+    await adminPool.query('INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name,active) VALUES($1,$2,$3,$4,$5,$6)',[ids.tenantId,ids.entityId,ref,kind,name,active]);
+  }
+  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name,active) VALUES($1,$2,'REG-SECRET','VENDOR','Other company',true)",[other.tenantId,other.entityId]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'register-reader',['AP.VIEW'])});
+  const read=(kind='VENDOR',status='ALL',query='REG-',after=null,limit=1)=>reader.inSession(async c=>(await c.query('SELECT refs_read_counterparty_register($1,$2,$3,$4,$5,$6,$7) value',[ids.tenantId,ids.entityId,kind,status,query,after,limit])).rows[0].value);
+  const first=await read();assert.equal(first.schema_version,'COUNTERPARTY_REGISTER_V1');assert.equal(first.entity_id,ids.entityId);assert.deepEqual(first.rows.map(r=>r.member_ref),['REG-01']);assert.equal(first.next_ref,'REG-01');
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'register-reader'}),kernelFactory:async()=>reader});
+  const http=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/counterparties?kind=VENDOR&status=ALL&query=REG-&limit=1`,body:null,headers:{}});
+  assert.equal(http.status,200);assert.equal(http.headers['cache-control'],'no-store');assert.deepEqual(http.body.data,first);
+  const second=await read('VENDOR','ALL','REG-',first.next_ref);assert.deepEqual(second.rows,[{member_ref:'REG-02',member_type:'VENDOR',display_name:'Inactive vendor',active:false}]);assert.equal(second.next_ref,'REG-02');
+  const third=await read('VENDOR','ALL','REG-',second.next_ref);assert.deepEqual(third.rows.map(r=>r.member_ref),['REG-03']);assert.equal(third.next_ref,null);
+  assert.deepEqual((await read('VENDOR','ACTIVE','REG-',null,100)).rows.map(r=>r.member_ref),['REG-01','REG-03']);
+  assert.deepEqual((await read('VENDOR','INACTIVE','REG-',null,100)).rows.map(r=>r.member_ref),['REG-02']);
+  assert.deepEqual((await read('VENDOR','ALL','50%_',null,100)).rows.map(r=>r.member_ref),['REG-01']);
+  await assert.rejects(read('CUSTOMER'),e=>e.code==='42501');
+  await assert.rejects(read('VENDOR','ALL','REG-',null,101),e=>e.code==='22023');
+  await assert.rejects(reader.inSession(c=>c.query('SELECT refs_read_counterparty_register($1,$2,$3)',[other.tenantId,other.entityId,'VENDOR'])),e=>e.code==='42501');
+  const deniedSibling=await api({method:'GET',url:`/api/v1/entities/${sibling.entityId}/counterparties?kind=VENDOR`,body:null,headers:{}});
+  assert.equal(deniedSibling.status,403);
+  const customerReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'register-customer-reader',['AR.VIEW'])});
+  const customers=await customerReader.readCounterpartyRegister({...ids,kind:'CUSTOMER',query:'REG-',limit:100});
+  assert.deepEqual(customers.rows.map(r=>r.member_ref),['REG-04']);
+  await assert.rejects(customerReader.readCounterpartyRegister({...ids,kind:'VENDOR'}),e=>e.code==='42501');
+  await migrateDownThrough(adminPool,'326_counterparty_register.sql');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM member_master WHERE tenant_id=$1 AND entity_id=$2 AND member_ref LIKE 'REG-%'",[ids.tenantId,ids.entityId])).rows[0].n,4);
+  await migrateUp(adminPool);assert.deepEqual((await read('VENDOR','ALL','REG-',null,100)).rows.map(r=>r.member_ref),['REG-01','REG-02','REG-03']);
+});
+
+pgTest('counterparty register pages 100001 masters without crossing kind or company',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name,active) SELECT $1,$2,'REG'||lpad(n::text,6,'0'),'VENDOR','Register performance '||n,true FROM generate_series(1,100001) n",[ids.tenantId,ids.entityId]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'register-volume-reader',['AP.VIEW'])});
+  const started=Date.now();
+  const first=await reader.readCounterpartyRegister({...ids,kind:'VENDOR',query:'Register performance',limit:100});
+  assert.equal(first.rows.length,100);assert.equal(first.next_ref,'REG000100');
+  const second=await reader.readCounterpartyRegister({...ids,kind:'VENDOR',query:'Register performance',afterRef:first.next_ref,limit:100});
+  assert.equal(second.rows[0].member_ref,'REG000101');assert.equal(second.next_ref,'REG000200');
+  const tail=await reader.readCounterpartyRegister({...ids,kind:'VENDOR',query:'Register performance',afterRef:'REG100000',limit:100});
+  assert.deepEqual(tail.rows.map(r=>r.member_ref),['REG100001']);assert.equal(tail.next_ref,null);
+  const elapsed=Date.now()-started;console.log('# counterparty register first/second/deep pages over 100001 rows: '+elapsed+'ms');assert.ok(elapsed<5000,'Three register pages must finish within five seconds');
+});
+
+async function reviewedFixedAssetFixture(sourceVendor=null,{salvageValue='1000.0000',useOriginalSource=true,sourceLineHashOverride=null,policyEffectiveFrom='2026-01-01',policyEffectiveTo=null,policyScopeKey=null,memberTraceOverride=null}={}){
+  const ids=await seed({status:'DRAFT',attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'150100',accountName:'Building assets'},{accountCode:'159100',accountName:'Accumulated depreciation'},{accountCode:'680100',accountName:'Depreciation expense'}]});
+  let trace,lineId,sourcePayloadHash=hash('auto-doc'),sourceLineHash=hash('capital-line'),memberTrace={project_ref:'PROJECT-1',property_ref:'PROPERTY-1',allocation_basis:'SOURCE_DIMENSIONED'};
+  if(sourceVendor&&useOriginalSource){
+    assert.equal(sourceVendor,'VENDOR-1');
+    const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'asset-source-importer',['WBS.SNAPSHOT.IMPORT'])});
+    const retained=await retainFinal1PayableFixture({pool:adminPool,kernel:importer,ids,amount:'25000.0000',postingDate:'2026-07-01',invoiceDate:'2026-07-01',linkSourceAttachment:false,controlledProjectRef:memberTraceOverride?.project_ref??null,controlledPropertyRef:memberTraceOverride?.property_ref??null});
+    trace={documentId:retained.sourceDocumentId};ids.attachmentId=retained.attachmentId;
+    const original=(await adminPool.query('SELECT * FROM wbs_payable_original_row_evidence WHERE tenant_id=$1 AND source_document_id=$2',[ids.tenantId,trace.documentId])).rows[0];
+    lineId=original.source_document_line_id;sourcePayloadHash=original.raw_row_hash;sourceLineHash=original.raw_row_hash;memberTrace={project_ref:null,property_ref:null,allocation_basis:'ENTITY_ONLY'};
+  }else{
+    trace=await attachAutoSource(ids,{linkJournal:false});
+    lineId=(await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,project_ref,property_ref,party_ref) VALUES($1,$2,$3,'capital-invoice',1,25000,'DEBIT','PROJECT-1','PROPERTY-1',$4) RETURNING source_document_line_id",[ids.tenantId,ids.entityId,trace.documentId,sourceVendor])).rows[0].source_document_line_id;
+  }
+  if(memberTraceOverride)memberTrace=memberTraceOverride;
+  await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT',version=1 WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,trace.documentId]);
+  if(sourceLineHashOverride)sourceLineHash=sourceLineHashOverride;
+  const policyId=randomUUID(),policySnapshot={schema_version:'AI_CAPITALIZATION_POLICY_SNAPSHOT_V1',rule_id:'AI_CAPITALIZATION_POLICY_V1',policy_version:1,currency:'USD',capitalization_threshold:'5000.0000',eligible_cost_classes:['BUILDING'],charge_code_classification:{},project_status_by_ref:{},useful_life_months_by_cost_class:{BUILDING:120},post_completion_treatment:'EXPENSE_OR_RECLASS_REVIEW'},policyHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) snapshot_hash',[JSON.stringify(policySnapshot)])).rows[0].snapshot_hash,evidenceId=randomUUID(),classificationHash=hash('capital-classification');
+  await adminPool.query("INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at) VALUES($1,$2,$3,'AI_CAPITALIZATION_POLICY','ENTITY',COALESCE($8,$3::uuid::text),1,$6::timestamptz,$7::timestamptz,'APPROVED',$4::jsonb,$5,'policy-maker','policy-approver',now())",[policyId,ids.tenantId,ids.entityId,JSON.stringify(policySnapshot),policyHash,policyEffectiveFrom,policyEffectiveTo,policyScopeKey]);
+  await adminPool.query(`INSERT INTO ai_invoice_accounting_classification_evidence(ai_invoice_accounting_classification_evidence_id,tenant_id,entity_id,accounting_period_id,source_document_id,source_document_line_id,source_payload_hash,source_line_hash,classifier_version,classification,reason,confidence,required_human_fields,rule_id,policy_snapshot_id,policy_snapshot_hash,policy_evidence,classification_hash,status,created_by)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,'AI_INVOICE_ACCOUNTING_CLASSIFICATION_V2','CAPITALIZATION_REVIEW','Approved policy identifies a threshold-qualified construction cost.',0.99,$9::jsonb,'AI_CAPITALIZATION_POLICY_V1',$10,$11,$13::jsonb,$12,'REVIEW_REQUIRED','invoice-classifier')`,[evidenceId,ids.tenantId,ids.entityId,ids.periodId,trace.documentId,lineId,sourcePayloadHash,sourceLineHash,JSON.stringify(['capital_account','placed_in_service_date','controller_approval']),policyId,policyHash,classificationHash,JSON.stringify({...policySnapshot,schema_version:'AI_CAPITALIZATION_POLICY_EVIDENCE_V1',setting_snapshot_id:policyId,setting_snapshot_hash:policyHash})]);
+
+  const proposer=await formalWorkflowRoleKernel(ids,'asset-proposer','AI_CAPITALIZATION_PROPOSER');
+  const proposal=await proposer.proposeAiInvoiceCapitalization({tenantId:ids.tenantId,entityId:ids.entityId,classificationEvidenceId:evidenceId,classificationHash,accountingPeriodId:ids.periodId,capitalizationTreatment:'FIXED_ASSET',assetAccountCode:'150100',liabilityAccountCode:'291001',assetClass:'BUILDING',memberTrace,placedInServiceDate:'2026-07-01',usefulLifeMonths:120,reason:'Independent policy supported building capitalization proposal.',idempotencyKey:'asset-capitalization-propose'});
+  const reviewer=await formalWorkflowRoleKernel(ids,'asset-reviewer','FIXED_ASSET_REGISTER_REVIEWER');
+  const args={tenantId:ids.tenantId,entityId:ids.entityId,capitalizationProposalId:proposal.ai_invoice_capitalization_proposal_id,assetTag:'BUILDING-001',salvageValue,accumulatedDepreciationAccountCode:'159100',depreciationExpenseAccountCode:'680100',depreciationMethod:'STRAIGHT_LINE',depreciationConvention:'FULL_MONTH',reason:'Reviewed source, capitalization policy, asset life and residual value.',idempotencyKey:'asset-register-review'};
+  const counts=async()=>(await adminPool.query(`SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM fixed_asset_register_evidence WHERE tenant_id=$1) registers,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='FIXED_ASSET_REGISTER_REVIEWED') audits,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox`,[ids.tenantId])).rows[0];
+  const before=await counts();
+  await assert.rejects(reviewer.reviewFixedAssetRegister({...args,entityId:randomUUID(),idempotencyKey:'asset-register-wrong-scope'}),e=>e.code==='42501');
+  await assert.rejects(reviewer.reviewFixedAssetRegister({...args,salvageValue:'25000.0000',idempotencyKey:'asset-register-invalid-salvage'}),e=>e.code==='23514');
+  await assert.rejects(reviewer.reviewFixedAssetRegister({...args,accumulatedDepreciationAccountCode:'MISSING',idempotencyKey:'asset-register-missing-account'}),e=>e.code==='23503');
+  assert.deepEqual(await counts(),before);
+  const definition=AUTHORITATIVE_WORKFLOW_ROLES.FIXED_ASSET_REGISTER_REVIEWER;
+  const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+  await sync.reconcile({tenantId:ids.tenantId,entityId:ids.entityId,actorId:'asset-proposer',permissions:definition.permissions,authorityClass:definition.authorityClass,validUntil:new Date(Date.now()+3600000).toISOString(),expectedVersion:1,idempotencyKey:'asset-proposer-replace-review-role'});
+  const selfIssuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:'asset-proposer'})});
+  const selfReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>selfIssuer.issue({tenantId:ids.tenantId})});
+  // Context issuance is audited separately; rejected commands add no business evidence.
+  const beforeSelf=await counts();
+  await assert.rejects(selfReviewer.reviewFixedAssetRegister({...args,idempotencyKey:'asset-register-self-review'}),e=>e.code==='23514');
+  assert.deepEqual(await counts(),beforeSelf);
+  const receipt=await reviewer.reviewFixedAssetRegister(args),replay=await reviewer.reviewFixedAssetRegister(args);
+  assert.equal(receipt.status,'ACTIVE');assert.equal(receipt.cost_basis,'25000.0000');assert.equal(receipt.salvage_value,salvageValue);assert.equal(receipt.source_document_id,trace.documentId);assert.equal(receipt.source_payload_hash,sourcePayloadHash);
+  assert.equal(replay.fixed_asset_register_evidence_id,receipt.fixed_asset_register_evidence_id);assert.equal(replay.idempotent,true);
+  await assert.rejects(reviewer.reviewFixedAssetRegister({...args,assetTag:'CONFLICT'}),e=>e.code==='23505');
+  const after=await counts();assert.equal(after.journals,before.journals);assert.equal(after.ledger,before.ledger);assert.equal(after.registers,before.registers+1);
+  for(const table of ['audit_event','outbox_event'])assert.equal((await adminPool.query('SELECT count(*)::int n FROM '+table+" WHERE tenant_id=$1 AND event_type='FIXED_ASSET_REGISTER_REVIEWED'",[ids.tenantId])).rows[0].n,1);
+  const stored=(await adminPool.query('SELECT reviewed_by,register_evidence_hash FROM fixed_asset_register_evidence WHERE fixed_asset_register_evidence_id=$1',[receipt.fixed_asset_register_evidence_id])).rows[0];assert.equal(stored.reviewed_by,'asset-reviewer');assert.equal(stored.register_evidence_hash,receipt.register_evidence_hash);
+  await assert.rejects(adminPool.query("UPDATE fixed_asset_register_evidence SET asset_tag='MUTATED' WHERE fixed_asset_register_evidence_id=$1",[receipt.fixed_asset_register_evidence_id]),e=>e.code==='55000');
+  return {ids,trace,receipt,reviewer,sourcePayloadHash};
+}
+
+pgTest('fixed asset disposal integrity migration restores and reinstalls command guards',async()=>{
+  const name='334_fixed_asset_disposal_ledger_integrity.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name);assert.ok(entry);
+  const bodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+  const client=await adminPool.connect();
+  const definition=async name=>(await client.query('SELECT pg_get_functiondef(oid) body FROM pg_proc WHERE proname=$1',[name])).rows[0].body;
+  try{await client.query('BEGIN');
+    assert.match(await definition('refs_review_fixed_asset_disposal'),/POSTED_DISPOSAL_LINES_V2/);
+    await client.query(bodies.down);
+    assert.doesNotMatch(await definition('refs_review_fixed_asset_disposal'),/POSTED_DISPOSAL_LINES_V2/);
+    assert.doesNotMatch(await definition('refs_review_fixed_asset_impairment'),/Disposed assets cannot/);
+    await client.query(bodies.up);
+    assert.match(await definition('refs_review_fixed_asset_disposal'),/POSTED_DISPOSAL_LINES_V2/);
+    assert.match(await definition('refs_review_fixed_asset_impairment'),/Disposed assets cannot/);
+  }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('fixed asset disposal timeline migration restores and reinstalls command guards',async()=>{
+  const name='335_fixed_asset_disposal_timeline.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name);assert.ok(entry);
+  const bodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+  const client=await adminPool.connect();
+  const definition=async name=>(await client.query('SELECT pg_get_functiondef(oid) body FROM pg_proc WHERE proname=$1',[name])).rows[0].body;
+  try{await client.query('BEGIN');
+    assert.match(await definition('refs_review_fixed_asset_disposal'),/DISPOSAL_TIMELINE_V1/);
+    await client.query(bodies.down);
+    assert.doesNotMatch(await definition('refs_review_fixed_asset_disposal'),/DISPOSAL_TIMELINE_V1/);
+    await client.query(bodies.up);
+    assert.match(await definition('refs_review_fixed_asset_disposal'),/DISPOSAL_TIMELINE_V1/);
+  }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('fixed asset impaired disposal migration restores and reinstalls command guards',async()=>{
+  const name='336_fixed_asset_impaired_disposal.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name);assert.ok(entry);
+  const bodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+  const client=await adminPool.connect();
+  const definition=async name=>(await client.query('SELECT pg_get_functiondef(oid) body FROM pg_proc WHERE proname=$1',[name])).rows[0].body;
+  try{await client.query('BEGIN');
+    assert.match(await definition('refs_review_fixed_asset_disposal'),/DISPOSAL_CARRYING_V2/);
+    await client.query(bodies.down);
+    assert.doesNotMatch(await definition('refs_review_fixed_asset_disposal'),/DISPOSAL_CARRYING_V2/);
+    await client.query(bodies.up);
+    assert.match(await definition('refs_review_fixed_asset_disposal'),/DISPOSAL_CARRYING_V2/);
+  }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('fixed asset disposal source binding migration restores and reinstalls command guards',async()=>{
+  const name='337_fixed_asset_disposal_source_binding.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name);assert.ok(entry);
+  const bodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+  const client=await adminPool.connect();
+  const definition=async name=>(await client.query('SELECT pg_get_functiondef(oid) body FROM pg_proc WHERE proname=$1',[name])).rows[0].body;
+  try{await client.query('BEGIN');
+    assert.match(await definition('refs_review_fixed_asset_disposal'),/DISPOSAL_SOURCE_V1/);
+    await client.query(bodies.down);
+    assert.doesNotMatch(await definition('refs_review_fixed_asset_disposal'),/DISPOSAL_SOURCE_V1/);
+    await client.query(bodies.up);
+    assert.match(await definition('refs_review_fixed_asset_disposal'),/DISPOSAL_SOURCE_V1/);
+  }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('fixed asset attachment identity migration roundtrips without acquisition history',async()=>{
+ const name='347_source_attachment_document_identity.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect();
+ try{await client.query('BEGIN');await client.query(bodies.down);assert.equal((await client.query("SELECT to_regprocedure('refs_normalize_source_attachment_document()') fn")).rows[0].fn,null);await client.query(bodies.up);assert.equal((await client.query("SELECT has_function_privilege('refs_app','refs_normalize_source_attachment_document()','EXECUTE') allowed")).rows[0].allowed,false);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('formal fixed asset register review retains source evidence and forbids self review without posting',async()=>{await reviewedFixedAssetFixture();});
+
+async function cloneAssetReadFixture(ids,baseId,suffix){
+ const template=(await adminPool.query('SELECT to_jsonb(a) asset,to_jsonb(p) proposal,to_jsonb(c) classification FROM fixed_asset_register_evidence a JOIN ai_invoice_capitalization_proposal p ON p.ai_invoice_capitalization_proposal_id=a.capitalization_proposal_id JOIN ai_invoice_accounting_classification_evidence c ON c.ai_invoice_accounting_classification_evidence_id=p.ai_invoice_accounting_classification_evidence_id WHERE a.fixed_asset_register_evidence_id=$1',[baseId])).rows[0];
+ const classificationId=randomUUID(),proposalId=randomUUID(),assetId=randomUUID();
+ await adminPool.query('INSERT INTO ai_invoice_accounting_classification_evidence SELECT * FROM jsonb_populate_record(NULL::ai_invoice_accounting_classification_evidence,$1::jsonb)',[JSON.stringify({...template.classification,ai_invoice_accounting_classification_evidence_id:classificationId,classification_hash:hash('clone-class-'+suffix)})]);
+ await adminPool.query('INSERT INTO ai_invoice_capitalization_proposal SELECT * FROM jsonb_populate_record(NULL::ai_invoice_capitalization_proposal,$1::jsonb)',[JSON.stringify({...template.proposal,ai_invoice_capitalization_proposal_id:proposalId,ai_invoice_accounting_classification_evidence_id:classificationId,classification_hash:hash('clone-class-'+suffix),proposal_hash:hash('clone-proposal-'+suffix)})]);
+ await adminPool.query('INSERT INTO fixed_asset_register_evidence SELECT * FROM jsonb_populate_record(NULL::fixed_asset_register_evidence,$1::jsonb)',[JSON.stringify({...template.asset,fixed_asset_register_evidence_id:assetId,capitalization_proposal_id:proposalId,asset_tag:'CLONE-'+suffix,register_evidence_hash:hash('clone-asset-'+suffix)})]);return assetId;
+}
+
+pgTest('fixed asset snapshot serialization installation waits for the old source writer',async()=>{
+ const name='346_fixed_asset_source_snapshot_serialization.sql',entry=MIGRATION_MANIFEST.find(r=>r.name===name),bodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql;}
+ const start=MIGRATION_MANIFEST.findIndex(r=>r.name===name),tail=MIGRATION_MANIFEST.slice(start+1),tailBodies=new Map();for(const migration of tail)for(const direction of ['up','down'])tailBodies.set(`${direction}:${migration.name}`,await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+migration.name,import.meta.url),'utf8'));
+ // This focused case runs without asset bindings so a real downgrade is allowed.
+ const ids=await seed({status:'DRAFT',attachmentStatus:'VERIFIED_CLEAN'}),trace=await attachAutoSource(ids,{linkJournal:false});
+ const removed=[];for(const migration of [...tail].reverse()){await adminPool.query(tailBodies.get(`down:${migration.name}`));removed.push(migration);}
+ await adminPool.query(bodies.down);
+ const writer=await adminPool.connect(),migration=await adminPool.connect();let installation=null,baseRestored=false;
+ try{
+  const writerPid=(await writer.query('SELECT pg_backend_pid() pid')).rows[0].pid,migrationPid=(await migration.query('SELECT pg_backend_pid() pid')).rows[0].pid;
+  await writer.query('BEGIN');await writer.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'old-source-writer')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+  installation=migration.query(bodies.up).then(value=>({value}),error=>({error}));
+  let blocked=false;for(let attempt=0;attempt<160&&!blocked;attempt++){blocked=(await adminPool.query('SELECT $1::int=ANY(pg_blocking_pids($2::int)) waiting',[writerPid,migrationPid])).rows[0].waiting;if(!blocked)await new Promise(resolve=>setTimeout(resolve,25));}assert.equal(blocked,true,'Installation must wait for the actual pre-upgrade source writer');
+   await writer.query('COMMIT');const result=await installation;assert.equal(result.error,undefined);baseRestored=true;
+  assert.match((await adminPool.query("SELECT pg_get_functiondef(oid) body FROM pg_proc WHERE proname='refs_guard_acquisition_source_attachment'")).rows[0].body,/refs_serialize_asset_source/);
+  const other=randomUUID();await adminPool.query("INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,verified_at,scan_status,finalization_status,finalized_at) VALUES($1,$2,$3,'after-upgrade.pdf','application/pdf',10,$4,$5,'v1','fixture-owner',now(),now(),'CLEAN','VERIFIED_CLEAN',now())",[other,ids.tenantId,ids.entityId,hash('after-upgrade'),'object://after-upgrade/'+other]);
+  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'new-source-writer')",[ids.tenantId,ids.entityId,trace.documentId,other]);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM fixed_asset_source_serialization WHERE tenant_id=$1 AND source_document_id=$2',[ids.tenantId,trace.documentId])).rows[0].n,1);
+ }finally{try{await writer.query('ROLLBACK');}catch{}if(installation){const result=await installation;baseRestored||=result.error===undefined;}try{await migration.query('ROLLBACK');}catch{}writer.release();migration.release();if(!baseRestored)await adminPool.query(bodies.up);for(const item of [...removed].reverse())await adminPool.query(tailBodies.get(`up:${item.name}`));}
+});
+
+pgTest('fixed asset source consumption migration restores empty history functions exactly',async()=>{
+ const name='345_fixed_asset_source_consumption.sql',entry=MIGRATION_MANIFEST.find(r=>r.name===name),bodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const nextName='346_fixed_asset_source_snapshot_serialization.sql',nextEntry=MIGRATION_MANIFEST.find(r=>r.name===nextName),nextBodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+nextName,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),nextEntry[direction]);nextBodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const nextIndex=MIGRATION_MANIFEST.findIndex(r=>r.name===nextName),tail=MIGRATION_MANIFEST.slice(nextIndex+1),tailBodies=new Map();for(const migration of tail)for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+migration.name,import.meta.url),'utf8');tailBodies.set(`${direction}:${migration.name}`,sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,''));}
+ const client=await adminPool.connect();const definition=async()=> (await client.query("SELECT pg_get_functiondef(oid) body FROM pg_proc WHERE proname='refs_create_fixed_asset_acquisition'")).rows[0].body;
+ try{await client.query('BEGIN');const current=await definition();for(const migration of [...tail].reverse())await client.query(tailBodies.get(`down:${migration.name}`));await client.query(nextBodies.down);const before=await definition();assert.notEqual(before,current);await client.query(bodies.down);assert.notEqual(await definition(),before);await client.query(bodies.up);assert.equal(await definition(),before);await client.query(nextBodies.up);for(const migration of tail)await client.query(tailBodies.get(`up:${migration.name}`));assert.equal(await definition(),current);assert.equal((await client.query("SELECT has_function_privilege('refs_app','refs_serialize_asset_source(uuid,uuid,uuid)','EXECUTE') allowed")).rows[0].allowed,false);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('fixed asset mandatory acquisition migration roundtrips before retaining bindings',async()=>{
+ const name='343_fixed_asset_acquisition_required.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect();try{await client.query('BEGIN');await client.query(bodies.down);assert.equal((await client.query("SELECT count(*)::int n FROM pg_trigger WHERE tgname='fixed_asset_acquisition_required_guard'")).rows[0].n,0);await client.query(bodies.up);assert.equal((await client.query("SELECT count(*)::int n FROM pg_trigger WHERE tgname='fixed_asset_acquisition_required_guard'")).rows[0].n,1);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+async function exerciseFixedAssetLedger(assessmentAfterDisposal=false,impairmentPosted=false,includeImpairmentReversal=false,bookedImpairmentAmount=5000,bindAssessment=true,wrongImpairmentExpense=false,bindDisposalSource=true,prebindSpare=false,futureMovement=false,readProof=false,extraImpairmentLines=false,disposalOnPolicyEffectiveDate=false,returnAfterPolicy=false){
+  const {ids,trace,receipt,sourcePayloadHash}=await reviewedFixedAssetFixture('VENDOR-1');
+  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+  const disposalTrace=await attachAutoSource({...ids,journalId:randomUUID()},{linkJournal:false,reuseApprovedSnapshots:true,sourceRecordPrefix:'DISPOSAL'});
+  await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT',version=1 WHERE source_document_id=$1",[disposalTrace.documentId]);
+  await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name) VALUES($1,$2,'680200','Impairment expense'),($1,$2,'159200','Accumulated impairment'),($1,$2,'780100','Asset disposal gain')",[ids.tenantId,ids.entityId]);
+  const roles={};for(const name of ['AI_ACCOUNTING_DECISION_MAKER','FIXED_ASSET_ACQUISITION_MAKER','FIXED_ASSET_DEPRECIATION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER','FIXED_ASSET_IMPAIRMENT_REVIEWER','FIXED_ASSET_POST_IMPAIRMENT_POLICY_REVIEWER','FIXED_ASSET_DISPOSAL_REVIEWER'])roles[name]=await formalWorkflowRoleKernel(ids,'asset-ledger-'+name.toLowerCase(),name);
+  const assetReader=readProof?await formalWorkflowRoleKernel(ids,'asset-register-viewer','FIXED_ASSET_VIEWER'):null;
+  const readAsset=async(asOfDate,expectedState,expectedBook)=>{
+    const query={tenantId:ids.tenantId,entityId:ids.entityId,asOfDate,assetId:receipt.fixed_asset_register_evidence_id};
+    const snapshot=await assetReader.readFixedAssetRegister(query);assert.equal(snapshot.basis,'POSTED_PRIMARY_LEDGER');assert.equal(snapshot.rows.length,1);assert.equal(snapshot.rows[0].status,expectedState);assert.equal(snapshot.rows[0].net_book_value,expectedBook);
+    const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'asset-register-viewer'}),kernelFactory:async()=>assetReader});
+    const response=await api({method:'GET',url:'/api/v1/entities/'+ids.entityId+'/fixed-assets/register/'+receipt.fixed_asset_register_evidence_id+'?asOfDate='+asOfDate});assert.equal(response.status,200,JSON.stringify(response.body));assert.deepEqual(response.body.data,snapshot);
+    return snapshot.rows[0];
+  };
+  if(readProof){await assert.rejects(roles.JE_REVIEWER.readFixedAssetRegister({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-07-31'}),e=>e.code==='42501');await readAsset('2026-07-31','REGISTERED','0.0000');await assert.rejects(assetReader.readFixedAssetRegister({tenantId:ids.tenantId,entityId:randomUUID(),asOfDate:'2026-07-31'}),e=>e.code==='42501');}
+  const dimensions={fixed_asset_register_evidence_id:receipt.fixed_asset_register_evidence_id};
+  const line=(line_no,account_code,debit_amount,credit_amount,member_ref=null)=>({line_no,account_code,debit_amount,credit_amount,member_ref,dimensions});
+  async function postAssetJournal(number,date,lines,prepareOnly=false,periodId=ids.periodId){
+    const created=number==='ASSET-ACQUISITION'?await roles.FIXED_ASSET_ACQUISITION_MAKER.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId,journalNumber:number,journalDate:date,expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Acquire building using independently reviewed source evidence.',idempotencyKey:number+'-native-create'}):await roles.AI_ACCOUNTING_DECISION_MAKER.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId,journalNumber:number,journalDate:date,currency:'USD',description:'Reviewed fixture asset ledger transaction',attachmentIds:[ids.attachmentId],idempotencyKey:number+'-create',lines});
+    let bindingRevision=0;
+    if(number.startsWith('ASSET-DISPOSAL')&&bindDisposalSource){
+      const bindingArgs={tenantId:ids.tenantId,entityId:ids.entityId,fixedAssetRegisterEvidenceId:receipt.fixed_asset_register_evidence_id,journalEntryId:created.journal_entry_id,sourceDocumentId:disposalTrace.documentId,expectedSourceHash:hash('auto-doc'),expectedRevision:0,reason:'Maker verified the retained disposal source and exact asset draft.',idempotencyKey:number+'-bind-source'};
+      await assert.rejects(roles.AI_ACCOUNTING_DECISION_MAKER.bindFixedAssetDisposalSource({...bindingArgs,expectedRevision:99,idempotencyKey:number+'-stale-binding'}),e=>e.code==='40001');
+      await assert.rejects(roles.AI_ACCOUNTING_DECISION_MAKER.bindFixedAssetDisposalSource({...bindingArgs,expectedSourceHash:hash('wrong-source'),idempotencyKey:number+'-wrong-hash'}),e=>e.code==='23514');
+      await assert.rejects(roles.JE_REVIEWER.bindFixedAssetDisposalSource({...bindingArgs,idempotencyKey:number+'-reviewer-denied'}),e=>e.code==='42501');
+      await assert.rejects(roles.AI_ACCOUNTING_DECISION_MAKER.bindFixedAssetDisposalSource({...bindingArgs,entityId:randomUUID(),idempotencyKey:number+'-foreign-entity'}),e=>e.code==='42501');
+      const bindingApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'asset-ledger-ai_accounting_decision_maker'}),kernelFactory:async()=>roles.AI_ACCOUNTING_DECISION_MAKER});
+      const request={method:'POST',url:'/api/v1/entities/'+ids.entityId+'/fixed-assets/disposal-source-bindings',headers:{'Idempotency-Key':bindingArgs.idempotencyKey,'If-Match':'"0"'},body:{fixedAssetRegisterEvidenceId:bindingArgs.fixedAssetRegisterEvidenceId,journalEntryId:created.journal_entry_id,sourceDocumentId:bindingArgs.sourceDocumentId,expectedSourceHash:bindingArgs.expectedSourceHash,reason:bindingArgs.reason}};
+      const results=await Promise.all([bindingApi(request),bindingApi(request)]);assert.deepEqual(results.map(row=>row.status).sort(),[200,201],JSON.stringify(results));const linked=results.find(row=>row.status===201),replay=results.find(row=>row.status===200);assert.equal(linked.body.data.revision,1);assert.equal(linked.body.data.binding_id,replay.body.data.binding_id);bindingRevision=1;
+      await assert.rejects(roles.AI_ACCOUNTING_DECISION_MAKER.bindFixedAssetDisposalSource({...bindingArgs,idempotencyKey:number+'-second-key'}),e=>e.code==='40001');
+      await assert.rejects(roles.AI_ACCOUNTING_DECISION_MAKER.bindFixedAssetDisposalSource({...bindingArgs,reason:'Different source binding command under the same key.'}),e=>e.code==='23505');
+      await assert.rejects(adminPool.query('UPDATE fixed_asset_disposal_source_binding SET reason=$1 WHERE binding_id=$2',['Attempted evidence replacement',linked.body.data.binding_id]),e=>e.code==='55000');
+
+    }
+    for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:created.journal_entry_id,action,expectedRevision:expectedRevision+bindingRevision,idempotencyKey:number+'-'+action.toLowerCase()});
+    if(prepareOnly)return created.journal_entry_id;
+    await roles.JE_POSTER.postJournal({...ids,periodId,journalEntryId:created.journal_entry_id,expectedRevision:3+bindingRevision,idempotencyKey:number+'-post'});return created.journal_entry_id;
+  }
+  const impairmentArgs={tenantId:ids.tenantId,entityId:ids.entityId,fixedAssetRegisterEvidenceId:receipt.fixed_asset_register_evidence_id,accountingPeriodId:ids.periodId,valuationSourceDocumentId:trace.documentId,assessmentDate:assessmentAfterDisposal?'2026-07-26':'2026-07-20',recoverableAmount:'18000.0000',impairmentExpenseAccountCode:'680200',accumulatedImpairmentAccountCode:'159200',reason:'Independent fixture valuation compared to asset-bound posted carrying value.',idempotencyKey:'asset-impairment-review'};
+  const impairmentReviewer=roles.FIXED_ASSET_IMPAIRMENT_REVIEWER,disposalReviewer=roles.FIXED_ASSET_DISPOSAL_REVIEWER;
+  await assert.rejects(impairmentReviewer.reviewFixedAssetImpairment(impairmentArgs),e=>e.code==='23514');
+  const acquisition=await postAssetJournal('ASSET-ACQUISITION','2026-07-02',[line(1,'150100',25000,0),line(2,'291001',0,25000,'VENDOR-1')]);
+  const depreciation=await postAssetJournal('ASSET-DEPRECIATION','2026-07-15',[line(1,'680100',2000,0),line(2,'159100',0,2000)]);
+  if(readProof){await readAsset('2026-07-14','ACTIVE','25000.0000');await readAsset('2026-07-31','ACTIVE','23000.0000');}
+  const ledgerBeforeReview=(await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
+  const assessment=await impairmentReviewer.reviewFixedAssetImpairment(impairmentArgs),assessmentReplay=await impairmentReviewer.reviewFixedAssetImpairment(impairmentArgs);
+  assert.equal(assessment.posted_carrying_value,'23000.0000');assert.equal(assessment.impairment_loss,'5000.0000');assert.equal(assessment.status,'INDEPENDENTLY_REVIEWED');assert.equal(assessmentReplay.impairment_assessment_evidence_id,assessment.impairment_assessment_evidence_id);assert.equal(assessmentReplay.idempotent,true);
+  assert.deepEqual(new Set(assessment.journal_entry_ids),new Set([acquisition,depreciation]));assert.equal(assessment.ledger_line_ids.length,2);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,ledgerBeforeReview);
+  await assert.rejects(impairmentReviewer.reviewFixedAssetImpairment({...impairmentArgs,recoverableAmount:'17000.0000'}),e=>e.code==='23505');
+  let impairmentJournal=null;if(impairmentPosted){const impairmentLines=[line(1,wrongImpairmentExpense?'680100':'680200',bookedImpairmentAmount,0),line(2,'159200',0,bookedImpairmentAmount)];if(extraImpairmentLines)impairmentLines.push(line(3,'680100',1,0),line(4,'291001',0,1,'VENDOR-1'));impairmentJournal=await postAssetJournal('ASSET-IMPAIRMENT','2026-07-21',impairmentLines.map(row=>({...row,dimensions:{...row.dimensions,...(bindAssessment?{fixed_asset_impairment_assessment_evidence_id:assessment.impairment_assessment_evidence_id}:{})}})));}
+  if(readProof&&impairmentPosted&&bindAssessment&&!wrongImpairmentExpense&&bookedImpairmentAmount===5000){
+   const augustPeriodId=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriodId,ids.tenantId,ids.entityId]);
+   const policyArgs={tenantId:ids.tenantId,entityId:ids.entityId,fixedAssetRegisterEvidenceId:receipt.fixed_asset_register_evidence_id,impairmentAssessmentEvidenceId:assessment.impairment_assessment_evidence_id,effectivePeriodId:augustPeriodId,remainingUsefulLifeMonths:110,convention:'NEXT_PERIOD_FULL_MONTH',reason:'Independently reviewed the remaining life and next-period depreciation basis.',idempotencyKey:'asset-post-impairment-policy-review'};
+   await assert.rejects(impairmentReviewer.reviewFixedAssetPostImpairmentPolicy({...policyArgs,idempotencyKey:'asset-post-impairment-wrong-role'}),e=>e.code==='42501');
+   const policyArtifacts=async()=> (await adminPool.query("SELECT jsonb_build_object('policies',(SELECT count(*) FROM fixed_asset_post_impairment_depreciation_policy WHERE tenant_id=$1),'audits',(SELECT count(*) FROM audit_event WHERE tenant_id=$1 AND event_type='FIXED_ASSET_POST_IMPAIRMENT_DEPRECIATION_POLICY_REVIEWED'),'outbox',(SELECT count(*) FROM outbox_event WHERE tenant_id=$1 AND event_type='FIXED_ASSET_POST_IMPAIRMENT_DEPRECIATION_POLICY_REVIEWED')) state",[ids.tenantId])).rows[0].state;
+   if(extraImpairmentLines){const before=await policyArtifacts();await assert.rejects(roles.FIXED_ASSET_POST_IMPAIRMENT_POLICY_REVIEWER.reviewFixedAssetPostImpairmentPolicy(policyArgs),e=>e.code==='23514');assert.deepEqual(await policyArtifacts(),before);const blocked=await roles.FIXED_ASSET_DEPRECIATION_MAKER.readFixedAssetDepreciationOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:augustPeriodId});assert.equal(blocked.schema_version,'FIXED_ASSET_DEPRECIATION_OPTIONS_V2');assert.equal(blocked.readiness_status,'BLOCKED_POST_IMPAIRMENT_POLICY_REQUIRED');assert.equal(blocked.post_impairment_policy,null);assert.equal(blocked.schedule.schedule_basis,'ORIGINAL_REGISTER');return;}
+   if(disposalOnPolicyEffectiveDate){
+    const disposal=await postAssetJournal('ASSET-DISPOSAL-EFFECTIVE','2026-08-01',[line(1,'111000',19000,0,'BANK-1'),line(2,'159100',2000,0),line(3,'159200',5000,0),line(4,'150100',0,25000),line(5,'780100',0,1000)],false,augustPeriodId);
+    await disposalReviewer.reviewFixedAssetDisposal({tenantId:ids.tenantId,entityId:ids.entityId,fixedAssetRegisterEvidenceId:receipt.fixed_asset_register_evidence_id,accountingPeriodId:augustPeriodId,disposalSourceDocumentId:disposalTrace.documentId,disposalDate:'2026-08-01',accumulatedDepreciation:'2000.0000',proceeds:'19000.0000',reason:'Independent effective-date disposal review retained before revised policy.',idempotencyKey:'asset-effective-date-disposal-review'});assert.ok(disposal);
+    const before=await policyArtifacts();await assert.rejects(roles.FIXED_ASSET_POST_IMPAIRMENT_POLICY_REVIEWER.reviewFixedAssetPostImpairmentPolicy(policyArgs),e=>e.code==='23514');assert.deepEqual(await policyArtifacts(),before);return;
+   }
+   const workflowActors=[['asset-ledger-ai_accounting_decision_maker','AI_ACCOUNTING_DECISION_MAKER'],['asset-ledger-je_reviewer','JE_REVIEWER'],['asset-ledger-je_approver','JE_APPROVER'],['asset-ledger-je_poster','JE_POSTER']],beforeSod=await policyArtifacts();
+   for(const [index,[actorId,roleName]] of workflowActors.entries()){try{const conflicted=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actorId,['FIXED_ASSET.DEPRECIATION.POLICY.REVIEW'])});await assert.rejects(conflicted.reviewFixedAssetPostImpairmentPolicy({...policyArgs,idempotencyKey:'asset-post-impairment-sod-'+index}),e=>e.code==='23514',actorId);assert.deepEqual(await policyArtifacts(),beforeSod);}finally{await trustedSession(ids,actorId,AUTHORITATIVE_WORKFLOW_ROLES[roleName].permissions);}}
+   const journalCount=(await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,policy=await roles.FIXED_ASSET_POST_IMPAIRMENT_POLICY_REVIEWER.reviewFixedAssetPostImpairmentPolicy(policyArgs),replay=await roles.FIXED_ASSET_POST_IMPAIRMENT_POLICY_REVIEWER.reviewFixedAssetPostImpairmentPolicy(policyArgs);
+   assert.equal(policy.impairment_journal_entry_id,impairmentJournal);assert.equal(policy.revised_carrying_value,'18000.0000');assert.equal(policy.revised_depreciable_basis,'17000.0000');assert.equal(policy.regular_period_amount,'154.5455');assert.equal(policy.final_period_amount,'154.5405');assert.equal(policy.can_create_draft,false);assert.equal(policy.can_post,false);assert.equal(replay.policy_id,policy.policy_id);assert.equal(replay.idempotent,true);assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalCount);
+   await assert.rejects(adminPool.query('UPDATE fixed_asset_post_impairment_depreciation_policy SET remaining_useful_life_months=109 WHERE policy_id=$1',[policy.policy_id]),e=>e.code==='55000');
+   const down=(await readFile(new URL('../db/migrations/down/358_fixed_asset_post_impairment_depreciation_policy.sql',import.meta.url),'utf8')).replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,''),migration=await adminPool.connect();try{await migration.query('BEGIN');await assert.rejects(migration.query(down),e=>e.code==='55000');}finally{await migration.query('ROLLBACK');migration.release();}
+   if(returnAfterPolicy)return {ids,trace,receipt,roles,assetReader,augustPeriodId,policy,assessment,impairmentJournal};
+  }
+  const disposalArgs={tenantId:ids.tenantId,entityId:ids.entityId,fixedAssetRegisterEvidenceId:receipt.fixed_asset_register_evidence_id,accountingPeriodId:ids.periodId,disposalSourceDocumentId:disposalTrace.documentId,disposalDate:'2026-07-25',accumulatedDepreciation:'2000.0000',proceeds:includeImpairmentReversal?(24000-bookedImpairmentAmount).toFixed(4):'24000.0000',reason:'Independent disposal review reconciled original cost and disposal posting.',idempotencyKey:'asset-disposal-review'};
+  await assert.rejects(disposalReviewer.reviewFixedAssetDisposal(disposalArgs),e=>e.code==='23514');
+  // Assessment is evidence only; no impairment journal was booked in this scenario.
+  const disposalLines=includeImpairmentReversal?[line(1,'111000',24000-bookedImpairmentAmount,0,'BANK-1'),line(2,'159100',2000,0),line(3,'159200',bookedImpairmentAmount,0),line(4,'150100',0,25000),line(5,'780100',0,1000)]:[line(1,'111000',24000,0,'BANK-1'),line(2,'159100',2000,0),line(3,'150100',0,25000),line(4,'780100',0,1000)];
+  if(!bindDisposalSource){const unbound=await postAssetJournal('ASSET-DISPOSAL','2026-07-25',disposalLines,true);const baseline=(await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:unbound,expectedRevision:3,idempotencyKey:'unbound-disposal-post'}),e=>e.code==='23514');assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,baseline);assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[unbound])).rows[0].status,'APPROVED');return;}
+  if(futureMovement==='SOURCE_DRIFT'){
+    const draft=await postAssetJournal('ASSET-DISPOSAL','2026-07-25',disposalLines,true);
+    for(const [index,change] of ["version=2","payload_hash='"+hash('changed-disposal-source')+"'","status='REJECTED'","currency='EUR'"].entries()){
+      await adminPool.query('UPDATE source_document SET '+change+' WHERE source_document_id=$1',[disposalTrace.documentId]);
+      await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:draft,expectedRevision:4,idempotencyKey:'source-drift-post-'+index}),e=>e.code==='23514');
+      assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[draft])).rows[0].n,0);
+      assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[draft])).rows[0].status,'APPROVED');
+      await adminPool.query("UPDATE source_document SET version=1,payload_hash=$2,status='READY_FOR_DRAFT',currency='USD' WHERE source_document_id=$1",[disposalTrace.documentId,hash('auto-doc')]);
+    }
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM fixed_asset_disposal_posting WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);return;
+  }
+  if(futureMovement==='CONCURRENT'){
+    const future=await postAssetJournal('ASSET-FUTURE-ADJUSTMENT','2026-07-26',[line(1,'680100',1000,0),line(2,'159100',0,1000)],true);
+    const disposal=await postAssetJournal('ASSET-DISPOSAL','2026-07-25',disposalLines,true);
+    const candidates=[future,disposal];
+    const outcomes=await Promise.allSettled(candidates.map((journalEntryId,index)=>roles.JE_POSTER.postJournal({...ids,journalEntryId,expectedRevision:index===0?3:4,idempotencyKey:'future-disposal-race-'+index})));
+    assert.equal(outcomes.filter(row=>row.status==='fulfilled').length,1);
+    assert.equal(outcomes.filter(row=>row.status==='rejected'&&row.reason.code==='23514').length,1);
+    const loser=candidates[outcomes.findIndex(row=>row.status==='rejected')];
+    assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[loser])).rows[0].status,'APPROVED');
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[loser])).rows[0].n,0);
+    assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND object_id=$2 AND event_type='JOURNAL_POSTED'",[ids.tenantId,loser])).rows[0].n,0);
+    assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='JOURNAL_POSTED'",[ids.tenantId,loser])).rows[0].n,0);return;
+  }
+  if(futureMovement){
+    await postAssetJournal('ASSET-FUTURE-ADJUSTMENT','2026-07-26',[line(1,'680100',1000,0),line(2,'159100',0,1000)]);
+    const draft=await postAssetJournal('ASSET-DISPOSAL','2026-07-25',disposalLines,true);
+    const baseline=(await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
+    await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:draft,expectedRevision:4,idempotencyKey:'backdated-disposal-post'}),e=>e.code==='23514');
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,baseline);
+    assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[draft])).rows[0].status,'APPROVED');
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM fixed_asset_disposal_posting WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);
+    assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND object_id=$2 AND event_type='JOURNAL_POSTED'",[ids.tenantId,draft])).rows[0].n,0);
+    assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='JOURNAL_POSTED'",[ids.tenantId,draft])).rows[0].n,0);return;
+  }
+  const spare=prebindSpare?await postAssetJournal('ASSET-DISPOSAL-SPARE','2026-07-25',disposalLines,true):null;
+  let disposal,losingDraft=spare;
+  if(prebindSpare==='CONCURRENT'){
+    const first=await postAssetJournal('ASSET-DISPOSAL','2026-07-25',disposalLines,true),candidates=[first,spare];
+    const outcomes=await Promise.allSettled(candidates.map((journalEntryId,index)=>roles.JE_POSTER.postJournal({...ids,journalEntryId,expectedRevision:4,idempotencyKey:'concurrent-asset-disposal-'+index})));
+    assert.equal(outcomes.filter(row=>row.status==='fulfilled').length,1);assert.equal(outcomes.filter(row=>row.status==='rejected'&&row.reason.code==='23514').length,1);
+    disposal=candidates[outcomes.findIndex(row=>row.status==='fulfilled')];losingDraft=candidates.find(id=>id!==disposal);
+  }else disposal=await postAssetJournal('ASSET-DISPOSAL','2026-07-25',disposalLines);
+
+  if(readProof){await readAsset('2026-07-24','ACTIVE',includeImpairmentReversal?'18000.0000':'23000.0000');const row=await readAsset('2026-07-31','DISPOSAL_POSTED','0.0000');assert.equal(row.disposal_journal_entry_id,disposal);assert.equal(row.fixed_asset_disposal_evidence_id,null);}
+  const disposalArtifacts=async()=>(await adminPool.query(`SELECT
+    (SELECT count(*)::int FROM fixed_asset_disposal_evidence WHERE tenant_id=$1) evidence,
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='FIXED_ASSET_DISPOSAL_REVIEWED') audit,
+    (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND event_type='FIXED_ASSET_DISPOSAL_REVIEWED') outbox,
+    (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1 AND operation_scope LIKE 'FIXED_ASSET_DISPOSAL_REVIEW:%') receipts`,[ids.tenantId])).rows[0];
+  const beforeRejected=await disposalArtifacts();
+  await assert.rejects(disposalReviewer.reviewFixedAssetDisposal({...disposalArgs,accumulatedDepreciation:'1000.0000',idempotencyKey:'asset-disposal-wrong-depreciation'}),e=>e.code==='23514');
+  await assert.rejects(disposalReviewer.reviewFixedAssetDisposal({...disposalArgs,proceeds:'23000.0000',idempotencyKey:'asset-disposal-wrong-proceeds'}),e=>e.code==='23514');
+  await assert.rejects(disposalReviewer.reviewFixedAssetDisposal({...disposalArgs,disposalDate:'2026-07-24',idempotencyKey:'asset-disposal-before-posting'}),e=>e.code==='23514');
+  assert.deepEqual(await disposalArtifacts(),beforeRejected);
+  if(assessmentAfterDisposal||!bindDisposalSource||(impairmentPosted&&(!includeImpairmentReversal||bookedImpairmentAmount!==5000||!bindAssessment||wrongImpairmentExpense))){await assert.rejects(disposalReviewer.reviewFixedAssetDisposal(disposalArgs),e=>e.code==='23514');assert.deepEqual(await disposalArtifacts(),beforeRejected);return;}
+  await assert.rejects(disposalReviewer.reviewFixedAssetDisposal({...disposalArgs,disposalSourceDocumentId:trace.documentId,idempotencyKey:'asset-disposal-unrelated-source'}),e=>e.code==='23514');
+  const disposalReceipt=await disposalReviewer.reviewFixedAssetDisposal(disposalArgs),disposalReplay=await disposalReviewer.reviewFixedAssetDisposal(disposalArgs);
+  assert.equal(disposalReceipt.disposed_cost,'25000.0000');assert.equal(disposalReceipt.carrying_value,includeImpairmentReversal?'18000.0000':'23000.0000');assert.equal(disposalReceipt.accumulated_impairment,includeImpairmentReversal?'5000.0000':'0.0000');assert.equal(disposalReceipt.carrying_version,'DISPOSAL_CARRYING_V2');assert.equal(disposalReceipt.gain_or_loss,'1000.0000');assert.deepEqual(disposalReceipt.journal_entry_ids,[disposal]);assert.equal(disposalReceipt.ledger_line_ids.length,includeImpairmentReversal?5:4);assert.equal(disposalReceipt.journal_line_ids.length,includeImpairmentReversal?5:4);assert.equal(disposalReceipt.lineage_version,'POSTED_DISPOSAL_LINES_V2');assert.equal(disposalReplay.fixed_asset_disposal_evidence_id,disposalReceipt.fixed_asset_disposal_evidence_id);assert.equal(disposalReplay.idempotent,true);
+  if(readProof){const row=await readAsset('2026-07-31','DISPOSED_REVIEWED','0.0000');assert.equal(row.fixed_asset_disposal_evidence_id,disposalReceipt.fixed_asset_disposal_evidence_id);await readAsset('2026-07-24','ACTIVE',includeImpairmentReversal?'18000.0000':'23000.0000');
+   const movementApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'asset-register-viewer'}),kernelFactory:async()=>assetReader}),movements=[];let movementCursor=null,firstCursor=null;
+   do{const response=await movementApi({method:'GET',url:'/api/v1/entities/'+ids.entityId+'/fixed-assets/register/'+receipt.fixed_asset_register_evidence_id+'/movements?asOfDate=2026-07-31&limit=3'+(movementCursor?'&after='+encodeURIComponent(movementCursor):'')});assert.equal(response.status,200,JSON.stringify(response.body));movements.push(...response.body.data.rows);movementCursor=response.body.data.next_cursor;firstCursor??=movementCursor;assert.ok(movements.length<=11);}while(movementCursor);
+   assert.equal(movements.length,includeImpairmentReversal?11:8);assert.equal(new Set(movements.map(item=>item.ledger_line_id)).size,movements.length);
+
+   const analysisReader=await formalWorkflowRoleKernel(ids,'asset-analysis-json-reader','AI_CONTROLLER_REVIEWER');
+   for(const method of ['getAiFixedAssetPostedReconciliation',...(impairmentPosted?['getAiFixedAssetImpairmentAssessments','getAiFixedAssetImpairmentPostedReconciliation']:[])]){
+    const analysisRows=await analysisReader[method]({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId});assert.ok(analysisRows.length>0,method+' must exercise a populated JSON result');
+    for(const evidence of analysisRows){assert.equal(evidence.fixed_asset_register_evidence_id,receipt.fixed_asset_register_evidence_id,method);assert.equal(evidence.period_id,ids.periodId,method);assert.ok(Object.keys(evidence).every(key=>!key.startsWith('refs_read_')),method+' must expose evidence rather than a driver column wrapper');}
+   }
+
+   // Remove one proof family in the disposable fixture, use the real runtime
+   // connection to read it, then restore the exact retained row in finally.
+   for(const table of ['fixed_asset_original_source_binding','fixed_asset_acquisition_posting']){
+    const client=await adminPool.connect();let retained=null,committed=false;
+    try{
+     await client.query('BEGIN');
+     retained=(await client.query('SELECT to_jsonb(t) row FROM '+table+' t WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,acquisition])).rows[0].row;
+     await client.query('ALTER TABLE '+table+' DISABLE TRIGGER USER');
+     const removed=await client.query('DELETE FROM '+table+' WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,acquisition]);assert.equal(removed.rowCount,1,table);
+     await client.query('ALTER TABLE '+table+' ENABLE TRIGGER USER');await client.query('COMMIT');committed=true;
+     const result=await assetReader.readFixedAssetMovements({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-31',limit:100});
+     const missing=result.rows.filter(item=>item.journal_entry_id===acquisition);assert.equal(missing.length,2);
+     for(const item of missing){assert.equal(item.source_binding_status,'BLOCKED_MISSING_EXACT_SOURCE_BINDING',table);for(const field of ['source_document_id','source_payload_hash','source_document_version','source_link_id','acquisition_binding_id','disposal_binding_id'])assert.equal(item[field],null,table+':'+field);}
+     assert.ok(result.rows.filter(item=>item.journal_entry_id===disposal).every(item=>item.source_binding_status==='EXACT_DISPOSAL_SOURCE'));
+    }finally{try{if(committed){await client.query('BEGIN');await client.query('ALTER TABLE '+table+' DISABLE TRIGGER USER');await client.query('INSERT INTO '+table+' SELECT r.* FROM jsonb_populate_record(NULL::'+table+',$1::jsonb) r',[JSON.stringify(retained)]);await client.query('ALTER TABLE '+table+' ENABLE TRIGGER USER');await client.query('COMMIT');}else await client.query('ROLLBACK');}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
+   }
+   const restored=await assetReader.readFixedAssetMovements({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-31',limit:100});
+   assert.ok(restored.rows.filter(item=>item.journal_entry_id===acquisition).every(item=>item.source_binding_status==='EXACT_ACQUISITION_SOURCE'));
+   const retainedLink=(await adminPool.query('SELECT b.source_link_id,b.source_document_line_id,s.source_document_line_id linked_line FROM fixed_asset_acquisition_binding b JOIN source_link s ON s.source_link_id=b.source_link_id WHERE b.tenant_id=$1 AND b.entity_id=$2 AND b.journal_entry_id=$3',[ids.tenantId,ids.entityId,acquisition])).rows[0];
+   assert.ok(retainedLink.source_document_line_id);assert.equal(retainedLink.linked_line,retainedLink.source_document_line_id);
+   const lineFault=await adminPool.connect();let lineChanged=false;
+   try{
+    await lineFault.query('BEGIN');await lineFault.query('ALTER TABLE source_link DISABLE TRIGGER USER');await lineFault.query('UPDATE source_link SET source_document_line_id=NULL WHERE source_link_id=$1',[retainedLink.source_link_id]);await lineFault.query('ALTER TABLE source_link ENABLE TRIGGER USER');await lineFault.query('COMMIT');lineChanged=true;
+    const missingLine=await assetReader.readFixedAssetMovements({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-31',limit:100});
+    const acquisitionRows=missingLine.rows.filter(item=>item.journal_entry_id===acquisition);assert.equal(acquisitionRows.length,2);
+    for(const item of acquisitionRows){assert.equal(item.source_binding_status,'BLOCKED_MISSING_EXACT_SOURCE_BINDING');for(const field of ['source_document_id','source_payload_hash','source_document_version','source_link_id','acquisition_binding_id','disposal_binding_id'])assert.equal(item[field],null,field);}
+   }finally{try{if(lineChanged){await lineFault.query('BEGIN');await lineFault.query('ALTER TABLE source_link DISABLE TRIGGER USER');await lineFault.query('UPDATE source_link SET source_document_line_id=$1 WHERE source_link_id=$2',[retainedLink.source_document_line_id,retainedLink.source_link_id]);await lineFault.query('ALTER TABLE source_link ENABLE TRIGGER USER');await lineFault.query('COMMIT');}else await lineFault.query('ROLLBACK');}catch(error){await lineFault.query('ROLLBACK');throw error;}finally{lineFault.release();}}
+   const lineRestored=await assetReader.readFixedAssetMovements({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-31',limit:100});assert.ok(lineRestored.rows.filter(item=>item.journal_entry_id===acquisition).every(item=>item.source_binding_status==='EXACT_ACQUISITION_SOURCE'));
+
+   const journalApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'asset-ledger-je_reviewer'}),kernelFactory:async()=>roles.JE_REVIEWER});
+   for(const item of movements){const response=await journalApi({method:'GET',url:'/api/v1/entities/'+ids.entityId+'/journal-entries/'+item.journal_entry_id+'?periodId='+item.accounting_period_id});assert.equal(response.status,200,JSON.stringify(response.body));const wire=JSON.parse(JSON.stringify(response.body)).data;assert.ok(matchesAssetMovementJournal(wire,item),'real journal wire must match movement '+JSON.stringify({journal:wire.journal_number,journalPostedAt:wire.posted_at,movementPostedAt:item.posted_at}));}
+   const retainedAudit=(await adminPool.query('SELECT to_jsonb(a) row FROM audit_event a WHERE audit_event_id=$1',[movements[0].posting_audit_event_id])).rows[0].row;
+   for(const patch of [{object_type:'SOURCE_DOCUMENT'},{action:'READ'},{permission_used:'GL.JE.VIEW'},{actor_id:'unrelated-posting-user'},{actor_type:'SYSTEM'}])await adminPool.query('INSERT INTO audit_event SELECT r.* FROM jsonb_populate_record(NULL::audit_event,$1::jsonb) r',[JSON.stringify({...retainedAudit,...patch,audit_event_id:randomUUID()})]);
+   const afterSpoof=await assetReader.readFixedAssetMovements({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-31',limit:100});for(const item of afterSpoof.rows){assert.equal(item.posting_audit_event_count,1);assert.equal(item.posting_audit_event_id,movements.find(prior=>prior.ledger_line_id===item.ledger_line_id).posting_audit_event_id);}
+
+
+   if(process.env.REFS_FIXED_ASSET_BROWSER_E2E==='1'){
+    const actorId='owned-asset-browser-reader',token='owned-asset-browser-'+randomUUID();
+    const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+    await sync.reconcile({tenantId:ids.tenantId,entityId:ids.entityId,actorId,permissions:['FIXED_ASSET.REGISTER.VIEW','GL.JE.VIEW','GL.REPORT.VIEW'],authorityClass:'VIEWER',validUntil:new Date(Date.now()+3600000).toISOString(),expectedVersion:0,idempotencyKey:'owned-asset-browser-read-grant'});
+    const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})}),kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})});
+    const api=createAccountingApi({authenticate:async request=>request.headers?.authorization==='Bearer '+token?{trusted:true,tenantId:ids.tenantId,actorId}:null,kernelFactory:async()=>kernel});
+    const {runFixedAssetBrowserProof}=await import('./helpers/fixed-asset-browser-proof.mjs');await runFixedAssetBrowserProof({api,token,ids,assetTag:row.asset_tag});
+   }
+
+   const report=await roles.JE_REVIEWER.readGeneralLedgerSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,limit:50});assert.match(report.snapshot_token,/^sha256:/);
+   for(const item of movements){assert.equal(item.ledger_lineage_status,'EXACT');assert.ok(item.ledger_source_link_id);assert.equal(item.ledger_source_link_count,1);assert.equal(item.posting_audit_event_count,1);assert.equal(item.journal_total_debit,item.journal_total_credit);assert.ok(item.journal_ledger_line_count>=2);const gl=report.rows.find(entry=>entry.ledger_line_id===item.ledger_line_id);assert.ok(gl,'same ledger row in GL snapshot');assert.equal(gl.journal_entry_id,item.journal_entry_id);assert.equal(gl.debit_amount,item.debit_amount);assert.equal(gl.credit_amount,item.credit_amount);
+    if(item.journal_entry_id===disposal){assert.equal(item.source_binding_status,'EXACT_DISPOSAL_SOURCE');assert.equal(item.source_document_id,disposalTrace.documentId);assert.equal(item.source_payload_hash,hash('auto-doc'));assert.equal(item.source_document_version,1);assert.ok(item.source_link_id);}
+    else if(item.journal_entry_id===acquisition){assert.equal(item.source_binding_status,'EXACT_ACQUISITION_SOURCE');assert.equal(item.source_document_id,trace.documentId);assert.equal(item.source_payload_hash,sourcePayloadHash);assert.equal(item.source_document_version,1);assert.ok(item.acquisition_binding_id);assert.ok(item.source_link_id);assert.equal(item.disposal_binding_id,null);}
+    else{assert.equal(item.source_binding_status,'BLOCKED_MISSING_EXACT_SOURCE_BINDING');assert.equal(item.source_document_id,null);assert.equal(item.source_link_id,null);if(item.impairment_assessment_evidence_id){assert.equal(item.impairment_assessment_evidence_id,assessment.impairment_assessment_evidence_id);assert.equal(item.valuation_source_document_id,trace.documentId);assert.equal(item.valuation_source_payload_hash,sourcePayloadHash);assert.equal(item.impairment_assessment_hash,assessment.impairment_assessment_hash);assert.equal(item.assessment_lineage_status,'EXACT_RETAINED_ASSESSMENT');}}
+   }
+   await assert.rejects(assetReader.readFixedAssetMovements({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-24',after:firstCursor}),e=>e.code==='22023');
+   const financial=await roles.JE_REVIEWER.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId}),units=value=>BigInt(value.replace('.',''));
+   for(const accountCode of new Set(movements.map(item=>item.account_code))){const statement=financial.find(item=>item.statement_type==='TRIAL_BALANCE'&&item.account_code===accountCode),lines=movements.filter(item=>item.account_code===accountCode);assert.ok(statement,'trial balance account '+accountCode);const debit=lines.reduce((sum,item)=>sum+units(item.debit_amount),0n),credit=lines.reduce((sum,item)=>sum+units(item.credit_amount),0n);assert.equal(units(statement.period_debit),debit);assert.equal(units(statement.period_credit),credit);assert.equal(units(statement.ending_debit),debit);assert.equal(units(statement.ending_credit),credit);assert.equal(units(statement.display_balance),debit-credit);
+    for(const item of lines){assert.ok(statement.ledger_line_ids.includes(item.ledger_line_id));assert.ok(statement.journal_line_ids.includes(item.journal_line_id));assert.ok(statement.journal_entry_ids.includes(item.journal_entry_id));const gl=report.rows.find(entry=>entry.ledger_line_id===item.ledger_line_id);assert.deepEqual(gl.source_document_ids,item.journal_entry_id===disposal?[disposalTrace.documentId]:item.journal_entry_id===acquisition?[trace.documentId]:[]);}
+    const expectedSources=[...(lines.some(item=>item.journal_entry_id===disposal)?[disposalTrace.documentId]:[]),...(lines.some(item=>item.journal_entry_id===acquisition)?[trace.documentId]:[])].sort();assert.deepEqual([...statement.source_document_ids].sort(),expectedSources);assert.equal(statement.source_document_ids.includes(trace.documentId),lines.some(item=>item.journal_entry_id===acquisition),'acquisition source is traced only from the exact posted source link');
+   }
+   const movementQuery={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-31'};
+   const earlier=await assetReader.readFixedAssetMovements({...movementQuery,asOfDate:'2026-07-14'});assert.equal(earlier.rows.length,2);assert.ok(earlier.rows.every(item=>item.journal_entry_id===acquisition));
+   const corruptedCursor=firstCursor.slice(0,-1)+(firstCursor.endsWith('0')?'1':'0');await assert.rejects(assetReader.readFixedAssetMovements({...movementQuery,after:corruptedCursor}),e=>e.code==='22023');
+   await assert.rejects(assetReader.readFixedAssetMovements({...movementQuery,entityId:randomUUID(),after:firstCursor}),e=>e.code==='42501');
+   await assert.rejects(assetReader.readFixedAssetMovements({...movementQuery,tenantId:randomUUID(),after:firstCursor}),e=>e.code==='42501');
+   await assert.rejects(assetReader.readFixedAssetMovements({...movementQuery,assetId:randomUUID(),after:firstCursor}),e=>e.code==='P0002');
+   const siblingId=await cloneAssetReadFixture(ids,receipt.fixed_asset_register_evidence_id,'cursor-sibling');await assert.rejects(assetReader.readFixedAssetMovements({...movementQuery,assetId:siblingId,after:firstCursor}),e=>e.code==='22023');
+   const otherAsset=await reviewedFixedAssetFixture(),otherViewer=await formalWorkflowRoleKernel(otherAsset.ids,'other-movement-viewer','FIXED_ASSET_VIEWER');await assert.rejects(otherViewer.readFixedAssetMovements({tenantId:otherAsset.ids.tenantId,entityId:otherAsset.ids.entityId,assetId:otherAsset.receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-31',after:firstCursor}),e=>e.code==='22023');
+
+
+   await assert.rejects(assetReader.readFixedAssetRegister({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-07-31',after:receipt.fixed_asset_register_evidence_id}),e=>e.code==='22023');const empty=await assetReader.readFixedAssetRegister({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-06-30'});assert.deepEqual(empty.rows,[]);assert.equal(empty.next_cursor,null);
+  }
+  await assert.rejects(disposalReviewer.reviewFixedAssetDisposal({...disposalArgs,proceeds:'23000.0000'}),e=>e.code==='23505');
+  for(const event of ['FIXED_ASSET_IMPAIRMENT_REVIEWED','FIXED_ASSET_DISPOSAL_REVIEWED'])for(const table of ['audit_event','outbox_event'])assert.equal((await adminPool.query('SELECT count(*)::int n FROM '+table+' WHERE tenant_id=$1 AND event_type=$2',[ids.tenantId,event])).rows[0].n,1);
+  await assert.rejects(impairmentReviewer.reviewFixedAssetImpairment({...impairmentArgs,assessmentDate:'2026-07-26',idempotencyKey:'asset-impairment-after-disposal'}),e=>e.code==='23514');
+  const rollbackClient=await adminPool.connect();
+  try{await rollbackClient.query('BEGIN');const rollbackSql=await readFile(new URL('../db/migrations/down/337_fixed_asset_disposal_source_binding.sql',import.meta.url),'utf8');await assert.rejects(rollbackClient.query(rollbackSql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'')),e=>e.code==='55006');}
+  finally{try{await rollbackClient.query('ROLLBACK');}finally{rollbackClient.release();}}
+
+  if(includeImpairmentReversal){assert.equal(disposalReceipt.impairment_ledger_line_ids.length,1);const balance=(await adminPool.query("SELECT sum(debit_amount-credit_amount)::text balance FROM ledger_line WHERE tenant_id=$1 AND dimensions->>'fixed_asset_register_evidence_id'=$2 AND account_code='159200'",[ids.tenantId,receipt.fixed_asset_register_evidence_id])).rows[0].balance;assert.equal(balance,'0.0000');const saved=(await adminPool.query('SELECT accumulated_impairment::text amount,impairment_ledger_line_ids FROM fixed_asset_disposal_evidence WHERE fixed_asset_disposal_evidence_id=$1',[disposalReceipt.fixed_asset_disposal_evidence_id])).rows[0];assert.equal(saved.amount,'5000.0000');assert.deepEqual(saved.impairment_ledger_line_ids,disposalReceipt.impairment_ledger_line_ids);}
+  if(losingDraft){
+    const beforeRetry=(await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
+    await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:losingDraft,expectedRevision:4,idempotencyKey:'spare-disposal-after-review'}),e=>e.code==='23514');
+    assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[losingDraft])).rows[0].status,'APPROVED');
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,beforeRetry);
+    for(const table of ['audit_event','outbox_event']){const key=table==='audit_event'?'object_id':'aggregate_id';assert.equal((await adminPool.query('SELECT count(*)::int n FROM '+table+" WHERE "+key+"=$1 AND event_type='JOURNAL_POSTED'",[losingDraft])).rows[0].n,0);}
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM fixed_asset_disposal_posting WHERE tenant_id=$1 AND entity_id=$2 AND fixed_asset_register_evidence_id=$3',[ids.tenantId,ids.entityId,receipt.fixed_asset_register_evidence_id])).rows[0].n,1);
+  }
+  const assetBalances=(await adminPool.query("SELECT account_code,sum(debit_amount-credit_amount)::text balance FROM ledger_line WHERE tenant_id=$1 AND dimensions->>'fixed_asset_register_evidence_id'=$2 AND account_code IN('150100','159100') GROUP BY account_code ORDER BY account_code",[ids.tenantId,receipt.fixed_asset_register_evidence_id])).rows;assert.deepEqual(assetBalances,[{account_code:'150100',balance:'0.0000'},{account_code:'159100',balance:'0.0000'}]);
+}
+
+pgTest('formal fixed asset impairment and disposal reviews bind actual posted asset ledger',async()=>{await exerciseFixedAssetLedger();});
+pgTest('formal fixed asset impairment and disposal rejects backdated disposal after assessment',async()=>{await exerciseFixedAssetLedger(true);});
+
+pgTest('formal fixed asset impairment and disposal rejects omitted impairment reversal',async()=>{await exerciseFixedAssetLedger(false,true);});
+
+pgTest('formal fixed asset impaired disposal reverses posted impairment and derives carrying value and gain',async()=>{await exerciseFixedAssetLedger(false,true,true);});
+
+pgTest('formal fixed asset impaired disposal rejects posted amount mismatching exact assessment',async()=>{await exerciseFixedAssetLedger(false,true,true,7000);});
+pgTest('formal fixed asset impaired disposal rejects unbound posted impairment',async()=>{await exerciseFixedAssetLedger(false,true,true,5000,false);});
+
+pgTest('formal fixed asset source binding rejects posting a journal without retained binding',async()=>{await exerciseFixedAssetLedger(false,false,false,5000,true,false,false);});
+pgTest('formal fixed asset impaired disposal rejects a wrong historical expense counterpart',async()=>{await exerciseFixedAssetLedger(false,true,true,5000,true,true);});
+
+pgTest('formal fixed asset source binding blocks a prebound second disposal after review',async()=>{await exerciseFixedAssetLedger(false,false,false,5000,true,false,true,true);});
+pgTest('formal fixed asset source binding permits only one concurrent disposal posting',async()=>{await exerciseFixedAssetLedger(false,false,false,5000,true,false,true,'CONCURRENT');});
+
+pgTest('formal fixed asset source binding rejects a backdated disposal after a future asset posting',async()=>{await exerciseFixedAssetLedger(false,false,false,5000,true,false,true,false,true);});
+
+pgTest('formal fixed asset source binding serializes future asset posting against backdated disposal',async()=>{await exerciseFixedAssetLedger(false,false,false,5000,true,false,true,false,'CONCURRENT');});
+
+pgTest('formal fixed asset source binding rejects source version hash status and currency drift at posting',async()=>{await exerciseFixedAssetLedger(false,false,false,5000,true,false,true,false,'SOURCE_DRIFT');});
+
+pgTest('fixed asset authoritative register derives dated balances and disposal states through real HTTP',async()=>{await exerciseFixedAssetLedger(false,true,true,5000,true,false,true,false,false,true);});
+pgTest('post-impairment policy rejects a Posted journal with extra balanced lines and writes no evidence',async()=>{await exerciseFixedAssetLedger(false,true,true,5000,true,false,true,false,false,true,true);});
+pgTest('post-impairment policy rejects a disposal on the revised policy effective date',async()=>{await exerciseFixedAssetLedger(false,true,true,5000,true,false,true,false,false,true,false,true);});
+
+pgTest('reviewed post-impairment schedule creates and posts exact next-period depreciation through HTTP',async()=>{
+ const {ids,trace,receipt,roles,assetReader,augustPeriodId,policy,assessment,impairmentJournal}=await exerciseFixedAssetLedger(false,true,true,5000,true,false,true,false,false,true,false,false,true);
+ const maker=roles.FIXED_ASSET_DEPRECIATION_MAKER,assetId=receipt.fixed_asset_register_evidence_id;
+ const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'asset-ledger-fixed_asset_depreciation_maker'}),kernelFactory:async()=>maker});
+ const optionsRequest={method:'GET',url:'/api/v1/entities/'+ids.entityId+'/fixed-assets/register/'+assetId+'/depreciation-options?periodId='+augustPeriodId};
+ const optionResponse=await api(optionsRequest);assert.equal(optionResponse.status,200,JSON.stringify(optionResponse.body));const options=optionResponse.body.data;
+ assert.equal(options.schema_version,'FIXED_ASSET_DEPRECIATION_OPTIONS_V2');assert.equal(options.readiness_status,'READY');assert.equal(options.impairment_recorded,true);assert.equal(options.post_impairment_policy.policy_id,policy.policy_id);assert.equal(options.post_impairment_policy.impairment_assessment_evidence_id,assessment.impairment_assessment_evidence_id);assert.equal(options.post_impairment_policy.impairment_journal_entry_id,impairmentJournal);assert.equal(options.post_impairment_policy.reviewed_by,'asset-ledger-fixed_asset_post_impairment_policy_reviewer');
+ assert.deepEqual({basis:options.schedule.schedule_basis,number:options.schedule.revised_period_number,due:options.schedule.expected_period_depreciation,prior:options.schedule.expected_prior_accumulated_depreciation,accumulated:options.schedule.expected_accumulated_depreciation},{basis:'POST_IMPAIRMENT_REVISED',number:1,due:'154.5455',prior:'2000.0000',accumulated:'2154.5455'});
+ const bypass=async(sql,args=[])=>{const client=await adminPool.connect();try{await client.query("SET session_replication_role='replica'");return await client.query(sql,args);}finally{try{await client.query("SET session_replication_role='origin'");}finally{client.release();}}};
+ await bypass('UPDATE fixed_asset_post_impairment_depreciation_policy SET regular_period_amount=154.5454,final_period_amount=154.5514 WHERE policy_id=$1',[policy.policy_id]);
+ const stale=(await api(optionsRequest)).body.data;assert.equal(stale.readiness_status,'BLOCKED_POST_IMPAIRMENT_POLICY_REQUIRED');assert.equal(stale.post_impairment_policy,null);assert.equal(stale.schedule.schedule_basis,'ORIGINAL_REGISTER');await assert.rejects(maker.createFixedAssetDepreciation({tenantId:ids.tenantId,entityId:ids.entityId,assetId,periodId:augustPeriodId,journalNumber:'STALE-POLICY-DENIED',journalDate:'2026-08-31',expectedRegisterEvidenceHash:options.register_evidence_hash,expectedScheduleHash:options.schedule.schedule_snapshot_hash,reason:'A stale reviewed policy must not create a depreciation draft.',idempotencyKey:'stale-post-impairment-policy-denied'}),error=>error.code==='23514');
+ await bypass('UPDATE fixed_asset_post_impairment_depreciation_policy SET regular_period_amount=154.5455,final_period_amount=154.5405 WHERE policy_id=$1',[policy.policy_id]);
+ assert.equal((await api(optionsRequest)).body.data.readiness_status,'READY');
+ const draftResponse=await api({method:'POST',url:'/api/v1/entities/'+ids.entityId+'/fixed-assets/register/'+assetId+'/depreciations',headers:{'Idempotency-Key':'post-impairment-depreciation-http'},body:{periodId:augustPeriodId,journalNumber:'DEP-2026-08-REVISED',journalDate:'2026-08-31',expectedRegisterEvidenceHash:options.register_evidence_hash,expectedScheduleHash:options.schedule.schedule_snapshot_hash,reason:'Record independently reviewed revised depreciation for August.'}});
+ assert.equal(draftResponse.status,201,JSON.stringify(draftResponse.body));const draft=draftResponse.body.data;assert.equal(draft.expected_amount,'154.5455');assert.equal(draft.period_id,augustPeriodId);assert.equal(draft.schedule_snapshot_hash,options.schedule.schedule_snapshot_hash);
+ for(const [role,action,revision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action,expectedRevision:revision,idempotencyKey:'post-impairment-depreciation-'+action.toLowerCase()});
+ await roles.JE_POSTER.postJournal({...ids,journalEntryId:draft.journal_entry_id,periodId:augustPeriodId,expectedRevision:3,idempotencyKey:'post-impairment-depreciation-post'});
+ const after=(await api(optionsRequest)).body.data;assert.equal(after.readiness_status,'BLOCKED_ALREADY_POSTED');assert.equal(after.actual_prior_accumulated_depreciation,'2000.0000');
+ const asset=(await assetReader.readFixedAssetRegister({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31',assetId,limit:1})).rows[0];assert.equal(asset.accumulated_depreciation,'2154.5455');assert.equal(asset.accumulated_impairment,'5000.0000');assert.equal(asset.net_book_value,'17845.4545');
+ const gl=await roles.JE_REVIEWER.listGeneralLedger({tenantId:ids.tenantId,entityId:ids.entityId,periodId:augustPeriodId,limit:50,offset:0}),lines=gl.filter(row=>row.journal_entry_id===draft.journal_entry_id);assert.deepEqual(lines.map(row=>[row.account_code,row.debit_amount,row.credit_amount]).sort((a,b)=>a[0].localeCompare(b[0])),[['159100','0.0000','154.5455'],['680100','154.5455','0.0000']]);assert.ok(lines.every(row=>row.source_document_ids.includes(trace.documentId)));
+ const movements=await assetReader.readFixedAssetMovements({tenantId:ids.tenantId,entityId:ids.entityId,assetId,asOfDate:'2026-08-31',limit:100}),revised=movements.rows.filter(row=>row.journal_entry_id===draft.journal_entry_id);assert.equal(revised.length,2);assert.ok(revised.every(row=>row.source_binding_status==='EXACT_DEPRECIATION_SOURCE'&&row.depreciation_period_id===augustPeriodId&&row.depreciation_schedule_snapshot_hash===options.schedule.schedule_snapshot_hash&&row.depreciation_expected_amount==='154.5455'));
+ const future=[['2035-08','2035-08-01','2035-08-31',109,'154.5455','18845.4595','18690.9140'],['2035-09','2035-09-01','2035-09-30',110,'154.5405','19000.0000','18845.4595'],['2035-10','2035-10-01','2035-10-31',111,'0.0000','19000.0000','19000.0000']];
+ for(const [code,starts,ends,number,due,accumulated,prior] of future){const periodId=randomUUID();await adminPool.query('INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,$4,$5,$6,\'OPEN\')',[periodId,ids.tenantId,ids.entityId,code,starts,ends]);const schedule=(await adminPool.query('SELECT refs_fixed_asset_depreciation_schedule_snapshot($1,$2,$3,$4) result',[ids.tenantId,ids.entityId,assetId,periodId])).rows[0].result;assert.equal(schedule.schedule_basis,'POST_IMPAIRMENT_REVISED');assert.equal(schedule.revised_period_number,number);assert.equal(schedule.expected_period_depreciation,due);assert.equal(schedule.expected_accumulated_depreciation,accumulated);assert.equal(schedule.expected_prior_accumulated_depreciation,prior);}
+});
+
+pgTest('post-policy impairment balance drift blocks new drafts and atomically rejects a prepared depreciation Post',async()=>{
+ const {ids,receipt,roles,augustPeriodId}=await exerciseFixedAssetLedger(false,true,true,5000,true,false,true,false,false,true,false,false,true),assetId=receipt.fixed_asset_register_evidence_id,maker=roles.FIXED_ASSET_DEPRECIATION_MAKER;
+ const options=await maker.readFixedAssetDepreciationOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId,periodId:augustPeriodId});assert.equal(options.readiness_status,'READY');
+ const depreciation=await maker.createFixedAssetDepreciation({tenantId:ids.tenantId,entityId:ids.entityId,assetId,periodId:augustPeriodId,journalNumber:'DEP-BEFORE-IMPAIRMENT-DRIFT',journalDate:'2026-08-31',expectedRegisterEvidenceHash:options.register_evidence_hash,expectedScheduleHash:options.schedule.schedule_snapshot_hash,reason:'Prepare revised depreciation before a later impairment balance change.',idempotencyKey:'depreciation-before-impairment-drift'});
+ for(const [role,action,revision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:depreciation.journal_entry_id,action,expectedRevision:revision,idempotencyKey:'depreciation-before-drift-'+action.toLowerCase()});
+ const dimensions={fixed_asset_register_evidence_id:assetId},adjustment=await roles.AI_ACCOUNTING_DECISION_MAKER.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:augustPeriodId,journalNumber:'UNREVIEWED-IMPAIRMENT-DRIFT',journalDate:'2026-08-15',currency:'USD',description:'Fixture policy-after impairment account change',attachmentIds:[ids.attachmentId],idempotencyKey:'unreviewed-impairment-drift-create',lines:[{line_no:1,account_code:'680200',debit_amount:1000,credit_amount:0,member_ref:null,dimensions},{line_no:2,account_code:'159200',debit_amount:0,credit_amount:1000,member_ref:null,dimensions}]});
+ for(const [role,action,revision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:adjustment.journal_entry_id,action,expectedRevision:revision,idempotencyKey:'unreviewed-impairment-drift-'+action.toLowerCase()});
+ await roles.JE_POSTER.postJournal({...ids,periodId:augustPeriodId,journalEntryId:adjustment.journal_entry_id,expectedRevision:3,idempotencyKey:'unreviewed-impairment-drift-post'});
+ const blocked=await maker.readFixedAssetDepreciationOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId,periodId:augustPeriodId});assert.equal(blocked.readiness_status,'BLOCKED_POST_IMPAIRMENT_POLICY_REQUIRED');assert.equal(blocked.post_impairment_policy,null);assert.equal(blocked.schedule.schedule_basis,'ORIGINAL_REGISTER');
+ const artifacts=async()=> (await adminPool.query(`SELECT
+  (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,
+  (SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,
+  (SELECT count(*)::int FROM fixed_asset_depreciation_binding WHERE tenant_id=$1) bindings,
+  (SELECT count(*)::int FROM fixed_asset_depreciation_posting WHERE tenant_id=$1) postings,
+  (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type IN('FIXED_ASSET_DEPRECIATION_DRAFT_CREATED','JOURNAL_POSTED')) audits,
+  (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND event_type IN('FIXED_ASSET_DEPRECIATION_DRAFT_CREATED','JOURNAL_POSTED')) outbox,
+  (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1) idempotency`,[ids.tenantId])).rows[0];
+ const beforeDraft=await artifacts();await assert.rejects(maker.createFixedAssetDepreciation({tenantId:ids.tenantId,entityId:ids.entityId,assetId,periodId:augustPeriodId,journalNumber:'DEP-AFTER-IMPAIRMENT-DRIFT',journalDate:'2026-08-31',expectedRegisterEvidenceHash:blocked.register_evidence_hash,expectedScheduleHash:blocked.schedule.schedule_snapshot_hash,reason:'Unreviewed impairment drift must create no depreciation draft.',idempotencyKey:'depreciation-after-impairment-drift'}),error=>error.code==='23514');assert.deepEqual(await artifacts(),beforeDraft);
+ const beforePost=await artifacts();await assert.rejects(roles.JE_POSTER.postJournal({...ids,periodId:augustPeriodId,journalEntryId:depreciation.journal_entry_id,expectedRevision:3,idempotencyKey:'depreciation-post-after-impairment-drift'}),error=>error.code==='23514');assert.deepEqual(await artifacts(),beforePost);
+ assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[depreciation.journal_entry_id])).rows[0].status,'APPROVED');assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[depreciation.journal_entry_id])).rows[0].n,0);
+});
+
+pgTest('successive reviewed impairments retain the active schedule until the next policy effective period',async()=>{
+ const {ids,trace,receipt,roles,augustPeriodId,policy:firstPolicy}=await exerciseFixedAssetLedger(false,true,true,5000,true,false,true,false,false,true,false,false,true),assetId=receipt.fixed_asset_register_evidence_id,maker=roles.FIXED_ASSET_DEPRECIATION_MAKER;
+ const periods={august:augustPeriodId};for(const [name,code,starts,ends] of [['september','2026-09','2026-09-01','2026-09-30'],['october','2026-10','2026-10-01','2026-10-31'],['november','2026-11','2026-11-01','2026-11-30'],['december','2026-12','2026-12-01','2026-12-31'],['january','2027-01','2027-01-01','2027-01-31']]){periods[name]=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,$4,$5,$6,'OPEN')",[periods[name],ids.tenantId,ids.entityId,code,starts,ends]);}
+ const postDepreciation=async(name,periodId,date)=>{const options=await maker.readFixedAssetDepreciationOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId,periodId});assert.equal(options.readiness_status,'READY',name);assert.equal(options.post_impairment_policy.policy_id,firstPolicy.policy_id,name);const draft=await maker.createFixedAssetDepreciation({tenantId:ids.tenantId,entityId:ids.entityId,assetId,periodId,journalNumber:'DEP-2026-'+name.toUpperCase(),journalDate:date,expectedRegisterEvidenceHash:options.register_evidence_hash,expectedScheduleHash:options.schedule.schedule_snapshot_hash,reason:'Post the active reviewed schedule before the next impairment assessment.',idempotencyKey:'successive-policy-depreciation-'+name});for(const [role,action,revision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action,expectedRevision:revision,idempotencyKey:'successive-policy-'+name+'-'+action.toLowerCase()});await roles.JE_POSTER.postJournal({...ids,periodId,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:'successive-policy-'+name+'-post'});return draft;};
+ for(const [name,periodId,date] of [['august',periods.august,'2026-08-31'],['september',periods.september,'2026-09-30'],['october',periods.october,'2026-10-31'],['november',periods.november,'2026-11-30'],['december',periods.december,'2026-12-31']])await postDepreciation(name,periodId,date);
+ const assessment=await roles.FIXED_ASSET_IMPAIRMENT_REVIEWER.reviewFixedAssetImpairment({tenantId:ids.tenantId,entityId:ids.entityId,fixedAssetRegisterEvidenceId:assetId,accountingPeriodId:periods.december,valuationSourceDocumentId:trace.documentId,assessmentDate:'2026-12-31',recoverableAmount:'16227.2725',impairmentExpenseAccountCode:'680200',accumulatedImpairmentAccountCode:'159200',reason:'Second independent valuation reviewed after December depreciation.',idempotencyKey:'second-asset-impairment-review'});assert.equal(assessment.posted_carrying_value,'17227.2725');assert.equal(assessment.impairment_loss,'1000.0000');
+ const dimensions={fixed_asset_register_evidence_id:assetId,fixed_asset_impairment_assessment_evidence_id:assessment.impairment_assessment_evidence_id},impairment=await roles.AI_ACCOUNTING_DECISION_MAKER.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:periods.december,journalNumber:'ASSET-IMPAIRMENT-SECOND',journalDate:'2026-12-31',currency:'USD',description:'Second reviewed fixed asset impairment',attachmentIds:[ids.attachmentId],idempotencyKey:'second-asset-impairment-create',lines:[{line_no:1,account_code:'680200',debit_amount:1000,credit_amount:0,member_ref:null,dimensions},{line_no:2,account_code:'159200',debit_amount:0,credit_amount:1000,member_ref:null,dimensions}]});
+ for(const [role,action,revision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:impairment.journal_entry_id,action,expectedRevision:revision,idempotencyKey:'second-asset-impairment-'+action.toLowerCase()});await roles.JE_POSTER.postJournal({...ids,periodId:periods.december,journalEntryId:impairment.journal_entry_id,expectedRevision:3,idempotencyKey:'second-asset-impairment-post'});
+ const secondPolicy=await roles.FIXED_ASSET_POST_IMPAIRMENT_POLICY_REVIEWER.reviewFixedAssetPostImpairmentPolicy({tenantId:ids.tenantId,entityId:ids.entityId,fixedAssetRegisterEvidenceId:assetId,impairmentAssessmentEvidenceId:assessment.impairment_assessment_evidence_id,effectivePeriodId:periods.january,remainingUsefulLifeMonths:48,convention:'NEXT_PERIOD_FULL_MONTH',reason:'Independently reviewed the second impairment basis and remaining life.',idempotencyKey:'second-post-impairment-policy-review'});assert.equal(secondPolicy.prior_accumulated_depreciation,'2772.7275');assert.equal(secondPolicy.posted_accumulated_impairment,'6000.0000');assert.equal(secondPolicy.revised_carrying_value,'16227.2725');assert.equal(secondPolicy.regular_period_amount,'317.2348');assert.equal(secondPolicy.final_period_amount,'317.2369');
+ const readSchedule=async periodId=>(await adminPool.query('SELECT refs_fixed_asset_depreciation_schedule_snapshot($1,$2,$3,$4) value',[ids.tenantId,ids.entityId,assetId,periodId])).rows[0].value;
+ const assessmentMonth=await readSchedule(periods.december);assert.equal(assessmentMonth.post_impairment_policy_valid,true);assert.equal(assessmentMonth.schedule_basis,'POST_IMPAIRMENT_REVISED');assert.equal(assessmentMonth.post_impairment_policy.policy_id,firstPolicy.policy_id);assert.equal(assessmentMonth.revised_period_number,5);assert.equal(assessmentMonth.expected_period_depreciation,'154.5455');
+ const nextEffective=await maker.readFixedAssetDepreciationOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId,periodId:periods.january});assert.equal(nextEffective.readiness_status,'READY');assert.equal(nextEffective.post_impairment_policy.policy_id,secondPolicy.policy_id);assert.deepEqual({basis:nextEffective.schedule.schedule_basis,number:nextEffective.schedule.revised_period_number,due:nextEffective.schedule.expected_period_depreciation,prior:nextEffective.schedule.expected_prior_accumulated_depreciation,accumulated:nextEffective.schedule.expected_accumulated_depreciation},{basis:'POST_IMPAIRMENT_REVISED',number:1,due:'317.2348',prior:'2772.7275',accumulated:'3089.9623'});
+ for(const [code,starts,ends,number,due,prior,accumulated] of [['2030-12','2030-12-01','2030-12-31',48,'317.2369','17682.7631','18000.0000'],['2031-01','2031-01-01','2031-01-31',49,'0.0000','18000.0000','18000.0000']]){const periodId=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,$4,$5,$6,'OPEN')",[periodId,ids.tenantId,ids.entityId,code,starts,ends]);const schedule=await readSchedule(periodId);assert.equal(schedule.post_impairment_policy.policy_id,secondPolicy.policy_id);assert.equal(schedule.revised_period_number,number);assert.equal(schedule.expected_period_depreciation,due);assert.equal(schedule.expected_prior_accumulated_depreciation,prior);assert.equal(schedule.expected_accumulated_depreciation,accumulated);}
+});
+
+pgTest('missing impairment assessment dimensions invalidate policy evidence before Draft and Post',async()=>{
+ const {ids,receipt,roles,augustPeriodId,assessment,impairmentJournal}=await exerciseFixedAssetLedger(false,true,true,5000,true,false,true,false,false,true,false,false,true),assetId=receipt.fixed_asset_register_evidence_id,maker=roles.FIXED_ASSET_DEPRECIATION_MAKER;
+ const ready=await maker.readFixedAssetDepreciationOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId,periodId:augustPeriodId});assert.equal(ready.readiness_status,'READY');
+ const prepared=await maker.createFixedAssetDepreciation({tenantId:ids.tenantId,entityId:ids.entityId,assetId,periodId:augustPeriodId,journalNumber:'DEP-BEFORE-DIMENSION-LOSS',journalDate:'2026-08-31',expectedRegisterEvidenceHash:ready.register_evidence_hash,expectedScheduleHash:ready.schedule.schedule_snapshot_hash,reason:'Prepare depreciation before testing retained impairment dimension loss.',idempotencyKey:'depreciation-before-dimension-loss'});for(const [role,action,revision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:prepared.journal_entry_id,action,expectedRevision:revision,idempotencyKey:'depreciation-dimension-loss-'+action.toLowerCase()});
+ const bypass=async(sql,args=[])=>{const client=await adminPool.connect();try{await client.query("SET session_replication_role='replica'");return await client.query(sql,args);}finally{try{await client.query("SET session_replication_role='origin'");}finally{client.release();}}},artifacts=async()=> (await adminPool.query(`SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM fixed_asset_depreciation_binding WHERE tenant_id=$1) bindings,(SELECT count(*)::int FROM fixed_asset_depreciation_posting WHERE tenant_id=$1) postings,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type IN('FIXED_ASSET_DEPRECIATION_DRAFT_CREATED','JOURNAL_POSTED')) audits,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND event_type IN('FIXED_ASSET_DEPRECIATION_DRAFT_CREATED','JOURNAL_POSTED')) outbox,(SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1) idempotency`,[ids.tenantId])).rows[0];
+ await bypass("UPDATE ledger_line SET dimensions=dimensions-'fixed_asset_impairment_assessment_evidence_id' WHERE journal_entry_id=$1 AND account_code='680200'",[impairmentJournal]);
+ const oneMissing=await maker.readFixedAssetDepreciationOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId,periodId:augustPeriodId});assert.equal(oneMissing.readiness_status,'BLOCKED_POST_IMPAIRMENT_POLICY_REQUIRED');assert.equal(oneMissing.post_impairment_policy,null);const beforeDraft=await artifacts();await assert.rejects(maker.createFixedAssetDepreciation({tenantId:ids.tenantId,entityId:ids.entityId,assetId,periodId:augustPeriodId,journalNumber:'DEP-ONE-DIMENSION-MISSING',journalDate:'2026-08-31',expectedRegisterEvidenceHash:oneMissing.register_evidence_hash,expectedScheduleHash:oneMissing.schedule.schedule_snapshot_hash,reason:'One missing impairment assessment dimension must create no Draft.',idempotencyKey:'depreciation-one-dimension-missing'}),error=>error.code==='23514');assert.deepEqual(await artifacts(),beforeDraft);
+ await bypass("UPDATE ledger_line SET dimensions=jsonb_set(dimensions,'{fixed_asset_impairment_assessment_evidence_id}',to_jsonb($2::text),true) WHERE journal_entry_id=$1 AND account_code='680200'",[impairmentJournal,assessment.impairment_assessment_evidence_id]);assert.equal((await maker.readFixedAssetDepreciationOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId,periodId:augustPeriodId})).readiness_status,'READY');
+ await bypass("UPDATE ledger_line SET dimensions=dimensions-'fixed_asset_impairment_assessment_evidence_id' WHERE journal_entry_id=$1",[impairmentJournal]);const allMissing=await maker.readFixedAssetDepreciationOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId,periodId:augustPeriodId});assert.equal(allMissing.readiness_status,'BLOCKED_POST_IMPAIRMENT_POLICY_REQUIRED');assert.equal(allMissing.post_impairment_policy,null);
+ const beforePost=await artifacts();await assert.rejects(roles.JE_POSTER.postJournal({...ids,periodId:augustPeriodId,journalEntryId:prepared.journal_entry_id,expectedRevision:3,idempotencyKey:'depreciation-post-all-dimensions-missing'}),error=>error.code==='23514');assert.deepEqual(await artifacts(),beforePost);assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[prepared.journal_entry_id])).rows[0].status,'APPROVED');assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[prepared.journal_entry_id])).rows[0].n,0);
+});
+
+pgTest('fixed asset register read migration roundtrips without changing retained accounting',async()=>{
+ const name='338_fixed_asset_register_read.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};assert.ok(entry);
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect();try{await client.query('BEGIN');await client.query(bodies.down);assert.equal((await client.query("SELECT count(*)::int n FROM pg_proc WHERE proname='refs_read_fixed_asset_register'")).rows[0].n,0);await client.query(bodies.up);assert.equal((await client.query("SELECT count(*)::int n FROM pg_proc WHERE proname='refs_read_fixed_asset_register'")).rows[0].n,1);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('fixed asset signed cursor pages multiple assets without overlap and rejects scope date and signature changes',async()=>{
+ const {ids,receipt}=await reviewedFixedAssetFixture();
+ // Explicit retained-read population fixture. This bulk seed does not prove creation or posting workflows.
+ const template=(await adminPool.query('SELECT to_jsonb(a) asset,to_jsonb(p) proposal,to_jsonb(c) classification FROM fixed_asset_register_evidence a JOIN ai_invoice_capitalization_proposal p ON p.ai_invoice_capitalization_proposal_id=a.capitalization_proposal_id JOIN ai_invoice_accounting_classification_evidence c ON c.ai_invoice_accounting_classification_evidence_id=p.ai_invoice_accounting_classification_evidence_id WHERE a.fixed_asset_register_evidence_id=$1',[receipt.fixed_asset_register_evidence_id])).rows[0];
+ const seeded=[];
+ for(let n=0;n<151;n++){
+  const classificationId=randomUUID(),proposalId=randomUUID(),assetId=randomUUID();seeded.push(assetId);
+  await adminPool.query('INSERT INTO ai_invoice_accounting_classification_evidence SELECT * FROM jsonb_populate_record(NULL::ai_invoice_accounting_classification_evidence,$1::jsonb)',[JSON.stringify({...template.classification,ai_invoice_accounting_classification_evidence_id:classificationId,classification_hash:hash('page-class-'+n)})]);
+  await adminPool.query('INSERT INTO ai_invoice_capitalization_proposal SELECT * FROM jsonb_populate_record(NULL::ai_invoice_capitalization_proposal,$1::jsonb)',[JSON.stringify({...template.proposal,ai_invoice_capitalization_proposal_id:proposalId,ai_invoice_accounting_classification_evidence_id:classificationId,classification_hash:hash('page-class-'+n),proposal_hash:hash('page-proposal-'+n)})]);
+  await adminPool.query('INSERT INTO fixed_asset_register_evidence SELECT * FROM jsonb_populate_record(NULL::fixed_asset_register_evidence,$1::jsonb)',[JSON.stringify({...template.asset,fixed_asset_register_evidence_id:assetId,capitalization_proposal_id:proposalId,asset_tag:'PAGING-'+n,register_evidence_hash:hash('page-asset-'+n)})]);
+ }
+ const reader=await formalWorkflowRoleKernel(ids,'asset-page-viewer','FIXED_ASSET_VIEWER'),query={tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-07-31',limit:50};
+ const first=await reader.readFixedAssetRegister(query);assert.equal(first.rows.length,50);await assert.rejects(reader.readFixedAssetMovements({...query,assetId:receipt.fixed_asset_register_evidence_id,after:first.next_cursor}),e=>e.code==='22023');assert.match(first.next_cursor,/^[A-Za-z0-9+/=]+[.][a-f0-9]{64}$/);const all=[...first.rows.map(row=>row.fixed_asset_register_evidence_id)];let cursor=first.next_cursor,pages=1;
+ while(cursor){const page=await reader.readFixedAssetRegister({...query,after:cursor});all.push(...page.rows.map(row=>row.fixed_asset_register_evidence_id));cursor=page.next_cursor;pages++;assert.ok(pages<=4);}
+ assert.equal(pages,4);assert.deepEqual(all,[receipt.fixed_asset_register_evidence_id,...seeded].sort());assert.equal(new Set(all).size,152);
+ await assert.rejects(reader.readFixedAssetRegister({...query,asOfDate:'2026-07-30',after:first.next_cursor}),e=>e.code==='22023');
+ const changed=first.next_cursor.slice(0,-1)+(first.next_cursor.endsWith('0')?'1':'0');await assert.rejects(reader.readFixedAssetRegister({...query,after:changed}),e=>e.code==='22023');
+ const other=await seed({status:'DRAFT',attachmentStatus:null}),otherReader=await formalWorkflowRoleKernel(other,'other-asset-page-viewer','FIXED_ASSET_VIEWER');
+ await assert.rejects(otherReader.readFixedAssetRegister({tenantId:other.tenantId,entityId:other.entityId,asOfDate:query.asOfDate,after:first.next_cursor}),e=>e.code==='22023');
+});
+
+pgTest('fixed asset read integrity migration roundtrips permissions cursor keys and v2 reader',async()=>{
+ const name='339_fixed_asset_read_integrity.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};assert.ok(entry);
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect();try{await client.query('BEGIN');await client.query(bodies.down);
+ assert.equal((await client.query("SELECT to_regprocedure('refs_read_fixed_asset_register_v2(uuid,uuid,date,integer,text,uuid)') IS NULL missing")).rows[0].missing,true);
+ assert.equal((await client.query("SELECT to_regclass('fixed_asset_read_cursor_key') IS NULL missing")).rows[0].missing,true);
+ const oldDefinition=(await client.query("SELECT pg_get_functiondef('refs_read_fixed_asset_register(uuid,uuid,date,integer,uuid,uuid)'::regprocedure) body")).rows[0].body;assert.match(oldDefinition,/GL.REPORT.VIEW/);assert.doesNotMatch(oldDefinition,/PLACED_IN_SERVICE_DATE|disposal_source_link_id/);
+ const prior=await readFile(new URL('../db/migrations/338_fixed_asset_register_read.sql',import.meta.url),'utf8');await client.query(prior.slice(prior.indexOf('CREATE FUNCTION'),prior.indexOf('REVOKE ALL')).replace('CREATE FUNCTION','CREATE OR REPLACE FUNCTION'));
+ assert.equal((await client.query("SELECT pg_get_functiondef('refs_read_fixed_asset_register(uuid,uuid,date,integer,uuid,uuid)'::regprocedure) body")).rows[0].body,oldDefinition);
+ await client.query(bodies.up);assert.equal((await client.query('SELECT count(*)::int n FROM fixed_asset_read_cursor_key')).rows[0].n,1);
+ assert.equal((await client.query("SELECT has_function_privilege('refs_app','refs_read_fixed_asset_register(uuid,uuid,date,integer,uuid,uuid)','EXECUTE') old_allowed,has_function_privilege('refs_app','refs_read_fixed_asset_register_v2(uuid,uuid,date,integer,text,uuid)','EXECUTE') new_allowed,has_table_privilege('refs_app','fixed_asset_read_cursor_key','SELECT') key_allowed")).rows[0].old_allowed,false);
+ const grants=(await client.query("SELECT has_function_privilege('refs_app','refs_read_fixed_asset_register_v2(uuid,uuid,date,integer,text,uuid)','EXECUTE') new_allowed,has_table_privilege('refs_app','fixed_asset_read_cursor_key','SELECT') key_allowed")).rows[0];assert.equal(grants.new_allowed,true);assert.equal(grants.key_allowed,false);
+ }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('fixed asset register pages 100001 retained assets with bounded first next and deep reads',async()=>{
+ const {ids,receipt}=await reviewedFixedAssetFixture();
+ const template=(await adminPool.query('SELECT to_jsonb(a) asset,to_jsonb(p) proposal,to_jsonb(c) classification FROM fixed_asset_register_evidence a JOIN ai_invoice_capitalization_proposal p ON p.ai_invoice_capitalization_proposal_id=a.capitalization_proposal_id JOIN ai_invoice_accounting_classification_evidence c ON c.ai_invoice_accounting_classification_evidence_id=p.ai_invoice_accounting_classification_evidence_id WHERE a.fixed_asset_register_evidence_id=$1',[receipt.fixed_asset_register_evidence_id])).rows[0];
+ // Seed in bounded batches so fixture preparation does not require one long-running INSERT.
+ // Refresh parent statistics before child FK checks after each abrupt bulk population change.
+ // The measured three-page read budget remains five seconds.
+ // Owned volume-read fixture only. These bulk rows do not establish native review/post workflow acceptance.
+ const client=await adminPool.connect(),seedStarted=Date.now();try{await client.query('BEGIN');await client.query("SET LOCAL statement_timeout='120s'");await client.query('CREATE TEMP TABLE asset_read_volume_ids ON COMMIT DROP AS SELECT n ordinal,gen_random_uuid() classification_id,gen_random_uuid() proposal_id,gen_random_uuid() asset_id FROM generate_series(1,100000) n');
+ for(let first=1;first<=100000;first+=5000)await client.query("INSERT INTO ai_invoice_accounting_classification_evidence SELECT r.* FROM (SELECT * FROM asset_read_volume_ids WHERE ordinal BETWEEN $2 AND $3) n CROSS JOIN LATERAL jsonb_populate_record(NULL::ai_invoice_accounting_classification_evidence,$1::jsonb||jsonb_build_object('ai_invoice_accounting_classification_evidence_id',n.classification_id,'classification_hash',refs_jsonb_hash(jsonb_build_object('volume_class',n.ordinal)))) r",[JSON.stringify(template.classification),first,first+4999]);
+ await client.query('ANALYZE ai_invoice_accounting_classification_evidence');console.log('# asset volume classification seed complete');
+ for(let first=1;first<=100000;first+=5000)await client.query("INSERT INTO ai_invoice_capitalization_proposal SELECT r.* FROM (SELECT * FROM asset_read_volume_ids WHERE ordinal BETWEEN $2 AND $3) n CROSS JOIN LATERAL jsonb_populate_record(NULL::ai_invoice_capitalization_proposal,$1::jsonb||jsonb_build_object('ai_invoice_capitalization_proposal_id',n.proposal_id,'ai_invoice_accounting_classification_evidence_id',n.classification_id,'classification_hash',refs_jsonb_hash(jsonb_build_object('volume_class',n.ordinal)),'proposal_hash',refs_jsonb_hash(jsonb_build_object('volume_proposal',n.ordinal)))) r",[JSON.stringify(template.proposal),first,first+4999]);
+ await client.query('ANALYZE ai_invoice_capitalization_proposal');console.log('# asset volume proposal seed complete');
+ for(let first=1;first<=100000;first+=5000)await client.query("INSERT INTO fixed_asset_register_evidence SELECT r.* FROM (SELECT * FROM asset_read_volume_ids WHERE ordinal BETWEEN $2 AND $3) n CROSS JOIN LATERAL jsonb_populate_record(NULL::fixed_asset_register_evidence,$1::jsonb||jsonb_build_object('fixed_asset_register_evidence_id',n.asset_id,'capitalization_proposal_id',n.proposal_id,'asset_tag','VOLUME-'||n.ordinal,'register_evidence_hash',refs_jsonb_hash(jsonb_build_object('volume_asset',n.ordinal)))) r",[JSON.stringify(template.asset),first,first+4999]);
+ await client.query('COMMIT');}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}console.log('# asset 100001 population seeded in '+(Date.now()-seedStarted)+'ms');
+ await adminPool.query('ANALYZE fixed_asset_register_evidence');
+ const reader=await formalWorkflowRoleKernel(ids,'asset-volume-viewer','FIXED_ASSET_VIEWER'),query={tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-07-31',limit:100};
+ const deep=(await adminPool.query("SELECT fixed_asset_register_evidence_id id,refs_asset_trace_cursor(jsonb_build_object('version',1,'tenant',tenant_id,'entity',entity_id,'as_of','2026-07-31'::date,'after',fixed_asset_register_evidence_id)) cursor FROM fixed_asset_register_evidence WHERE tenant_id=$1 AND entity_id=$2 ORDER BY fixed_asset_register_evidence_id OFFSET 99900 LIMIT 1",[ids.tenantId,ids.entityId])).rows[0];
+ const started=Date.now(),first=await reader.readFixedAssetRegister(query),second=await reader.readFixedAssetRegister({...query,after:first.next_cursor}),tail=await reader.readFixedAssetRegister({...query,after:deep.cursor}),elapsed=Date.now()-started;
+ assert.equal(first.rows.length,100);assert.equal(second.rows.length,100);assert.equal(tail.rows.length,100);assert.equal(tail.next_cursor,null);assert.ok(first.rows.at(-1).fixed_asset_register_evidence_id<second.rows[0].fixed_asset_register_evidence_id);assert.ok(tail.rows[0].fixed_asset_register_evidence_id>deep.id);
+ assert.equal((await adminPool.query('SELECT count(*)::int n FROM fixed_asset_register_evidence WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n,100001);
+ console.log('# asset register first next and deep pages over 100001 rows: '+elapsed+'ms');assert.ok(elapsed<5000,'Three bounded asset pages must finish within five seconds');
+});
+
+pgTest('fixed asset posting audit identity migration roundtrips exact posting predicates without changing events',async()=>{
+ const name='340_fixed_asset_posting_audit_identity.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};assert.ok(entry);
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const start=MIGRATION_MANIFEST.findIndex(row=>row.name===name),tail=MIGRATION_MANIFEST.slice(start+1),tailBodies=new Map();for(const migration of tail)for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+migration.name,import.meta.url),'utf8');tailBodies.set(`${direction}:${migration.name}`,sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,''));}
+ const client=await adminPool.connect();const definition="SELECT pg_get_functiondef('refs_read_fixed_asset_movements(uuid,uuid,uuid,date,integer,text)'::regprocedure) body";
+ try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0].body;assert.match(before,/a.actor_id=l.posted_by/);for(const migration of [...tail].reverse())await client.query(tailBodies.get(`down:${migration.name}`));await client.query(bodies.down);const prior=(await client.query(definition)).rows[0].body;assert.doesNotMatch(prior,/a.actor_id=l.posted_by|a.permission_used='GL.JE.POST'/);await client.query(bodies.up);for(const migration of tail)await client.query(tailBodies.get(`up:${migration.name}`));assert.equal((await client.query(definition)).rows[0].body,before);assert.equal((await client.query("SELECT has_function_privilege('refs_app','refs_read_fixed_asset_movements(uuid,uuid,uuid,date,integer,text)','EXECUTE') allowed")).rows[0].allowed,true);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+async function assertAcquisitionPostRolledBack(ids,journalId,key){
+ const row=(await adminPool.query(`SELECT j.status,j.revision::text,
+ (SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3) ledger,
+ (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND object_id=$3 AND event_type='JOURNAL_POSTED') audits,
+ (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND entity_id=$2 AND aggregate_id=$3 AND event_type='JOURNAL_POSTED') outbox,
+ (SELECT count(*)::int FROM fixed_asset_acquisition_posting WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3) postings,
+ (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key=$4) receipts,
+ (SELECT count(*)::int FROM fixed_asset_source_consumption WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3) consumptions,
+ (SELECT count(*)::int FROM posting_batch WHERE tenant_id=$1 AND entity_id=$2 AND idempotency_key=$4) batches
+ FROM journal_entry j WHERE j.tenant_id=$1 AND j.entity_id=$2 AND j.journal_entry_id=$3`,[ids.tenantId,ids.entityId,journalId,key])).rows[0];
+ assert.deepEqual(row,{status:'APPROVED',revision:'3',ledger:0,audits:0,outbox:0,postings:0,receipts:0,consumptions:0,batches:0});
+}
+
+pgTest('native fixed asset original source migration verifies history or rolls back without certification',async()=>{
+ const name='349_fixed_asset_original_source_binding.sql',bodies={};for(const direction of ['up','down'])bodies[direction]=(await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8')).replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');
+ for(const legacy of [false,true]){
+  const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1',{useOriginalSource:!legacy}),maker=await formalWorkflowRoleKernel(ids,'original-upgrade-maker','FIXED_ASSET_ACQUISITION_MAKER');
+  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'original-upgrade-fixture')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+  let draft;try{
+   if(legacy)await adminPool.query('ALTER TABLE fixed_asset_acquisition_binding DISABLE TRIGGER fixed_asset_original_source_bind');
+   draft=await maker.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'ORIGINAL-UPGRADE',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Retain an acquisition fixture to verify original source migration.',idempotencyKey:'original-upgrade-draft'});
+  }finally{if(legacy)await adminPool.query('ALTER TABLE fixed_asset_acquisition_binding ENABLE TRIGGER fixed_asset_original_source_bind');}
+  const client=await adminPool.connect();try{
+   await client.query('BEGIN');
+   if(!legacy){await client.query('SAVEPOINT down_guard');await assert.rejects(client.query(bodies.down),e=>e.code==='55006');await client.query('ROLLBACK TO SAVEPOINT down_guard');}
+   // Emulate pre-349 schema only inside this owned transaction.
+   const originalFks=(await client.query("SELECT conname FROM pg_constraint WHERE conrelid='fixed_asset_depreciation_binding'::regclass AND confrelid='wbs_payable_original_row_evidence'::regclass")).rows;assert.equal(originalFks.length,1);
+   await client.query(`ALTER TABLE fixed_asset_depreciation_binding DROP CONSTRAINT "${originalFks[0].conname.replaceAll('"','""')}"; DROP TRIGGER fixed_asset_source_original_post_guard ON journal_entry; DROP FUNCTION refs_guard_asset_original_source_post(); DROP TRIGGER fixed_asset_original_source_bind ON fixed_asset_acquisition_binding; DROP FUNCTION refs_bind_asset_original_source(); DROP TABLE fixed_asset_original_source_binding; DROP FUNCTION refs_validate_asset_original_source(uuid,uuid,uuid); ALTER TABLE wbs_payable_original_row_evidence DROP CONSTRAINT original_payable_scoped_hash_unique`);
+   await client.query('DELETE FROM refs_schema_migration WHERE migration_name=$1',[name]);
+   const counts=async()=> (await client.query('SELECT (SELECT count(*) FROM ledger_line)::int ledger,(SELECT count(*) FROM journal_entry)::int journals,(SELECT count(*) FROM audit_event)::int audit,(SELECT count(*) FROM outbox_event)::int outbox')).rows[0];
+   const before=await counts();await client.query('SAVEPOINT upgrade');
+   if(legacy){
+    await assert.rejects(client.query(bodies.up),e=>e.code==='55006');await client.query('ROLLBACK TO SAVEPOINT upgrade');assert.deepEqual(await counts(),before);
+    assert.equal((await client.query("SELECT to_regclass('fixed_asset_original_source_binding') value")).rows[0].value,null);
+    assert.equal((await client.query('SELECT count(*)::int n FROM refs_schema_migration WHERE migration_name=$1',[name])).rows[0].n,0);
+   }else{
+    await client.query(bodies.up);const after=await counts();assert.equal(after.ledger,before.ledger);assert.equal(after.journals,before.journals);
+    const binding=(await client.query('SELECT * FROM fixed_asset_original_source_binding WHERE binding_id=$1',[draft.binding_id])).rows[0];assert.ok(binding.original_evidence_id);
+    const event=(await client.query("SELECT actor_id,actor_type,metadata FROM audit_event WHERE tenant_id=$1 AND event_type='FIXED_ASSET_ORIGINAL_SOURCE_MIGRATED'",[ids.tenantId])).rows[0];
+    assert.equal(event.actor_id,(await client.query('SELECT session_user actor')).rows[0].actor);assert.equal(event.actor_type,'SERVICE_ACCOUNT');assert.equal(event.metadata.original_evidence_hash,binding.original_evidence_hash);
+    assert.equal((await client.query("SELECT count(*)::int n FROM outbox_event WHERE tenant_id=$1 AND event_type='FIXED_ASSET_ORIGINAL_SOURCE_MIGRATED'",[ids.tenantId])).rows[0].n,1);
+   }
+  }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+ }
+});
+
+pgTest('native fixed asset original source rejects missing capture and classification hash drift atomically',async()=>{
+ for(const [options,expected] of [[{useOriginalSource:false},'55006'],[{sourceLineHashOverride:hash('incorrect-classification-line')},'23514'],[{policyEffectiveTo:'2026-07-15'},'23514'],[{policyScopeKey:'wrong-policy-entity'},'23514']]){
+  const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1',options);
+  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'original-negative-fixture')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+  const maker=await formalWorkflowRoleKernel(ids,'original-negative-maker','FIXED_ASSET_ACQUISITION_MAKER');
+  const counts=async()=>{const result={};for(const table of ['journal_entry','journal_line','ledger_line','source_link','fixed_asset_acquisition_binding','fixed_asset_original_source_binding','idempotency_receipt','audit_event','outbox_event'])result[table]=(await adminPool.query('SELECT count(*)::int n FROM '+table+' WHERE tenant_id=$1'+(table==='audit_event'?" AND event_type<>'RUNTIME_CONTEXT_ISSUED'":''),[ids.tenantId])).rows[0].n;return result;};
+  const before=await counts();
+  await assert.rejects(maker.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'ORIGINAL-NEGATIVE',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Verify missing or mismatched original source rejection.',idempotencyKey:'original-negative-draft'}),e=>e.code===expected);
+  assert.deepEqual(await counts(),before);
+ }
+});
+
+pgTest('native fixed asset original source is revalidated at Post',async()=>{
+ for(const failure of ['superseded','missing-binding']){
+  const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1'),roles={};
+  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'original-post-fixture')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+  for(const role of ['FIXED_ASSET_ACQUISITION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'original-post-'+role.toLowerCase(),role);
+  const draft=await roles.FIXED_ASSET_ACQUISITION_MAKER.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'ORIGINAL-POST',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Verify original source is checked again by authoritative Post.',idempotencyKey:'original-post-draft'});
+  for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action,expectedRevision,idempotencyKey:'original-post-'+action});
+  if(failure==='superseded')await adminPool.query('UPDATE raw_event SET is_current=false,superseded_at=clock_timestamp() WHERE raw_event_id=(SELECT raw_event_id FROM source_document WHERE source_document_id=$1)',[trace.documentId]);
+  else{
+   const client=await adminPool.connect();try{await client.query('BEGIN');await client.query('ALTER TABLE fixed_asset_original_source_binding DISABLE TRIGGER fixed_asset_original_binding_immutable');await client.query('DELETE FROM fixed_asset_original_source_binding WHERE binding_id=$1',[draft.binding_id]);await client.query('ALTER TABLE fixed_asset_original_source_binding ENABLE TRIGGER fixed_asset_original_binding_immutable');await client.query('COMMIT');}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+  }
+  await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:'original-post-fail'}),e=>e.code==='23514');
+  await assertAcquisitionPostRolledBack(ids,draft.journal_entry_id,'original-post-fail');
+ }
+});
+
+pgTest('native fixed asset original source serializes supersession and Post in both orders',async()=>{
+ const outcome=p=>p.then(value=>({value}),error=>({error}));
+ const waitFor=async predicate=>{for(let n=0;n<160;n++){if(await predicate())return;await new Promise(r=>setTimeout(r,25));}assert.fail('Expected original source lock barrier was not reached');};
+ for(const mode of ['change-first','post-first']){
+  const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1'),roles={};
+  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'original-race-fixture')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+  for(const role of ['FIXED_ASSET_ACQUISITION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'original-race-'+role.toLowerCase(),role);
+  const draft=await roles.FIXED_ASSET_ACQUISITION_MAKER.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'ORIGINAL-RACE',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Verify authoritative raw source supersession versus Post.',idempotencyKey:'original-race-draft'});
+  for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action,expectedRevision,idempotencyKey:'original-race-'+action});
+  const writer=await adminPool.connect(),writerPid=(await writer.query('SELECT pg_backend_pid() pid')).rows[0].pid;
+  const sql='UPDATE raw_event SET is_current=false,superseded_at=clock_timestamp() WHERE raw_event_id=(SELECT raw_event_id FROM source_document WHERE source_document_id=$1)',args={...ids,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:'original-race-post'};let release=()=>{},posted,changed;
+  try{
+   if(mode==='change-first'){
+    await writer.query('BEGIN');await writer.query(sql,[trace.documentId]);posted=outcome(roles.JE_POSTER.postJournal(args));
+    await waitFor(async()=> (await adminPool.query('SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND $1::int=ANY(pg_blocking_pids(pid))) waiting',[writerPid])).rows[0].waiting);
+    await writer.query('COMMIT');assert.equal((await posted).error?.code,'23514');await assertAcquisitionPostRolledBack(ids,draft.journal_entry_id,args.idempotencyKey);
+   }else{
+    let held=false,postPid;const barrier=new Promise(r=>{release=r;});
+    const pool={connect:async()=>{const client=await runtimePool.connect();postPid=(await client.query('SELECT pg_backend_pid() pid')).rows[0].pid;return {query:async(...q)=>{if(q[0]==='COMMIT'){held=true;await barrier;}return client.query(...q);},release:()=>client.release()};}};
+    const poster=new PostgresAccountingKernel(pool,{sessionProvider:roles.JE_POSTER.sessionProvider});posted=outcome(poster.postJournal(args));await waitFor(async()=>held);
+    changed=outcome(writer.query(sql,[trace.documentId]));await waitFor(async()=> (await adminPool.query('SELECT $1::int=ANY(pg_blocking_pids($2::int)) waiting',[postPid,writerPid])).rows[0].waiting);
+    release();assert.equal((await posted).error,undefined);assert.equal((await changed).error,undefined);
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1 AND journal_entry_id=$2',[ids.tenantId,draft.journal_entry_id])).rows[0].n,2);
+   }
+   assert.equal((await adminPool.query('SELECT count(*)::int n FROM fixed_asset_original_source_binding WHERE binding_id=$1',[draft.binding_id])).rows[0].n,1);
+  }finally{release();try{await writer.query('ROLLBACK');}catch{}if(posted)await posted;if(changed)await changed;writer.release();}
+ }
+});
+
+pgTest('fixed asset acquisition options read exact source attachments without business writes and roundtrip migration',async()=>{
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
+ const maker=await formalWorkflowRoleKernel(ids,'acquisition-options-maker','FIXED_ASSET_ACQUISITION_MAKER'),reviewer=await formalWorkflowRoleKernel(ids,'acquisition-options-reviewer','JE_REVIEWER');
+ const args={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id};
+ const counts=async()=>(await adminPool.query(`SELECT (SELECT count(*) FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*) FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*) FROM idempotency_receipt WHERE tenant_id=$1) receipts,(SELECT count(*) FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') audits,(SELECT count(*) FROM outbox_event WHERE tenant_id=$1) outbox`,[ids.tenantId])).rows[0];
+ const before=await counts(),missing=await maker.readFixedAssetAcquisitionOptions(args);
+ assert.equal(missing.attachment_status,'MISSING');assert.deepEqual(missing.attachments,[]);assert.equal(missing.source.source_document_id,trace.documentId);assert.equal(missing.source.source_document_version,1);assert.equal(missing.requires_command_validation,true);assert.equal(missing.acquisition_posted,false);assert.equal(missing.cost_basis,'25000.0000');assert.match(missing.original_evidence.evidence_hash,/^sha256:[a-f0-9]{64}$/);
+ await assert.rejects(reviewer.readFixedAssetAcquisitionOptions(args),error=>error.code==='42501');
+ await assert.rejects(maker.readFixedAssetAcquisitionOptions({...args,entityId:randomUUID()}),error=>error.code==='42501');
+ await assert.rejects(maker.readFixedAssetAcquisitionOptions({...args,assetId:randomUUID()}),error=>error.code==='P0002');
+ assert.deepEqual(await counts(),before);
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'acquisition-options-maker'}),kernelFactory:async()=>maker});
+ const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/fixed-assets/register/${args.assetId.toUpperCase()}/acquisition-options`});
+ assert.equal(response.status,200,JSON.stringify(response.body));assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.attachment_status,'VERIFIED');assert.equal(response.body.data.attachments[0].attachment_id,ids.attachmentId);assert.deepEqual(Object.keys(response.body.data.attachments[0]).sort(),['attachment_id','name']);assert.deepEqual(await counts(),before);
+ const name='350_fixed_asset_acquisition_options.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect();try{await client.query('BEGIN');await client.query(bodies.down);assert.equal((await client.query("SELECT to_regprocedure('refs_read_fixed_asset_acquisition_options(uuid,uuid,uuid)') name")).rows[0].name,null);await client.query(bodies.up);assert.equal((await client.query("SELECT has_function_privilege('refs_app','refs_read_fixed_asset_acquisition_options(uuid,uuid,uuid)','EXECUTE') allowed")).rows[0].allowed,true);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+ assert.deepEqual(await maker.readFixedAssetAcquisitionOptions(args),response.body.data);assert.deepEqual(await counts(),before);
+});
+
+pgTest('fixed asset acquisition resume options bound pending journals and normalize blank source text',async()=>{
+ const fixture=await reviewedFixedAssetFixture('VENDOR-1'),{ids,trace,receipt}=fixture;
+ const maker=await formalWorkflowRoleKernel(ids,'asset-resume-maker','FIXED_ASSET_ACQUISITION_MAKER'),scope={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id};
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ const created=[];for(let index=0;index<21;index++)created.push(await maker.createFixedAssetAcquisition({...scope,periodId:ids.periodId,journalNumber:'RESUME-'+index,journalDate:'2026-07-01',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Retain Draft history for bounded acquisition resume proof.',idempotencyKey:'asset-resume-'+index}));
+ const options=await maker.readFixedAssetAcquisitionOptions(scope);assert.equal(options.schema_version,'FIXED_ASSET_ACQUISITION_OPTIONS_V2');assert.equal(options.evidence_status,'ACTIVE');assert.equal(options.placed_in_service_date,'2026-07-01');assert.equal(options.pending_journals.length,20);assert.equal(options.more_pending_journals,true);
+ const expected=created.map(row=>row.journal_entry_id).sort().slice(0,20);assert.deepEqual(options.pending_journals.map(row=>row.journal_entry_id),expected);assert.ok(options.pending_journals.every(row=>row.period_id===ids.periodId&&row.journal_date==='2026-07-01'&&row.status==='DRAFT'&&row.revision===0));
+ const legacy=await reviewedFixedAssetFixture('VENDOR-1',{useOriginalSource:false}),legacyMaker=await formalWorkflowRoleKernel(legacy.ids,'legacy-options-maker','FIXED_ASSET_ACQUISITION_MAKER');
+ await adminPool.query("UPDATE source_document SET document_no='   ' WHERE source_document_id=$1",[legacy.trace.documentId]);await adminPool.query("UPDATE source_document_line SET party_ref='' WHERE source_document_id=$1",[legacy.trace.documentId]);
+ const blank=await legacyMaker.readFixedAssetAcquisitionOptions({tenantId:legacy.ids.tenantId,entityId:legacy.ids.entityId,assetId:legacy.receipt.fixed_asset_register_evidence_id});assert.equal(blank.source.document_no,null);assert.equal(blank.vendor_ref,null);assert.equal(blank.original_evidence,null);
+ const name='351_fixed_asset_acquisition_resume_options.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect();try{await client.query('BEGIN');await client.query(bodies.down);assert.match((await client.query("SELECT pg_get_functiondef('refs_read_fixed_asset_acquisition_options(uuid,uuid,uuid)'::regprocedure) body")).rows[0].body,/FIXED_ASSET_ACQUISITION_OPTIONS_V1/);await client.query(bodies.up);assert.match((await client.query("SELECT pg_get_functiondef('refs_read_fixed_asset_acquisition_options(uuid,uuid,uuid)'::regprocedure) body")).rows[0].body,/FIXED_ASSET_ACQUISITION_OPTIONS_V2/);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+ assert.deepEqual(await maker.readFixedAssetAcquisitionOptions(scope),options);
+});
+
+pgTest('fixed asset acquisition real HTTP chain reaches independent roles and exact reports with optional browser proof',async()=>{
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ const uiPeriodId=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[uiPeriodId,ids.tenantId,ids.entityId]);
+ const actorId='owned-acquisition-browser-maker',readerActorId='owned-acquisition-browser-reader',token='owned-acquisition-browser-'+randomUUID(),readerToken='owned-acquisition-browser-reader-'+randomUUID(),roles={};
+ roles.MAKER=await formalWorkflowRoleKernel(ids,actorId,'FIXED_ASSET_ACQUISITION_MAKER',{idempotencyKey:'owned-acquisition-browser-maker-grant'});
+ for(const role of ['JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'owned-acquisition-browser-'+role.toLowerCase(),role,{idempotencyKey:'owned-acquisition-browser-'+role.toLowerCase()+'-grant'});
+ const readerPermissions=['FIXED_ASSET.REGISTER.VIEW','GL.JE.VIEW','GL.REPORT.VIEW'],sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});await sync.reconcile({tenantId:ids.tenantId,entityId:ids.entityId,actorId:readerActorId,permissions:readerPermissions,authorityClass:'VIEWER',validUntil:new Date(Date.now()+3600000).toISOString(),expectedVersion:0,idempotencyKey:'owned-acquisition-browser-reader-grant'});const readerIssuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:readerActorId})});roles.READER=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>readerIssuer.issue({tenantId:ids.tenantId})});
+ const api=createAccountingApi({authenticate:async request=>{const authorization=request.headers?.authorization;if(authorization==='Bearer '+token)return {trusted:true,tenantId:ids.tenantId,actorId};if(authorization==='Bearer '+readerToken)return {trusted:true,tenantId:ids.tenantId,actorId:readerActorId};return null;},kernelFactory:async principal=>principal.actorId===actorId?roles.MAKER:principal.actorId===readerActorId?roles.READER:null});
+ const accessPath=`/api/v1/entities/${ids.entityId}/access/self`;
+ for(const headers of [{},{authorization:'Bearer wrong-token'}])assert.equal((await api({method:'GET',url:accessPath,headers})).status,401,'real handler rejects an absent or different browser identity');
+ const makerAccess=await roles.MAKER.readCurrentActorAccess({tenantId:ids.tenantId,entityId:ids.entityId});assert.deepEqual([...makerAccess.permissions].sort(),['FIXED_ASSET.ACQUISITION.DRAFT','FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']);assert.equal(makerAccess.session_refresh_required,false);
+ const options=await roles.MAKER.readFixedAssetAcquisitionOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id});assert.equal(options.period.period_id,ids.periodId);assert.equal(options.attachments.length,1);
+ const completeWorkflow=async({journalEntryId,periodId,actorAccess,browserDraft})=>{
+  assert.equal(periodId,ids.periodId);assert.equal(browserDraft.journal_date,'2026-07-02');assert.equal(browserDraft.status,'DRAFT');assert.deepEqual([...actorAccess.permissions].sort(),['FIXED_ASSET.ACQUISITION.DRAFT','FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']);
+  for(const [action,expectedRevision] of [['SUBMIT',0],['REVIEW',0],['APPROVE',0]])await assert.rejects(roles.MAKER.transitionJournal({...ids,journalEntryId,action,expectedRevision,idempotencyKey:'browser-maker-denied-'+action.toLowerCase()}),error=>error.code==='42501');
+  await assert.rejects(roles.MAKER.postJournal({...ids,journalEntryId,expectedRevision:0,idempotencyKey:'browser-maker-denied-post'}),error=>error.code==='42501');
+  for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId,action,expectedRevision,idempotencyKey:'browser-acquisition-'+action.toLowerCase()});
+  await roles.JE_POSTER.postJournal({...ids,journalEntryId,expectedRevision:3,idempotencyKey:'browser-acquisition-post'});
+  const gl=await roles.JE_REVIEWER.readGeneralLedgerSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,periodId,limit:50}),lines=gl.rows.filter(row=>row.journal_entry_id===journalEntryId).sort((a,b)=>a.account_code.localeCompare(b.account_code));
+  assert.deepEqual(lines.map(row=>[row.account_code,row.debit_amount,row.credit_amount,row.member_ref]),[['150100','25000.0000','0.0000',null],['291001','0.0000','25000.0000','VENDOR-1']]);assert.ok(lines.every(row=>row.source_document_ids.length===1&&row.source_document_ids[0]===trace.documentId));
+  const financial=await roles.JE_REVIEWER.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId}),trial=financial.filter(row=>row.statement_type==='TRIAL_BALANCE'&&['150100','291001'].includes(row.account_code)).sort((a,b)=>a.account_code.localeCompare(b.account_code));
+  assert.deepEqual(trial.map(row=>[row.account_code,row.period_debit,row.period_credit,row.display_balance]),[['150100','25000.0000','0.0000','25000.0000'],['291001','0.0000','25000.0000','-25000.0000']]);assert.ok(trial.every(row=>row.journal_entry_ids.includes(journalEntryId)&&row.source_document_ids.includes(trace.documentId)));
+  const asset=(await roles.MAKER.readFixedAssetRegister({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-31'})).rows[0];assert.equal(asset.status,'ACTIVE');assert.equal(asset.posted_cost_balance,'25000.0000');assert.equal(asset.net_book_value,'25000.0000');
+  const posting=(await adminPool.query('SELECT count(*)::int n FROM fixed_asset_acquisition_posting WHERE tenant_id=$1 AND entity_id=$2 AND asset_id=$3 AND journal_entry_id=$4',[ids.tenantId,ids.entityId,receipt.fixed_asset_register_evidence_id,journalEntryId])).rows[0].n;assert.equal(posting,1);
+  return {journal_entry_id:journalEntryId,period_id:periodId,status:'POSTED',ledger_line_count:lines.length,source_document_id:trace.documentId,gl_lines:lines.map(row=>({ledger_line_id:row.ledger_line_id,account_code:row.account_code,debit_amount:row.debit_amount,credit_amount:row.credit_amount,source_document_ids:row.source_document_ids})),trial_balance:trial.map(row=>({account_code:row.account_code,period_debit:row.period_debit,period_credit:row.period_credit,display_balance:row.display_balance,source_document_ids:row.source_document_ids})),asset_status:asset.status,posted_cost_balance:asset.posted_cost_balance,maker_later_workflow_denied:true,identity_denials:[401,401],acquisition_posting_count:posting};
+ };
+ if(process.env.REFS_FIXED_ASSET_ACQUISITION_BROWSER_E2E==='1'){
+  const {runFixedAssetAcquisitionBrowserProof}=await import('./helpers/fixed-asset-acquisition-browser-proof.mjs');
+  await runFixedAssetAcquisitionBrowserProof({api,token,readerToken,ids,uiPeriodId,assetId:receipt.fixed_asset_register_evidence_id,assetTag:'BUILDING-001',attachmentName:options.attachments[0].name,completeWorkflow});
+ }else{
+  const request={method:'POST',url:`/api/v1/entities/${ids.entityId}/fixed-assets/register/${receipt.fixed_asset_register_evidence_id}/acquisitions`,headers:{authorization:'Bearer '+token,'idempotency-key':'owned-acquisition-http-business-chain'},body:{periodId:ids.periodId,journalNumber:'HTTP-ASSET-1',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Acquire reviewed building through the real accounting HTTP business chain.'}};
+  const created=await api(request);assert.equal(created.status,201,JSON.stringify(created.body));const journalEntryId=created.body.data.journal_entry_id;
+  const detail=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/journal-entries/${journalEntryId}?periodId=${ids.periodId}`,headers:{authorization:'Bearer '+token}});assert.equal(detail.status,200,JSON.stringify(detail.body));
+  await completeWorkflow({journalEntryId,periodId:ids.periodId,actorAccess:makerAccess,browserDraft:detail.body.data});
+ }
+});
+
+pgTest('native fixed asset acquisition derives a source-bound Draft and prevents duplicate acquisition Post',async()=>{
+ // Policy selection is based on period end, not the earlier invoice date.
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1',{policyEffectiveFrom:'2026-07-15'});
+ const roles={};for(const role of ['AI_ACCOUNTING_DECISION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'native-acquisition-'+role.toLowerCase(),role==='AI_ACCOUNTING_DECISION_MAKER'?'FIXED_ASSET_ACQUISITION_MAKER':role);
+ const maker=roles.AI_ACCOUNTING_DECISION_MAKER;
+ const args={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'NATIVE-ASSET-1',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Acquire reviewed building from the exact retained vendor invoice.',idempotencyKey:'native-asset-draft'};
+ const counts=async()=>(await adminPool.query(`SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM fixed_asset_acquisition_binding WHERE tenant_id=$1) bindings,(SELECT count(*)::int FROM fixed_asset_acquisition_posting WHERE tenant_id=$1) postings,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='FIXED_ASSET_ACQUISITION_DRAFT_CREATED') audits,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox`,[ids.tenantId])).rows[0];
+ const before=await counts();
+ await assert.rejects(maker.createFixedAssetAcquisition({...args,expectedSourceVersion:2,idempotencyKey:'stale-acquisition'}),e=>e.code==='40001');
+ await assert.rejects(roles.JE_REVIEWER.createFixedAssetAcquisition({...args,idempotencyKey:'unauthorized-acquisition'}),e=>e.code==='42501');
+ await assert.rejects(maker.createFixedAssetAcquisition({...args,entityId:randomUUID(),idempotencyKey:'wrong-entity-acquisition'}),e=>e.code==='42501');
+ await assert.rejects(maker.createFixedAssetAcquisition({...args,attachmentIds:[],idempotencyKey:'missing-attachment-acquisition'}));
+ assert.deepEqual(await counts(),before);
+ await assert.rejects(maker.createFixedAssetAcquisition({...args,idempotencyKey:'unrelated-clean-attachment'}),e=>e.code==='23514');
+ assert.deepEqual(await counts(),before);
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ const acquisitionApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'native-acquisition-ai_accounting_decision_maker'}),kernelFactory:async()=>maker});
+ const registerResponse=await acquisitionApi({method:'GET',url:`/api/v1/entities/${ids.entityId}/fixed-assets/register?asOfDate=2026-07-31`});assert.equal(registerResponse.status,200,JSON.stringify(registerResponse.body));assert.ok(registerResponse.body.data.rows.some(row=>row.fixed_asset_register_evidence_id===args.assetId));
+ const detailResponse=await acquisitionApi({method:'GET',url:`/api/v1/entities/${ids.entityId}/fixed-assets/register/${args.assetId}?asOfDate=2026-07-31`});assert.equal(detailResponse.status,200);
+ const optionsResponse=await acquisitionApi({method:'GET',url:`/api/v1/entities/${ids.entityId}/fixed-assets/register/${args.assetId}/acquisition-options`});assert.equal(optionsResponse.status,200,JSON.stringify(optionsResponse.body));
+ const {tenantId:ignoredTenant,entityId:ignoredEntity,assetId:routeAsset,idempotencyKey:commandKey,...commandBody}=args;
+ const request={method:'POST',url:`/api/v1/entities/${ids.entityId}/fixed-assets/register/${routeAsset}/acquisitions`,headers:{'idempotency-key':commandKey},body:commandBody};
+ const staleHttp=await acquisitionApi({...request,headers:{'idempotency-key':'native-http-stale-source'},body:{...commandBody,expectedSourceVersion:2}});
+ assert.equal(staleHttp.status,412,JSON.stringify(staleHttp.body));assert.equal(staleHttp.body.code,'PRECONDITION_FAILED');assert.equal(staleHttp.headers['retry-after'],undefined);
+ const createdResponse=await acquisitionApi({...request,url:request.url.replace(routeAsset,routeAsset.toUpperCase())}),replayedResponse=await acquisitionApi(request);
+ assert.equal(createdResponse.status,201,JSON.stringify(createdResponse.body));assert.equal(replayedResponse.status,200,JSON.stringify(replayedResponse.body));assert.equal(createdResponse.headers.etag,'"0"');
+ const draft=createdResponse.body.data,replay=replayedResponse.body.data;
+ const pendingBefore=await maker.readFixedAssetAcquisitionOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId:args.assetId});assert.equal(pendingBefore.pending_journals.length,1);assert.equal(pendingBefore.pending_journals[0].journal_entry_id,draft.journal_entry_id);assert.equal(pendingBefore.more_pending_journals,false);
+ const journalResponse=await acquisitionApi({method:'GET',url:`/api/v1/entities/${ids.entityId}/journal-entries/${draft.journal_entry_id}?periodId=${ids.periodId}`});assert.equal(journalResponse.status,200,JSON.stringify(journalResponse.body));
+ assert.equal(draft.status,'DRAFT');assert.equal(draft.source_document_id,trace.documentId);assert.equal(draft.source_document_version,1);assert.equal(replay.journal_entry_id,draft.journal_entry_id);assert.equal(replay.idempotent,true);
+ const original=(await adminPool.query('SELECT b.original_evidence_id,b.original_evidence_hash,o.evidence_id,o.evidence_hash FROM fixed_asset_original_source_binding b JOIN wbs_payable_original_row_evidence o ON o.evidence_id=b.original_evidence_id WHERE binding_id=$1',[draft.binding_id])).rows[0];
+ assert.equal(original.original_evidence_id,original.evidence_id);assert.equal(original.original_evidence_hash,original.evidence_hash);
+ for(const table of ['audit_event','outbox_event'])assert.equal((await adminPool.query('SELECT count(*)::int n FROM '+table+" WHERE tenant_id=$1 AND event_type='FIXED_ASSET_ORIGINAL_SOURCE_BOUND'",[ids.tenantId])).rows[0].n,1);
+ const binding=(await adminPool.query('SELECT b.source_document_line_id,b.attachment_ids,b.attachment_snapshot_hash,sl.source_document_line_id linked_line FROM fixed_asset_acquisition_binding b JOIN source_link sl ON sl.source_link_id=b.source_link_id WHERE b.binding_id=$1',[draft.binding_id])).rows[0];
+ assert.equal(binding.linked_line,binding.source_document_line_id);assert.deepEqual(binding.attachment_ids,[ids.attachmentId]);assert.match(binding.attachment_snapshot_hash,/^sha256:[a-f0-9]{64}$/);
+ await assert.rejects(maker.createFixedAssetAcquisition({...args,journalNumber:'CONFLICT'}),e=>e.code==='23505');
+ const lines=(await adminPool.query('SELECT account_code,debit_amount::text,credit_amount::text,member_ref,dimensions FROM journal_line WHERE tenant_id=$1 AND journal_entry_id=$2 ORDER BY line_no',[ids.tenantId,draft.journal_entry_id])).rows;
+ assert.deepEqual(lines.map(l=>[l.account_code,l.debit_amount,l.credit_amount,l.member_ref]),[['150100','25000.0000','0.0000',null],['291001','0.0000','25000.0000','VENDOR-1']]);assert.ok(lines.every(l=>l.dimensions.fixed_asset_register_evidence_id===args.assetId));
+ const after=await counts();assert.equal(after.journals,before.journals+1);assert.equal(after.ledger,before.ledger);assert.equal(after.bindings,1);assert.equal(after.audits,1);
+ // A second unposted Draft remains possible, but only one may acquire the asset.
+ const second=await maker.createFixedAssetAcquisition({...args,journalNumber:'NATIVE-ASSET-2',idempotencyKey:'native-asset-draft-2'});
+ const manual=await maker.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalNumber:'MANUAL-ASSET-BYPASS',journalDate:'2026-07-02',currency:'USD',description:'Attempt manual asset acquisition bypass',attachmentIds:[ids.attachmentId],idempotencyKey:'manual-asset-bypass-create',lines:lines.map((l,i)=>({...l,line_no:i+1}))});
+ const missingDimensions=[];for(const [index,dimensions] of [{},{fixed_asset_register_evidence_id:randomUUID()},{fixed_asset_register_evidence_id:'not-an-asset-id'}].entries())missingDimensions.push(await maker.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalNumber:'ASSET-INVALID-DIMENSION-'+index,journalDate:'2026-07-02',currency:'USD',description:'Attempt missing or unknown asset dimension bypass',attachmentIds:[ids.attachmentId],idempotencyKey:'asset-invalid-dimension-create-'+index,lines:lines.map((l,i)=>({...l,line_no:i+1,dimensions}))}));
+ for(const d of [draft,second,manual,...missingDimensions])for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:d.journal_entry_id,action,expectedRevision,idempotencyKey:d.journal_entry_id+'-'+action});
+ const beforeManual=await counts();
+ for(const missingDimension of missingDimensions){await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:missingDimension.journal_entry_id,expectedRevision:3,idempotencyKey:'invalid-dimension-post-'+missingDimension.journal_entry_id}),e=>e.code==='23514');assert.deepEqual(await counts(),beforeManual);await assertAcquisitionPostRolledBack(ids,missingDimension.journal_entry_id,'invalid-dimension-post-'+missingDimension.journal_entry_id);}
+ await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:manual.journal_entry_id,expectedRevision:3,idempotencyKey:'manual-before-native-post'}),e=>e.code==='23514');assert.deepEqual(await counts(),beforeManual);
+ await assertAcquisitionPostRolledBack(ids,manual.journal_entry_id,'manual-before-native-post');
+ const beforeDrift=await counts();
+ await adminPool.query('UPDATE source_document SET version=version+1 WHERE source_document_id=$1',[trace.documentId]);
+ await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:'native-acquisition-stale-post'}),e=>e.code==='23514');
+ assert.deepEqual(await counts(),beforeDrift);await assertAcquisitionPostRolledBack(ids,draft.journal_entry_id,'native-acquisition-stale-post');
+ await adminPool.query('UPDATE source_document SET version=version-1 WHERE source_document_id=$1',[trace.documentId]);
+ const race=await Promise.allSettled([
+ roles.JE_POSTER.postJournal({...ids,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:'native-acquisition-post'}),
+ roles.JE_POSTER.postJournal({...ids,journalEntryId:manual.journal_entry_id,expectedRevision:3,idempotencyKey:'manual-racing-native-post'})]);
+ assert.equal(race[0].status,'fulfilled');assert.equal(race[1].status,'rejected');assert.equal(race[1].reason.code,'23514');await assertAcquisitionPostRolledBack(ids,manual.journal_entry_id,'manual-racing-native-post');
+ const posted=await counts();assert.equal(posted.ledger,before.ledger+2);assert.equal(posted.postings,1);
+ const pendingAfter=await maker.readFixedAssetAcquisitionOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId:args.assetId});assert.equal(pendingAfter.acquisition_posted,true);assert.ok(pendingAfter.pending_journals.every(row=>row.journal_entry_id!==draft.journal_entry_id));assert.ok(pendingAfter.pending_journals.some(row=>row.journal_entry_id===second.journal_entry_id&&row.status==='APPROVED'));
+ await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:second.journal_entry_id,expectedRevision:3,idempotencyKey:'native-acquisition-duplicate-post'}),e=>['23514','23505'].includes(e.code));
+ assert.deepEqual(await counts(),posted);await assertAcquisitionPostRolledBack(ids,second.journal_entry_id,'native-acquisition-duplicate-post');
+ await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:manual.journal_entry_id,expectedRevision:3,idempotencyKey:'manual-after-native-post'}),e=>e.code==='23514');assert.deepEqual(await counts(),posted);await assertAcquisitionPostRolledBack(ids,manual.journal_entry_id,'manual-after-native-post');
+ await assert.rejects(adminPool.query('DELETE FROM fixed_asset_acquisition_binding WHERE journal_entry_id=$1',[draft.journal_entry_id]),e=>e.code==='55000');
+ const rollback=await readFile(new URL('../db/migrations/down/343_fixed_asset_acquisition_required.sql',import.meta.url),'utf8'),client=await adminPool.connect();try{await client.query('BEGIN');await assert.rejects(client.query(rollback.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'')),e=>e.code==='55006');}finally{try{await client.query('ROLLBACK');}finally{client.release();}}assert.deepEqual(await counts(),posted);
+});
+
+pgTest('native fixed asset acquisition rollback preserves source consumption dependencies',async()=>{
+ const name='341_fixed_asset_acquisition_draft.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};assert.ok(entry);
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect();try{await client.query('BEGIN');await assert.rejects(client.query(bodies.down),e=>e.code==='2BP01');}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+ assert.equal((await adminPool.query("SELECT to_regclass('fixed_asset_source_consumption') IS NOT NULL present")).rows[0].present,true);
+});
+
+pgTest('native fixed asset acquisition source evidence rejects appended attachments and roundtrips exact line binding',async()=>{
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ const roles={};for(const role of ['FIXED_ASSET_ACQUISITION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'attachment-acquisition-'+role.toLowerCase(),role);
+ const args={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'SOURCE-ATTACHMENT-ASSET',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Acquire asset using the immutable retained source attachments.',idempotencyKey:'attachment-asset-draft'};
+ const draft=await roles.FIXED_ASSET_ACQUISITION_MAKER.createFixedAssetAcquisition(args);
+ for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action,expectedRevision,idempotencyKey:'attachment-asset-'+action});
+ const other=randomUUID();await adminPool.query("INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,scan_status,finalization_status,finalized_at,verified_at) SELECT $2::uuid,tenant_id,entity_id,'additional.pdf',media_type,size_bytes,content_hash,'object://additional/'||($2::uuid)::text,storage_version,uploaded_by,uploaded_at,scan_status,finalization_status,finalized_at,verified_at FROM attachment WHERE attachment_id=$1",[ids.attachmentId,other]);
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,other]);
+ const counts=async()=>(await adminPool.query(`SELECT (SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM fixed_asset_acquisition_posting WHERE tenant_id=$1) postings,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='JOURNAL_POSTED') audits,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox`,[ids.tenantId])).rows[0];
+ const before=await counts();await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:'attachment-drift-post'}),e=>e.code==='23514');assert.deepEqual(await counts(),before);await assertAcquisitionPostRolledBack(ids,draft.journal_entry_id,'attachment-drift-post');
+ assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[draft.journal_entry_id])).rows[0].status,'APPROVED');
+ const name='342_fixed_asset_acquisition_source_evidence.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect();try{await client.query('BEGIN');await assert.rejects(client.query(bodies.down),e=>e.code==='55006');}finally{try{await client.query('ROLLBACK');}finally{client.release();}}assert.deepEqual(await counts(),before);assert.equal((await adminPool.query('SELECT cardinality(attachment_ids) n FROM fixed_asset_acquisition_binding WHERE binding_id=$1',[draft.binding_id])).rows[0].n,1);assert.match((await adminPool.query("SELECT pg_get_functiondef(oid) body FROM pg_proc WHERE proname='refs_guard_bound_asset_acquisition_post'")).rows[0].body,/sl.source_document_line_id=binding.source_document_line_id/);
+});
+
+pgTest('fixed asset acquisition history upgrade accepts bound history and rejects legacy unbound Posted cost',async()=>{
+ const name='344_fixed_asset_acquisition_history_guard.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),sql=await readFile(new URL('../db/migrations/'+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry.up);const body=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');
+ const check=async(reject=false)=>{const client=await adminPool.connect();try{await client.query('BEGIN');if(reject)await assert.rejects(client.query(body),e=>e.code==='55006');else await client.query(body);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}};
+ const valid=await reviewedFixedAssetFixture('VENDOR-1'),validRoles={};
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[valid.ids.tenantId,valid.ids.entityId,valid.trace.documentId,valid.ids.attachmentId]);
+ for(const role of ['FIXED_ASSET_ACQUISITION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])validRoles[role]=await formalWorkflowRoleKernel(valid.ids,'valid-history-'+role.toLowerCase(),role);
+ const acquired=await validRoles.FIXED_ASSET_ACQUISITION_MAKER.createFixedAssetAcquisition({tenantId:valid.ids.tenantId,entityId:valid.ids.entityId,assetId:valid.receipt.fixed_asset_register_evidence_id,periodId:valid.ids.periodId,journalNumber:'VALID-HISTORICAL-ASSET',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[valid.ids.attachmentId],reason:'Establish fully bound Posted acquisition history before upgrade.',idempotencyKey:'valid-history-create'});
+ for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await validRoles[role].transitionJournal({...valid.ids,journalEntryId:acquired.journal_entry_id,action,expectedRevision,idempotencyKey:'valid-history-'+action});
+ await validRoles.JE_POSTER.postJournal({...valid.ids,journalEntryId:acquired.journal_entry_id,expectedRevision:3,idempotencyKey:'valid-history-post'});
+ const validHistory=async()=>(await adminPool.query(`SELECT (SELECT jsonb_agg(to_jsonb(l) ORDER BY l.ledger_line_id) FROM ledger_line l WHERE l.tenant_id=$1) ledger,(SELECT jsonb_agg(to_jsonb(b)) FROM fixed_asset_acquisition_binding b WHERE b.tenant_id=$1) bindings,(SELECT jsonb_agg(to_jsonb(p)) FROM fixed_asset_acquisition_posting p WHERE p.tenant_id=$1) postings`,[valid.ids.tenantId])).rows[0];
+ const validBefore=await validHistory();assert.equal(validBefore.ledger.length,2);assert.equal(validBefore.bindings.length,1);assert.equal(validBefore.postings.length,1);await check();assert.deepEqual(await validHistory(),validBefore);
+ const {ids,receipt}=await reviewedFixedAssetFixture('VENDOR-1'),roles={};for(const role of ['AI_ACCOUNTING_DECISION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'legacy-acquisition-'+role.toLowerCase(),role);
+ const journal=await roles.AI_ACCOUNTING_DECISION_MAKER.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalNumber:'LEGACY-ASSET-COST',journalDate:'2026-07-02',currency:'USD',description:'Reproduce historical unbound asset cost before the new guard.',attachmentIds:[ids.attachmentId],idempotencyKey:'legacy-asset-create',lines:[{line_no:1,account_code:'150100',debit_amount:25000,credit_amount:0,dimensions:{fixed_asset_register_evidence_id:receipt.fixed_asset_register_evidence_id}},{line_no:2,account_code:'291001',debit_amount:0,credit_amount:25000,member_ref:'VENDOR-1',dimensions:{fixed_asset_register_evidence_id:receipt.fixed_asset_register_evidence_id}}]});
+ for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:journal.journal_entry_id,action,expectedRevision,idempotencyKey:'legacy-asset-'+action});
+ // Owned fresh database only: emulate the pre-343 engine while retaining the real workflow.
+ await adminPool.query('ALTER TABLE journal_entry DISABLE TRIGGER fixed_asset_acquisition_required_guard');
+ try{await roles.JE_POSTER.postJournal({...ids,journalEntryId:journal.journal_entry_id,expectedRevision:3,idempotencyKey:'legacy-asset-post'});}finally{await adminPool.query('ALTER TABLE journal_entry ENABLE TRIGGER fixed_asset_acquisition_required_guard');}
+ const history=async()=>(await adminPool.query(`SELECT (SELECT jsonb_agg(to_jsonb(l) ORDER BY l.ledger_line_id) FROM ledger_line l WHERE l.tenant_id=$1) ledger,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='JOURNAL_POSTED') audits,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox,(SELECT count(*)::int FROM fixed_asset_acquisition_binding WHERE tenant_id=$1) bindings,(SELECT status FROM journal_entry WHERE journal_entry_id=$2) status`,[ids.tenantId,journal.journal_entry_id])).rows[0];
+ const before=await history();assert.equal(before.ledger.length,2);assert.equal(before.status,'POSTED');assert.equal(before.bindings,0);await check(true);assert.deepEqual(await history(),before);
+});
+
+pgTest('fixed asset source consumption admits only one asset per source line and rejects later generic reuse',async()=>{
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ // Two separately retained review fixtures refer to the same invoice line.
+ const evidenceId=randomUUID(),proposalId=randomUUID(),assetId=randomUUID();
+ await adminPool.query(`INSERT INTO ai_invoice_accounting_classification_evidence SELECT (jsonb_populate_record(NULL::ai_invoice_accounting_classification_evidence,to_jsonb(c)||$2::jsonb)).* FROM ai_invoice_accounting_classification_evidence c JOIN ai_invoice_capitalization_proposal p ON p.ai_invoice_accounting_classification_evidence_id=c.ai_invoice_accounting_classification_evidence_id WHERE p.ai_invoice_capitalization_proposal_id=$1`,[receipt.capitalization_proposal_id,JSON.stringify({ai_invoice_accounting_classification_evidence_id:evidenceId,classification_hash:hash('second-asset-classification')})]);
+ await adminPool.query(`INSERT INTO ai_invoice_capitalization_proposal SELECT (jsonb_populate_record(NULL::ai_invoice_capitalization_proposal,to_jsonb(p)||$2::jsonb)).* FROM ai_invoice_capitalization_proposal p WHERE p.ai_invoice_capitalization_proposal_id=$1`,[receipt.capitalization_proposal_id,JSON.stringify({ai_invoice_capitalization_proposal_id:proposalId,ai_invoice_accounting_classification_evidence_id:evidenceId,classification_hash:hash('second-asset-classification'),proposal_hash:hash('second-asset-proposal')})]);
+ await adminPool.query(`INSERT INTO fixed_asset_register_evidence SELECT (jsonb_populate_record(NULL::fixed_asset_register_evidence,to_jsonb(a)||$2::jsonb)).* FROM fixed_asset_register_evidence a WHERE a.fixed_asset_register_evidence_id=$1`,[receipt.fixed_asset_register_evidence_id,JSON.stringify({fixed_asset_register_evidence_id:assetId,capitalization_proposal_id:proposalId,asset_tag:'SECOND-SAME-SOURCE',register_evidence_hash:hash('second-asset-review')})]);
+ const roles={};for(const role of ['AI_ACCOUNTING_DECISION_MAKER','FIXED_ASSET_ACQUISITION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'source-consumption-'+role.toLowerCase(),role);
+ const drafts=[];for(const [index,id] of [receipt.fixed_asset_register_evidence_id,assetId].entries())drafts.push(await roles.FIXED_ASSET_ACQUISITION_MAKER.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:id,periodId:ids.periodId,journalNumber:'SAME-SOURCE-'+index,journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Attempt independently reviewed assets sharing an invoice line.',idempotencyKey:'same-source-draft-'+index}));
+ const approve=async d=>{for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:d.journal_entry_id,action,expectedRevision,idempotencyKey:d.journal_entry_id+'-'+action});};
+ for(const d of drafts)await approve(d);
+ const generic=await roles.AI_ACCOUNTING_DECISION_MAKER.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalNumber:'GENERIC-REUSED-SOURCE',journalDate:'2026-07-02',currency:'USD',description:'Generic journal attempts to reuse acquired source',attachmentIds:[ids.attachmentId],idempotencyKey:'generic-reused-source-create',lines:[{line_no:1,account_code:'680100',debit_amount:25000,credit_amount:0},{line_no:2,account_code:'291001',debit_amount:0,credit_amount:25000,member_ref:'VENDOR-1'}]});
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,journal_entry_id,created_by) VALUES($1,$2,'SOURCE_TO_JE',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,generic.journal_entry_id]);await approve(generic);
+ const outcomes=await Promise.allSettled(drafts.map((d,index)=>roles.JE_POSTER.postJournal({...ids,journalEntryId:d.journal_entry_id,expectedRevision:3,idempotencyKey:'same-source-post-'+index})));
+ assert.equal(outcomes.filter(r=>r.status==='fulfilled').length,1);const loser=outcomes.findIndex(r=>r.status==='rejected');assert.ok(['23514','23505'].includes(outcomes[loser].reason.code));await assertAcquisitionPostRolledBack(ids,drafts[loser].journal_entry_id,'same-source-post-'+loser);
+ const consumed=(await adminPool.query('SELECT * FROM fixed_asset_source_consumption WHERE tenant_id=$1',[ids.tenantId])).rows;assert.equal(consumed.length,1);assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,2);
+
+ await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:generic.journal_entry_id,expectedRevision:3,idempotencyKey:'generic-reused-source-post'}),e=>e.code==='23514');await assertAcquisitionPostRolledBack(ids,generic.journal_entry_id,'generic-reused-source-post');
+ await assert.rejects(adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,source_document_line_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,$5,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,consumed[0].source_document_line_id,ids.attachmentId]),e=>e.code==='23514');
+});
+
+pgTest('fixed asset source consumption serializes generic-first and simultaneous generic acquisition posts',async()=>{
+ for(const mode of ['generic-first','race']){
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1'),roles={};await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ for(const role of ['AI_ACCOUNTING_DECISION_MAKER','FIXED_ASSET_ACQUISITION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'mixed-source-'+role.toLowerCase(),role);
+ const args={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'MIXED-NATIVE',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Native source consumption competes with existing generic accounting.',idempotencyKey:'mixed-native-create'};
+ const native=await roles.FIXED_ASSET_ACQUISITION_MAKER.createFixedAssetAcquisition(args),lineId=(await adminPool.query('SELECT source_document_line_id FROM fixed_asset_acquisition_binding WHERE binding_id=$1',[native.binding_id])).rows[0].source_document_line_id;
+ const generic=await roles.AI_ACCOUNTING_DECISION_MAKER.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalNumber:'MIXED-GENERIC',journalDate:'2026-07-02',currency:'USD',description:'Generic expense shares the exact invoice line',attachmentIds:[ids.attachmentId],idempotencyKey:'mixed-generic-create',lines:[{line_no:1,account_code:'680100',debit_amount:25000,credit_amount:0},{line_no:2,account_code:'291001',debit_amount:0,credit_amount:25000,member_ref:'VENDOR-1'}]});
+ // The line-only shape is normalized to its authoritative document on insert.
+ const linked=(await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_line_id,journal_entry_id,created_by) VALUES($1,$2,'SOURCE_TO_JE',$3,$4,'fixture-source-owner') RETURNING source_document_id",[ids.tenantId,ids.entityId,lineId,generic.journal_entry_id])).rows[0];assert.equal(linked.source_document_id,trace.documentId);
+ for(const d of [native,generic])for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:d.journal_entry_id,action,expectedRevision,idempotencyKey:d.journal_entry_id+'-'+action});
+ const post=(d,key)=>roles.JE_POSTER.postJournal({...ids,journalEntryId:d.journal_entry_id,expectedRevision:3,idempotencyKey:key});
+ if(mode==='generic-first'){await post(generic,'mixed-generic-post');await assert.rejects(post(native,'mixed-native-post'),e=>e.code==='23514');await assertAcquisitionPostRolledBack(ids,native.journal_entry_id,'mixed-native-post');}
+ else{const r=await Promise.allSettled([post(generic,'mixed-generic-post'),post(native,'mixed-native-post')]);assert.equal(r.filter(x=>x.status==='fulfilled').length,1);const index=r.findIndex(x=>x.status==='rejected');assert.equal(r[index].reason.code,'23514');await assertAcquisitionPostRolledBack(ids,[generic,native][index].journal_entry_id,['mixed-generic-post','mixed-native-post'][index]);}
+ assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,2);
+ const journalCount=(await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;await assert.rejects(roles.FIXED_ASSET_ACQUISITION_MAKER.createFixedAssetAcquisition({...args,journalNumber:'REUSED-LATER',idempotencyKey:'reuse-after-post-create'}),e=>e.code==='23514');assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalCount);
+ await assert.rejects(adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_line_id,journal_entry_id,created_by) VALUES($1,$2,'SOURCE_TO_JE',$3,$4,'fixture-source-owner')",[ids.tenantId,ids.entityId,lineId,generic.journal_entry_id]),e=>e.code==='23514');
+ }
+});
+
+pgTest('fixed asset attachment identity rejects source reparenting in both lock orders',async()=>{
+ const outcome=p=>p.then(value=>({value}),error=>({error}));
+ const waitBlocked=async(holder,waiter)=>{for(let n=0;n<160;n++){if((await adminPool.query('SELECT $1::int=ANY(pg_blocking_pids($2::int)) waiting',[holder,waiter])).rows[0].waiting)return;await new Promise(r=>setTimeout(r,25));}assert.fail('Expected source identity lock was not reached');};
+ for(const order of ['line-first','attachment-first']){
+  const ids=await seed({status:'DRAFT',attachmentStatus:'VERIFIED_CLEAN'}),source=await attachAutoSource(ids,{linkJournal:false}),other=await attachAutoSource({...ids,journalId:randomUUID()},{linkJournal:false,reuseApprovedSnapshots:true});
+  const line=(await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction) VALUES($1,$2,$3,'identity-line',1,100,'DEBIT') RETURNING source_document_line_id",[ids.tenantId,ids.entityId,source.documentId])).rows[0].source_document_line_id;
+  const a=await adminPool.connect(),b=await adminPool.connect(),aPid=(await a.query('SELECT pg_backend_pid() pid')).rows[0].pid,bPid=(await b.query('SELECT pg_backend_pid() pid')).rows[0].pid;
+  const insert="INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_line_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'identity-lock-fixture') RETURNING source_document_id",params=[ids.tenantId,ids.entityId,line,ids.attachmentId];let pending;
+  try{
+   await a.query('BEGIN');
+   if(order==='line-first'){
+    await a.query('SELECT 1 FROM source_document_line WHERE source_document_line_id=$1 FOR UPDATE',[line]);
+    pending=outcome(b.query(insert,params));await waitBlocked(aPid,bPid);
+    await assert.rejects(a.query('UPDATE source_document_line SET source_document_id=$2 WHERE source_document_line_id=$1',[line,other.documentId]),e=>e.code==='23514'&&/identity is immutable/.test(e.message));
+    await a.query('ROLLBACK');assert.equal((await pending).value.rows[0].source_document_id,source.documentId);
+   }else{
+    await a.query(insert,params);pending=outcome(b.query('UPDATE source_document_line SET source_document_id=$2 WHERE source_document_line_id=$1',[line,other.documentId]));await waitBlocked(aPid,bPid);
+    await a.query('COMMIT');assert.equal((await pending).error?.code,'23514');
+   }
+   const linked=(await adminPool.query("SELECT l.source_document_id current_document,sl.source_document_id linked_document FROM source_document_line l JOIN source_link sl ON sl.source_document_line_id=l.source_document_line_id AND sl.link_type='SOURCE_ATTACHMENT' WHERE l.source_document_line_id=$1",[line])).rows;
+   assert.deepEqual(linked,[{current_document:source.documentId,linked_document:source.documentId}]);
+  }finally{try{await a.query('ROLLBACK');}catch{}if(pending)await pending;try{await b.query('ROLLBACK');}catch{}a.release();b.release();}
+ }
+});
+
+pgTest('fixed asset attachment identity normalizes lines and rejects ambiguous retained evidence',async()=>{
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
+ const line=(await adminPool.query('SELECT source_document_line_id FROM source_document_line WHERE tenant_id=$1 AND source_document_id=$2',[ids.tenantId,trace.documentId])).rows[0].source_document_line_id;
+ const sql="INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,source_document_line_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,$5,'identity-fixture') RETURNING source_document_id";
+ await assert.rejects(adminPool.query(sql,[ids.tenantId,ids.entityId,randomUUID(),line,ids.attachmentId]),e=>e.code==='23514');
+ await assert.rejects(adminPool.query(sql,[ids.tenantId,ids.entityId,null,randomUUID(),ids.attachmentId]),e=>e.code==='23514');
+ assert.equal((await adminPool.query(sql,[ids.tenantId,ids.entityId,null,line,ids.attachmentId])).rows[0].source_document_id,trace.documentId);
+ const client=await adminPool.connect();
+ try{
+  await client.query('BEGIN');
+  // Reproduce legacy line-only evidence without changing any retained live row.
+  await client.query('ALTER TABLE source_link DISABLE TRIGGER asset_source_attachment_identity_guard');
+  await client.query(sql,[ids.tenantId,ids.entityId,null,line,ids.attachmentId]);
+  await client.query('ALTER TABLE source_link ENABLE TRIGGER asset_source_attachment_identity_guard');
+  const count=(await client.query('SELECT count(*)::int n FROM source_link WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
+  await client.query('SAVEPOINT legacy_check');
+  await assert.rejects(client.query('SELECT refs_check_asset_attachment_document_history($1,$2,$3)',[ids.tenantId,ids.entityId,trace.documentId]),e=>e.code==='55006');
+  await client.query('ROLLBACK TO SAVEPOINT legacy_check');
+  assert.equal((await client.query('SELECT count(*)::int n FROM source_link WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,count);
+  await client.query('COMMIT');
+ }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+ const maker=await formalWorkflowRoleKernel(ids,'attachment-identity-maker','FIXED_ASSET_ACQUISITION_MAKER');
+ // Auth context issuance has its own committed security audit; business audit
+ // and every financial artifact must still roll back with the rejected command.
+ const counts=async()=>{const result={};for(const table of ['journal_entry','journal_line','audit_event','outbox_event','idempotency_receipt','fixed_asset_acquisition_binding','source_link'])result[table]=(await adminPool.query('SELECT count(*)::int n FROM '+table+' WHERE tenant_id=$1'+(table==='audit_event'?" AND event_type<>'RUNTIME_CONTEXT_ISSUED'":''),[ids.tenantId])).rows[0].n;return result;};
+ const before=await counts();
+ await assert.rejects(maker.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'AMBIGUOUS-ATTACHMENT',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Reject historical ambiguous attachment identity atomically.',idempotencyKey:'ambiguous-attachment-create'}),e=>e.code==='55006');
+ assert.deepEqual(await counts(),before);
+});
+
+pgTest('fixed asset attachment identity upgrade rejects ambiguous bound history atomically',async()=>{
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'history-fixture')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ const maker=await formalWorkflowRoleKernel(ids,'identity-history-maker','FIXED_ASSET_ACQUISITION_MAKER');
+ const draft=await maker.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'IDENTITY-HISTORY',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Retain real acquisition binding for upgrade history validation.',idempotencyKey:'identity-history-create'});
+ const name='347_source_attachment_document_identity.sql',strip=s=>s.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,''),up=strip(await readFile(new URL('../db/migrations/'+name,import.meta.url),'utf8')),down=strip(await readFile(new URL('../db/migrations/down/'+name,import.meta.url),'utf8')),client=await adminPool.connect();
+ try{
+  await client.query('BEGIN');await client.query('SAVEPOINT protected_down');await assert.rejects(client.query(down),e=>e.code==='55006');await client.query('ROLLBACK TO SAVEPOINT protected_down');
+  // Owned transaction emulates the pre-347 schema; roll back all fixture DDL.
+  await client.query('DROP TRIGGER asset_attachment_document_history_guard ON fixed_asset_acquisition_binding; DROP FUNCTION refs_guard_asset_attachment_document_history(); DROP FUNCTION refs_check_asset_attachment_document_history(uuid,uuid,uuid); DROP TRIGGER asset_source_attachment_identity_guard ON source_link; DROP FUNCTION refs_normalize_source_attachment_document(); DROP TRIGGER source_line_identity_guard ON source_document_line; DROP FUNCTION refs_preserve_source_line_identity()');
+  await client.query('DELETE FROM refs_schema_migration WHERE migration_name=$1',[name]);
+  const line=(await client.query('SELECT source_document_line_id FROM fixed_asset_acquisition_binding WHERE binding_id=$1',[draft.binding_id])).rows[0].source_document_line_id;
+  await client.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_line_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'legacy-history-fixture')",[ids.tenantId,ids.entityId,line,ids.attachmentId]);
+  const snapshot=async()=> (await client.query("SELECT jsonb_build_object('binding',(SELECT to_jsonb(b) FROM fixed_asset_acquisition_binding b WHERE binding_id=$1),'links',(SELECT jsonb_agg(to_jsonb(sl) ORDER BY source_link_id) FROM source_link sl WHERE tenant_id=$2),'journal',(SELECT to_jsonb(j) FROM journal_entry j WHERE journal_entry_id=$3),'audit',(SELECT count(*) FROM audit_event WHERE tenant_id=$2),'outbox',(SELECT count(*) FROM outbox_event WHERE tenant_id=$2)) evidence",[draft.binding_id,ids.tenantId,draft.journal_entry_id])).rows[0].evidence;
+  const before=await snapshot();await client.query('SAVEPOINT install');await assert.rejects(client.query(up),e=>e.code==='55006');await client.query('ROLLBACK TO SAVEPOINT install');
+  assert.deepEqual(await snapshot(),before);
+  assert.equal((await client.query("SELECT to_regprocedure('refs_normalize_source_attachment_document()') fn")).rows[0].fn,null);
+  assert.equal((await client.query('SELECT count(*)::int n FROM refs_schema_migration WHERE migration_name=$1',[name])).rows[0].n,0);
+ }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('fixed asset attachment append and Post serialize in both transaction orders',async()=>{
+ const waitFor=async predicate=>{for(let attempt=0;attempt<160;attempt++){if(await predicate())return;await new Promise(resolve=>setTimeout(resolve,25));}assert.fail('Owned database transaction did not reach the expected lock barrier');};
+ const outcome=promise=>promise.then(value=>({value}),error=>({error}));
+ for(const mode of ['append-first','post-first','append-first-legacy','post-first-legacy','append-first-line-only','post-first-line-only']){
+  const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1'),roles={};
+  const linkSql="INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'fixture-source-owner')";
+  await adminPool.query(linkSql,[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+  for(const role of ['FIXED_ASSET_ACQUISITION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'attachment-race-'+role.toLowerCase(),role);
+  const draft=await roles.FIXED_ASSET_ACQUISITION_MAKER.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'ATTACHMENT-RACE',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Verify ordered attachment append versus authoritative Post.',idempotencyKey:'attachment-race-create'});
+  for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action,expectedRevision,idempotencyKey:'attachment-race-'+action});
+  const extra=randomUUID();await adminPool.query("INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,verified_at,scan_status,finalization_status,finalized_at) VALUES($1,$2,$3,'concurrent-source.pdf','application/pdf',10,$4,$5,'v1','fixture-source-owner',now(),now(),'CLEAN','VERIFIED_CLEAN',now())",[extra,ids.tenantId,ids.entityId,hash('concurrent-source-evidence'),'object://source-race/'+extra]);
+  // Emulate an existing source upgraded from 345, before the first fence row.
+  if(mode.endsWith('-legacy'))await adminPool.query('DELETE FROM fixed_asset_source_serialization WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3',[ids.tenantId,ids.entityId,trace.documentId]);
+  const lineOnly=mode.endsWith('-line-only'),sourceLine=(await adminPool.query('SELECT source_document_line_id FROM fixed_asset_acquisition_binding WHERE binding_id=$1',[draft.binding_id])).rows[0].source_document_line_id;
+  const appendSql=lineOnly?linkSql.replace('source_document_id,attachment_id','source_document_line_id,attachment_id'):linkSql;
+  const append=await adminPool.connect(),appendPid=(await append.query('SELECT pg_backend_pid() pid')).rows[0].pid,args=[ids.tenantId,ids.entityId,lineOnly?sourceLine:trace.documentId,extra];
+  const postArgs={...ids,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:'attachment-race-post'};
+  let releaseCommit=()=>{},postResult=null,appendResult=null;
+  try{
+   if(mode.startsWith('append-first')){
+    await append.query('BEGIN');await append.query(appendSql,args);
+    postResult=outcome(roles.JE_POSTER.postJournal(postArgs));
+    await waitFor(async()=> (await adminPool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND $1::int=ANY(pg_blocking_pids(pid))) waiting",[appendPid])).rows[0].waiting);
+    await append.query('COMMIT');const result=await postResult;assert.equal(result.error?.code,'23514');await assertAcquisitionPostRolledBack(ids,draft.journal_entry_id,postArgs.idempotencyKey);
+    assert.equal((await adminPool.query("SELECT count(*)::int n FROM source_link WHERE tenant_id=$1 AND source_document_id=$2 AND link_type='SOURCE_ATTACHMENT'",[ids.tenantId,trace.documentId])).rows[0].n,2);
+   }else{
+    // Pause the owned runtime connection at COMMIT, after the real Post SQL has
+    // executed. It retains the actual PostgreSQL source and accounting locks.
+    let held=false,postPid=null;const barrier=new Promise(resolve=>{releaseCommit=resolve;});
+    const pool={connect:async()=>{const client=await runtimePool.connect();postPid=(await client.query('SELECT pg_backend_pid() pid')).rows[0].pid;return {query:async(...queryArgs)=>{if(queryArgs[0]==='COMMIT'){held=true;await barrier;}return client.query(...queryArgs);},release:()=>client.release()};}};
+    const poster=new PostgresAccountingKernel(pool,{sessionProvider:roles.JE_POSTER.sessionProvider});postResult=outcome(poster.postJournal(postArgs));
+    await waitFor(async()=>held);appendResult=outcome(append.query(appendSql,args));
+    await waitFor(async()=> (await adminPool.query('SELECT $1::int=ANY(pg_blocking_pids($2::int)) waiting',[postPid,appendPid])).rows[0].waiting);
+    releaseCommit();const posted=await postResult,appended=await appendResult;assert.equal(posted.error,undefined);assert.equal(appended.error?.code,'23514');
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1 AND journal_entry_id=$2',[ids.tenantId,draft.journal_entry_id])).rows[0].n,2);
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM fixed_asset_source_consumption WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,1);
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM source_link WHERE tenant_id=$1 AND attachment_id=$2',[ids.tenantId,extra])).rows[0].n,0);
+   }
+   const down=await readFile(new URL('../db/migrations/down/346_fixed_asset_source_snapshot_serialization.sql',import.meta.url),'utf8'),rollbackClient=await adminPool.connect();
+   try{await rollbackClient.query('BEGIN');await assert.rejects(rollbackClient.query(down.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'')),e=>e.code==='55006');}finally{try{await rollbackClient.query('ROLLBACK');}finally{rollbackClient.release();}}
+  }finally{releaseCommit();try{await append.query('ROLLBACK');}catch{}if(postResult)await postResult;if(appendResult)await appendResult;append.release();}
+ }
+});
+
+pgTest('fixed asset depreciation schedule stops after useful life and clears rounding in the final month',async()=>{
+ const {detectFixedAssetDepreciationReviews}=await import('../runtime/ai-fixed-asset-depreciation-review.mjs');
+ for(const [salvageValue,basis,finalAmount] of [['999.9999','24000.0001','200.0001'],['1000.0001','23999.9999','199.9999']]){
+  const {ids,receipt}=await reviewedFixedAssetFixture(null,{salvageValue}),reader=await formalWorkflowRoleKernel(ids,'asset-depreciation-schedule-reader','AI_CONTROLLER_REVIEWER');
+  const periods=[['2026-06','2026-06-01','2026-06-30','0.0000','0.0000','25000.0000'],['2026-07','2026-07-01','2026-07-31','200.0000','200.0000','24800.0000'],['2036-05','2036-05-01','2036-05-31','200.0000','23800.0000','1200.0000'],['2036-06','2036-06-01','2036-06-30',finalAmount,basis,salvageValue],['2036-07','2036-07-01','2036-07-31','0.0000',basis,salvageValue]];
+  for(const [code,start,end,due,accumulated,net] of periods){
+   let periodId=ids.periodId;if(code!=='2026-07'){periodId=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status,ledger_code) VALUES($1,$2,$3,$4,$5,$6,'OPEN','PRIMARY')",[periodId,ids.tenantId,ids.entityId,code,start,end]);}
+   const rows=await reader.getAiFixedAssetDepreciationSource({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:periodId});assert.equal(rows.length,1);const row=rows[0];assert.equal(row.fixed_asset_register_evidence_id,receipt.fixed_asset_register_evidence_id);assert.equal(row.expected_period_depreciation,due,code+': due');assert.equal(row.expected_accumulated_depreciation,accumulated,code+': accumulated');assert.equal(row.expected_net_book_value,net,code+': net');
+   const reconciled=await reader.getAiFixedAssetPostedReconciliation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:periodId});
+   assert.equal(reconciled.length,1);const rec=reconciled[0];assert.equal(rec.fixed_asset_register_evidence_id,row.fixed_asset_register_evidence_id);
+   assert.equal(rec.expected_period_depreciation,due,code+': reconciliation due');assert.equal(rec.expected_accumulated_depreciation,accumulated,code+': reconciliation accumulated');
+   assert.equal(rec.posted_period_depreciation_expense,'0.0000');assert.equal(rec.posted_accumulated_depreciation,'0.0000');
+   assert.equal(rec.period_variance,due==='0.0000'?'0.0000':'-'+due);assert.equal(rec.accumulated_variance,accumulated==='0.0000'?'0.0000':'-'+accumulated);
+   const depreciationMaker=await formalWorkflowRoleKernel(ids,'asset-depreciation-options-'+salvageValue.replace('.','-')+'-'+code,'FIXED_ASSET_DEPRECIATION_MAKER'),options=await depreciationMaker.readFixedAssetDepreciationOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId});
+   assert.equal(options.readiness_status,'BLOCKED_ACQUISITION_NOT_POSTED');assert.equal(options.schedule.expected_period_depreciation,due);assert.equal(options.schedule.expected_accumulated_depreciation,accumulated);assert.equal(BigInt(options.schedule.expected_prior_accumulated_depreciation.replace('.','')),BigInt(accumulated.replace('.',''))-BigInt(due.replace('.','')));
+   const analysis=detectFixedAssetDepreciationReviews(rows,{entityId:ids.entityId,accountingPeriodId:periodId});assert.equal(analysis.finding_count,due==='0.0000'?0:1);if(analysis.finding_count)assert.equal(analysis.findings[0].proposed_journal_entry.amount,due);assert.equal(analysis.action_flags.can_post,false);
+  }
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0,'schedule reads must never post depreciation');
+ }
+});
+
+pgTest('native fixed asset depreciation retains evidence, races one Post, and refreshes register GL and report',async()=>{
+ const memberTrace={project_ref:'PROJECT-1',property_ref:null,allocation_basis:'SOURCE_DIMENSIONED'};
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1',{memberTraceOverride:memberTrace});
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'depreciation-fixture-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ const roles={};for(const role of ['FIXED_ASSET_ACQUISITION_MAKER','FIXED_ASSET_DEPRECIATION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'native-depreciation-'+role.toLowerCase(),role);
+ const bypass=async(sql,args=[])=>{const client=await adminPool.connect();try{await client.query("SET session_replication_role='replica'");return await client.query(sql,args);}finally{try{await client.query("SET session_replication_role='origin'");}finally{client.release();}}};
+ const acquisitionInput={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'DEP-ASSET-ACQ',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Post the retained acquisition before monthly depreciation.',idempotencyKey:'depreciation-acquisition-create'};
+ await assert.rejects(roles.FIXED_ASSET_DEPRECIATION_MAKER.readFixedAssetAcquisitionOptions(acquisitionInput),error=>error.code==='42501');
+ await assert.rejects(roles.FIXED_ASSET_DEPRECIATION_MAKER.createFixedAssetAcquisition({...acquisitionInput,idempotencyKey:'depreciation-maker-denied-acquisition'}),error=>error.code==='42501');
+ assert.equal((await adminPool.query('SELECT count(*)::int n FROM fixed_asset_acquisition_binding WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);assert.equal((await adminPool.query('SELECT count(*)::int n FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key=$2',[ids.tenantId,'depreciation-maker-denied-acquisition'])).rows[0].n,0);
+ const acquired=await roles.FIXED_ASSET_ACQUISITION_MAKER.createFixedAssetAcquisition(acquisitionInput);
+ const approve=async(journalEntryId,prefix)=>{for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId,action,expectedRevision,idempotencyKey:prefix+'-'+action.toLowerCase()});};
+ await approve(acquired.journal_entry_id,'depreciation-acquisition');await roles.JE_POSTER.postJournal({...ids,journalEntryId:acquired.journal_entry_id,expectedRevision:3,idempotencyKey:'depreciation-acquisition-post'});
+ const maker=roles.FIXED_ASSET_DEPRECIATION_MAKER;let options=await maker.readFixedAssetDepreciationOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId});
+ assert.equal(options.readiness_status,'READY');assert.equal(options.schedule.expected_period_depreciation,'200.0000');assert.equal(options.actual_posted_cost,'25000.0000');assert.equal(options.actual_prior_accumulated_depreciation,'0.0000');assert.equal(options.source.source_document_id,trace.documentId);assert.deepEqual(options.member_trace,memberTrace);
+ const acquisitionEvidence=(await adminPool.query('SELECT binding_id,source_line_snapshot_hash FROM fixed_asset_acquisition_binding WHERE tenant_id=$1 AND asset_id=$2',[ids.tenantId,receipt.fixed_asset_register_evidence_id])).rows[0];
+ await bypass('UPDATE fixed_asset_acquisition_binding SET source_line_snapshot_hash=$2 WHERE binding_id=$1',[acquisitionEvidence.binding_id,hash('damaged-original-line-snapshot')]);
+ const blockedOptions=await maker.readFixedAssetDepreciationOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId});assert.equal(blockedOptions.readiness_status,'BLOCKED_ACQUISITION_EVIDENCE');
+ await bypass('UPDATE fixed_asset_acquisition_binding SET source_line_snapshot_hash=$2 WHERE binding_id=$1',[acquisitionEvidence.binding_id,acquisitionEvidence.source_line_snapshot_hash]);
+ options=await maker.readFixedAssetDepreciationOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId});assert.equal(options.readiness_status,'READY');
+ const command={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalDate:'2026-07-31',expectedRegisterEvidenceHash:options.register_evidence_hash,expectedScheduleHash:options.schedule.schedule_snapshot_hash,reason:'Record reviewed straight-line depreciation at period end.'};
+ await assert.rejects(roles.FIXED_ASSET_ACQUISITION_MAKER.readFixedAssetDepreciationOptions(command),error=>error.code==='42501');
+ await assert.rejects(roles.FIXED_ASSET_ACQUISITION_MAKER.createFixedAssetDepreciation({...command,journalNumber:'ACQUISITION-MAKER-DENIED-DEP',idempotencyKey:'acquisition-maker-denied-depreciation'}),error=>error.code==='42501');
+ assert.equal((await adminPool.query('SELECT count(*)::int n FROM fixed_asset_depreciation_binding WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);assert.equal((await adminPool.query('SELECT count(*)::int n FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key=$2',[ids.tenantId,'acquisition-maker-denied-depreciation'])).rows[0].n,0);
+ const first=await maker.createFixedAssetDepreciation({...command,journalNumber:'DEP-2026-07-A',idempotencyKey:'native-depreciation-a'}),replay=await maker.createFixedAssetDepreciation({...command,journalNumber:'DEP-2026-07-A',idempotencyKey:'native-depreciation-a'}),second=await maker.createFixedAssetDepreciation({...command,journalNumber:'DEP-2026-07-B',idempotencyKey:'native-depreciation-b'});
+ assert.equal(replay.journal_entry_id,first.journal_entry_id);assert.equal(replay.idempotent,true);assert.equal(first.expected_amount,'200.0000');assert.equal(first.source_document_id,trace.documentId);
+ for(const draft of [first,second]){await approve(draft.journal_entry_id,'depreciation-'+draft.journal_entry_id);const lines=(await adminPool.query('SELECT account_code,debit_amount::text,credit_amount::text,dimensions FROM journal_line WHERE tenant_id=$1 AND journal_entry_id=$2 ORDER BY line_no',[ids.tenantId,draft.journal_entry_id])).rows;assert.deepEqual(lines.map(row=>[row.account_code,row.debit_amount,row.credit_amount]),[['680100','200.0000','0.0000'],['159100','0.0000','200.0000']]);assert.ok(lines.every(row=>row.dimensions.fixed_asset_register_evidence_id===receipt.fixed_asset_register_evidence_id&&row.dimensions.accounting_period_id===ids.periodId&&row.dimensions.allocation_basis===memberTrace.allocation_basis&&row.dimensions.project_ref===memberTrace.project_ref&&row.dimensions.property_ref===memberTrace.property_ref));}
+ const assertRejectedPost=async(key,mutate,restore)=>{
+  await mutate();try{await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:first.journal_entry_id,expectedRevision:3,idempotencyKey:key}),error=>['23514','40001'].includes(error.code));}
+  finally{await restore();}
+  const state=(await adminPool.query(`SELECT
+   (SELECT status FROM journal_entry WHERE journal_entry_id=$2) status,
+   (SELECT count(*)::int FROM posting_batch WHERE tenant_id=$1 AND idempotency_key=$3) posting_batches,
+   (SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1 AND journal_entry_id=$2) ledger,
+   (SELECT count(*)::int FROM fixed_asset_depreciation_posting WHERE tenant_id=$1 AND journal_entry_id=$2) depreciation_postings,
+   (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND object_id=$2 AND event_type='JOURNAL_POSTED') audits,
+   (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='JOURNAL_POSTED') outbox,
+   (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key=$3) idempotency`,[ids.tenantId,first.journal_entry_id,key])).rows[0];
+  assert.deepEqual(state,{status:'APPROVED',posting_batches:0,ledger:0,depreciation_postings:0,audits:0,outbox:0,idempotency:0},key);
+ };
+ const journalLine=(await adminPool.query('SELECT journal_line_id,description FROM journal_line WHERE journal_entry_id=$1 ORDER BY line_no LIMIT 1',[first.journal_entry_id])).rows[0];
+ await assertRejectedPost('native-depreciation-tampered-je',()=>bypass('UPDATE journal_line SET description=$2 WHERE journal_line_id=$1',[journalLine.journal_line_id,'Tampered depreciation']),()=>bypass('UPDATE journal_line SET description=$2 WHERE journal_line_id=$1',[journalLine.journal_line_id,journalLine.description]));
+ const source=(await adminPool.query('SELECT payload_hash FROM source_document WHERE source_document_id=$1',[trace.documentId])).rows[0];
+ await assertRejectedPost('native-depreciation-tampered-source',()=>bypass('UPDATE source_document SET payload_hash=$2 WHERE source_document_id=$1',[trace.documentId,hash('tampered-depreciation-source')]),()=>bypass('UPDATE source_document SET payload_hash=$2 WHERE source_document_id=$1',[trace.documentId,source.payload_hash]));
+ const attachment=(await adminPool.query('SELECT content_hash FROM attachment WHERE attachment_id=$1',[ids.attachmentId])).rows[0];
+ await assertRejectedPost('native-depreciation-tampered-attachment',()=>bypass('UPDATE attachment SET content_hash=$2 WHERE attachment_id=$1',[ids.attachmentId,hash('tampered-depreciation-attachment')]),()=>bypass('UPDATE attachment SET content_hash=$2 WHERE attachment_id=$1',[ids.attachmentId,attachment.content_hash]));
+ const policy=(await adminPool.query('SELECT s.setting_snapshot_id,s.snapshot FROM fixed_asset_register_evidence a JOIN ai_invoice_capitalization_proposal p ON p.tenant_id=a.tenant_id AND p.entity_id=a.entity_id AND p.ai_invoice_capitalization_proposal_id=a.capitalization_proposal_id JOIN setting_snapshot s ON s.tenant_id=p.tenant_id AND s.setting_snapshot_id=p.policy_snapshot_id WHERE a.tenant_id=$1 AND a.entity_id=$2 AND a.fixed_asset_register_evidence_id=$3',[ids.tenantId,ids.entityId,receipt.fixed_asset_register_evidence_id])).rows[0];
+ await assertRejectedPost('native-depreciation-tampered-policy',()=>bypass("UPDATE setting_snapshot SET snapshot=jsonb_set(snapshot,'{capitalization_threshold}','\"5001.0000\"'::jsonb) WHERE setting_snapshot_id=$1",[policy.setting_snapshot_id]),()=>bypass('UPDATE setting_snapshot SET snapshot=$2::jsonb WHERE setting_snapshot_id=$1',[policy.setting_snapshot_id,policy.snapshot]));
+ const raced=await Promise.allSettled([roles.JE_POSTER.postJournal({...ids,journalEntryId:first.journal_entry_id,expectedRevision:3,idempotencyKey:'native-depreciation-post-a'}),roles.JE_POSTER.postJournal({...ids,journalEntryId:second.journal_entry_id,expectedRevision:3,idempotencyKey:'native-depreciation-post-b'})]);
+ assert.equal(raced.filter(row=>row.status==='fulfilled').length,1);assert.equal(raced.filter(row=>row.status==='rejected'&&['23514','23505'].includes(row.reason.code)).length,1);const winner=raced[0].status==='fulfilled'?first:second,loser=winner===first?second:first;
+ assert.equal((await adminPool.query('SELECT count(*)::int n FROM fixed_asset_depreciation_posting WHERE tenant_id=$1 AND fixed_asset_register_evidence_id=$2 AND accounting_period_id=$3',[ids.tenantId,receipt.fixed_asset_register_evidence_id,ids.periodId])).rows[0].n,1);assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1 AND journal_entry_id=$2',[ids.tenantId,loser.journal_entry_id])).rows[0].n,0);
+ const loserPostKey=loser===first?'native-depreciation-post-a':'native-depreciation-post-b',loserState=(await adminPool.query(`SELECT
+  (SELECT status FROM journal_entry WHERE journal_entry_id=$2) status,
+  (SELECT count(*)::int FROM posting_batch WHERE tenant_id=$1 AND idempotency_key=$3) posting_batches,
+  (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND object_id=$2 AND event_type='JOURNAL_POSTED') audits,
+  (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='JOURNAL_POSTED') outbox,
+  (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key=$3) idempotency`,[ids.tenantId,loser.journal_entry_id,loserPostKey])).rows[0];
+ assert.deepEqual(loserState,{status:'APPROVED',posting_batches:0,audits:0,outbox:0,idempotency:0});
+ const binding=(await adminPool.query('SELECT b.*,sl.link_type,sl.source_document_id linked_source FROM fixed_asset_depreciation_binding b JOIN source_link sl ON sl.source_link_id=b.source_link_id WHERE b.journal_entry_id=$1',[winner.journal_entry_id])).rows[0];assert.equal(binding.link_type,'FIXED_ASSET_DEPRECIATION_TO_JE');assert.equal(binding.linked_source,trace.documentId);assert.equal(binding.source_payload_hash,receipt.source_payload_hash);assert.deepEqual(binding.attachment_ids,[ids.attachmentId]);
+ const refreshed=await maker.readFixedAssetRegister({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-07-31',assetId:receipt.fixed_asset_register_evidence_id,limit:1}),asset=refreshed.rows[0];assert.equal(asset.accumulated_depreciation,'200.0000');assert.equal(asset.net_book_value,'24800.0000');
+ const gl=await roles.JE_REVIEWER.listGeneralLedger({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,limit:50,offset:0}),depLines=gl.filter(row=>row.journal_entry_id===winner.journal_entry_id);assert.equal(depLines.length,2);assert.ok(depLines.every(row=>row.source_document_ids.includes(trace.documentId)));
+ const ledgerDimensions=(await adminPool.query('SELECT dimensions FROM ledger_line WHERE tenant_id=$1 AND journal_entry_id=$2 ORDER BY ledger_line_id',[ids.tenantId,winner.journal_entry_id])).rows;assert.equal(ledgerDimensions.length,2);assert.ok(ledgerDimensions.every(row=>row.dimensions.project_ref===memberTrace.project_ref&&row.dimensions.property_ref===memberTrace.property_ref));
+ const movements=await maker.readFixedAssetMovements({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-31',limit:100}),depreciationMovements=movements.rows.filter(row=>row.journal_entry_id===winner.journal_entry_id);assert.equal(movements.schema_version,'FIXED_ASSET_MOVEMENTS_V3');assert.equal(depreciationMovements.length,2);assert.ok(depreciationMovements.every(row=>row.source_binding_status==='EXACT_DEPRECIATION_SOURCE'&&row.depreciation_binding_id===binding.binding_id&&row.depreciation_period_id===ids.periodId&&row.depreciation_register_evidence_hash===binding.register_evidence_hash&&row.depreciation_schedule_snapshot_hash===binding.schedule_snapshot_hash&&row.depreciation_policy_snapshot_id===binding.policy_snapshot_id&&row.depreciation_policy_snapshot_hash===binding.policy_snapshot_hash&&row.depreciation_expected_amount==='200.0000'&&row.source_document_id===trace.documentId&&row.source_link_id===binding.source_link_id));
+ const statements=await roles.JE_REVIEWER.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId}),expense=statements.find(row=>row.statement_type==='INCOME_STATEMENT'&&row.account_code==='680100'),trial=statements.find(row=>row.statement_type==='TRIAL_BALANCE'&&row.account_code==='159100');
+ for(const row of [expense,trial]){assert.ok(row);assert.ok(row.journal_entry_ids.includes(winner.journal_entry_id));assert.ok(row.source_document_ids.includes(trace.documentId));}assert.equal(expense.display_balance,'200.0000');assert.equal(trial.ending_credit,'200.0000');
+ const after=await maker.readFixedAssetDepreciationOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId});assert.equal(after.readiness_status,'BLOCKED_ALREADY_POSTED');assert.ok(after.pending_journals.some(row=>row.journal_entry_id===loser.journal_entry_id&&row.status==='APPROVED'));
+ await assert.rejects(adminPool.query('DELETE FROM fixed_asset_depreciation_binding WHERE binding_id=$1',[binding.binding_id]),error=>error.code==='55000');
+ const down=await readFile(new URL('../db/migrations/down/355_fixed_asset_depreciation_draft.sql',import.meta.url),'utf8'),rollbackClient=await adminPool.connect();
+ try{await rollbackClient.query('BEGIN');await rollbackClient.query('SAVEPOINT retained_evidence');await assert.rejects(rollbackClient.query(down.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'')),error=>error.code==='55000');await rollbackClient.query('ROLLBACK TO SAVEPOINT retained_evidence');assert.ok((await rollbackClient.query("SELECT to_regprocedure('refs_create_fixed_asset_depreciation(uuid,uuid,uuid,uuid,text,date,text,text,text,text,text)') fn")).rows[0].fn);}finally{try{await rollbackClient.query('ROLLBACK');}finally{rollbackClient.release();}}
+});
+
+
+pgTest('native fixed asset disposal derives a balanced Draft and revalidates evidence at Post',async()=>{
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'disposal-acquisition-source')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ const disposalSource=await attachAutoSource({...ids,journalId:randomUUID()},{linkJournal:false,reuseApprovedSnapshots:true,sourceRecordPrefix:'NATIVE-DISPOSAL'});
+ await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT',version=1,business_date='2026-07-25',accounting_date='2026-07-25' WHERE source_document_id=$1",[disposalSource.documentId]);
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'disposal-sale-source')",[ids.tenantId,ids.entityId,disposalSource.documentId,ids.attachmentId]);
+ await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name) VALUES($1,$2,'780100','Asset disposal gain or loss')",[ids.tenantId,ids.entityId]);
+ const roles={};for(const role of ['FIXED_ASSET_ACQUISITION_MAKER','FIXED_ASSET_DISPOSAL_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER','FIXED_ASSET_DISPOSAL_REVIEWER'])roles[role]=await formalWorkflowRoleKernel(ids,'native-disposal-'+role.toLowerCase(),role);
+ const acquired=await roles.FIXED_ASSET_ACQUISITION_MAKER.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'DISPOSAL-ASSET-ACQ',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Post the retained acquisition before testing native disposal.',idempotencyKey:'disposal-acquisition-create'});
+ for(const [role,action,revision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId:acquired.journal_entry_id,action,expectedRevision:revision,idempotencyKey:'disposal-acquisition-'+action.toLowerCase()});
+ await roles.JE_POSTER.postJournal({...ids,journalEntryId:acquired.journal_entry_id,expectedRevision:3,idempotencyKey:'disposal-acquisition-post'});
+ const maker=roles.FIXED_ASSET_DISPOSAL_MAKER,query={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,disposalDate:'2026-07-25'};
+ await adminPool.query("UPDATE member_master SET active=false WHERE tenant_id=$1 AND entity_id=$2 AND member_type IN('BANK','CUSTOMER','AFFILIATE')",[ids.tenantId,ids.entityId]);
+ assert.equal((await maker.readFixedAssetDisposalOptions(query)).readiness_status,'BLOCKED_PROCEEDS_ACCOUNT_UNAVAILABLE');
+ await adminPool.query('UPDATE source_document SET gross_amount=0 WHERE source_document_id=$1',[disposalSource.documentId]);assert.equal((await maker.readFixedAssetDisposalOptions(query)).readiness_status,'READY','a retained zero-proceeds source must allow scrapping without a proceeds account or member');
+ await adminPool.query('UPDATE source_document SET gross_amount=100 WHERE source_document_id=$1',[disposalSource.documentId]);
+ await adminPool.query("UPDATE member_master SET active=true WHERE tenant_id=$1 AND entity_id=$2 AND member_type IN('BANK','CUSTOMER','AFFILIATE')",[ids.tenantId,ids.entityId]);
+ const options=await maker.readFixedAssetDisposalOptions(query);
+ assert.equal(options.schema_version,'FIXED_ASSET_DISPOSAL_OPTIONS_V1');assert.equal(options.readiness_status,'READY');assert.equal(options.snapshot.posted_cost_balance,'25000.0000');assert.equal(options.snapshot.accumulated_depreciation,'0.0000');assert.equal(options.snapshot.accumulated_impairment,'0.0000');assert.equal(options.snapshot.carrying_value,'25000.0000');assert.ok(options.sources.some(row=>row.source_document_id===disposalSource.documentId&&row.gross_amount==='100.0000'));
+ await assert.rejects(roles.FIXED_ASSET_ACQUISITION_MAKER.readFixedAssetDisposalOptions(query),error=>error.code==='42501');
+ const command={...query,journalNumber:'DISPOSAL-NATIVE-1',sourceDocumentId:disposalSource.documentId,expectedSourceVersion:1,expectedSourceHash:hash('auto-doc'),proceedsAccountCode:'111000',proceedsMemberRef:'BANK-1',gainLossAccountCode:'780100',expectedOptionsHash:options.options_hash,reason:'Create an evidence-bound asset disposal Draft from Posted balances.',idempotencyKey:'native-disposal-create'},rival={...command,journalNumber:'DISPOSAL-NATIVE-2',idempotencyKey:'native-disposal-rival'},raced=await Promise.allSettled([maker.createFixedAssetDisposal(command),maker.createFixedAssetDisposal(rival)]),winner=raced.find(row=>row.status==='fulfilled'),winningCommand=raced[0]===winner?command:rival;
+ assert.equal(raced.filter(row=>row.status==='fulfilled').length,1);assert.equal(raced.filter(row=>row.status==='rejected'&&row.reason.code==='23505').length,1);const draft=winner.value,replay=await maker.createFixedAssetDisposal(winningCommand);
+ assert.equal(draft.status,'DRAFT');assert.equal(draft.revision,1);assert.equal(draft.proceeds,'100.0000');assert.equal(draft.carrying_value,'25000.0000');assert.equal(draft.gain_or_loss,'-24900.0000');assert.equal(replay.journal_entry_id,draft.journal_entry_id);assert.equal(replay.idempotent,true);
+ const lines=(await adminPool.query('SELECT line_no,account_code,debit_amount::text,credit_amount::text,member_ref,dimensions FROM journal_line WHERE tenant_id=$1 AND journal_entry_id=$2 ORDER BY line_no',[ids.tenantId,draft.journal_entry_id])).rows;
+ assert.deepEqual(lines.map(row=>[row.account_code,row.debit_amount,row.credit_amount,row.member_ref]),[['111000','100.0000','0.0000','BANK-1'],['150100','0.0000','25000.0000',null],['780100','24900.0000','0.0000',null]]);assert.ok(lines.every(row=>row.dimensions.fixed_asset_register_evidence_id===receipt.fixed_asset_register_evidence_id));
+ const counts=async()=> (await adminPool.query(`SELECT (SELECT count(*)::int FROM fixed_asset_disposal_draft_binding WHERE tenant_id=$1) drafts,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='FIXED_ASSET_DISPOSAL_DRAFT_CREATED') audits,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND event_type='FIXED_ASSET_DISPOSAL_DRAFT_CREATED') outbox`,[ids.tenantId])).rows[0];assert.deepEqual(await counts(),{drafts:1,audits:1,outbox:1});
+ const blocked=await maker.readFixedAssetDisposalOptions(query);assert.equal(blocked.readiness_status,'BLOCKED_PENDING_DISPOSAL');assert.equal(blocked.pending_journals[0].journal_entry_id,draft.journal_entry_id);
+ for(const [role,action,revision] of [['JE_SUBMITTER','SUBMIT',1],['JE_REVIEWER','REVIEW',2],['JE_APPROVER','APPROVE',3]])await roles[role].transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action,expectedRevision:revision,idempotencyKey:'native-disposal-'+action.toLowerCase()});
+ const bypass=async(sql,args=[])=>{const client=await adminPool.connect();try{await client.query("SET session_replication_role='replica'");return await client.query(sql,args);}finally{try{await client.query("SET session_replication_role='origin'");}finally{client.release();}}},sourceBefore=(await adminPool.query('SELECT gross_amount::text FROM source_document WHERE source_document_id=$1',[disposalSource.documentId])).rows[0].gross_amount;
+ await bypass('UPDATE source_document SET gross_amount=101 WHERE source_document_id=$1',[disposalSource.documentId]);await assert.rejects(roles.JE_POSTER.postJournal({...ids,journalEntryId:draft.journal_entry_id,expectedRevision:4,idempotencyKey:'native-disposal-stale-source-post'}),error=>error.code==='23514');await bypass('UPDATE source_document SET gross_amount=$2 WHERE source_document_id=$1',[disposalSource.documentId,sourceBefore]);
+ assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[draft.journal_entry_id])).rows[0].status,'APPROVED');assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[draft.journal_entry_id])).rows[0].n,0);
+ await roles.JE_POSTER.postJournal({...ids,journalEntryId:draft.journal_entry_id,expectedRevision:4,idempotencyKey:'native-disposal-post'});
+ assert.equal((await adminPool.query('SELECT count(*)::int n FROM fixed_asset_disposal_posting WHERE tenant_id=$1 AND fixed_asset_register_evidence_id=$2',[ids.tenantId,receipt.fixed_asset_register_evidence_id])).rows[0].n,1);
+ const reviewed=await roles.FIXED_ASSET_DISPOSAL_REVIEWER.reviewFixedAssetDisposal({tenantId:ids.tenantId,entityId:ids.entityId,fixedAssetRegisterEvidenceId:receipt.fixed_asset_register_evidence_id,accountingPeriodId:ids.periodId,disposalSourceDocumentId:disposalSource.documentId,disposalDate:'2026-07-25',accumulatedDepreciation:'0.0000',proceeds:'100.0000',reason:'Independently reviewed the native disposal journal and source.',idempotencyKey:'native-disposal-review'});assert.equal(reviewed.gain_or_loss,'-24900.0000');assert.equal(reviewed.status,'REVIEWED');
+ const row=(await maker.readFixedAssetRegister({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,asOfDate:'2026-07-31',limit:1})).rows[0];assert.equal(row.status,'DISPOSED_REVIEWED');assert.equal(row.net_book_value,'0.0000');
+ await assert.rejects(adminPool.query('DELETE FROM fixed_asset_disposal_draft_binding WHERE binding_id=$1',[draft.binding_id]),error=>error.code==='55000');
+});
+
+pgTest('fixed asset disposal Draft migration roundtrips while empty and refuses retained evidence rollback',async()=>{
+ const name='360_fixed_asset_disposal_draft.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),strip=sql=>sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,''),up=await readFile(new URL('../db/migrations/'+name,import.meta.url),'utf8'),down=await readFile(new URL('../db/migrations/down/'+name,import.meta.url),'utf8');
+ assert.equal(createHash('sha256').update(up).digest('hex'),entry.up);assert.equal(createHash('sha256').update(down).digest('hex'),entry.down);
+ const client=await adminPool.connect();try{await client.query('BEGIN');await client.query('TRUNCATE fixed_asset_disposal_draft_binding');await client.query(strip(down));assert.equal((await client.query("SELECT to_regclass('fixed_asset_disposal_draft_binding') table_name")).rows[0].table_name,null);assert.equal((await client.query("SELECT active FROM permission_catalog WHERE permission_code='FIXED_ASSET.DISPOSAL.DRAFT'")).rows[0].active,false);await client.query(strip(up));assert.ok((await client.query("SELECT to_regprocedure('refs_create_fixed_asset_disposal(uuid,uuid,uuid,uuid,text,date,uuid,bigint,text,text,text,text,text,text,text,text)') fn")).rows[0].fn);assert.equal((await client.query("SELECT active FROM permission_catalog WHERE permission_code='FIXED_ASSET.DISPOSAL.DRAFT'")).rows[0].active,true);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+
+pgTest('fixed asset depreciation Draft migration roundtrips only after its business evidence is empty',async()=>{
+ const name='355_fixed_asset_depreciation_draft.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),strip=sql=>sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,''),up=await readFile(new URL('../db/migrations/'+name,import.meta.url),'utf8'),down=await readFile(new URL('../db/migrations/down/'+name,import.meta.url),'utf8');
+ assert.equal(createHash('sha256').update(up).digest('hex'),entry.up);assert.equal(createHash('sha256').update(down).digest('hex'),entry.down);
+ const client=await adminPool.connect(),definition="SELECT pg_get_functiondef('refs_create_fixed_asset_depreciation(uuid,uuid,uuid,uuid,text,date,text,text,text,text,text)'::regprocedure) body";
+ try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0].body;await client.query('TRUNCATE fixed_asset_depreciation_posting,fixed_asset_depreciation_binding');await client.query(strip(down));assert.equal((await client.query("SELECT to_regclass('fixed_asset_depreciation_binding') table_name")).rows[0].table_name,null);assert.equal((await client.query("SELECT active FROM permission_catalog WHERE permission_code='FIXED_ASSET.DEPRECIATION.DRAFT'")).rows[0].active,false);await client.query(strip(up));assert.equal((await client.query(definition)).rows[0].body,before);assert.equal((await client.query("SELECT active FROM permission_catalog WHERE permission_code='FIXED_ASSET.DEPRECIATION.DRAFT'")).rows[0].active,true);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('fixed asset depreciation movement source migration restores V2 and roundtrips V3',async()=>{
+ const name='357_fixed_asset_depreciation_movement_source.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect(),definition="SELECT pg_get_functiondef('refs_read_fixed_asset_movements(uuid,uuid,uuid,date,integer,text)'::regprocedure) body";
+ try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0].body;assert.match(before,/FIXED_ASSET_MOVEMENTS_V3/);assert.match(before,/EXACT_DEPRECIATION_SOURCE/);await client.query(bodies.down);const prior=(await client.query(definition)).rows[0].body;assert.match(prior,/FIXED_ASSET_MOVEMENTS_V2/);assert.doesNotMatch(prior,/EXACT_DEPRECIATION_SOURCE/);await client.query(bodies.up);assert.equal((await client.query(definition)).rows[0].body,before);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('post-impairment depreciation policy migration roundtrips only without retained reviews',async()=>{
+ const name='358_fixed_asset_post_impairment_depreciation_policy.sql',nextName='359_fixed_asset_post_impairment_depreciation_schedule.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),nextEntry=MIGRATION_MANIFEST.find(row=>row.name===nextName),bodies={},nextBodies={};
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+nextName,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),nextEntry[direction]);nextBodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect();try{await client.query('BEGIN');await client.query('TRUNCATE fixed_asset_post_impairment_depreciation_policy');await client.query(nextBodies.down);assert.equal((await client.query("SELECT to_regprocedure('refs_validated_fixed_asset_post_impairment_policy(uuid,uuid,uuid,date)') fn")).rows[0].fn,null);await client.query(bodies.down);assert.equal((await client.query("SELECT to_regclass('fixed_asset_post_impairment_depreciation_policy') table_name")).rows[0].table_name,null);assert.equal((await client.query("SELECT count(*)::int n FROM pg_constraint WHERE conname='fixed_asset_impairment_scope_identity'")).rows[0].n,0);assert.equal((await client.query("SELECT active FROM permission_catalog WHERE permission_code='FIXED_ASSET.DEPRECIATION.POLICY.REVIEW'")).rows[0].active,false);await client.query(bodies.up);await client.query(nextBodies.up);assert.ok((await client.query("SELECT to_regclass('fixed_asset_post_impairment_depreciation_policy') table_name")).rows[0].table_name);assert.ok((await client.query("SELECT to_regprocedure('refs_validated_fixed_asset_post_impairment_policy(uuid,uuid,uuid,date)') fn")).rows[0].fn);assert.equal((await client.query("SELECT count(*)::int n FROM pg_constraint WHERE conname='fixed_asset_impairment_scope_identity'")).rows[0].n,1);assert.equal((await client.query("SELECT count(*)::int n FROM pg_constraint WHERE conrelid='fixed_asset_post_impairment_depreciation_policy'::regclass AND contype='f'")).rows[0].n,5);assert.equal((await client.query("SELECT active FROM permission_catalog WHERE permission_code='FIXED_ASSET.DEPRECIATION.POLICY.REVIEW'")).rows[0].active,true);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('fixed asset depreciation schedule boundary migration restores the previous function and roundtrips',async()=>{
+ const name='353_fixed_asset_depreciation_schedule_boundary.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect(),definition="SELECT pg_get_functiondef('refs_read_ai_fixed_asset_depreciation_source(uuid,uuid,uuid)'::regprocedure) body";
+ try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0].body;await client.query(bodies.down);const old=(await client.query(definition)).rows[0].body;assert.match(old,/least\(r.useful_life_months/);assert.notEqual(old,before);await client.query(bodies.up);assert.equal((await client.query(definition)).rows[0].body,before);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('fixed asset acquisition movement migration rolls back in manifest order from V3 through V1',async()=>{
+ const bodies={};for(const name of ['352_fixed_asset_acquisition_movement_source.sql','357_fixed_asset_depreciation_movement_source.sql']){const entry=MIGRATION_MANIFEST.find(row=>row.name===name);bodies[name]={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[name][direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}}
+ const client=await adminPool.connect(),definition="SELECT pg_get_functiondef('refs_read_fixed_asset_movements(uuid,uuid,uuid,date,integer,text)'::regprocedure) body";
+ try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0].body;assert.match(before,/FIXED_ASSET_MOVEMENTS_V3/);await client.query(bodies['357_fixed_asset_depreciation_movement_source.sql'].down);assert.match((await client.query(definition)).rows[0].body,/FIXED_ASSET_MOVEMENTS_V2/);await client.query(bodies['352_fixed_asset_acquisition_movement_source.sql'].down);const prior=(await client.query(definition)).rows[0].body;assert.match(prior,/FIXED_ASSET_MOVEMENTS_V1/);assert.doesNotMatch(prior,/EXACT_ACQUISITION_SOURCE/);await client.query(bodies['352_fixed_asset_acquisition_movement_source.sql'].up);await client.query(bodies['357_fixed_asset_depreciation_movement_source.sql'].up);assert.equal((await client.query(definition)).rows[0].body,before);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('asset acquisition requires its dedicated maker permission before any draft writes',async()=>{
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'acquisition-permission-fixture')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ const maker=await formalWorkflowRoleKernel(ids,'dedicated-acquisition-maker','FIXED_ASSET_ACQUISITION_MAKER');
+ const generic=await formalWorkflowRoleKernel(ids,'generic-journal-maker','AI_ACCOUNTING_DECISION_MAKER');
+ const input={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'DEDICATED-ACQUISITION',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Retain acquisition under its dedicated maker authority.',idempotencyKey:'dedicated-acquisition-create'};
+ await assert.rejects(generic.readFixedAssetAcquisitionOptions(input),e=>e.code==='42501');
+ await assert.rejects(generic.createFixedAssetAcquisition(input),e=>e.code==='42501');
+ assert.equal((await adminPool.query('SELECT count(*)::int n FROM fixed_asset_acquisition_binding WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);
+ assert.equal((await adminPool.query('SELECT count(*)::int n FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key=$2',[ids.tenantId,input.idempotencyKey])).rows[0].n,0);
+ const options=await maker.readFixedAssetAcquisitionOptions(input);assert.equal(options.asset_id,input.assetId);
+ const draft=await maker.createFixedAssetAcquisition(input);assert.equal(draft.status,'DRAFT');
+ const audit=(await adminPool.query("SELECT permission_used FROM audit_event WHERE tenant_id=$1 AND object_id=$2 AND event_type='FIXED_ASSET_ACQUISITION_DRAFT_CREATED'",[ids.tenantId,draft.journal_entry_id])).rows;assert.equal(audit.length,1);assert.equal(audit[0].permission_used,'FIXED_ASSET.ACQUISITION.DRAFT');
+});
+
+pgTest('asset acquisition dedicated permission migration restores prior functions without deleting permission history',async()=>{
+ const name='356_fixed_asset_acquisition_draft_permission.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect(),definition="SELECT pg_get_functiondef('refs_create_fixed_asset_acquisition(uuid,uuid,uuid,uuid,text,date,bigint,uuid[],text,text,text)'::regprocedure) create_body,pg_get_functiondef('refs_read_fixed_asset_acquisition_options(uuid,uuid,uuid)'::regprocedure) options_body";
+ try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0];await client.query(bodies.down);const prior=(await client.query(definition)).rows[0];for(const field of ['create_body','options_body']){assert.match(before[field],/FIXED_ASSET\.ACQUISITION\.DRAFT/);assert.doesNotMatch(prior[field],/FIXED_ASSET\.ACQUISITION\.DRAFT/);assert.match(prior[field],/GL\.JE\.CREATE/);}const retained=await client.query("SELECT active FROM permission_catalog WHERE permission_code='FIXED_ASSET.ACQUISITION.DRAFT'");assert.equal(retained.rows.length,1);assert.equal(retained.rows[0].active,false);await client.query(bodies.up);assert.deepEqual((await client.query(definition)).rows[0],before);assert.equal((await client.query("SELECT active FROM permission_catalog WHERE permission_code='FIXED_ASSET.ACQUISITION.DRAFT'")).rows[0].active,true);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('fixed asset depreciation reconciliation boundary migration restores the previous function and roundtrips',async()=>{
+ const name='354_fixed_asset_depreciation_reconciliation_boundary.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect(),definition="SELECT pg_get_functiondef('refs_read_ai_fixed_asset_posted_reconciliation(uuid,uuid,uuid)'::regprocedure) body";
+ try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0].body;await client.query(bodies.down);const old=(await client.query(definition)).rows[0].body;assert.match(old,/least\(r.useful_life_months/);assert.notEqual(old,before);await client.query(bodies.up);assert.equal((await client.query(definition)).rows[0].body,before);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });

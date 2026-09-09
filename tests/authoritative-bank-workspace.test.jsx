@@ -126,11 +126,8 @@ assert.match(source,/scopeMatches&&hasAuthorizedWorksheetEvidence&&<section clas
 assert.match(source,/BLOCKED — immutable reconciliation scope mismatch/,'Reconciliation scope mismatches must remain evidence-only');
 assert.match(source,/AuthoritativeReconciliationSummary row=\{state\.row\} scope=\{\{\.\.\.scope,entityId:config\.entityId,entityLabel:entityLabel\(config\)\}\}/,'Reconciliation summary must retain its exact entity and statement scope after a successful authoritative read');
 assert.doesNotMatch(source,/localStorage|SEED_|bankRecord|bankSignoff/,'authoritative Bank/Reconcile UI must not depend on demo state or legacy mutation helpers');
-assert.match(source,/refreshAuthoritativeBankMatchCandidates/,'Bank Match must start from server-validated candidate evidence, not a caller-supplied occurrence ID');
-assert.match(source,/aria-label="Exact posted candidate evidence"/,'The candidate card must identify its server-returned evidence boundary');
-for(const label of ['Business source document','Occurrence revision','Journal entry','Journal line','Ledger line','Date delta days'])assert.match(source,new RegExp(`<i>${label}</i>`),`Exact candidate evidence must expose ${label} from the authoritative reader`);
-assert.match(source,/candidates\.length!==1/,'zero or multiple candidate sets must block the Match command');
-assert.match(source,/createAuthoritativeBankPaymentMatch/,'an exact candidate must execute through the authoritative command client');
+// Candidate selection and exact request recovery are exercised in the real
+// payment-bank-recovery browser fixture, including multiple candidate pages.
 assert.match(source,/unmatchAuthoritativeBankPayment/,'an active match must use the authoritative Unmatch command client');
 assert.match(source,/row\.bank_match_id&&row\.match_status!=='ACTIVE'/,'a historical non-ACTIVE Match must not imply an Unmatch command is available');
 assert.match(source,/Match correction blocked/,'historical Match evidence must be explicit BLOCKED/read-only history');
@@ -206,7 +203,7 @@ console.log('authoritative-bank-workspace: scoped full-page read-only SSR contra
 // This covers its async orchestration, not browser rendering or real identity.
 async function verifySettlementHandoff(){
  const start=appSource.indexOf('const openNativeSettlementDraft=useCallback(');
- const end=appSource.indexOf('const selectEntityScope=',start);
+ const end=appSource.indexOf('const assetJournalOriginRef=',start);
  assert.ok(start>0&&end>start);
  const callbackSource=appSource.slice(start,end);
  const target={entity_id:config.entityId,period_id:'22222222-2222-4222-8222-222222222222'};

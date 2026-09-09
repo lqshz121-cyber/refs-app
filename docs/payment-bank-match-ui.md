@@ -1,0 +1,11 @@
+# Explicit payment selection and request recovery
+
+Bank review now loads the paged payment candidate endpoint and requires an explicit choice. The page displays the posted payment journal number, business document number, counterparty, exact amount and accounting date. Page changes clear the selection. Historical UNMATCHED records can start a new review; active matches retain the correction action.
+
+Each reviewed request gets a fresh nonce. Its hash binds the API, company, bank, bank version, actor, exact command and journal/line/ledger/imported-source trace. The client checks the sign of AP outflows and AR inflows without converting decimal amounts to floating point. Versions outside the existing SQL command integer range are rejected before submission.
+
+The original request is reserved in a dedicated IndexedDB database before POST. Concurrent tabs retain the first reservation. Reload and browser restart recover the original actor/body/key/version; they never submit automatically. No bearer token or accounting balance is stored. Response validation and scoped bank readback must confirm the same posted trace before recovery is released. The existing sales-receipt recovery database is unchanged.
+
+Client tests cover exact candidate pages, actor and trace binding, changed requests, response loss, retry identity, new review identity after unmatch and pinned bearer use. The isolated Chrome fixture uses the actual component and IndexedDB, traverses two candidate pages, selects an AP payment, loses the response, reloads and restarts Chrome, then verifies the original request is replayed once. Its API is mocked; this does not prove deployed identity or production business acceptance. The real PostgreSQL 061 scenario additionally exercises the client through the actual API/repository and a second selected payment, then restores the isolated bank fixture via controlled unmatch.
+
+Work remains: complete PostgreSQL and full local checks, inspect the full page at desktop and mobile sizes, complete independent review and deployed end-to-end acceptance. The parent candidate backend still requires final owner-role query-plan/performance evidence and publication. These changes have not been deployed.

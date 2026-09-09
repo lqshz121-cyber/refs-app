@@ -3,6 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {createPool} from '../../runtime/db.mjs';
 import {migrateUp} from '../../runtime/migrations.mjs';
 import {PostgresGrantSync} from '../../runtime/grant-sync.mjs';
+import {dropIamRaceDatabase} from './iam-race-database-cleanup.mjs';
 import {AUTHORITATIVE_WORKFLOW_ROLES,assertStagingDeploymentTarget,grantStagingWorkflowRole} from '../../runtime/workflow-role-grant.mjs';
 
 const deferred=()=>{let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};};
@@ -13,7 +14,7 @@ export async function productionIamSealRaceFixture({adminPool,config}){
   assert.match(name,/^refs_iam_race_[0-9a-f]{16}_test$/);
   const urlFor=value=>{const url=new URL(value);url.pathname=`/${name}`;return url.toString();};
   const envNames={DATABASE_URL:'databaseUrl',MIGRATION_DATABASE_URL:'migrationDatabaseUrl',CONTEXT_ISSUER_DATABASE_URL:'contextIssuerDatabaseUrl',GRANT_SYNC_DATABASE_URL:'grantSyncDatabaseUrl'};
-  let ownerPool,grantPool,owner,oldSnapshot,sealPending,grantPending,inflight;
+  let ownerPool,grantPool,owner,oldSnapshot,sealPending,grantPending,inflight,primaryError;
   const proceedGrant=deferred(),proceedOidc=deferred();
   const parentDatabase=(await adminPool.query('SELECT current_database() AS name')).rows[0].name;
   assert.match(parentDatabase,/_test$/,'race fixtures require an explicitly isolated test database');
@@ -84,7 +85,7 @@ export async function productionIamSealRaceFixture({adminPool,config}){
     await assert.rejects(deniedSync.reconcile({...inputs,actorId:'fixture|race-retry',idempotencyKey:'iam-race-retry-after-seal'}),error=>error.code==='42501');
     await assert.rejects(deniedSync.currentVersion(inputs),error=>error.code==='42501');
     assert.deepEqual(await counts(),beforeSeal,'all post-seal failed ceremonies have zero grant, audit, outbox, context, idempotency or accounting effects');
-  }finally{
+  }catch(error){primaryError=error;throw error;}finally{
     proceedGrant.resolve();proceedOidc.resolve();
     await Promise.allSettled([grantPending,sealPending,inflight].filter(Boolean));
     if(oldSnapshot){await oldSnapshot.query('ROLLBACK').catch(()=>{});oldSnapshot.release();}
@@ -92,6 +93,6 @@ export async function productionIamSealRaceFixture({adminPool,config}){
     await Promise.allSettled([grantPool?.end(),ownerPool?.end()]);
     // Only this helper's generated, validated database is removed; the parent
     // fixture database and all unrelated databases remain untouched.
-    await adminPool.query(`DROP DATABASE "${name}"`);
+    await dropIamRaceDatabase(adminPool,name,primaryError);
   }
 }
