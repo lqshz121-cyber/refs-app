@@ -12,7 +12,7 @@ const validUntil='2026-08-24T00:00:00.000Z';
 test('asset acquisition maker can reach the form and Draft without workflow escalation',()=>{
  const role=AUTHORITATIVE_WORKFLOW_ROLES.FIXED_ASSET_ACQUISITION_MAKER;
  assert.equal(role.authorityClass,'DRAFT');assert.equal(role.principalKind,'HUMAN');
- assert.deepEqual([...role.permissions].sort(),['FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']);
+ assert.deepEqual([...role.permissions].sort(),['FIXED_ASSET.ACQUISITION.DRAFT','FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']);
  assert.ok(Object.isFrozen(role));assert.ok(Object.isFrozen(role.permissions));
 });
 test('asset depreciation maker can read retained evidence and create only a Draft',()=>{

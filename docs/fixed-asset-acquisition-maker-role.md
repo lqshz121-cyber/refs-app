@@ -1,7 +1,9 @@
 # Fixed asset acquisition maker
 
 The formal FIXED_ASSET_ACQUISITION_MAKER role is a HUMAN/DRAFT bundle containing
-exactly FIXED_ASSET.REGISTER.VIEW, GL.JE.CREATE and GL.JE.VIEW. This lets a maker
+exactly FIXED_ASSET.ACQUISITION.DRAFT, FIXED_ASSET.REGISTER.VIEW, GL.JE.CREATE
+and GL.JE.VIEW. The dedicated permission separates acquisition preparation from
+other journal and fixed-asset Draft operations. This lets an acquisition maker
 open the register and asset detail, read the acquisition form, create its Draft,
 and read the resulting journal through the same authenticated database role.
 Submit, review, approval, posting, imports and role administration are absent.

@@ -7869,10 +7869,10 @@ pgTest('fixed asset acquisition real HTTP chain reaches independent roles and ex
  const api=createAccountingApi({authenticate:async request=>{const authorization=request.headers?.authorization;if(authorization==='Bearer '+token)return {trusted:true,tenantId:ids.tenantId,actorId};if(authorization==='Bearer '+readerToken)return {trusted:true,tenantId:ids.tenantId,actorId:readerActorId};return null;},kernelFactory:async principal=>principal.actorId===actorId?roles.MAKER:principal.actorId===readerActorId?roles.READER:null});
  const accessPath=`/api/v1/entities/${ids.entityId}/access/self`;
  for(const headers of [{},{authorization:'Bearer wrong-token'}])assert.equal((await api({method:'GET',url:accessPath,headers})).status,401,'real handler rejects an absent or different browser identity');
- const makerAccess=await roles.MAKER.readCurrentActorAccess({tenantId:ids.tenantId,entityId:ids.entityId});assert.deepEqual([...makerAccess.permissions].sort(),['FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']);assert.equal(makerAccess.session_refresh_required,false);
+ const makerAccess=await roles.MAKER.readCurrentActorAccess({tenantId:ids.tenantId,entityId:ids.entityId});assert.deepEqual([...makerAccess.permissions].sort(),['FIXED_ASSET.ACQUISITION.DRAFT','FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']);assert.equal(makerAccess.session_refresh_required,false);
  const options=await roles.MAKER.readFixedAssetAcquisitionOptions({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id});assert.equal(options.period.period_id,ids.periodId);assert.equal(options.attachments.length,1);
  const completeWorkflow=async({journalEntryId,periodId,actorAccess,browserDraft})=>{
-  assert.equal(periodId,ids.periodId);assert.equal(browserDraft.journal_date,'2026-07-02');assert.equal(browserDraft.status,'DRAFT');assert.deepEqual([...actorAccess.permissions].sort(),['FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']);
+  assert.equal(periodId,ids.periodId);assert.equal(browserDraft.journal_date,'2026-07-02');assert.equal(browserDraft.status,'DRAFT');assert.deepEqual([...actorAccess.permissions].sort(),['FIXED_ASSET.ACQUISITION.DRAFT','FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']);
   for(const [action,expectedRevision] of [['SUBMIT',0],['REVIEW',0],['APPROVE',0]])await assert.rejects(roles.MAKER.transitionJournal({...ids,journalEntryId,action,expectedRevision,idempotencyKey:'browser-maker-denied-'+action.toLowerCase()}),error=>error.code==='42501');
   await assert.rejects(roles.MAKER.postJournal({...ids,journalEntryId,expectedRevision:0,idempotencyKey:'browser-maker-denied-post'}),error=>error.code==='42501');
   for(const [role,action,expectedRevision] of [['JE_SUBMITTER','SUBMIT',0],['JE_REVIEWER','REVIEW',1],['JE_APPROVER','APPROVE',2]])await roles[role].transitionJournal({...ids,journalEntryId,action,expectedRevision,idempotencyKey:'browser-acquisition-'+action.toLowerCase()});
@@ -8265,6 +8265,28 @@ pgTest('fixed asset acquisition movement source migration restores V1 and roundt
  for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
  const client=await adminPool.connect(),definition="SELECT pg_get_functiondef('refs_read_fixed_asset_movements(uuid,uuid,uuid,date,integer,text)'::regprocedure) body";
  try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0].body;assert.match(before,/EXACT_ACQUISITION_SOURCE/);await client.query(bodies.down);const prior=(await client.query(definition)).rows[0].body;assert.match(prior,/FIXED_ASSET_MOVEMENTS_V1/);assert.doesNotMatch(prior,/EXACT_ACQUISITION_SOURCE/);await client.query(bodies.up);assert.equal((await client.query(definition)).rows[0].body,before);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('asset acquisition requires its dedicated maker permission before any draft writes',async()=>{
+ const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
+ await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'acquisition-permission-fixture')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
+ const maker=await formalWorkflowRoleKernel(ids,'dedicated-acquisition-maker','FIXED_ASSET_ACQUISITION_MAKER');
+ const generic=await formalWorkflowRoleKernel(ids,'generic-journal-maker','AI_ACCOUNTING_DECISION_MAKER');
+ const input={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'DEDICATED-ACQUISITION',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Retain acquisition under its dedicated maker authority.',idempotencyKey:'dedicated-acquisition-create'};
+ await assert.rejects(generic.readFixedAssetAcquisitionOptions(input),e=>e.code==='42501');
+ await assert.rejects(generic.createFixedAssetAcquisition(input),e=>e.code==='42501');
+ assert.equal((await adminPool.query('SELECT count(*)::int n FROM fixed_asset_acquisition_binding WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);
+ assert.equal((await adminPool.query('SELECT count(*)::int n FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key=$2',[ids.tenantId,input.idempotencyKey])).rows[0].n,0);
+ const options=await maker.readFixedAssetAcquisitionOptions(input);assert.equal(options.asset_id,input.assetId);
+ const draft=await maker.createFixedAssetAcquisition(input);assert.equal(draft.status,'DRAFT');
+ const audit=(await adminPool.query("SELECT permission_used FROM audit_event WHERE tenant_id=$1 AND object_id=$2 AND event_type='FIXED_ASSET_ACQUISITION_DRAFT_CREATED'",[ids.tenantId,draft.journal_entry_id])).rows;assert.equal(audit.length,1);assert.equal(audit[0].permission_used,'FIXED_ASSET.ACQUISITION.DRAFT');
+});
+
+pgTest('asset acquisition dedicated permission migration restores prior functions without deleting permission history',async()=>{
+ const name='356_fixed_asset_acquisition_draft_permission.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
+ for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ const client=await adminPool.connect(),definition="SELECT pg_get_functiondef('refs_create_fixed_asset_acquisition(uuid,uuid,uuid,uuid,text,date,bigint,uuid[],text,text,text)'::regprocedure) create_body,pg_get_functiondef('refs_read_fixed_asset_acquisition_options(uuid,uuid,uuid)'::regprocedure) options_body";
+ try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0];await client.query(bodies.down);const prior=(await client.query(definition)).rows[0];for(const field of ['create_body','options_body']){assert.match(before[field],/FIXED_ASSET\.ACQUISITION\.DRAFT/);assert.doesNotMatch(prior[field],/FIXED_ASSET\.ACQUISITION\.DRAFT/);assert.match(prior[field],/GL\.JE\.CREATE/);}const retained=await client.query("SELECT active FROM permission_catalog WHERE permission_code='FIXED_ASSET.ACQUISITION.DRAFT'");assert.equal(retained.rows.length,1);assert.equal(retained.rows[0].active,false);await client.query(bodies.up);assert.deepEqual((await client.query(definition)).rows[0],before);assert.equal((await client.query("SELECT active FROM permission_catalog WHERE permission_code='FIXED_ASSET.ACQUISITION.DRAFT'")).rows[0].active,true);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });
 
 pgTest('fixed asset depreciation reconciliation boundary migration restores the previous function and roundtrips',async()=>{

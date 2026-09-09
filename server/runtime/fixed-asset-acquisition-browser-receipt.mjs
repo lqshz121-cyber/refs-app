@@ -17,7 +17,7 @@ export async function verifyFixedAssetAcquisitionBrowserReceipt(output,expectedS
  const trial=[...(business?.trial_balance||[])].sort((a,b)=>String(a.account_code).localeCompare(String(b.account_code)));assert.equal(trial.length,2);
  assert.deepEqual(trial.map(row=>[row.account_code,row.period_debit,row.period_credit,row.display_balance]),[['150100','25000.0000','0.0000','25000.0000'],['291001','0.0000','25000.0000','-25000.0000']]);for(const row of trial)assert.ok(exactSource(row.source_document_ids,sourceId));
  assert.equal(business.asset_status,'ACTIVE');assert.equal(business.posted_cost_balance,'25000.0000');assert.equal(business.maker_later_workflow_denied,true);assert.deepEqual(business.identity_denials,[401,401]);assert.equal(business.acquisition_posting_count,1);
- assert.deepEqual(result.actor_access?.permissions?.slice().sort(),['FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']);assert.equal(result.actor_access?.session_refresh_required,false);
+ assert.deepEqual(result.actor_access?.permissions?.slice().sort(),['FIXED_ASSET.ACQUISITION.DRAFT','FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']);assert.equal(result.actor_access?.session_refresh_required,false);
  assert.deepEqual(result.reader_access?.permissions?.slice().sort(),['FIXED_ASSET.REGISTER.VIEW','GL.JE.VIEW','GL.REPORT.VIEW']);assert.equal(result.reader_access?.session_refresh_required,false);
  assert.equal(result.writes?.length,1);assert.equal(result.writes[0].method,'POST');assert.equal(result.writes[0].status,201);assert.equal(result.writes[0].identity,'MAKER');assert.match(result.writes[0].path,/\/acquisitions$/);
  assert.ok(Array.isArray(result.reads)&&result.reads.length>=5&&result.reads.every(read=>read.method==='GET'&&read.status===200));
