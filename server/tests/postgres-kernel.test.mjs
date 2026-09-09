@@ -7254,7 +7254,7 @@ async function reviewedFixedAssetFixture(sourceVendor=null,{salvageValue='1000.0
   if(sourceVendor&&useOriginalSource){
     assert.equal(sourceVendor,'VENDOR-1');
     const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'asset-source-importer',['WBS.SNAPSHOT.IMPORT'])});
-    const retained=await retainFinal1PayableFixture({pool:adminPool,kernel:importer,ids,amount:'25000.0000',postingDate:'2026-07-01',invoiceDate:'2026-07-01',linkSourceAttachment:false});
+    const retained=await retainFinal1PayableFixture({pool:adminPool,kernel:importer,ids,amount:'25000.0000',postingDate:'2026-07-01',invoiceDate:'2026-07-01',linkSourceAttachment:false,controlledProjectRef:memberTraceOverride?.project_ref??null,controlledPropertyRef:memberTraceOverride?.property_ref??null});
     trace={documentId:retained.sourceDocumentId};ids.attachmentId=retained.attachmentId;
     const original=(await adminPool.query('SELECT * FROM wbs_payable_original_row_evidence WHERE tenant_id=$1 AND source_document_id=$2',[ids.tenantId,trace.documentId])).rows[0];
     lineId=original.source_document_line_id;sourcePayloadHash=original.raw_row_hash;sourceLineHash=original.raw_row_hash;memberTrace={project_ref:null,property_ref:null,allocation_basis:'ENTITY_ONLY'};
