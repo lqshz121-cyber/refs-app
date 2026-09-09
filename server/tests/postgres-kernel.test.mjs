@@ -8190,7 +8190,7 @@ pgTest('fixed asset depreciation schedule stops after useful life and clears rou
 });
 
 pgTest('native fixed asset depreciation retains evidence, races one Post, and refreshes register GL and report',async()=>{
- const memberTrace={project_ref:'PROJECT-1',property_ref:'PROPERTY-1',allocation_basis:'SOURCE_DIMENSIONED'};
+ const memberTrace={project_ref:'PROJECT-1',property_ref:null,allocation_basis:'SOURCE_DIMENSIONED'};
  const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1',{memberTraceOverride:memberTrace});
  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'depreciation-fixture-owner')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
  const roles={};for(const role of ['FIXED_ASSET_ACQUISITION_MAKER','FIXED_ASSET_DEPRECIATION_MAKER','JE_SUBMITTER','JE_REVIEWER','JE_APPROVER','JE_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'native-depreciation-'+role.toLowerCase(),role);
