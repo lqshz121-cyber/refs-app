@@ -131,6 +131,18 @@ test('fixed asset depreciation migration enforces composite lineage and locks be
   assert.ok(lock>0&&check>lock,'down must freeze the journal and evidence writers before checking retained business data');
 });
 
+test('fixed asset depreciation movement migration retains posted evidence and restores V2',async()=>{
+  const up=await readFile(new URL('../db/migrations/357_fixed_asset_depreciation_movement_source.sql',import.meta.url),'utf8'),down=await readFile(new URL('../db/migrations/down/357_fixed_asset_depreciation_movement_source.sql',import.meta.url),'utf8');
+  assert.match(up,/FIXED_ASSET_MOVEMENTS_V3/);
+  assert.match(up,/EXACT_DEPRECIATION_SOURCE/);
+  assert.match(up,/JOIN fixed_asset_depreciation_posting posted ON posted\.tenant_id=b\.tenant_id AND posted\.entity_id=b\.entity_id AND posted\.fixed_asset_register_evidence_id=b\.fixed_asset_register_evidence_id AND posted\.accounting_period_id=b\.accounting_period_id AND posted\.binding_id=b\.binding_id AND posted\.journal_entry_id=b\.journal_entry_id/);
+  assert.match(up,/s\.link_type='FIXED_ASSET_DEPRECIATION_TO_JE' AND s\.source_document_id=b\.source_document_id AND s\.journal_entry_id=b\.journal_entry_id/);
+  for(const field of ['depreciation_binding_id','depreciation_period_id','depreciation_register_evidence_hash','depreciation_schedule_snapshot_hash','depreciation_policy_snapshot_id','depreciation_policy_snapshot_hash','depreciation_expected_amount'])assert.match(up,new RegExp("'"+field+"'"),field);
+  assert.match(up,/b\.expected_amount::text/);
+  assert.match(down,/FIXED_ASSET_MOVEMENTS_V2/);
+  assert.doesNotMatch(down,/EXACT_DEPRECIATION_SOURCE/);
+});
+
 test('WBS snapshots are immutable scoped observations, not current source events or journals',()=>{
   assert.match(wbsSnapshotSql,/CREATE TABLE wbs_snapshot_import/);
   assert.match(wbsSnapshotSql,/CREATE TABLE wbs_snapshot_receipt/);

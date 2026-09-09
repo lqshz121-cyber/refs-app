@@ -362,4 +362,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"354_fixed_asset_depreciation_reconciliation_boundary.sql","up":"00f2f587168f99fee2a5f10e0eac06be983f3a9c1baf617858e1eb2c2138c676","down":"6e7ca98976f3d0d929bef55f0381cba3c8766b1d840c6135e53ccaecc3dc6f4f"}),
   Object.freeze({"name":"355_fixed_asset_depreciation_draft.sql","up":"59c0535d2ade07a84975c27e17042c33555fccd3d481e67e8b8607cee89d6ca2","down":"8a5f3997b164988fb10bd4e629902a9cb094be6c1d692f03690a42e83eff3f3b"}),
   Object.freeze({"name":"356_fixed_asset_acquisition_draft_permission.sql","up":"3684bf8148a2a555de7e86747331bebf3c34e04bdff5de053b5fea0ebcb9da27","down":"3800a04df48fc8bc812ccae1c9ad3030fd5a780234632d5ad852873662268838"}),
+  Object.freeze({"name":"357_fixed_asset_depreciation_movement_source.sql","up":"ab71cc355c58a6bd44feac5c689be99d43ed963b0d73fcf57d3ddb798ccc5132","down":"8ac8008357db886ff4f4323797a1b6f2c5a0b1b9b4254c9ea82d6224273a86d4"}),
 ]);

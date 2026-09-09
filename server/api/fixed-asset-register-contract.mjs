@@ -346,7 +346,7 @@ export const FIXED_ASSET_MOVEMENTS_SCHEMA={
   ],
   "properties": {
     "schema_version": {
-      "const": "FIXED_ASSET_MOVEMENTS_V2"
+      "const": "FIXED_ASSET_MOVEMENTS_V3"
     },
     "tenant_id": {
       "type": "string",
@@ -415,7 +415,14 @@ export const FIXED_ASSET_MOVEMENTS_SCHEMA={
           "valuation_source_payload_hash",
           "impairment_assessment_hash",
           "assessment_lineage_status",
-          "acquisition_binding_id"
+          "acquisition_binding_id",
+          "depreciation_binding_id",
+          "depreciation_period_id",
+          "depreciation_register_evidence_hash",
+          "depreciation_schedule_snapshot_hash",
+          "depreciation_policy_snapshot_id",
+          "depreciation_policy_snapshot_hash",
+          "depreciation_expected_amount"
         ],
         "properties": {
           "ledger_line_id": {
@@ -534,7 +541,8 @@ export const FIXED_ASSET_MOVEMENTS_SCHEMA={
             "enum": [
               "EXACT_DISPOSAL_SOURCE",
               "BLOCKED_MISSING_EXACT_SOURCE_BINDING",
-              "EXACT_ACQUISITION_SOURCE"
+              "EXACT_ACQUISITION_SOURCE",
+              "EXACT_DEPRECIATION_SOURCE"
             ]
           },
           "source_document_id": {
@@ -636,6 +644,55 @@ export const FIXED_ASSET_MOVEMENTS_SCHEMA={
               "null"
             ],
             "format": "uuid"
+          },
+          "depreciation_binding_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "depreciation_period_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "depreciation_register_evidence_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "depreciation_schedule_snapshot_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "depreciation_policy_snapshot_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "depreciation_policy_snapshot_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "depreciation_expected_amount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?!0[.]0000$)(0|[1-9][0-9]{0,15})\\.[0-9]{4}$"
           }
         }
       }
@@ -659,9 +716,10 @@ export function validFixedAssetMovements(result,{tenantId,entityId,assetId,asOfD
  if(row.assessment_lineage_status==='EXACT_RETAINED_ASSESSMENT'?row.impairment_assessment_evidence_id===null||row.valuation_source_payload_hash===null||row.impairment_assessment_hash===null:row.impairment_assessment_evidence_id!==null||row.valuation_source_document_id!==null||row.valuation_source_payload_hash!==null||row.impairment_assessment_hash!==null)return false;
  if(row.assessment_lineage_status==='NOT_REFERENCED'&&row.impairment_assessment_reference!==null||row.assessment_lineage_status==='BLOCKED_UNRESOLVED_REFERENCE'&&row.impairment_assessment_reference===null)return false;
  const fields=['source_document_id','source_payload_hash','source_document_version','source_link_id'];
- const disposal=row.source_binding_status==='EXACT_DISPOSAL_SOURCE',acquisition=row.source_binding_status==='EXACT_ACQUISITION_SOURCE';
- if(disposal||acquisition){if(fields.some(key=>row[key]===null))return false;}else if(fields.some(key=>row[key]!==null))return false;
- if(disposal?(row.disposal_binding_id===null||row.acquisition_binding_id!==null):acquisition?(row.acquisition_binding_id===null||row.disposal_binding_id!==null):(row.disposal_binding_id!==null||row.acquisition_binding_id!==null))return false;
+ const disposal=row.source_binding_status==='EXACT_DISPOSAL_SOURCE',acquisition=row.source_binding_status==='EXACT_ACQUISITION_SOURCE',depreciation=row.source_binding_status==='EXACT_DEPRECIATION_SOURCE';
+ if(disposal||acquisition||depreciation){if(fields.some(key=>row[key]===null))return false;}else if(fields.some(key=>row[key]!==null))return false;
+ const depreciationFields=['depreciation_binding_id','depreciation_period_id','depreciation_register_evidence_hash','depreciation_schedule_snapshot_hash','depreciation_policy_snapshot_id','depreciation_policy_snapshot_hash','depreciation_expected_amount'];
+ if(disposal?(row.disposal_binding_id===null||row.acquisition_binding_id!==null||depreciationFields.some(key=>row[key]!==null)):acquisition?(row.acquisition_binding_id===null||row.disposal_binding_id!==null||depreciationFields.some(key=>row[key]!==null)):depreciation?(row.disposal_binding_id!==null||row.acquisition_binding_id!==null||depreciationFields.some(key=>row[key]===null)||row.depreciation_period_id!==row.accounting_period_id||BigInt(row.depreciation_expected_amount.replace('.',''))!==debit+credit):(row.disposal_binding_id!==null||row.acquisition_binding_id!==null||depreciationFields.some(key=>row[key]!==null)))return false;
  if(row.impairment_assessment_evidence_id!==null&&(row.impairment_assessment_evidence_id!==row.impairment_assessment_reference||row.valuation_source_document_id===null)||row.impairment_assessment_evidence_id===null&&row.valuation_source_document_id!==null)return false;
  }return result.next_cursor===null||result.rows.length===limit;
 }
