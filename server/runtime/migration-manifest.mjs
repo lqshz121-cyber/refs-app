@@ -364,5 +364,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"356_fixed_asset_acquisition_draft_permission.sql","up":"3684bf8148a2a555de7e86747331bebf3c34e04bdff5de053b5fea0ebcb9da27","down":"3800a04df48fc8bc812ccae1c9ad3030fd5a780234632d5ad852873662268838"}),
   Object.freeze({"name":"357_fixed_asset_depreciation_movement_source.sql","up":"ab71cc355c58a6bd44feac5c689be99d43ed963b0d73fcf57d3ddb798ccc5132","down":"8ac8008357db886ff4f4323797a1b6f2c5a0b1b9b4254c9ea82d6224273a86d4"}),
   Object.freeze({"name":"358_fixed_asset_post_impairment_depreciation_policy.sql","up":"b0bd0b1fe54c3f155c5e16cc67867b663eb40a95a44a503e9e8b3a545d5daa0d","down":"5fbe32b9169b2a8ab3ee0e3730937710e1a112ad178bcf1f82b87577352b1fb5"}),
-  Object.freeze({"name":"359_fixed_asset_post_impairment_depreciation_schedule.sql","up":"0a92d1d66eb0b971bca9d15510a0d2089ee977696e4fc750fc941e1844a7ced5","down":"c66d881cfcf29faefab5fd8a958e3bf155d2965c8443380dfa5bf336a18d8f0c"}),
+  Object.freeze({"name":"359_fixed_asset_post_impairment_depreciation_schedule.sql","up":"980362f910e996c97d81b6587bedd4c3f55513d93f693429903144a800796b0a","down":"c66d881cfcf29faefab5fd8a958e3bf155d2965c8443380dfa5bf336a18d8f0c"}),
 ]);

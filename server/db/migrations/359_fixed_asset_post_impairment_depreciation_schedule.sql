@@ -24,7 +24,7 @@ BEGIN
  IF assessment_period.period_id IS NULL OR effective.period_id IS NULL OR policy.effective_from<>effective.starts_on OR effective.starts_on<>assessment_period.ends_on+1 OR policy.convention<>'NEXT_PERIOD_FULL_MONTH' THEN RETURN NULL;END IF;
  SELECT j.journal_entry_id,j.period_id,j.journal_date,j.created_by,j.reviewed_by,j.approved_by,j.posted_at,j.posted_by,
   count(*) line_count,count(*) FILTER(WHERE l.account_code=assessment.impairment_expense_account_code) expense_line_count,count(*) FILTER(WHERE l.account_code=assessment.accumulated_impairment_account_code) accumulated_line_count,
-  bool_and(l.dimensions->>'fixed_asset_register_evidence_id'=p_asset::text AND l.dimensions->>'fixed_asset_impairment_assessment_evidence_id'=assessment.fixed_asset_impairment_assessment_evidence_id::text) dimensions_exact,
+  bool_and((l.dimensions->>'fixed_asset_register_evidence_id' IS NOT DISTINCT FROM p_asset::text) AND (l.dimensions->>'fixed_asset_impairment_assessment_evidence_id' IS NOT DISTINCT FROM assessment.fixed_asset_impairment_assessment_evidence_id::text)) dimensions_exact,
   array_agg(l.journal_line_id ORDER BY l.journal_line_id) journal_line_ids,array_agg(l.ledger_line_id ORDER BY l.ledger_line_id) ledger_line_ids,
   sum(CASE WHEN l.account_code=assessment.impairment_expense_account_code THEN l.debit_amount-l.credit_amount ELSE 0 END)::numeric(20,4) expense_amount,
   sum(CASE WHEN l.account_code=assessment.accumulated_impairment_account_code THEN l.credit_amount-l.debit_amount ELSE 0 END)::numeric(20,4) accumulated_amount
@@ -32,7 +32,7 @@ BEGIN
  WHERE j.tenant_id=p_tenant AND j.entity_id=p_entity AND j.journal_entry_id=policy.impairment_journal_entry_id AND j.status='POSTED'
  GROUP BY j.journal_entry_id,j.period_id,j.journal_date,j.created_by,j.reviewed_by,j.approved_by,j.posted_at,j.posted_by;
  IF posting.journal_entry_id IS NULL OR posting.period_id<>assessment.accounting_period_id OR posting.journal_date NOT BETWEEN assessment.assessment_date AND assessment_period.ends_on
-  OR posting.line_count<>2 OR posting.expense_line_count<>1 OR posting.accumulated_line_count<>1 OR NOT posting.dimensions_exact
+  OR posting.line_count<>2 OR posting.expense_line_count<>1 OR posting.accumulated_line_count<>1 OR posting.dimensions_exact IS DISTINCT FROM true
   OR posting.expense_amount<>assessment.impairment_loss OR posting.accumulated_amount<>assessment.impairment_loss
   OR posting.created_by IS NULL OR posting.reviewed_by IS NULL OR posting.approved_by IS NULL OR posting.posted_by IS NULL
   OR cardinality(ARRAY(SELECT DISTINCT workflow_actor FROM unnest(ARRAY[posting.created_by,posting.reviewed_by,posting.approved_by,posting.posted_by]) workflow_actor))<>4

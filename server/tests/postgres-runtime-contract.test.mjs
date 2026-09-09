@@ -175,7 +175,9 @@ test('post-impairment schedule migration validates retained policy evidence and 
   assert.match(up,/BLOCKED_POST_IMPAIRMENT_POLICY_REQUIRED/);
   assert.match(up,/count\(\*\) line_count/);
   assert.match(up,/posting\.line_count<>2/);
-  assert.match(up,/l\.dimensions->>'fixed_asset_impairment_assessment_evidence_id'=assessment\.fixed_asset_impairment_assessment_evidence_id::text/);
+  assert.match(up,/IS NOT DISTINCT FROM assessment\.fixed_asset_impairment_assessment_evidence_id::text/);
+  assert.match(up,/posting\.dimensions_exact IS DISTINCT FROM true/);
+  assert.match(up,/l\.dimensions->>'fixed_asset_impairment_assessment_evidence_id' IS NOT DISTINCT FROM assessment\.fixed_asset_impairment_assessment_evidence_id::text/);
   assert.match(up,/policy\.reviewed_by=ANY\(ARRAY\[posting\.created_by,posting\.reviewed_by,posting\.approved_by,posting\.posted_by\]\)/);
   assert.match(up,/expected_policy_hash:=refs_jsonb_hash/);
   assert.match(up,/policy\.policy_evidence_hash<>expected_policy_hash/);
