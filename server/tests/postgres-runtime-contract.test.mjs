@@ -122,6 +122,15 @@ test('migration manifest freezes normalized up and down artifacts including appe
   }
 });
 
+test('fixed asset depreciation migration enforces composite lineage and locks before down evidence checks',async()=>{
+  const up=await readFile(new URL('../db/migrations/355_fixed_asset_depreciation_draft.sql',import.meta.url),'utf8'),down=await readFile(new URL('../db/migrations/down/355_fixed_asset_depreciation_draft.sql',import.meta.url),'utf8');
+  assert.match(up,/FOREIGN KEY\(tenant_id,entity_id,fixed_asset_register_evidence_id,acquisition_binding_id,acquisition_journal_entry_id\) REFERENCES fixed_asset_acquisition_binding\(tenant_id,entity_id,asset_id,binding_id,journal_entry_id\)/);
+  assert.match(up,/UNIQUE\(tenant_id,entity_id,fixed_asset_register_evidence_id,accounting_period_id,binding_id,journal_entry_id\)/);
+  assert.match(up,/FOREIGN KEY\(tenant_id,entity_id,fixed_asset_register_evidence_id,accounting_period_id,binding_id,journal_entry_id\) REFERENCES fixed_asset_depreciation_binding\(tenant_id,entity_id,fixed_asset_register_evidence_id,accounting_period_id,binding_id,journal_entry_id\)/);
+  const lock=down.indexOf('LOCK TABLE journal_entry,fixed_asset_depreciation_binding,fixed_asset_depreciation_posting IN ACCESS EXCLUSIVE MODE;'),check=down.indexOf('IF EXISTS(SELECT 1 FROM fixed_asset_depreciation_binding)');
+  assert.ok(lock>0&&check>lock,'down must freeze the journal and evidence writers before checking retained business data');
+});
+
 test('WBS snapshots are immutable scoped observations, not current source events or journals',()=>{
   assert.match(wbsSnapshotSql,/CREATE TABLE wbs_snapshot_import/);
   assert.match(wbsSnapshotSql,/CREATE TABLE wbs_snapshot_receipt/);

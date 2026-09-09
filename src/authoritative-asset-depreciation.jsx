@@ -63,7 +63,7 @@ function DepreciationForm({config,assetId,readOptions=readAuthoritativeDepreciat
   <button type="button" className="btn" ref={launch} disabled={open} onClick={()=>saved?setOpen(true):void load()}>Record depreciation</button>
   {open?<div className="report-workbench">
    <div className="report-workbench-head"><h3 ref={heading} tabIndex={-1}>Record depreciation</h3><button type="button" className="btn" disabled={saving} onClick={close}>Close depreciation</button></div>
-   {saved?<div role="status"><h4 ref={resultHeading} tabIndex={-1}>Depreciation draft saved</h4><p>Continue with journal review and approval.</p>{onOpenJournalWorkflow?<button type="button" className="btn" onClick={()=>onOpenJournalWorkflow(saved,saved.period_id)}>Open journal</button>:null}</div>:<>
+   {saved?<div role="status"><h4 ref={resultHeading} tabIndex={-1}>Depreciation draft saved</h4><dl className="fixed-assets-detail-grid"><div><dt>Status</dt><dd>{saved.status==='DRAFT'?'Draft':saved.status}</dd></div><div><dt>Journal ID</dt><dd>{saved.journal_entry_id}</dd></div><div><dt>Period depreciation</dt><dd>{options?.currency} {saved.expected_amount}</dd></div></dl><p>Continue with journal review and approval.</p>{onOpenJournalWorkflow?<button type="button" className="btn" onClick={()=>onOpenJournalWorkflow(saved,saved.period_id)}>Open journal</button>:null}</div>:<>
     {state.phase==='LOADING'?<StateBlock tone="loading" title="Loading depreciation">Reading the schedule and posted balances.</StateBlock>:null}
     {state.phase==='ERROR'?<StateBlock tone="error" title="Could not load depreciation">{state.message}<button type="button" onClick={()=>void load()}>Try again</button></StateBlock>:null}
     {options?<>

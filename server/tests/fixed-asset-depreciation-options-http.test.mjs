@@ -7,10 +7,22 @@ const request={method:'GET',url:`/api/v1/entities/${entityId}/fixed-assets/regis
 const setup=(result=row)=>{const calls=[];return {calls,api:createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>({readFixedAssetDepreciationOptions:async args=>{calls.push(args);return result;}})})};};
 test('depreciation options return canonical scoped evidence and all readiness states',async()=>{
  const {api,calls}=setup();const response=await api(request);assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(calls,[{tenantId,entityId,assetId,periodId}]);assert.deepEqual(response.body.data,row);
- for(const readiness_status of FIXED_ASSET_DEPRECIATION_READINESS.filter(value=>value!=='READY'))assert.equal(validFixedAssetDepreciationOptions({...row,readiness_status},{tenantId,entityId,assetId,periodId}),true,readiness_status);
- const missing={...row,source:null,acquisition:null,acquisition_posted:false,readiness_status:'BLOCKED_ACQUISITION_NOT_POSTED'};assert.equal((await setup(missing).api(request)).status,200);
+ const blocked={
+  BLOCKED_ASSET_INACTIVE:{evidence_status:'INACTIVE'},
+  BLOCKED_PERIOD_NOT_OPEN:{period:{...row.period,status:'CLOSED'}},
+  BLOCKED_ACQUISITION_NOT_POSTED:{source:null,acquisition:null,acquisition_posted:false},
+  BLOCKED_ACQUISITION_EVIDENCE:{},
+  BLOCKED_POST_IMPAIRMENT_POLICY_REQUIRED:{impairment_recorded:true},
+  BLOCKED_ASSET_DISPOSED:{disposal_recorded:true},
+  BLOCKED_NOT_DUE:{schedule:{...row.schedule,expected_period_depreciation:'0.0000',expected_accumulated_depreciation:'0.0000'}},
+  BLOCKED_COST_RECONCILIATION:{actual_posted_cost:'24999.0000'},
+  BLOCKED_PRIOR_DEPRECIATION_RECONCILIATION:{actual_prior_accumulated_depreciation:'100.0000'},
+  BLOCKED_ALREADY_POSTED:{}
+ };
+ assert.deepEqual(Object.keys(blocked).sort(),FIXED_ASSET_DEPRECIATION_READINESS.filter(value=>value!=='READY').sort());
+ for(const [readiness_status,patch] of Object.entries(blocked)){const value={...row,...patch,readiness_status};assert.equal(validFixedAssetDepreciationOptions(value,{tenantId,entityId,assetId,periodId}),true,readiness_status);assert.equal((await setup(value).api(request)).status,200,readiness_status);}
 });
 test('depreciation options reject request mutations and malformed or cross-scope evidence',async()=>{
  const {api,calls}=setup();for(const patch of [{body:{}},{headers:{'if-match':'"1"'}},{headers:{'idempotency-key':'unused'}},{url:request.url+'&tenantId=other'},{url:request.url.replace(periodId,'missing')}])assert.equal((await api({...request,...patch})).status,400);assert.equal(calls.length,0);
- for(const value of [null,{...row,tenant_id:randomUUID()},{...row,asset_id:randomUUID()},{...row,schedule:null},{...row,readiness_status:'READY',impairment_recorded:true},{...row,source:null},{...row,pending_journals:[{journal_entry_id:randomUUID(),period_id:randomUUID(),journal_number:'D',journal_date:'2026-07-31',status:'DRAFT',revision:0}]}])assert.equal((await setup(value).api(request)).status,502);
+ for(const value of [null,{...row,tenant_id:randomUUID()},{...row,asset_id:randomUUID()},{...row,schedule:null},{...row,readiness_status:'READY',impairment_recorded:true},{...row,readiness_status:'READY',actual_posted_cost:'24999.0000'},{...row,readiness_status:'READY',actual_prior_accumulated_depreciation:'100.0000'},{...row,source:null},{...row,pending_journals:[{journal_entry_id:randomUUID(),period_id:randomUUID(),journal_number:'D',journal_date:'2026-07-31',status:'DRAFT',revision:0}]}])assert.equal((await setup(value).api(request)).status,502);
 });

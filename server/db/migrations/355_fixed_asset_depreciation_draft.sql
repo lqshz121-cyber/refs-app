@@ -13,7 +13,7 @@ CREATE TABLE fixed_asset_depreciation_binding (
   fixed_asset_register_evidence_id uuid NOT NULL REFERENCES fixed_asset_register_evidence,
   accounting_period_id uuid NOT NULL REFERENCES accounting_period,
   journal_entry_id uuid NOT NULL,
-  acquisition_binding_id uuid NOT NULL REFERENCES fixed_asset_acquisition_binding,
+  acquisition_binding_id uuid NOT NULL,
   acquisition_journal_entry_id uuid NOT NULL,
   source_document_id uuid NOT NULL REFERENCES source_document,
   source_document_version bigint NOT NULL CHECK(source_document_version>0),
@@ -37,7 +37,9 @@ CREATE TABLE fixed_asset_depreciation_binding (
   created_by text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   UNIQUE(tenant_id,entity_id,journal_entry_id),
+  UNIQUE(tenant_id,entity_id,fixed_asset_register_evidence_id,accounting_period_id,binding_id,journal_entry_id),
   FOREIGN KEY(tenant_id,entity_id,journal_entry_id) REFERENCES journal_entry(tenant_id,entity_id,journal_entry_id),
+  FOREIGN KEY(tenant_id,entity_id,fixed_asset_register_evidence_id,acquisition_binding_id,acquisition_journal_entry_id) REFERENCES fixed_asset_acquisition_binding(tenant_id,entity_id,asset_id,binding_id,journal_entry_id),
   FOREIGN KEY(tenant_id,entity_id,accounting_period_id) REFERENCES accounting_period(tenant_id,entity_id,period_id),
   FOREIGN KEY(tenant_id,entity_id,source_document_id) REFERENCES source_document(tenant_id,entity_id,source_document_id),
   FOREIGN KEY(tenant_id,entity_id,source_document_id,source_document_line_id) REFERENCES source_document_line(tenant_id,entity_id,source_document_id,source_document_line_id),
@@ -60,7 +62,8 @@ CREATE TABLE fixed_asset_depreciation_posting (
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   PRIMARY KEY(tenant_id,entity_id,fixed_asset_register_evidence_id,accounting_period_id),
   UNIQUE(tenant_id,entity_id,journal_entry_id),
-  FOREIGN KEY(tenant_id,entity_id,journal_entry_id) REFERENCES journal_entry(tenant_id,entity_id,journal_entry_id)
+  FOREIGN KEY(tenant_id,entity_id,journal_entry_id) REFERENCES journal_entry(tenant_id,entity_id,journal_entry_id),
+  FOREIGN KEY(tenant_id,entity_id,fixed_asset_register_evidence_id,accounting_period_id,binding_id,journal_entry_id) REFERENCES fixed_asset_depreciation_binding(tenant_id,entity_id,fixed_asset_register_evidence_id,accounting_period_id,binding_id,journal_entry_id)
 );
 ALTER TABLE fixed_asset_depreciation_posting ENABLE ROW LEVEL SECURITY;
 CREATE POLICY fixed_asset_depreciation_posting_scope ON fixed_asset_depreciation_posting USING(tenant_id=refs_current_tenant() AND refs_entity_allowed(entity_id));
@@ -224,7 +227,7 @@ REVOKE EXECUTE ON FUNCTION refs_guard_bound_fixed_asset_depreciation_post() FROM
 
 CREATE FUNCTION refs_read_fixed_asset_depreciation_options(p_tenant uuid,p_entity uuid,p_asset uuid,p_period uuid) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
-DECLARE asset fixed_asset_register_evidence;period accounting_period;schedule jsonb;posting fixed_asset_acquisition_posting;acquisition fixed_asset_acquisition_binding;original fixed_asset_original_source_binding;source source_document;actual_cost numeric(20,4):=0;actual_prior numeric(20,4):=0;current_lines integer:=0;pending jsonb;more_pending boolean;impairment boolean;disposal boolean;source_ready boolean:=false;readiness text;
+DECLARE asset fixed_asset_register_evidence;period accounting_period;schedule jsonb;posting fixed_asset_acquisition_posting;acquisition fixed_asset_acquisition_binding;original fixed_asset_original_source_binding;verified_original wbs_payable_original_row_evidence;source source_document;actual_cost numeric(20,4):=0;actual_prior numeric(20,4):=0;current_lines integer:=0;pending jsonb;more_pending boolean;impairment boolean;disposal boolean;source_ready boolean:=false;readiness text;
 BEGIN
  PERFORM refs_assert_scope(p_tenant,p_entity,'FIXED_ASSET.DEPRECIATION.DRAFT');PERFORM refs_assert_scope(p_tenant,p_entity,'GL.JE.VIEW');
  SELECT * INTO asset FROM fixed_asset_register_evidence WHERE tenant_id=p_tenant AND entity_id=p_entity AND fixed_asset_register_evidence_id=p_asset;
@@ -242,7 +245,12 @@ BEGIN
    AND acquisition.attachment_snapshot_hash IS NOT NULL AND acquisition.attachment_ids IS NOT NULL AND cardinality(acquisition.attachment_ids)>0
    AND acquisition.attachment_snapshot_hash=refs_asset_acquisition_attachment_snapshot(p_tenant,p_entity,acquisition.source_document_id)
    AND original.binding_id IS NOT NULL AND EXISTS(SELECT 1 FROM source_link WHERE source_link_id=acquisition.source_link_id AND tenant_id=p_tenant AND entity_id=p_entity AND source_document_id=acquisition.source_document_id AND journal_entry_id=acquisition.journal_entry_id AND link_type='SOURCE_TO_JE'),false);
-  IF source_ready THEN BEGIN PERFORM refs_validate_asset_original_source(p_tenant,p_entity,p_asset);EXCEPTION WHEN check_violation OR foreign_key_violation OR object_in_use OR object_not_in_prerequisite_state THEN source_ready:=false;END;END IF;
+  IF source_ready THEN BEGIN
+   verified_original:=refs_validate_asset_original_source(p_tenant,p_entity,p_asset);
+   source_ready:=acquisition.source_document_line_id=verified_original.source_document_line_id
+    AND acquisition.source_line_snapshot_hash=refs_jsonb_hash(verified_original.source_line_snapshot)
+    AND original.original_evidence_id=verified_original.evidence_id AND original.original_evidence_hash=verified_original.evidence_hash;
+  EXCEPTION WHEN check_violation OR foreign_key_violation OR object_in_use OR object_not_in_prerequisite_state OR data_exception THEN source_ready:=false;END;END IF;
  END IF;
  SELECT coalesce(sum(l.debit_amount-l.credit_amount),0) INTO actual_cost FROM ledger_line l JOIN journal_entry j ON j.tenant_id=l.tenant_id AND j.entity_id=l.entity_id AND j.journal_entry_id=l.journal_entry_id AND j.status='POSTED' WHERE l.tenant_id=p_tenant AND l.entity_id=p_entity AND l.dimensions->>'fixed_asset_register_evidence_id'=p_asset::text AND l.account_code=asset.asset_account_code AND j.journal_date<=period.ends_on;
  SELECT coalesce(sum(l.credit_amount-l.debit_amount),0) INTO actual_prior FROM ledger_line l JOIN journal_entry j ON j.tenant_id=l.tenant_id AND j.entity_id=l.entity_id AND j.journal_entry_id=l.journal_entry_id AND j.status='POSTED' WHERE l.tenant_id=p_tenant AND l.entity_id=p_entity AND l.dimensions->>'fixed_asset_register_evidence_id'=p_asset::text AND l.account_code=asset.accumulated_depreciation_account_code AND j.journal_date<period.starts_on;

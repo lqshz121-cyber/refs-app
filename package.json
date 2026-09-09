@@ -4,7 +4,7 @@
   "private": true,
   "description": "REFS - Real Estate Financial System (WanBridge) functional prototype",
   "scripts": {
-    "test:asset-acquisition-browser": "node scripts/test-asset-acquisition-browser.mjs && node scripts/test-asset-scope-browser.mjs",
+    "test:asset-acquisition-browser": "node scripts/test-asset-acquisition-browser.mjs && node scripts/test-asset-scope-browser.mjs && node scripts/test-asset-depreciation-browser.mjs",
     "build": "node build.mjs && node scripts/write-runtime-config.mjs && npm run verify:runtime-deployment-assets",
     "dev": "node build.mjs --watch",
     "pretest": "node --test tests/full-release-suite-coverage.test.js && npm run test:ai-accounting-decision-queue && npm run test:authoritative-lineage-drill && npm run test:authoritative-provider-evidence-trace && npm run test:authoritative-browser-acceptance-preflight && node --test tests/build-release-stamp.test.mjs",

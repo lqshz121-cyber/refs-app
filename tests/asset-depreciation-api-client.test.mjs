@@ -25,7 +25,7 @@ test('lost depreciation response retries stable identity without client amount o
 });
 test('blocked or stale depreciation cannot issue a POST',async()=>{
  let calls=0;const fetcher=async()=>{calls++;return response(receipt,201);};
- for(const patch of [{config:{...config,periodId:randomUUID()}},{journalDate:'2026-07-30'},{reason:'short'},{options:{...options,readiness_status:'BLOCKED_ALREADY_POSTED'}},{options:{...options,impairment_recorded:true}},{options:{...options,source:null,acquisition:null,acquisition_posted:false}},{options:{...options,schedule:{...options.schedule,expected_period_depreciation:'0.0000'}}}])assert.equal((await createAuthoritativeAssetDepreciation({...command,...patch,fetcher})).ok,false);
+ for(const patch of [{config:{...config,periodId:randomUUID()}},{journalDate:'2026-07-30'},{reason:'short'},{options:{...options,readiness_status:'BLOCKED_ALREADY_POSTED'}},{options:{...options,impairment_recorded:true}},{options:{...options,source:null,acquisition:null,acquisition_posted:false}},{options:{...options,schedule:{...options.schedule,expected_period_depreciation:'0.0000'} }},{options:{...options,actual_posted_cost:'24999.0000'}},{options:{...options,actual_prior_accumulated_depreciation:'100.0000'}}])assert.equal((await createAuthoritativeAssetDepreciation({...command,...patch,fetcher})).ok,false);
  assert.equal(calls,0);
 });
 test('depreciation receipt binds source schedule acquisition period amount and Draft state',async()=>{

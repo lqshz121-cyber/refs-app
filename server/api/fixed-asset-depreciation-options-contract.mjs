@@ -12,7 +12,7 @@ export const FIXED_ASSET_DEPRECIATION_READINESS=Object.freeze([
 ]);
 export function validFixedAssetDepreciationOptions(value,{tenantId,entityId,assetId,periodId}){
  if(!keys(value,'schema_version tenant_id entity_id asset_id asset_tag evidence_status register_evidence_hash member_trace currency cost_basis salvage_value asset_account_code accumulated_depreciation_account_code depreciation_expense_account_code period source acquisition policy schedule actual_posted_cost actual_prior_accumulated_depreciation acquisition_posted impairment_recorded disposal_recorded readiness_status pending_journals more_pending_journals requires_command_validation'))return false;
- if(value.schema_version!=='FIXED_ASSET_DEPRECIATION_OPTIONS_V1'||value.tenant_id!==tenantId||value.entity_id!==entityId||value.asset_id!==assetId||![tenantId,entityId,assetId,periodId].every(id=>UUID.test(id||''))||!text(value.asset_tag,100)||value.evidence_status!=='ACTIVE'||!HASH.test(value.register_evidence_hash||'')||!/^[A-Z]{3}$/.test(value.currency||'')||![value.cost_basis,value.salvage_value,value.actual_posted_cost,value.actual_prior_accumulated_depreciation].every(money)||BigInt(value.cost_basis.replace('.',''))<=0n||BigInt(value.salvage_value.replace('.',''))<0n||BigInt(value.salvage_value.replace('.',''))>=BigInt(value.cost_basis.replace('.',''))||!text(value.asset_account_code,128)||!text(value.accumulated_depreciation_account_code,128)||!text(value.depreciation_expense_account_code,128))return false;
+ if(value.schema_version!=='FIXED_ASSET_DEPRECIATION_OPTIONS_V1'||value.tenant_id!==tenantId||value.entity_id!==entityId||value.asset_id!==assetId||![tenantId,entityId,assetId,periodId].every(id=>UUID.test(id||''))||!text(value.asset_tag,100)||!['ACTIVE','INACTIVE'].includes(value.evidence_status)||!HASH.test(value.register_evidence_hash||'')||!/^[A-Z]{3}$/.test(value.currency||'')||![value.cost_basis,value.salvage_value,value.actual_posted_cost,value.actual_prior_accumulated_depreciation].every(money)||BigInt(value.cost_basis.replace('.',''))<=0n||BigInt(value.salvage_value.replace('.',''))<0n||BigInt(value.salvage_value.replace('.',''))>=BigInt(value.cost_basis.replace('.',''))||!text(value.asset_account_code,128)||!text(value.accumulated_depreciation_account_code,128)||!text(value.depreciation_expense_account_code,128))return false;
  const p=value.period;if(!keys(p,'period_id period_code starts_on ends_on status')||p.period_id!==periodId||!UUID.test(p.period_id)||!/^\d{4}-(0[1-9]|1[0-2])$/.test(p.period_code)||!date(p.starts_on)||!date(p.ends_on)||p.starts_on>p.ends_on||!['OPEN','SOFT_CLOSED','CLOSED'].includes(p.status))return false;
  const member=value.member_trace;if(!keys(member,'project_ref property_ref allocation_basis')||!text(member.allocation_basis,128)||member.project_ref!==null&&!text(member.project_ref,128)||member.property_ref!==null&&!text(member.property_ref,128))return false;
  const s=value.schedule;if(!keys(s,'schedule_snapshot_hash expected_period_depreciation expected_accumulated_depreciation expected_prior_accumulated_depreciation')||!HASH.test(s.schedule_snapshot_hash||'')||![s.expected_period_depreciation,s.expected_accumulated_depreciation,s.expected_prior_accumulated_depreciation].every(money)||[s.expected_period_depreciation,s.expected_accumulated_depreciation,s.expected_prior_accumulated_depreciation].some(amount=>BigInt(amount.replace('.',''))<0n)||BigInt(s.expected_accumulated_depreciation.replace('.',''))!==BigInt(s.expected_prior_accumulated_depreciation.replace('.',''))+BigInt(s.expected_period_depreciation.replace('.','')))return false;
@@ -24,6 +24,21 @@ export function validFixedAssetDepreciationOptions(value,{tenantId,entityId,asse
  if(value.pending_journals.some((j,index)=>!keys(j,'journal_entry_id period_id journal_number journal_date status revision')||!UUID.test(j.journal_entry_id||'')||j.period_id!==periodId||!text(j.journal_number,100)||!date(j.journal_date)||!['DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED'].includes(j.status)||!Number.isSafeInteger(j.revision)||j.revision<0||index>0&&value.pending_journals[index-1].journal_entry_id>=j.journal_entry_id))return false;
  if(!FIXED_ASSET_DEPRECIATION_READINESS.includes(value.readiness_status)||typeof value.acquisition_posted!=='boolean'||typeof value.impairment_recorded!=='boolean'||typeof value.disposal_recorded!=='boolean'||value.requires_command_validation!==true)return false;
  if(value.acquisition_posted!==(value.acquisition!==null))return false;
- if(value.readiness_status==='READY'&&(value.evidence_status!=='ACTIVE'||p.status!=='OPEN'||!value.acquisition_posted||value.impairment_recorded||value.disposal_recorded||BigInt(s.expected_period_depreciation.replace('.',''))<=0n))return false;
+ const due=BigInt(s.expected_period_depreciation.replace('.','')),costMatches=BigInt(value.actual_posted_cost.replace('.',''))===BigInt(value.cost_basis.replace('.','')),priorMatches=BigInt(value.actual_prior_accumulated_depreciation.replace('.',''))===BigInt(s.expected_prior_accumulated_depreciation.replace('.',''));
+ const active=value.evidence_status==='ACTIVE',open=p.status==='OPEN',acquired=value.acquisition_posted;
+ const coherent={
+  READY:active&&open&&acquired&&!value.impairment_recorded&&!value.disposal_recorded&&due>0n&&costMatches&&priorMatches,
+  BLOCKED_ASSET_INACTIVE:!active,
+  BLOCKED_PERIOD_NOT_OPEN:active&&!open,
+  BLOCKED_ACQUISITION_NOT_POSTED:active&&open&&!acquired,
+  BLOCKED_ACQUISITION_EVIDENCE:active&&open&&acquired,
+  BLOCKED_POST_IMPAIRMENT_POLICY_REQUIRED:active&&open&&acquired&&value.impairment_recorded,
+  BLOCKED_ASSET_DISPOSED:active&&open&&acquired&&!value.impairment_recorded&&value.disposal_recorded,
+  BLOCKED_NOT_DUE:active&&open&&acquired&&!value.impairment_recorded&&!value.disposal_recorded&&due<=0n,
+  BLOCKED_COST_RECONCILIATION:active&&open&&acquired&&!value.impairment_recorded&&!value.disposal_recorded&&due>0n&&!costMatches,
+  BLOCKED_PRIOR_DEPRECIATION_RECONCILIATION:active&&open&&acquired&&!value.impairment_recorded&&!value.disposal_recorded&&due>0n&&costMatches&&!priorMatches,
+  BLOCKED_ALREADY_POSTED:active&&open&&acquired&&!value.impairment_recorded&&!value.disposal_recorded&&due>0n&&costMatches&&priorMatches
+ };
+ if(!coherent[value.readiness_status])return false;
  return true;
 }

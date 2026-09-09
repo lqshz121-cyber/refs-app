@@ -132,6 +132,14 @@ test('transition and post require optimistic concurrency and route authoritative
   assert.equal(response.status,400);assert.equal(response.body.code,'INVALID_IF_MATCH');
 });
 
+test('journal Post maps fixed asset depreciation evidence guards without retry advice',async()=>{
+  const path=`/api/v1/entities/${entityId}/journal-entries/${journalEntryId}/post`,request={method:'POST',url:path,body:{periodId},headers:{'Idempotency-Key':'depreciation-post-guard','If-Match':'"3"'}};
+  for(const [code,message,status,responseCode] of [['40001','Acquisition source changed before depreciation',412,'PRECONDITION_FAILED'],['0A000','Post-impairment depreciation policy is required',409,'FIXED_ASSET_POST_IMPAIRMENT_POLICY_REQUIRED']]){
+    const guarded=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'poster'}),kernelFactory:async()=>({postJournal:async()=>{throw Object.assign(new Error(message),{code});}})});
+    const response=await guarded(request);assert.equal(response.status,status);assert.equal(response.body.code,responseCode);assert.equal(response.headers['retry-after'],undefined);
+  }
+});
+
 test('successful mutations return a strong ETag only for an authoritative revision',async()=>{
   const revisedApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>({...kernel,transitionJournal:async()=>({journal_entry_id:journalEntryId,revision:4,idempotent:false})})});
   const response=await revisedApi({method:'POST',url:`/api/v1/entities/${entityId}/journal-entries/${journalEntryId}/transitions/review`,body:{reason:'reviewed'},headers:{'Idempotency-Key':'etag-test-0001','If-Match':'"3"'}});

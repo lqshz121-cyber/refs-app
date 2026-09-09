@@ -1,4 +1,5 @@
 BEGIN;
+LOCK TABLE journal_entry,fixed_asset_depreciation_binding,fixed_asset_depreciation_posting IN ACCESS EXCLUSIVE MODE;
 DO $$ BEGIN
  IF EXISTS(SELECT 1 FROM fixed_asset_depreciation_binding) OR EXISTS(SELECT 1 FROM fixed_asset_depreciation_posting) THEN RAISE EXCEPTION 'Cannot remove fixed asset depreciation schema while business evidence exists' USING ERRCODE='55000';END IF;
 END;$$;

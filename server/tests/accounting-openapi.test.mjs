@@ -95,6 +95,12 @@ test('fixed asset depreciation OpenAPI matches the evidence-bound Draft runtime'
   const body=draft.requestBody.content['application/json'].schema;assert.equal(body.additionalProperties,false);assert.deepEqual(body.required,['periodId','journalNumber','journalDate','expectedRegisterEvidenceHash','expectedScheduleHash','reason']);assert.equal(draft.responses['201'].content['application/json'].schema.$ref,'#/components/schemas/FixedAssetDepreciationEnvelope');assert.equal(draft.responses['200'].headers.ETag.schema.const,'"0"');
   const optionData=contract.components.schemas.FixedAssetDepreciationOptions;assert.equal(optionData.additionalProperties,false);assert.equal(optionData.properties.readiness_status.enum.length,11);assert.equal(optionData.properties.member_trace.additionalProperties,false);assert.equal(optionData.properties.source.anyOf[0].additionalProperties,false);assert.equal(optionData.properties.pending_journals.maxItems,20);
   const receipt=contract.components.schemas.FixedAssetDepreciationEnvelope.properties.data;assert.equal(receipt.additionalProperties,false);assert.equal(receipt.properties.status.const,'DRAFT');assert.equal(receipt.properties.revision.const,0);for(const field of ['register_evidence_hash','schedule_snapshot_hash','source_payload_hash'])assert.equal(receipt.properties[field].pattern,'^sha256:[a-f0-9]{64}$');
+  assert.equal(receipt.properties.expected_amount.pattern,'^(?!0[.]0000$)(0|[1-9][0-9]{0,15})\\.[0-9]{4}$');assert.equal(new RegExp(receipt.properties.expected_amount.pattern).test('0.0000'),false);assert.equal(new RegExp(receipt.properties.expected_amount.pattern).test('0.0001'),true);
+});
+
+test('fixed asset acquisition OpenAPI names the dedicated Draft permission',()=>{
+  const options=contract.paths['/entities/{entityId}/fixed-assets/register/{assetId}/acquisition-options'].get,draft=contract.paths['/entities/{entityId}/fixed-assets/register/{assetId}/acquisitions'].post;
+  assert.match(options.description,/FIXED_ASSET\.ACQUISITION\.DRAFT/);assert.match(options.description,/GL\.JE\.VIEW/);assert.match(draft.description,/FIXED_ASSET\.ACQUISITION\.DRAFT/);assert.match(draft.description,/GL\.JE\.CREATE/);
 });
 
 test('AI amortization schedule exposes immutable line identity and a closed Draft-only receipt',()=>{

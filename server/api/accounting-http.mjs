@@ -2466,7 +2466,12 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         result=await kernel.transitionJournal({tenantId:principal.tenantId,entityId,journalEntryId:requireUuid(parts[5],'journalEntryId'),action:parts[7].toUpperCase(),expectedRevision:requireRevision(headers),reason:payload.reason??null,idempotencyKey});
       }else if(parts.length===7&&parts[4]==='journal-entries'&&parts[6]==='post'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
-        result=await kernel.postJournal({tenantId:principal.tenantId,entityId,journalEntryId:requireUuid(parts[5],'journalEntryId'),periodId:requireUuid(payload.periodId,'periodId'),expectedRevision:requireRevision(headers),idempotencyKey});
+        try{result=await kernel.postJournal({tenantId:principal.tenantId,entityId,journalEntryId:requireUuid(parts[5],'journalEntryId'),periodId:requireUuid(payload.periodId,'periodId'),expectedRevision:requireRevision(headers),idempotencyKey});}
+        catch(error){
+          if(error?.code==='40001'&&error.message==='Acquisition source changed before depreciation')throw new AccountingApiError(412,'PRECONDITION_FAILED','The retained acquisition source changed. Refresh the asset before posting depreciation');
+          if(error?.code==='0A000'&&error.message==='Post-impairment depreciation policy is required')throw new AccountingApiError(409,'FIXED_ASSET_POST_IMPAIRMENT_POLICY_REQUIRED','A reviewed post-impairment depreciation policy is required');
+          throw error;
+        }
       }else if(parts.length===8&&parts[4]==='journal-entries'&&parts[6]==='adjustments'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.createJournalAdjustment({...payload,action:parts[7].toUpperCase(),tenantId:principal.tenantId,entityId,originalJournalEntryId:requireUuid(parts[5],'journalEntryId'),idempotencyKey});
