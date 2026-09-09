@@ -162,6 +162,28 @@ test('post-impairment policy migration requires exact Posted evidence and refuse
   assert.match(down,/DROP CONSTRAINT fixed_asset_impairment_scope_identity/);
 });
 
+test('post-impairment schedule migration validates retained policy evidence and restores V1',async()=>{
+  const up=await readFile(new URL('../db/migrations/359_fixed_asset_post_impairment_depreciation_schedule.sql',import.meta.url),'utf8'),down=await readFile(new URL('../db/migrations/down/359_fixed_asset_post_impairment_depreciation_schedule.sql',import.meta.url),'utf8');
+  assert.match(up,/CREATE FUNCTION refs_validated_fixed_asset_post_impairment_policy/);
+  assert.match(up,/FIXED_ASSET_DEPRECIATION_SCHEDULE_SNAPSHOT_V2/);
+  assert.match(up,/FIXED_ASSET_DEPRECIATION_OPTIONS_V2/);
+  assert.match(up,/POST_IMPAIRMENT_REVISED/);
+  assert.match(up,/BLOCKED_POST_IMPAIRMENT_POLICY_REQUIRED/);
+  assert.match(up,/count\(\*\) line_count/);
+  assert.match(up,/posting\.line_count<>2/);
+  assert.match(up,/l\.dimensions->>'fixed_asset_impairment_assessment_evidence_id'=assessment\.fixed_asset_impairment_assessment_evidence_id::text/);
+  assert.match(up,/policy\.reviewed_by=ANY\(ARRAY\[posting\.created_by,posting\.reviewed_by,posting\.approved_by,posting\.posted_by\]\)/);
+  assert.match(up,/expected_policy_hash:=refs_jsonb_hash/);
+  assert.match(up,/policy\.policy_evidence_hash<>expected_policy_hash/);
+  assert.match(up,/post_policy-'impairment_posting_snapshot'/);
+  assert.doesNotMatch(up,/INSERT INTO journal_entry/);
+  assert.doesNotMatch(up,/INSERT INTO ledger_line/);
+  assert.match(down,/FIXED_ASSET_DEPRECIATION_SCHEDULE_SNAPSHOT_V1/);
+  assert.match(down,/FIXED_ASSET_DEPRECIATION_OPTIONS_V1/);
+  assert.match(down,/DROP FUNCTION refs_validated_fixed_asset_post_impairment_policy/);
+  assert.match(down,/Post-impairment depreciation policy is required/);
+});
+
 test('WBS snapshots are immutable scoped observations, not current source events or journals',()=>{
   assert.match(wbsSnapshotSql,/CREATE TABLE wbs_snapshot_import/);
   assert.match(wbsSnapshotSql,/CREATE TABLE wbs_snapshot_receipt/);
