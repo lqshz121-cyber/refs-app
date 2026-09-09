@@ -1,6 +1,6 @@
 BEGIN;
 
-CREATE FUNCTION refs_validated_fixed_asset_post_impairment_policy(p_tenant uuid,p_entity uuid,p_asset uuid,p_period_end date) RETURNS jsonb
+CREATE FUNCTION refs_validated_fixed_asset_post_impairment_policy_for_assessment(p_tenant uuid,p_entity uuid,p_asset uuid,p_assessment uuid,p_period_end date) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE asset fixed_asset_register_evidence;assessment fixed_asset_impairment_assessment_evidence;policy fixed_asset_post_impairment_depreciation_policy;
  assessment_period accounting_period;effective accounting_period;source source_document;posting record;live_snapshot jsonb;live_snapshot_hash text;expected_policy_hash text;
@@ -9,8 +9,8 @@ BEGIN
  SELECT * INTO asset FROM fixed_asset_register_evidence WHERE tenant_id=p_tenant AND entity_id=p_entity AND fixed_asset_register_evidence_id=p_asset;
  IF NOT FOUND THEN RETURN NULL;END IF;
  SELECT * INTO assessment FROM fixed_asset_impairment_assessment_evidence
-  WHERE tenant_id=p_tenant AND entity_id=p_entity AND fixed_asset_register_evidence_id=p_asset AND status='INDEPENDENTLY_REVIEWED' AND impairment_loss>0 AND assessment_date<=p_period_end
-  ORDER BY assessment_date DESC,fixed_asset_impairment_assessment_evidence_id DESC LIMIT 1;
+  WHERE tenant_id=p_tenant AND entity_id=p_entity AND fixed_asset_register_evidence_id=p_asset AND fixed_asset_impairment_assessment_evidence_id=p_assessment
+   AND status='INDEPENDENTLY_REVIEWED' AND impairment_loss>0 AND assessment_date<=p_period_end;
  IF NOT FOUND THEN RETURN NULL;END IF;
  SELECT * INTO policy FROM fixed_asset_post_impairment_depreciation_policy
   WHERE tenant_id=p_tenant AND entity_id=p_entity AND fixed_asset_register_evidence_id=p_asset AND impairment_assessment_evidence_id=assessment.fixed_asset_impairment_assessment_evidence_id AND status='INDEPENDENTLY_REVIEWED';
@@ -59,12 +59,24 @@ BEGIN
   'revised_carrying_value',to_char(policy.revised_carrying_value,'FM999999999999990.0000'),'salvage_value',to_char(policy.salvage_value,'FM999999999999990.0000'),'revised_depreciable_basis',to_char(policy.revised_depreciable_basis,'FM999999999999990.0000'),
   'regular_period_amount',to_char(policy.regular_period_amount,'FM999999999999990.0000'),'final_period_amount',to_char(policy.final_period_amount,'FM999999999999990.0000'),'reviewed_by',policy.reviewed_by,'reviewed_at',policy.reviewed_at,'review_reason',policy.review_reason);
 END;$$;
+REVOKE EXECUTE ON FUNCTION refs_validated_fixed_asset_post_impairment_policy_for_assessment(uuid,uuid,uuid,uuid,date) FROM PUBLIC,refs_app;
+
+CREATE FUNCTION refs_validated_fixed_asset_post_impairment_policy(p_tenant uuid,p_entity uuid,p_asset uuid,p_period_end date) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE assessment_id uuid;
+BEGIN
+ SELECT fixed_asset_impairment_assessment_evidence_id INTO assessment_id FROM fixed_asset_impairment_assessment_evidence
+  WHERE tenant_id=p_tenant AND entity_id=p_entity AND fixed_asset_register_evidence_id=p_asset AND status='INDEPENDENTLY_REVIEWED' AND impairment_loss>0 AND assessment_date<=p_period_end
+  ORDER BY assessment_date DESC,fixed_asset_impairment_assessment_evidence_id DESC LIMIT 1;
+ IF assessment_id IS NULL THEN RETURN NULL;END IF;
+ RETURN refs_validated_fixed_asset_post_impairment_policy_for_assessment(p_tenant,p_entity,p_asset,assessment_id,p_period_end);
+END;$$;
 REVOKE EXECUTE ON FUNCTION refs_validated_fixed_asset_post_impairment_policy(uuid,uuid,uuid,date) FROM PUBLIC,refs_app;
 
 CREATE OR REPLACE FUNCTION refs_fixed_asset_depreciation_schedule_snapshot(p_tenant uuid,p_entity uuid,p_asset uuid,p_period uuid) RETURNS jsonb
 LANGUAGE plpgsql STABLE SET search_path=pg_catalog,public,pg_temp AS $$
-DECLARE row record;assessment fixed_asset_impairment_assessment_evidence;post_policy jsonb;monthly numeric(20,4);original_elapsed integer;revised_elapsed integer:=NULL;
- basis numeric(20,4);expected_period numeric(20,4):=0;expected_accumulated numeric(20,4):=0;expected_prior numeric(20,4):=0;schedule_basis text:='ORIGINAL_REGISTER';policy_public jsonb:=NULL;
+DECLARE row record;assessment fixed_asset_impairment_assessment_evidence;active_assessment fixed_asset_impairment_assessment_evidence;coverage_policy jsonb;post_policy jsonb;monthly numeric(20,4);original_elapsed integer;revised_elapsed integer:=NULL;
+ basis numeric(20,4);expected_period numeric(20,4):=0;expected_accumulated numeric(20,4):=0;expected_prior numeric(20,4):=0;actual_impairment numeric(20,4):=0;schedule_basis text:='ORIGINAL_REGISTER';policy_public jsonb:=NULL;policy_covered boolean:=false;active_policy_valid boolean:=true;
 BEGIN
  SELECT a.*,p.period_id,p.period_code,p.starts_on,p.ends_on,p.status period_status,proposal.policy_snapshot_id,proposal.policy_snapshot_hash,
   policy.version policy_snapshot_version,(policy.snapshot->>'policy_version')::bigint policy_version INTO row
@@ -76,24 +88,37 @@ BEGIN
   AND policy.entity_id=p_entity AND policy.scope_type='ENTITY' AND policy.scope_key=p_entity::text;
  IF NOT FOUND THEN RETURN NULL;END IF;
  SELECT * INTO assessment FROM fixed_asset_impairment_assessment_evidence WHERE tenant_id=p_tenant AND entity_id=p_entity AND fixed_asset_register_evidence_id=p_asset AND status='INDEPENDENTLY_REVIEWED' AND impairment_loss>0 AND assessment_date<=row.ends_on ORDER BY assessment_date DESC,fixed_asset_impairment_assessment_evidence_id DESC LIMIT 1;
- IF FOUND THEN post_policy:=refs_validated_fixed_asset_post_impairment_policy(p_tenant,p_entity,p_asset,row.ends_on);END IF;
+ IF FOUND THEN
+  coverage_policy:=refs_validated_fixed_asset_post_impairment_policy_for_assessment(p_tenant,p_entity,p_asset,assessment.fixed_asset_impairment_assessment_evidence_id,row.ends_on);
+  SELECT e.* INTO active_assessment FROM fixed_asset_impairment_assessment_evidence e JOIN fixed_asset_post_impairment_depreciation_policy p
+   ON p.tenant_id=e.tenant_id AND p.entity_id=e.entity_id AND p.fixed_asset_register_evidence_id=e.fixed_asset_register_evidence_id AND p.impairment_assessment_evidence_id=e.fixed_asset_impairment_assessment_evidence_id
+   WHERE e.tenant_id=p_tenant AND e.entity_id=p_entity AND e.fixed_asset_register_evidence_id=p_asset AND e.status='INDEPENDENTLY_REVIEWED' AND e.impairment_loss>0 AND e.assessment_date<=row.ends_on
+    AND p.status='INDEPENDENTLY_REVIEWED' AND p.effective_from<=row.starts_on
+   ORDER BY p.effective_from DESC,e.assessment_date DESC,e.fixed_asset_impairment_assessment_evidence_id DESC LIMIT 1;
+  IF FOUND THEN post_policy:=refs_validated_fixed_asset_post_impairment_policy_for_assessment(p_tenant,p_entity,p_asset,active_assessment.fixed_asset_impairment_assessment_evidence_id,row.ends_on);active_policy_valid:=post_policy IS NOT NULL;END IF;
+  SELECT coalesce(sum(l.credit_amount-l.debit_amount),0) INTO actual_impairment FROM ledger_line l JOIN journal_entry j
+   ON j.tenant_id=l.tenant_id AND j.entity_id=l.entity_id AND j.journal_entry_id=l.journal_entry_id AND j.status='POSTED'
+   WHERE l.tenant_id=p_tenant AND l.entity_id=p_entity AND l.dimensions->>'fixed_asset_register_evidence_id'=p_asset::text AND j.journal_date<=row.ends_on
+    AND l.account_code IN(SELECT DISTINCT e.accumulated_impairment_account_code FROM fixed_asset_impairment_assessment_evidence e WHERE e.tenant_id=p_tenant AND e.entity_id=p_entity AND e.fixed_asset_register_evidence_id=p_asset);
+  policy_covered:=coverage_policy IS NOT NULL AND actual_impairment=(coverage_policy->>'posted_accumulated_impairment')::numeric AND active_policy_valid;
+ END IF;
  basis:=row.cost_basis-row.salvage_value;monthly:=round(basis/row.useful_life_months,4);
  original_elapsed:=greatest(0,((extract(year from row.ends_on)::int-extract(year from row.placed_in_service_date)::int)*12+extract(month from row.ends_on)::int-extract(month from row.placed_in_service_date)::int+1));
  expected_accumulated:=CASE WHEN original_elapsed>=row.useful_life_months THEN basis ELSE least(basis,monthly*original_elapsed) END;
  IF row.starts_on>=(row.placed_in_service_date-date_part('day',row.placed_in_service_date)::int+1) AND original_elapsed BETWEEN 1 AND row.useful_life_months THEN
   expected_prior:=least(basis,monthly*greatest(0,original_elapsed-1));expected_period:=expected_accumulated-expected_prior;
  ELSE expected_period:=0;expected_prior:=expected_accumulated;END IF;
- IF post_policy IS NOT NULL AND row.starts_on>=(post_policy->>'effective_from')::date THEN
+ IF policy_covered AND post_policy IS NOT NULL AND row.starts_on>=(post_policy->>'effective_from')::date THEN
   schedule_basis:='POST_IMPAIRMENT_REVISED';revised_elapsed:=greatest(0,((extract(year from row.ends_on)::int-extract(year from (post_policy->>'effective_from')::date)::int)*12+extract(month from row.ends_on)::int-extract(month from (post_policy->>'effective_from')::date)::int+1));
   IF revised_elapsed BETWEEN 1 AND (post_policy->>'remaining_useful_life_months')::integer THEN expected_period:=CASE WHEN revised_elapsed=(post_policy->>'remaining_useful_life_months')::integer THEN (post_policy->>'final_period_amount')::numeric ELSE (post_policy->>'regular_period_amount')::numeric END;ELSE expected_period:=0;END IF;
   expected_accumulated:=(post_policy->>'prior_accumulated_depreciation')::numeric+CASE WHEN revised_elapsed<=0 THEN 0 WHEN revised_elapsed<(post_policy->>'remaining_useful_life_months')::integer THEN (post_policy->>'regular_period_amount')::numeric*revised_elapsed ELSE (post_policy->>'revised_depreciable_basis')::numeric END;
   expected_prior:=expected_accumulated-expected_period;
  END IF;
- IF post_policy IS NOT NULL THEN policy_public:=post_policy-'impairment_posting_snapshot';END IF;
+ IF policy_covered THEN IF post_policy IS NOT NULL THEN policy_public:=post_policy-'impairment_posting_snapshot';ELSE policy_public:=coverage_policy-'impairment_posting_snapshot';END IF;END IF;
  RETURN jsonb_build_object('schema_version','FIXED_ASSET_DEPRECIATION_SCHEDULE_SNAPSHOT_V2','tenant_id',row.tenant_id,'entity_id',row.entity_id,'fixed_asset_register_evidence_id',row.fixed_asset_register_evidence_id,'register_evidence_hash',row.register_evidence_hash,
   'asset_tag',row.asset_tag,'asset_class',row.asset_class,'asset_status',row.status,'period_id',row.period_id,'period_code',row.period_code,'period_starts_on',row.starts_on,'period_ends_on',row.ends_on,'period_status',row.period_status,'placed_in_service_date',row.placed_in_service_date,
   'depreciation_method',row.depreciation_method,'depreciation_convention',row.depreciation_convention,'useful_life_months',row.useful_life_months,'member_trace',row.member_trace,'schedule_basis',schedule_basis,'revised_period_number',revised_elapsed,
-  'impairment_recorded',assessment.fixed_asset_impairment_assessment_evidence_id IS NOT NULL,'post_impairment_policy_valid',post_policy IS NOT NULL,'post_impairment_policy',policy_public,
+  'impairment_recorded',assessment.fixed_asset_impairment_assessment_evidence_id IS NOT NULL,'post_impairment_policy_valid',policy_covered,'post_impairment_policy',policy_public,
   'policy_snapshot_id',row.policy_snapshot_id,'policy_snapshot_hash',row.policy_snapshot_hash,'policy_snapshot_version',row.policy_snapshot_version,'policy_version',row.policy_version,
   'currency',row.currency,'cost_basis',to_char(row.cost_basis,'FM999999999999990.0000'),'salvage_value',to_char(row.salvage_value,'FM999999999999990.0000'),
   'expected_period_depreciation',to_char(expected_period,'FM999999999999990.0000'),'expected_accumulated_depreciation',to_char(expected_accumulated,'FM999999999999990.0000'),'expected_prior_accumulated_depreciation',to_char(expected_prior,'FM999999999999990.0000'),

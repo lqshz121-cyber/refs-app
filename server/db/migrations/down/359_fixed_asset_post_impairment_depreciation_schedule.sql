@@ -126,6 +126,7 @@ BEGIN
 END;$$;
 
 DROP FUNCTION refs_validated_fixed_asset_post_impairment_policy(uuid,uuid,uuid,date);
+DROP FUNCTION refs_validated_fixed_asset_post_impairment_policy_for_assessment(uuid,uuid,uuid,uuid,date);
 REVOKE ALL ON FUNCTION refs_read_fixed_asset_depreciation_options(uuid,uuid,uuid,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION refs_read_fixed_asset_depreciation_options(uuid,uuid,uuid,uuid) TO refs_app;
 
