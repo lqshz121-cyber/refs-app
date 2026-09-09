@@ -51,6 +51,7 @@ import {AuthoritativeAccountingSettingsWorkspace} from './authoritative-accounti
 import {AuthoritativeReportMappingsWorkspace} from './authoritative-report-mappings-workspace.jsx';
 import {createAuthoritativeReadGuard} from './authoritative-read-guard.js';
 import {canResumeFixedAssetAcquisitionJournal,resolveFixedAssetAcquisitionJournalScope} from './fixed-asset-acquisition-workflow.js';
+import {resolveAuthorizedScopeFallback} from './authoritative-scope-selection.js';
 
 export const authoritativeRuntimeConfigured = (environment = globalThis) =>
   Boolean(accountingApiConfig(environment) && oidcRuntimeConfig(environment));
@@ -558,6 +559,11 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     setWorkflowJournalId(null);setReportReconciliationDetail(null);setError(null);setPhase('AUTHENTICATED');
     setSelectedScope(next);setData({ap:{bills:[],adjustments:[]},ar:{invoices:[],adjustments:[]},journals:[]});setSharedAccountingLoaded(false);setScopeRows([]);setScopeMetadata(null);setDocumentDetail(null);setAdjustmentDetail(null);setAgingDetail(null);setReportAgingDetail(null);setReportGeneralLedgerDetail(null);setReportCatalogReturn(null);setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}});setWorkspaceRefreshVersion(current=>current+1);
   },[config]);
+  useEffect(()=>{
+    if(phase!=='ACCESS_DENIED'||scopeCatalogStatus!=='READY')return;
+    const fallback=resolveAuthorizedScopeFallback({scopes:scopeCatalog,entityId:config?.entityId,periodId:config?.periodId});
+    if(fallback)applyScope(fallback);
+  },[phase,scopeCatalogStatus,scopeCatalog,config,applyScope]);
   const nativeDraftOriginRef=useRef(config);
   nativeDraftOriginRef.current=config;
   const openNativeSettlementDraft=useCallback(async(receipt,paymentScope)=>{

@@ -10,6 +10,17 @@ import { AuthoritativeAccessStatus } from '../src/authoritative-access-status.js
 import { AuthoritativeWorkspaceView, AuthoritativeWorkspaceHeader } from '../src/authoritative-workbench-view.jsx';
 import { AuthoritativeUnavailableWorkspace } from '../src/authoritative-unavailable-workspace.jsx';
 import { watchRetainedRoute } from '../src/authoritative-app.jsx';
+import {resolveAuthorizedScopeFallback} from '../src/authoritative-scope-selection.js';
+
+const allowedScopes=[
+  {entity_id:'11111111-1111-4111-8111-111111111111',period_id:'22222222-2222-4222-8222-222222222222'},
+  {entity_id:'11111111-1111-4111-8111-111111111111',period_id:'33333333-3333-4333-8333-333333333333'},
+  {entity_id:'44444444-4444-4444-8444-444444444444',period_id:'55555555-5555-4555-8555-555555555555'},
+];
+assert.equal(resolveAuthorizedScopeFallback({scopes:allowedScopes,entityId:allowedScopes[0].entity_id,periodId:allowedScopes[0].period_id}),null,'an exact authorised scope must not be changed after an unrelated read denial');
+assert.equal(resolveAuthorizedScopeFallback({scopes:allowedScopes,entityId:allowedScopes[0].entity_id,periodId:'66666666-6666-4666-8666-666666666666'}),allowedScopes[0],'an unavailable deployment period should fall back within the same authorised company');
+assert.equal(resolveAuthorizedScopeFallback({scopes:allowedScopes,entityId:'77777777-7777-4777-8777-777777777777',periodId:'88888888-8888-4888-8888-888888888888'}),allowedScopes[0],'an unavailable deployment company should fall back to the first database-authorised scope');
+assert.equal(resolveAuthorizedScopeFallback({scopes:[],entityId:'77777777-7777-4777-8777-777777777777',periodId:'88888888-8888-4888-8888-888888888888'}),null,'an empty catalogue cannot invent accounting authority');
 
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the production catalog keeps the complete major workspace taxonomy discoverable');
 assert.ok(AUTHORITATIVE_ROUTES.includes('project-cost-cwip'));
