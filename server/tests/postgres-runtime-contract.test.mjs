@@ -806,3 +806,18 @@ test('WBS TEST Bank persistence namespaces immutable Provider hashes by the mont
   assert.match(backward,/ERRCODE='55006'/);
   assert.doesNotMatch(forward,/UPDATE raw_event|UPDATE source_document/);
 });
+
+test('native fixed asset disposal creates only an evidence-derived Draft and keeps rollback safe',async()=>{
+  const forward=await readFile(new URL('../db/migrations/360_fixed_asset_disposal_draft.sql',import.meta.url),'utf8');
+  const backward=await readFile(new URL('../db/migrations/down/360_fixed_asset_disposal_draft.sql',import.meta.url),'utf8');
+  assert.match(forward,/FIXED_ASSET\.DISPOSAL\.DRAFT/);
+  assert.match(forward,/refs_create_manual_journal\(/);
+  assert.match(forward,/source\.gross_amount-\(snapshot->>'carrying_value'\)::numeric/);
+  assert.match(forward,/refs_guard_native_fixed_asset_disposal_post/);
+  assert.match(forward,/journal_snapshot_hash IS DISTINCT FROM refs_asset_disposal_journal_snapshot/);
+  assert.match(forward,/Historical impairment journal has an invalid|impairment_expense_account_code/);
+  assert.doesNotMatch(forward,/UPDATE journal_entry SET status='POSTED'/);
+  assert.match(forward,/REVOKE ALL ON fixed_asset_disposal_draft_binding FROM PUBLIC,refs_app/);
+  assert.match(backward,/Cannot remove retained fixed asset disposal Draft bindings/);
+  assert.match(backward,/UPDATE permission_catalog SET active=false/);
+});

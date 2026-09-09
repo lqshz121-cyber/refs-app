@@ -722,6 +722,18 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async readFixedAssetDisposalOptions({tenantId,entityId,assetId,periodId,disposalDate}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_fixed_asset_disposal_options($1,$2,$3,$4,$5::date) result',[tenantId,entityId,assetId,periodId,disposalDate]),'FIXED_ASSET_DISPOSAL_OPTIONS_MISSING','Disposal options unavailable').result);
+  }
+
+  async createFixedAssetDisposal({tenantId,entityId,assetId,periodId,journalNumber,disposalDate,sourceDocumentId,expectedSourceVersion,expectedSourceHash,proceedsAccountCode,proceedsMemberRef,gainLossAccountCode,expectedOptionsHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,assetId,periodId,journalNumber,disposalDate,sourceDocumentId,expectedSourceVersion,expectedSourceHash,proceedsAccountCode,proceedsMemberRef,gainLossAccountCode,expectedOptionsHash,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_create_fixed_asset_disposal_hash($1,$2,$3,$4,$5,$6::date,$7,$8::bigint,$9,$10,$11,$12,$13,$14) request_hash',args),'FIXED_ASSET_DISPOSAL_HASH_FAILED','Disposal hash missing').request_hash;
+      return requireRow(await client.query('SELECT refs_create_fixed_asset_disposal($1,$2,$3,$4,$5,$6::date,$7,$8::bigint,$9,$10,$11,$12,$13,$14,$15,$16) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_DISPOSAL_FAILED','Disposal Draft missing').result;
+    });
+  }
+
   async bindFixedAssetDisposalSource({tenantId,entityId,fixedAssetRegisterEvidenceId,journalEntryId,sourceDocumentId,expectedSourceHash,expectedRevision,reason,idempotencyKey}){
     return this.inSession(async client=>{const args=[tenantId,entityId,fixedAssetRegisterEvidenceId,journalEntryId,sourceDocumentId,expectedSourceHash,expectedRevision,reason];const requestHash=requireRow(await client.query('SELECT refs_bind_fixed_asset_disposal_source_hash($1,$2,$3,$4,$5,$6,$7,$8) request_hash',args),'FIXED_ASSET_SOURCE_HASH_FAILED','Source binding hash missing').request_hash;return requireRow(await client.query('SELECT refs_bind_fixed_asset_disposal_source($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_SOURCE_BIND_FAILED','Source binding response missing').result;});
   }
