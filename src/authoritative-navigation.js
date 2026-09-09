@@ -78,7 +78,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     // Consolidation is an evidence reader only. It cannot create eliminations
     // or substitute a legacy browser-side consolidation workbook.
     item('consolidation', 'Consolidation', 'API_READ'),
-    item('account-inquiry', 'Account inquiry', 'API_READ'), item('subsidiary-ledger', 'Subsidiary ledger'),
+    item('account-inquiry', 'Account inquiry', 'API_READ'), item('subsidiary-ledger', 'Subsidiary ledger', 'API_READ', [
+      'Entity-, period-, and as-of-scoped AP and AR snapshots with exact retained document identities.',
+      'Subledger open balances reconcile to Posted general-ledger control accounts without browser-derived totals.',
+    ]),
     item('chart-of-accounts', 'Chart of accounts', 'API_READ'),
   ]),
   group('Accounting Operations', [

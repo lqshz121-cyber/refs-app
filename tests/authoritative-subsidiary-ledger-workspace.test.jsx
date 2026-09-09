@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {AuthoritativeSubsidiaryLedgerWorkspace} from '../src/authoritative-subsidiary-ledger-workspace.jsx';
+
+const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222',scopePresentation:{entityLabel:'Configured entity',periodLabel:'2026-01',periodStart:'2026-01-01',periodEnd:'2026-01-31'}};
+const markup=renderToStaticMarkup(<AuthoritativeSubsidiaryLedgerWorkspace config={config} fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})}/>);
+assert.match(markup,/Subsidiary Ledger/);
+assert.match(markup,/Read-only reconciliation/);
+assert.match(markup,/role="tablist" aria-label="Subsidiary ledger type"/);
+assert.match(markup,/Accounts payable/);
+assert.match(markup,/Accounts receivable/);
+assert.match(markup,/Accounts payable aging summary/,'the initial ledger must be the retained AP snapshot');
+assert.match(markup,/control totals/i);
+const source=fs.readFileSync(path.join(process.cwd(),'src','authoritative-subsidiary-ledger-workspace.jsx'),'utf8');
+assert.match(source,/useState\('ap'\)/);
+assert.match(source,/AuthoritativeAgingWorkspace key=\{side\} config=\{config\} side=\{side\}/);
+const agingSource=fs.readFileSync(path.join(process.cwd(),'src','authoritative-aging-workspace.jsx'),'utf8');
+assert.match(agingSource,/Subledger open balance compared with the retained GL control account/);
+assert.doesNotMatch(source,/localStorage|sessionStorage|from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data/);
+console.log('authoritative subsidiary ledger: exact AP/AR snapshots and GL control reconciliation are reachable');
