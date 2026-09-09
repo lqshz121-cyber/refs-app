@@ -581,12 +581,12 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     const isCurrent=accountingReadGuard.current.begin('asset-acquisition',accountingReadGeneration);
     if(!isCurrent())return;
     const target=resolveFixedAssetAcquisitionJournalScope(config,scopeCatalog,periodId||receipt?.period_id);
-    if(!target||!receipt?.journal_entry_id){setError({code:'ASSET_JOURNAL_SCOPE_UNCONFIRMED',message:'Refresh the company periods before opening the saved asset acquisition journal.'});return;}
+    if(!target||!receipt?.journal_entry_id){setError({code:'ASSET_JOURNAL_SCOPE_UNCONFIRMED',message:'Refresh the company periods before opening the saved asset journal.'});return;}
     const targetConfig={...config,periodId:target.period_id};
     const detail=await readAuthoritativeJournalEntryDetail({config:targetConfig,journalEntryId:receipt.journal_entry_id,fetcher:boundFetcher});
     if(!isCurrent()||assetJournalOriginRef.current!==origin)return;
     if(!detail.ok){setError(detail);return;}
-    if(!canResumeFixedAssetAcquisitionJournal(detail.journal.status)){setError({code:'ASSET_JOURNAL_NOT_RESUMABLE',message:'The saved asset acquisition journal is no longer available in the approval workflow. Refresh before continuing.'});return;}
+    if(!canResumeFixedAssetAcquisitionJournal(detail.journal.status)){setError({code:'ASSET_JOURNAL_NOT_RESUMABLE',message:'The saved asset journal is no longer available in the approval workflow. Refresh before continuing.'});return;}
     applyScope(target);
     setSharedAccountingLoaded(false);setError(null);setRoute('journals');setWorkflowJournalId(receipt.journal_entry_id);
   },[config,scopeCatalog,boundFetcher,applyScope,setRoute,accountingReadGeneration]);

@@ -2,7 +2,7 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {AuthoritativeFixedAssetsWorkspace,localAccountingDate,canCreateAssetAcquisition} from '../src/authoritative-fixed-assets-workspace.jsx';
+import {AuthoritativeFixedAssetsWorkspace,localAccountingDate,canCreateAssetAcquisition,canCreateAssetDepreciation} from '../src/authoritative-fixed-assets-workspace.jsx';
 import {canResumeFixedAssetAcquisitionJournal,resolveFixedAssetAcquisitionJournalScope} from '../src/fixed-asset-acquisition-workflow.js';
 const html=renderToStaticMarkup(<AuthoritativeFixedAssetsWorkspace config={{entityId:'10000000-1111-4111-8111-100000000000',scopePresentation:{entityLabel:'Example company'}}}/>);
 assert.match(html,/Fixed assets/);assert.match(html,/As of date/);assert.match(html,/Example company/);assert.match(html,/Loading assets/);
@@ -19,8 +19,14 @@ assert.equal(resolveFixedAssetAcquisitionJournalScope(current,[foreignScope],sou
 for(const status of ['DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED'])assert.equal(canResumeFixedAssetAcquisitionJournal(status),true,`${status} must remain resumable`);
 for(const status of ['POSTED','REJECTED','VOID',null])assert.equal(canResumeFixedAssetAcquisitionJournal(status),false,`${status} must not enter the pending workflow`);
 console.log('Asset workspace SSR and authority boundaries passed');
-const makerConfig={tenantId:'10000000-1111-4111-8111-100000000000',entityId:'20000000-1111-4111-8111-100000000000'},makerAccess={status:'READY',row:{tenant_id:makerConfig.tenantId,entity_id:makerConfig.entityId,session_refresh_required:false,permissions:['FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']}};
+const makerConfig={tenantId:'10000000-1111-4111-8111-100000000000',entityId:'20000000-1111-4111-8111-100000000000'},makerAccess={status:'READY',row:{tenant_id:makerConfig.tenantId,entity_id:makerConfig.entityId,session_refresh_required:false,permissions:['FIXED_ASSET.ACQUISITION.DRAFT','FIXED_ASSET.REGISTER.VIEW','GL.JE.CREATE','GL.JE.VIEW']}};
 assert.equal(canCreateAssetAcquisition(makerConfig,makerAccess),true);
+const depreciationConfig={...makerConfig,periodId:sourcePeriod},depreciationAccess={...makerAccess,row:{...makerAccess.row,permissions:[...makerAccess.row.permissions.filter(p=>p!=='FIXED_ASSET.ACQUISITION.DRAFT'),'FIXED_ASSET.DEPRECIATION.DRAFT']}};
+assert.equal(canCreateAssetDepreciation(depreciationConfig,makerAccess),false,'generic journal maker cannot create depreciation');
+assert.equal(canCreateAssetDepreciation(depreciationConfig,depreciationAccess),true);
+assert.equal(canCreateAssetAcquisition(depreciationConfig,depreciationAccess),false,'depreciation maker cannot acquire');
+assert.equal(canCreateAssetDepreciation(makerConfig,depreciationAccess),false,'selected period required');
+for(const permission of depreciationAccess.row.permissions)assert.equal(canCreateAssetDepreciation(depreciationConfig,{...depreciationAccess,row:{...depreciationAccess.row,permissions:depreciationAccess.row.permissions.filter(p=>p!==permission)}}),false,'missing '+permission);
 for(const state of [null,{...makerAccess,status:'LOADING'},{...makerAccess,row:{...makerAccess.row,entity_id:'other'}},{...makerAccess,row:{...makerAccess.row,tenant_id:'other'}},{...makerAccess,row:{...makerAccess.row,session_refresh_required:true}},{...makerAccess,row:{...makerAccess.row,permissions:['FIXED_ASSET.REGISTER.VIEW']}}])assert.equal(canCreateAssetAcquisition(makerConfig,state),false);
 
 assert.equal(localAccountingDate({getFullYear:()=>2026,getMonth:()=>8,getDate:()=>9}),'2026-09-09');

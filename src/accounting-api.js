@@ -1,5 +1,36 @@
 import {validFixedAssetMovements} from '../server/api/fixed-asset-register-contract.mjs';
 import {validFixedAssetAcquisitionOptions} from '../server/api/fixed-asset-acquisition-options-contract.mjs';
+import {validFixedAssetDepreciationOptions} from '../server/api/fixed-asset-depreciation-options-contract.mjs';
+
+export async function readAuthoritativeDepreciationOptions({config,assetId,fetcher=globalThis.fetch}={}){
+ if(!config||![config.tenantId,config.entityId,config.periodId,assetId].every(id=>UUID.test(id||''))||typeof fetcher!=='function')return {ok:false,code:'FIXED_ASSET_SCOPE_INVALID',message:'Select a company, accounting period and asset.'};
+ const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+ const scope={tenantId:config.tenantId.toLowerCase(),entityId:config.entityId.toLowerCase(),periodId:config.periodId.toLowerCase(),assetId:assetId.toLowerCase()};
+ try{
+  const response=await fetcher(`${config.baseUrl}/api/v1/entities/${scope.entityId}/fixed-assets/register/${scope.assetId}/depreciation-options?periodId=${scope.periodId}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+  if(!response.ok)return await failure(response,'FIXED_ASSET_DEPRECIATION_OPTIONS');
+  const body=await response.json();if(body?.ok!==true||!validFixedAssetDepreciationOptions(body.data,scope))return {ok:false,code:'FIXED_ASSET_DEPRECIATION_OPTIONS_PROTOCOL',message:'The depreciation information could not be verified. Refresh to try again.'};
+  return {ok:true,data:body.data};
+ }catch{return unreachable('Depreciation information could not be loaded. Try again.');}
+}
+
+export async function createAuthoritativeAssetDepreciation({config,options,journalNumber,journalDate,reason,fetcher=globalThis.fetch,cryptoApi=globalThis.crypto}={}){
+ if(!config||![config.tenantId,config.entityId,config.periodId].every(id=>UUID.test(id||'')))return {ok:false,code:'FIXED_ASSET_SCOPE_INVALID',message:'Select a company and accounting period.'};
+ const scope={tenantId:config.tenantId.toLowerCase(),entityId:config.entityId.toLowerCase(),periodId:config.periodId.toLowerCase(),assetId:options?.asset_id};
+ const cleanText=(value,min,max)=>typeof value==='string'&&value===value.trim()&&value.length>=min&&value.length<=max&&!/[\u0000-\u001f\u007f]/.test(value);
+ if(!validFixedAssetDepreciationOptions(options,scope)||options.readiness_status!=='READY'||!cleanText(journalNumber,1,100)||!cleanText(reason,8,2000)||!validDate(journalDate)||journalDate!==options.period.ends_on||typeof fetcher!=='function')return {ok:false,code:'FIXED_ASSET_DEPRECIATION_INPUT_INVALID',message:'Refresh the schedule and check the journal number and explanation before saving.'};
+ const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+ const payload={periodId:scope.periodId,journalNumber,journalDate,expectedRegisterEvidenceHash:options.register_evidence_hash,expectedScheduleHash:options.schedule.schedule_snapshot_hash,reason};
+ let key;try{const digest=await cryptoApi.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([scope.tenantId,scope.entityId,scope.assetId,payload])));key='asset-depreciation:'+Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');}catch{return {ok:false,code:'FIXED_ASSET_COMMAND_IDENTITY_UNAVAILABLE',message:'The browser could not prepare this request. Try again.'};}
+ try{
+  const response=await fetcher(`${config.baseUrl}/api/v1/entities/${scope.entityId}/fixed-assets/register/${scope.assetId}/depreciations`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':key,...authorization},body:JSON.stringify(payload)});
+  if(!response.ok)return await failure(response,'FIXED_ASSET_DEPRECIATION');
+  const body=await response.json(),r=body?.data;
+  const fields='journal_entry_id status revision idempotent schema_version binding_id asset_id period_id expected_amount register_evidence_hash schedule_snapshot_hash source_document_id source_document_version source_payload_hash source_link_id acquisition_binding_id acquisition_journal_entry_id'.split(' ').sort().join('|');
+  if(body?.ok!==true||!r||Object.keys(r).sort().join('|')!==fields||r.schema_version!=='FIXED_ASSET_DEPRECIATION_DRAFT_V1'||r.status!=='DRAFT'||r.revision!==0||![200,201].includes(response.status)||r.idempotent!==(response.status===200)||r.asset_id!==scope.assetId||r.period_id!==scope.periodId||r.expected_amount!==options.schedule.expected_period_depreciation||r.register_evidence_hash!==payload.expectedRegisterEvidenceHash||r.schedule_snapshot_hash!==payload.expectedScheduleHash||r.source_document_id!==options.source.source_document_id||r.source_document_version!==options.source.source_document_version||r.source_payload_hash!==options.source.source_payload_hash||r.acquisition_binding_id!==options.acquisition.binding_id||r.acquisition_journal_entry_id!==options.acquisition.journal_entry_id||!['journal_entry_id','binding_id','source_link_id'].every(k=>UUID.test(r[k]||'')))return {ok:false,code:'FIXED_ASSET_DEPRECIATION_PROTOCOL',message:'The save response could not be verified. Retry with the same details to recover the saved result.'};
+  return {ok:true,data:r};
+ }catch{return unreachable('The save result could not be confirmed. Retry with the same details to recover it.');}
+}
 import {validateFixedAssetRegister,validAssetCursor} from './fixed-asset-register-contract.js';
 import {parseBankMatchSource} from './bank-match-source.js';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
