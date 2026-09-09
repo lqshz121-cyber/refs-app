@@ -143,6 +143,17 @@ test('fixed asset depreciation movement migration retains posted evidence and re
   assert.doesNotMatch(down,/EXACT_DEPRECIATION_SOURCE/);
 });
 
+test('post-impairment policy migration requires exact Posted evidence and refuses destructive rollback',async()=>{
+  const up=await readFile(new URL('../db/migrations/358_fixed_asset_post_impairment_depreciation_policy.sql',import.meta.url),'utf8'),down=await readFile(new URL('../db/migrations/down/358_fixed_asset_post_impairment_depreciation_policy.sql',import.meta.url),'utf8');
+  assert.match(up,/FIXED_ASSET\.DEPRECIATION\.POLICY\.REVIEW/);
+  assert.match(up,/count\(\*\)=2 AND count\(\*\) FILTER\(WHERE l\.account_code=assessment\.impairment_expense_account_code\)=1/);
+  assert.match(up,/l\.dimensions->>'fixed_asset_impairment_assessment_evidence_id'=p_assessment::text/);
+  assert.match(up,/carrying<>assessment\.recoverable_amount/);
+  assert.match(up,/regular:=round\(basis\/p_remaining_months,4\);final_amount:=basis-regular\*\(p_remaining_months-1\)/);
+  assert.match(down,/LOCK TABLE fixed_asset_post_impairment_depreciation_policy IN ACCESS EXCLUSIVE MODE/);
+  assert.match(down,/Cannot remove retained post-impairment depreciation policy evidence/);
+});
+
 test('WBS snapshots are immutable scoped observations, not current source events or journals',()=>{
   assert.match(wbsSnapshotSql,/CREATE TABLE wbs_snapshot_import/);
   assert.match(wbsSnapshotSql,/CREATE TABLE wbs_snapshot_receipt/);

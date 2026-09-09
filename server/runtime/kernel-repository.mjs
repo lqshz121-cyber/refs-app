@@ -734,6 +734,10 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>{const args=[tenantId,entityId,fixedAssetRegisterEvidenceId,accountingPeriodId,valuationSourceDocumentId,assessmentDate,recoverableAmount,impairmentExpenseAccountCode,accumulatedImpairmentAccountCode,reason];const requestHash=requireRow(await client.query('SELECT refs_review_fixed_asset_impairment_hash($1,$2,$3,$4,$5,$6::date,$7::numeric,$8,$9,$10) request_hash',args),'FIXED_ASSET_IMPAIRMENT_REVIEW_HASH_FAILED','Fixed asset impairment review hash was not produced').request_hash;return requireRow(await client.query('SELECT refs_review_fixed_asset_impairment($1,$2,$3,$4,$5,$6::date,$7::numeric,$8,$9,$10,$11,$12) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_IMPAIRMENT_REVIEW_FAILED','Fixed asset impairment review did not return a result').result;});
   }
 
+  async reviewFixedAssetPostImpairmentPolicy({tenantId,entityId,fixedAssetRegisterEvidenceId,impairmentAssessmentEvidenceId,effectivePeriodId,remainingUsefulLifeMonths,convention,reason,idempotencyKey}){
+    return this.inSession(async client=>{const args=[tenantId,entityId,fixedAssetRegisterEvidenceId,impairmentAssessmentEvidenceId,effectivePeriodId,remainingUsefulLifeMonths,convention,reason];const requestHash=requireRow(await client.query('SELECT refs_review_fixed_asset_post_impairment_policy_hash($1,$2,$3,$4,$5,$6,$7,$8) request_hash',args),'FIXED_ASSET_POST_IMPAIRMENT_POLICY_HASH_FAILED','Post-impairment depreciation policy hash was not produced').request_hash;return requireRow(await client.query('SELECT refs_review_fixed_asset_post_impairment_policy($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_POST_IMPAIRMENT_POLICY_REVIEW_FAILED','Post-impairment depreciation policy review did not return a result').result;});
+  }
+
   async listAiConstructionLoanEntryProposals({tenantId,entityId,limit=50}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_construction_loan_entry_proposals($1,$2,$3)',[tenantId,entityId,limit]
