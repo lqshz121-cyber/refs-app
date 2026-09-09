@@ -1,0 +1,61 @@
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {createHash} from 'node:crypto';
+import {readFile,mkdir,writeFile} from 'node:fs/promises';
+import {createRequire} from 'node:module';
+import {fileURLToPath} from 'node:url';
+import {resolve} from 'node:path';
+import {execFileSync} from 'node:child_process';
+
+export async function runFixedAssetBrowserProof({api,token,ids,assetTag}){
+ const root=fileURLToPath(new URL('../../../',import.meta.url));
+ const output=resolve(process.env.REFS_ASSET_BROWSER_OUTPUT||'');
+ assert.ok(process.env.REFS_ASSET_BROWSER_OUTPUT,'Set a dedicated browser evidence directory');
+ const require=createRequire(import.meta.url),playwrightModule=require.resolve(process.env.REFS_PLAYWRIGHT_MODULE||'playwright'),{chromium}=require(playwrightModule);
+ const {build}=await import(new URL('../../../node_modules/esbuild/lib/main.js',import.meta.url));
+ const boot={entityId:ids.entityId,periodId:ids.periodId,token};
+ const entry=`import React,{useEffect,useState} from 'react';import {createRoot} from 'react-dom/client';import {AuthoritativeFixedAssetsWorkspace} from './src/authoritative-fixed-assets-workspace.jsx';import {refreshCurrentActorAccess} from './src/accounting-api.js';const base={...window.boot,baseUrl:location.origin,getAccessToken:async()=>window.boot.token};function App(){const [access,setAccess]=useState(null);useEffect(()=>{refreshCurrentActorAccess({config:base}).then(setAccess);},[]);return access?.ok?<AuthoritativeFixedAssetsWorkspace config={{...base,tenantId:access.row.tenant_id,scopePresentation:{entityLabel:'Owned asset fixture'}}}/>:<p>Loading fixture identity</p>;}createRoot(document.getElementById('root')).render(<App/>);`;
+ const bundle=await build({stdin:{contents:entry,resolveDir:root,loader:'jsx'},bundle:true,write:false,platform:'browser',jsx:'automatic',loader:{'.js':'jsx'}});
+ const index=await readFile(resolve(root,'index.html'),'utf8'),styles=[...index.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match=>match[0]).join('\n');
+ const html=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">${styles}</head><body><div id="root"></div><script>window.boot=${JSON.stringify(boot).replace(/</g,'\\u003c')}</script><script src="/bundle.js"></script></body></html>`;
+ let fault=null;const reads=[],screenshots=[],checks=[],server=createServer(async(req,res)=>{
+  try{
+   if(req.url==='/favicon.ico'){res.writeHead(204);res.end();return;}
+   if(req.url==='/bundle.js'){res.setHeader('content-type','text/javascript');res.end(bundle.outputFiles[0].contents);return;}
+   if(req.url?.startsWith('/api/')){
+    assert.equal(req.method,'GET','Browser fixture may only read accounting data');
+    const raw=await api({method:req.method,url:req.url,headers:req.headers}),result=JSON.parse(JSON.stringify(raw));
+    if(fault==='journal'&&req.url.includes('/journal-entries/'))result.body.data.lines[1].credit_amount='25001.0000';
+    if(fault==='source'&&req.url.includes('/source-documents/'))result.body.data[0].source_document_revision=Number(result.body.data[0].source_document_revision)+1;
+    reads.push({method:req.method,path:req.url,status:result.status});
+    res.writeHead(result.status,{'content-type':'application/json',...result.headers});res.end(JSON.stringify(result.body));return;
+   }
+   res.setHeader('content-type','text/html');res.end(html);
+  }catch(error){res.writeHead(500);res.end(JSON.stringify({error:error.message}));}
+ });
+ await new Promise(resolveListen=>server.listen(0,'127.0.0.1',resolveListen));let browser;
+ try{
+  await mkdir(output,{recursive:true});browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[];
+  page.on('pageerror',error=>errors.push(error.message));page.on('console',message=>{if(message.type()==='error')errors.push(message.text());});
+  const url='http://127.0.0.1:'+server.address().port;await page.goto(url);
+  const keyboardActivate=async(locator,activate=true)=>{await locator.waitFor();for(let i=0;i<80&&!await locator.evaluate(el=>el===document.activeElement);i++)await page.keyboard.press('Tab');assert.equal(await locator.evaluate(el=>el===document.activeElement),true);if(activate)await page.keyboard.press('Enter');};
+  const asset=()=>page.getByRole('button',{name:'View asset '+assetTag,exact:true});await keyboardActivate(asset());await page.getByRole('heading',{name:assetTag,exact:true}).waitFor();
+  await page.getByRole('region',{name:'Posted asset activity',exact:true}).waitFor();
+  const acquisition=()=>page.getByRole('button',{name:'ASSET-ACQUISITION',exact:true}).first();await keyboardActivate(acquisition());await page.getByRole('heading',{name:'Journal entry ASSET-ACQUISITION',exact:true}).waitFor();
+  await keyboardActivate(page.getByRole('button',{name:'Open GL evidence',exact:true}).first());await page.getByRole('heading',{name:'Posted ledger line',exact:true}).waitFor();
+  await keyboardActivate(page.getByRole('button',{name:'Back to prior evidence',exact:true}));await keyboardActivate(page.getByRole('button',{name:'Back to prior evidence',exact:true}));assert.equal(await acquisition().evaluate(el=>el===document.activeElement),true);checks.push('keyboard-detail-journal-gl-back');
+  const source=()=>page.getByRole('button',{name:'View posting source',exact:true}).first();await source().click();await page.getByRole('heading',{name:'Source Document evidence',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Open linked Journal',exact:true}).first().click();await page.getByRole('region',{name:'Journal lineage evidence',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Back to prior evidence',exact:true}).click();await page.getByRole('button',{name:'Back to prior evidence',exact:true}).click();assert.equal(await source().evaluate(el=>el===document.activeElement),true);
+  fault='journal';await acquisition().click();await page.getByRole('alert').filter({hasText:'journal no longer matches'}).waitFor();assert.equal(await page.getByRole('region',{name:'Journal lineage evidence',exact:true}).count(),0);checks.push('journal-drift-rejected');fault='source';await source().click();await page.getByRole('alert').filter({hasText:'current source differs'}).waitFor();assert.equal(await page.getByRole('heading',{name:'Source Document evidence',exact:true}).count(),0);checks.push('source-drift-rejected');fault=null;await source().click();await page.getByRole('heading',{name:'Source Document evidence',exact:true}).waitFor();await page.getByRole('button',{name:'Back to prior evidence',exact:true}).click();
+  await page.evaluate(()=>document.body.style.zoom='2');assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));checks.push('zoom-200');await page.evaluate(()=>document.body.style.zoom='');
+  const capture=async name=>{const bytes=await page.screenshot({path:resolve(output,name),fullPage:true});screenshots.push({name,viewport:page.viewportSize(),sha256:createHash('sha256').update(bytes).digest('hex')});};await capture('desktop.png');await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.getByRole('region',{name:'Posted asset activity',exact:true}).focus();await keyboardActivate(source(),false);assert.ok(await page.getByRole('region',{name:'Posted asset activity',exact:true}).evaluate(el=>el.scrollLeft>0));checks.push('mobile-hidden-columns');await capture('mobile.png');
+  await page.getByRole('button',{name:'Close details',exact:true}).click();assert.equal(await asset().evaluate(el=>el===document.activeElement),true);
+  await page.locator('input[type=date]').fill('2026-07-14');await asset().click();await page.getByRole('region',{name:'Posted asset activity',exact:true}).waitFor();assert.equal(await page.getByRole('region',{name:'Posted asset activity',exact:true}).locator('tbody tr').count(),2);
+  await page.locator('input[type=date]').fill('2026-07-31');await asset().click();await page.getByRole('region',{name:'Posted asset activity',exact:true}).waitFor();assert.equal(await page.getByRole('region',{name:'Posted asset activity',exact:true}).locator('tbody tr').count(),11);
+  checks.push('date-scope');await page.reload();await asset().waitFor();checks.push('refresh');
+  assert.deepEqual(errors,[]);assert.ok(reads.length>=8);assert.ok(reads.every(read=>read.status===200));
+  const sha=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+  await writeFile(resolve(output,'result.json'),JSON.stringify({sha,playwrightModule,chromiumVersion:browser.version(),screenshots,checks,worktreeClean:execFileSync('git',['status','--porcelain'],{cwd:root,encoding:'utf8'}).trim()==='',browserBundleSha256:createHash('sha256').update(bundle.outputFiles[0].contents).digest('hex'),scope:'Owned PostgreSQL, real accounting API handler and HTTP, isolated Chromium. Test-only authenticated identity; not production OIDC or deployed full-app acceptance.',passed:true,reads,errors},null,2)+'\n');
+ }finally{if(browser)await browser.close();await new Promise(close=>server.close(close));}
+}

@@ -1,3 +1,71 @@
+import {validFixedAssetMovements} from '../server/api/fixed-asset-register-contract.mjs';
+import {validFixedAssetAcquisitionOptions} from '../server/api/fixed-asset-acquisition-options-contract.mjs';
+import {validFixedAssetDepreciationOptions} from '../server/api/fixed-asset-depreciation-options-contract.mjs';
+import {validFixedAssetDisposalOptions} from '../server/api/fixed-asset-disposal-options-contract.mjs';
+
+export async function readAuthoritativeDisposalOptions({config,assetId,disposalDate,fetcher=globalThis.fetch}={}){
+ if(!config||![config.tenantId,config.entityId,config.periodId,assetId].every(id=>UUID.test(id||''))||!validDate(disposalDate)||typeof fetcher!=='function')return {ok:false,code:'FIXED_ASSET_SCOPE_INVALID',message:'Select a company, accounting period, asset and disposal date.'};
+ const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+ const scope={tenantId:config.tenantId.toLowerCase(),entityId:config.entityId.toLowerCase(),periodId:config.periodId.toLowerCase(),assetId:assetId.toLowerCase(),disposalDate};
+ try{
+  const response=await fetcher(`${config.baseUrl}/api/v1/entities/${scope.entityId}/fixed-assets/register/${scope.assetId}/disposal-options?periodId=${scope.periodId}&disposalDate=${scope.disposalDate}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+  if(!response.ok)return await failure(response,'FIXED_ASSET_DISPOSAL_OPTIONS');
+  const body=await response.json();if(body?.ok!==true||!validFixedAssetDisposalOptions(body.data,scope))return {ok:false,code:'FIXED_ASSET_DISPOSAL_OPTIONS_PROTOCOL',message:'The disposal information could not be verified. Refresh to try again.'};
+  return {ok:true,data:body.data};
+ }catch{return unreachable('Disposal information could not be loaded. Try again.');}
+}
+
+export async function createAuthoritativeAssetDisposal({config,options,journalNumber,sourceDocumentId,proceedsAccountCode,proceedsMemberRef,gainLossAccountCode,reason,fetcher=globalThis.fetch,cryptoApi=globalThis.crypto}={}){
+ if(!config||![config.tenantId,config.entityId,config.periodId].every(id=>UUID.test(id||'')))return {ok:false,code:'FIXED_ASSET_SCOPE_INVALID',message:'Select a company and accounting period.'};
+ const scope={tenantId:config.tenantId.toLowerCase(),entityId:config.entityId.toLowerCase(),periodId:config.periodId.toLowerCase(),assetId:options?.asset_id,disposalDate:options?.snapshot?.disposal_date};
+ const clean=(value,min,max)=>typeof value==='string'&&value===value.trim()&&value.length>=min&&value.length<=max&&!/[\u0000-\u001f\u007f]/.test(value);
+ if(!validFixedAssetDisposalOptions(options,scope)||options.readiness_status!=='READY'||!clean(journalNumber,1,100)||!clean(reason,8,2000)||!clean(gainLossAccountCode,1,64)||typeof fetcher!=='function')return {ok:false,code:'FIXED_ASSET_DISPOSAL_INPUT_INVALID',message:'Refresh the disposal details and check the journal selections before saving.'};
+ const source=options.sources.find(row=>row.source_document_id===sourceDocumentId),proceeds=source?BigInt(source.gross_amount.replace('.','')):null;
+ const gainAccount=options.gain_loss_accounts.find(row=>row.account_code===gainLossAccountCode),proceedsAccount=proceedsAccountCode===null?null:options.proceeds_accounts.find(row=>row.account_code===proceedsAccountCode),member=proceedsMemberRef===null?null:options.members.find(row=>row.member_ref===proceedsMemberRef);
+ const memberCompatible=proceedsAccount&&member&&(member.member_type===proceedsAccount.required_member_type||proceedsAccount.required_member_type==='CUSTOMER_OR_AFFILIATE'&&['CUSTOMER','AFFILIATE'].includes(member.member_type));
+ if(!source||!gainAccount||proceeds===null||proceeds<0n||proceeds===0n&&(proceedsAccountCode!==null||proceedsMemberRef!==null)||proceeds>0n&&(!memberCompatible||!clean(proceedsAccountCode,1,64)||!clean(proceedsMemberRef,1,128)))return {ok:false,code:'FIXED_ASSET_DISPOSAL_INPUT_INVALID',message:'Select a compatible source, proceeds account, member and gain or loss account.'};
+ const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+ const payload={periodId:scope.periodId,journalNumber,disposalDate:scope.disposalDate,sourceDocumentId:source.source_document_id,expectedSourceVersion:source.source_document_version,expectedSourceHash:source.source_payload_hash,proceedsAccountCode:proceeds===0n?null:proceedsAccountCode,proceedsMemberRef:proceeds===0n?null:proceedsMemberRef,gainLossAccountCode,expectedOptionsHash:options.options_hash,reason};
+ let key;try{const digest=await cryptoApi.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([scope.tenantId,scope.entityId,scope.assetId,payload])));key='asset-disposal:'+Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');}catch{return {ok:false,code:'FIXED_ASSET_COMMAND_IDENTITY_UNAVAILABLE',message:'The browser could not prepare this request. Try again.'};}
+ try{
+  const response=await fetcher(`${config.baseUrl}/api/v1/entities/${scope.entityId}/fixed-assets/register/${scope.assetId}/disposals`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':key,...authorization},body:JSON.stringify(payload)});
+  if(!response.ok)return await failure(response,'FIXED_ASSET_DISPOSAL');
+  const body=await response.json(),r=body?.data,fields='schema_version binding_id journal_entry_id asset_id period_id source_document_id source_document_version source_payload_hash source_link_id register_evidence_hash options_hash proceeds accumulated_depreciation accumulated_impairment carrying_value gain_or_loss status revision idempotent'.split(' ').sort().join('|');
+  if(body?.ok!==true||!r||Object.keys(r).sort().join('|')!==fields||r.schema_version!=='FIXED_ASSET_DISPOSAL_DRAFT_V1'||r.status!=='DRAFT'||r.revision!==1||![200,201].includes(response.status)||r.idempotent!==(response.status===200)||r.asset_id!==scope.assetId||r.period_id!==scope.periodId||r.source_document_id!==source.source_document_id||r.source_document_version!==source.source_document_version||r.source_payload_hash!==source.source_payload_hash||r.options_hash!==options.options_hash||r.register_evidence_hash!==options.snapshot.register_evidence_hash||r.proceeds!==source.gross_amount||r.accumulated_depreciation!==options.snapshot.accumulated_depreciation||r.accumulated_impairment!==options.snapshot.accumulated_impairment||r.carrying_value!==options.snapshot.carrying_value||!['journal_entry_id','binding_id','source_link_id'].every(k=>UUID.test(r[k]||''))||!/^-?\d{1,16}\.\d{4}$/.test(r.gain_or_loss||''))return {ok:false,code:'FIXED_ASSET_DISPOSAL_PROTOCOL',message:'The save response could not be verified. Retry with the same details to recover the saved result.'};
+  return {ok:true,data:r};
+ }catch{return unreachable('The save result could not be confirmed. Retry with the same details to recover it.');}
+}
+
+export async function readAuthoritativeDepreciationOptions({config,assetId,fetcher=globalThis.fetch}={}){
+ if(!config||![config.tenantId,config.entityId,config.periodId,assetId].every(id=>UUID.test(id||''))||typeof fetcher!=='function')return {ok:false,code:'FIXED_ASSET_SCOPE_INVALID',message:'Select a company, accounting period and asset.'};
+ const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+ const scope={tenantId:config.tenantId.toLowerCase(),entityId:config.entityId.toLowerCase(),periodId:config.periodId.toLowerCase(),assetId:assetId.toLowerCase()};
+ try{
+  const response=await fetcher(`${config.baseUrl}/api/v1/entities/${scope.entityId}/fixed-assets/register/${scope.assetId}/depreciation-options?periodId=${scope.periodId}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+  if(!response.ok)return await failure(response,'FIXED_ASSET_DEPRECIATION_OPTIONS');
+  const body=await response.json();if(body?.ok!==true||!validFixedAssetDepreciationOptions(body.data,scope))return {ok:false,code:'FIXED_ASSET_DEPRECIATION_OPTIONS_PROTOCOL',message:'The depreciation information could not be verified. Refresh to try again.'};
+  return {ok:true,data:body.data};
+ }catch{return unreachable('Depreciation information could not be loaded. Try again.');}
+}
+
+export async function createAuthoritativeAssetDepreciation({config,options,journalNumber,journalDate,reason,fetcher=globalThis.fetch,cryptoApi=globalThis.crypto}={}){
+ if(!config||![config.tenantId,config.entityId,config.periodId].every(id=>UUID.test(id||'')))return {ok:false,code:'FIXED_ASSET_SCOPE_INVALID',message:'Select a company and accounting period.'};
+ const scope={tenantId:config.tenantId.toLowerCase(),entityId:config.entityId.toLowerCase(),periodId:config.periodId.toLowerCase(),assetId:options?.asset_id};
+ const cleanText=(value,min,max)=>typeof value==='string'&&value===value.trim()&&value.length>=min&&value.length<=max&&!/[\u0000-\u001f\u007f]/.test(value);
+ if(!validFixedAssetDepreciationOptions(options,scope)||options.readiness_status!=='READY'||!cleanText(journalNumber,1,100)||!cleanText(reason,8,2000)||!validDate(journalDate)||journalDate!==options.period.ends_on||typeof fetcher!=='function')return {ok:false,code:'FIXED_ASSET_DEPRECIATION_INPUT_INVALID',message:'Refresh the schedule and check the journal number and explanation before saving.'};
+ const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+ const payload={periodId:scope.periodId,journalNumber,journalDate,expectedRegisterEvidenceHash:options.register_evidence_hash,expectedScheduleHash:options.schedule.schedule_snapshot_hash,reason};
+ let key;try{const digest=await cryptoApi.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([scope.tenantId,scope.entityId,scope.assetId,payload])));key='asset-depreciation:'+Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');}catch{return {ok:false,code:'FIXED_ASSET_COMMAND_IDENTITY_UNAVAILABLE',message:'The browser could not prepare this request. Try again.'};}
+ try{
+  const response=await fetcher(`${config.baseUrl}/api/v1/entities/${scope.entityId}/fixed-assets/register/${scope.assetId}/depreciations`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':key,...authorization},body:JSON.stringify(payload)});
+  if(!response.ok)return await failure(response,'FIXED_ASSET_DEPRECIATION');
+  const body=await response.json(),r=body?.data;
+  const fields='journal_entry_id status revision idempotent schema_version binding_id asset_id period_id expected_amount register_evidence_hash schedule_snapshot_hash source_document_id source_document_version source_payload_hash source_link_id acquisition_binding_id acquisition_journal_entry_id'.split(' ').sort().join('|');
+  if(body?.ok!==true||!r||Object.keys(r).sort().join('|')!==fields||r.schema_version!=='FIXED_ASSET_DEPRECIATION_DRAFT_V1'||r.status!=='DRAFT'||r.revision!==0||![200,201].includes(response.status)||r.idempotent!==(response.status===200)||r.asset_id!==scope.assetId||r.period_id!==scope.periodId||r.expected_amount!==options.schedule.expected_period_depreciation||r.register_evidence_hash!==payload.expectedRegisterEvidenceHash||r.schedule_snapshot_hash!==payload.expectedScheduleHash||r.source_document_id!==options.source.source_document_id||r.source_document_version!==options.source.source_document_version||r.source_payload_hash!==options.source.source_payload_hash||r.acquisition_binding_id!==options.acquisition.binding_id||r.acquisition_journal_entry_id!==options.acquisition.journal_entry_id||!['journal_entry_id','binding_id','source_link_id'].every(k=>UUID.test(r[k]||'')))return {ok:false,code:'FIXED_ASSET_DEPRECIATION_PROTOCOL',message:'The save response could not be verified. Retry with the same details to recover the saved result.'};
+  return {ok:true,data:r};
+ }catch{return unreachable('The save result could not be confirmed. Retry with the same details to recover it.');}
+}
+import {validateFixedAssetRegister,validAssetCursor} from './fixed-asset-register-contract.js';
 import {parseBankMatchSource} from './bank-match-source.js';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ACCOUNT_CODE=/^[A-Za-z0-9._-]{1,64}$/;
@@ -2538,8 +2606,12 @@ export async function createAuthoritativeAdjustment({config,kind,adjustment,idem
   if(!config||typeof fetcher!=='function'||!['AP_VENDOR_CREDIT','AR_CREDIT_MEMO','AR_REFUND'].includes(kind)||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>200)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Adjustment command configuration is invalid.'};
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();const common={periodId:config.periodId,amount:adjustment?.amount,reason:adjustment?.reason};
   let path,body;
-  if(kind==='AP_VENDOR_CREDIT'){path='/ap/vendor-credits';body={...common,creditNumber:adjustment?.number,creditDate:adjustment?.date,vendorRef:String(adjustment?.counterpartyRef||''),vendorName:adjustment?.counterpartyName,lines:adjustment?.lines};}
-  else if(kind==='AR_CREDIT_MEMO'){path='/ar/credit-memos';body={...common,memoNumber:adjustment?.number,memoDate:adjustment?.date,customerRef:String(adjustment?.counterpartyRef||''),customerName:adjustment?.counterpartyName,lines:adjustment?.lines};}
+  if(kind==='AP_VENDOR_CREDIT'||kind==='AR_CREDIT_MEMO'){
+    const attachmentIds=canonicalAttachmentIds(adjustment?.attachmentIds);
+    if(!attachmentIds||attachmentIds.length>25)return {ok:false,code:'ATTACHMENT_REQUIRED',message:'Credit adjustments require 1-25 unique server-listed attachment IDs.'};
+    if(kind==='AP_VENDOR_CREDIT'){path='/ap/vendor-credits';body={...common,creditNumber:adjustment?.number,creditDate:adjustment?.date,vendorRef:String(adjustment?.counterpartyRef||''),vendorName:adjustment?.counterpartyName,lines:adjustment?.lines,attachmentIds};}
+    else {path='/ar/credit-memos';body={...common,memoNumber:adjustment?.number,memoDate:adjustment?.date,customerRef:String(adjustment?.counterpartyRef||''),customerName:adjustment?.counterpartyName,lines:adjustment?.lines,attachmentIds};}
+  }
   else {if(typeof config.cashAccountCode!=='string'||!config.cashAccountCode)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Refund requires authoritative cash-account configuration.'};path='/ar/refunds';body={...common,sourceAdjustmentId:adjustment?.sourceAdjustmentId,refundNumber:adjustment?.number,refundDate:adjustment?.date,cashAccountCode:config.cashAccountCode};}
   const unconfirmed=()=>({ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'The API did not confirm the adjustment and Draft journal. Check the saved adjustment or retry with the same request key.'});
   let response;
@@ -2547,8 +2619,8 @@ export async function createAuthoritativeAdjustment({config,kind,adjustment,idem
   catch{return unreachable('The browser could not confirm the adjustment command. Check the saved adjustment or retry with the same request key.');}
   if(!response.ok)return await failure(response);
   let result;try{result=await response.json();}catch{return unconfirmed();}
-  const receipt=result?.data;
-  if(![200,201].includes(response.status)||result?.ok!==true||!receipt||Array.isArray(receipt)
+  const receipt=result?.data,fields=kind==='AR_REFUND'?['business_adjustment_id','journal_entry_id','source_adjustment_id','status','revision','idempotent']:['business_adjustment_id','journal_entry_id','status','revision','idempotent'];
+  if(![200,201].includes(response.status)||result?.ok!==true||!exactAuditKeys(receipt,fields)
     ||!UUID.test(receipt.business_adjustment_id||'')||!UUID.test(receipt.journal_entry_id||'')
     ||receipt.status!=='DRAFT'||receipt.revision!==0||receipt.idempotent!==(response.status===200)
     ||kind==='AR_REFUND'&&(!UUID.test(receipt.source_adjustment_id||'')||receipt.source_adjustment_id!==adjustment?.sourceAdjustmentId))return unconfirmed();
@@ -2679,3 +2751,33 @@ export async function createAuthoritativeWbsPropertyRentDraft({config,evidence,r
   try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/wbs/property-rent-pickup/reviews/${evidence.wbs_property_rent_review_evidence_id}/drafts`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,'if-match':`"${evidence.revision}"`,...authorization},body:JSON.stringify({expectedEvidenceHash:evidence.evidence_hash,reason})});if(!response.ok)return await failure(response,'PROPERTY_RENT_DRAFT');const envelope=await response.json(),data=envelope?.data;if(envelope?.ok!==true||!data||data.status!=='DRAFT'||data.revision!==0||data.staging_version!==evidence.revision+1||data.review_evidence_id!==evidence.wbs_property_rent_review_evidence_id||data.source_document_id!==evidence.source_document_id||data.staging_item_id!==evidence.staging_item_id||data.mapping_snapshot_id!==evidence.mapping_snapshot_id||![data.draft_evidence_id,data.business_document_id,data.journal_entry_id].every(value=>UUID.test(value||''))||typeof data.can_submit!=='boolean'||['can_review','can_approve','can_post'].some(field=>data[field]!==false))return {ok:false,code:'PROPERTY_RENT_DRAFT_PROTOCOL',message:'The accounting API returned an invalid Property Rent Draft receipt.'};return {ok:true,data,idempotent:response.status===200};}catch{return unreachable('The browser could not create the reviewed Property Rent Draft; no HTTP response was produced.');}
 }
 
+
+export async function readAuthoritativeAcquisitionOptions({config,assetId,fetcher=globalThis.fetch}={}){
+ if(!config||!UUID.test(config.tenantId||'')||!UUID.test(config.entityId||'')||!UUID.test(assetId||'')||typeof fetcher!=='function')return {ok:false,code:'FIXED_ASSET_SCOPE_INVALID',message:'Select a company and asset.'};
+ const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+ try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/fixed-assets/register/${assetId.toLowerCase()}/acquisition-options`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});if(!response.ok)return await failure(response,'FIXED_ASSET_ACQUISITION_OPTIONS');const body=await response.json();if(body?.ok!==true||!validFixedAssetAcquisitionOptions(body.data,{tenantId:config.tenantId.toLowerCase(),entityId:config.entityId.toLowerCase(),assetId:assetId.toLowerCase()}))return {ok:false,code:'FIXED_ASSET_OPTIONS_PROTOCOL',message:'The acquisition information could not be verified. Refresh to try again.'};return {ok:true,data:body.data};}catch{return unreachable('Acquisition information could not be loaded. Try again.');}
+}
+
+export async function createAuthoritativeAssetAcquisition({config,options,journalNumber,journalDate,reason,fetcher=globalThis.fetch,cryptoApi=globalThis.crypto}={}){
+ if(!config||!UUID.test(config.tenantId||'')||!UUID.test(config.entityId||''))return {ok:false,code:'FIXED_ASSET_SCOPE_INVALID',message:'Select a company and asset.'};
+ if(!config||!validFixedAssetAcquisitionOptions(options,{tenantId:config.tenantId?.toLowerCase(),entityId:config.entityId?.toLowerCase(),assetId:options?.asset_id})||!options.original_evidence||options.attachment_status!=='VERIFIED'||options.acquisition_posted||options.disposal_recorded||options.period.status!=='OPEN'||options.source.source_document_version<1||typeof journalNumber!=='string'||journalNumber!==journalNumber.trim()||journalNumber.length<1||journalNumber.length>100||/[\u0000-\u001f\u007f]/.test(journalNumber)||!validDate(journalDate)||journalDate<options.period.starts_on||journalDate>options.period.ends_on||typeof reason!=='string'||reason!==reason.trim()||reason.length<8||reason.length>2000||/[\u0000-\u001f\u007f]/.test(reason)||typeof fetcher!=='function')return {ok:false,code:'FIXED_ASSET_ACQUISITION_INPUT_INVALID',message:'Check the journal number, accounting date and explanation before saving.'};
+ const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+ const payload={periodId:options.period.period_id,journalNumber,journalDate,expectedSourceVersion:options.source.source_document_version,attachmentIds:options.attachments.map(a=>a.attachment_id),reason};
+ let key;try{const digest=await cryptoApi.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([config.tenantId.toLowerCase(),config.entityId.toLowerCase(),options.asset_id,payload])));key='asset-acquisition:'+Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');}catch{return {ok:false,code:'FIXED_ASSET_COMMAND_IDENTITY_UNAVAILABLE',message:'The browser could not prepare this request. Try again.'};}
+ try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/fixed-assets/register/${options.asset_id}/acquisitions`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':key,...authorization},body:JSON.stringify(payload)});if(!response.ok)return await failure(response,'FIXED_ASSET_ACQUISITION');const body=await response.json(),r=body?.data,fields=['journal_entry_id','status','revision','idempotent','schema_version','binding_id','asset_id','source_document_id','source_document_version','source_payload_hash','source_link_id'].sort();
+ if(body?.ok!==true||!r||Object.keys(r).sort().join('|')!==fields.join('|')||r.schema_version!=='FIXED_ASSET_ACQUISITION_DRAFT_V1'||r.asset_id!==options.asset_id||r.source_document_id!==options.source.source_document_id||r.source_payload_hash!==options.source.source_payload_hash||r.source_document_version!==payload.expectedSourceVersion||r.status!=='DRAFT'||r.revision!==0||typeof r.idempotent!=='boolean'||r.idempotent!==(response.status===200)||![200,201].includes(response.status)||!['journal_entry_id','binding_id','source_link_id'].every(k=>typeof r[k]==='string'&&UUID.test(r[k])))return {ok:false,code:'FIXED_ASSET_ACQUISITION_PROTOCOL',message:'The save response could not be verified. Retry with the same details to recover the saved result.'};return {ok:true,data:r};}catch{return unreachable('The save result could not be confirmed. Retry with the same details to recover it.');}
+}
+
+export async function refreshAuthoritativeFixedAssets({config,asOfDate,limit=50,after=null,assetId=null,fetcher=globalThis.fetch}={}){
+ if(!config||!UUID.test(config.entityId||'')||!UUID.test(config.tenantId||'')||!validDate(asOfDate)||!Number.isSafeInteger(limit)||limit<1||limit>100||after!==null&&!validAssetCursor(after)||assetId!==null&&!UUID.test(assetId)||assetId&&after||typeof fetcher!=='function')return {ok:false,code:'FIXED_ASSET_SCOPE_INVALID',message:'Select a company and valid accounting date.'};
+ const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+ const query=new URLSearchParams({asOfDate});if(!assetId){query.set('limit',String(limit));if(after)query.set('after',after);}
+ try{const response=await fetcher(config.baseUrl+'/api/v1/entities/'+config.entityId+'/fixed-assets/register'+(assetId?'/'+assetId:'')+'?'+query,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});if(!response.ok)return await failure(response,'FIXED_ASSET_READ');const body=await response.json(),data=body?.ok===true?validateFixedAssetRegister(body.data,{entityId:config.entityId,tenantId:config.tenantId,asOfDate,limit:assetId?1:limit,after,assetId}):null;if(!data||assetId&&data.rows.length!==1)return {ok:false,code:'FIXED_ASSET_PROTOCOL',message:'The asset register response could not be verified. Refresh to try again.'};return {ok:true,data};}catch{return unreachable('The asset register could not be loaded. Try again.');}
+}
+
+export async function refreshAuthoritativeFixedAssetMovements({config,asOfDate,assetId,limit=50,after=null,fetcher=globalThis.fetch}={}){
+ if(!config||!UUID.test(config.tenantId||'')||!UUID.test(config.entityId||'')||!UUID.test(assetId||'')||!validDate(asOfDate)||!Number.isSafeInteger(limit)||limit<1||limit>100||after!==null&&!validAssetCursor(after)||typeof fetcher!=='function')return {ok:false,code:'FIXED_ASSET_SCOPE_INVALID',message:'Select a company, asset and valid accounting date.'};
+ const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+ const query=new URLSearchParams({asOfDate,limit:String(limit)});if(after)query.set('after',after);
+ try{const response=await fetcher(config.baseUrl+'/api/v1/entities/'+config.entityId+'/fixed-assets/register/'+assetId+'/movements?'+query,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});if(!response.ok)return await failure(response,'FIXED_ASSET_MOVEMENTS');const body=await response.json();if(body?.ok!==true||!validFixedAssetMovements(body.data,{tenantId:config.tenantId,entityId:config.entityId,assetId,asOfDate,limit}))return {ok:false,code:'FIXED_ASSET_PROTOCOL',message:'The asset activity response could not be verified.'};return {ok:true,data:body.data};}catch{return unreachable('Asset activity could not be loaded. Try again.');}
+}

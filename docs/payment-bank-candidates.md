@@ -1,0 +1,11 @@
+# Payment candidates for bank review
+
+The legacy bank review blocks when more than one posted payment matches a bank transaction. The new `GET /entities/{entityId}/bank/transactions/{bankSourceId}/payment-candidates` API supplies a bounded list for explicit selection. It requires `BANK.MATCH.CREATE`, accepts only `afterId` and `limit` (1–100, default 50), and rejects bodies and command headers.
+
+Migration 324 reads posted payment occurrences directly with UUID keyset pagination and a limit-plus-one probe. It does not materialize the unbounded legacy candidate function. The partial index covers company, currency, amount and occurrence ID; date and direction remain qualifying predicates. A cursor must refer to an occurrence in the selected company. Read results reflect a database statement snapshot; the existing match command revalidates current versions and all business predicates before writing.
+
+The response distinguishes the business document ID from the optional imported source ID. It contains the document number, counterparty, payment kind, exact decimal amount, string occurrence and bank revisions, and posted journal/line/ledger identities. It requires the matching journal's company, period, currency and date, exactly one matching cash ledger line, no active match or pending reversal, and no covering signed reconciliation. The legacy endpoint remains available.
+
+Contract tests exercise scope, exact amounts, malformed traces, cursor shape, unavailable implementation and permission failures. The real PostgreSQL bank-payment lifecycle exercises the API read, permission denial, empty final page, invalid cursor, migration down/up preservation, active-match exclusion, multiple candidate pages after unmatch, stable repeated reads and signed-statement exclusion.
+
+This is backend work in progress. The page does not yet use this endpoint. Explicit UI selection and durable command intent/retry identity are still required before enabling rematching. The index and LIMIT alone do not prove performance: a fixture with more than 100,000 independently traced posted occurrences, measured first/deep pages, and query-plan evidence remains required. Full local database gates, independent review and real deployed business acceptance remain outstanding; local fixtures are not production accounting evidence.

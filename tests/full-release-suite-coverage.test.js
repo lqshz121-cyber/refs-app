@@ -57,6 +57,8 @@ test('the reachable audit mutation harness uses the cross-platform esbuild API, 
 // an operator-run release target. Adding a name here is a deliberate, reviewable decision;
 // forgetting to wire a plain Node suite is not.
 const INFRASTRUCTURE_BOUND_SERVER_SUITES=Object.freeze([
+  'test:fixed-asset-acquisition-browser:e2e', // Requires owned Docker PostgreSQL and installed Chromium/Playwright.
+  'test:fixed-asset-browser:e2e', // Requires owned Docker PostgreSQL and installed Chromium/Playwright.
   'test:attachments:containers',
   'test:backup:restore',
   'test:postgres:fixture:ai-exception-lineage',
@@ -79,6 +81,12 @@ const INFRASTRUCTURE_BOUND_SERVER_SUITES=Object.freeze([
   'test:stage3:reporting-authoritative-e2e',
   'test:stage4:authoritative-e2e',
   'test:staging:smoke',
+]);
+
+// Executed separately with an installed Playwright module and Chromium. This is
+// component browser evidence, not a substitute for real API/identity acceptance.
+const INFRASTRUCTURE_BOUND_ROOT_SUITES=Object.freeze([
+  'test:asset-acquisition-browser',
 ]);
 
 const reachableTestScripts=scripts=>{
@@ -114,11 +122,16 @@ test('Insurance and Property suites exercise both workspace and authoritative AP
   assert.match(packageJson.scripts?.['test:authoritative-property-rent']||'',/property-rent-authoritative-client\.test/);
 });
 
-test('every test:* script is reachable from the aggregate, so no suite can rot unrun',()=>{
+test('every root test:* script is reachable or explicitly requires browser infrastructure',()=>{
   const scripts=packageJson.scripts||{};
   const reachable=reachableTestScripts(scripts);
-  const orphans=Object.keys(scripts).filter(name=>name.startsWith('test:')&&!reachable.has(name));
+  const allowed=new Set(INFRASTRUCTURE_BOUND_ROOT_SUITES);
+  const orphans=Object.keys(scripts).filter(name=>name.startsWith('test:')&&!reachable.has(name)&&!allowed.has(name));
   assert.deepEqual(orphans,[],`defined but never run by npm test: ${orphans.join(', ')}`);
+  for(const name of allowed){
+    assert.ok(Object.hasOwn(scripts,name),`allowlisted root suite no longer exists: ${name}`);
+    assert.ok(!reachable.has(name),`allowlisted root suite already runs in npm test: ${name}`);
+  }
 });
 
 test('every server test:* script is reachable from the server aggregate, or is a named infrastructure-bound suite',()=>{
@@ -127,6 +140,14 @@ test('every server test:* script is reachable from the server aggregate, or is a
   const allowed=new Set(INFRASTRUCTURE_BOUND_SERVER_SUITES);
   const orphans=Object.keys(scripts).filter(name=>name.startsWith('test:')&&!reachable.has(name)&&!allowed.has(name));
   assert.deepEqual(orphans,[],`defined but never run by the server npm test: ${orphans.join(', ')}`);
+});
+
+test('server full test executes both fixed asset read contract suites',()=>{
+  const full=serverPackageJson.scripts?.test||'';
+  for(const source of [
+    'tests/fixed-asset-register-contract.test.mjs',
+    'tests/fixed-asset-movement-contract.test.mjs',
+  ])assert.match(full,new RegExp(`(?:^|\\s)${source.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\$&')}(?:\\s|$)`),`server test omits ${source}`);
 });
 
 test('the infrastructure-bound allowlist cannot name a suite that npm test already runs, or one that no longer exists',()=>{

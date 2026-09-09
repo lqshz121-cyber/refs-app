@@ -1,0 +1,16 @@
+BEGIN;
+REVOKE EXECUTE ON FUNCTION refs_ap_vendor_credit_hash(uuid,uuid,uuid,text,date,text,text,numeric,jsonb,text,uuid[]) FROM refs_app;
+REVOKE EXECUTE ON FUNCTION refs_create_ap_vendor_credit(uuid,uuid,uuid,text,date,text,text,numeric,jsonb,text,uuid[],text,text) FROM refs_app;
+REVOKE EXECUTE ON FUNCTION refs_ar_credit_memo_hash(uuid,uuid,uuid,text,date,text,text,numeric,jsonb,text,uuid[]) FROM refs_app;
+REVOKE EXECUTE ON FUNCTION refs_create_ar_credit_memo(uuid,uuid,uuid,text,date,text,text,numeric,jsonb,text,uuid[],text,text) FROM refs_app;
+DROP FUNCTION refs_create_ap_vendor_credit(uuid,uuid,uuid,text,date,text,text,numeric,jsonb,text,uuid[],text,text);
+DROP FUNCTION refs_ap_vendor_credit_hash(uuid,uuid,uuid,text,date,text,text,numeric,jsonb,text,uuid[]);
+DROP FUNCTION refs_create_ar_credit_memo(uuid,uuid,uuid,text,date,text,text,numeric,jsonb,text,uuid[],text,text);
+DROP FUNCTION refs_ar_credit_memo_hash(uuid,uuid,uuid,text,date,text,text,numeric,jsonb,text,uuid[]);
+DROP FUNCTION refs_create_credit_adjustment_v2(uuid,uuid,text,uuid,text,date,text,text,numeric,jsonb,text,uuid[],text,text);
+DROP FUNCTION refs_credit_adjustment_hash_v2(uuid,uuid,text,uuid,text,date,text,text,numeric,jsonb,text,uuid[]);
+GRANT EXECUTE ON FUNCTION refs_ap_vendor_credit_hash(uuid,uuid,uuid,text,date,text,text,numeric,jsonb,text) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_create_ap_vendor_credit(uuid,uuid,uuid,text,date,text,text,numeric,jsonb,text,text,text) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_ar_credit_memo_hash(uuid,uuid,uuid,text,date,text,text,numeric,jsonb,text) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_create_ar_credit_memo(uuid,uuid,uuid,text,date,text,text,numeric,jsonb,text,text,text) TO refs_app;
+COMMIT;

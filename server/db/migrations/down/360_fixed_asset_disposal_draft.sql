@@ -1,0 +1,14 @@
+BEGIN;
+LOCK TABLE fixed_asset_disposal_draft_binding IN SHARE MODE;
+DO $$ BEGIN IF EXISTS(SELECT 1 FROM fixed_asset_disposal_draft_binding) THEN RAISE EXCEPTION 'Cannot remove retained fixed asset disposal Draft bindings' USING ERRCODE='55006';END IF;END $$;
+DROP TRIGGER fixed_asset_disposal_draft_post_guard ON journal_entry;
+DROP FUNCTION refs_guard_native_fixed_asset_disposal_post();
+REVOKE ALL ON FUNCTION refs_read_fixed_asset_disposal_options(uuid,uuid,uuid,uuid,date),refs_create_fixed_asset_disposal_hash(uuid,uuid,uuid,uuid,text,date,uuid,bigint,text,text,text,text,text,text),refs_create_fixed_asset_disposal(uuid,uuid,uuid,uuid,text,date,uuid,bigint,text,text,text,text,text,text,text,text),refs_fixed_asset_disposal_snapshot(uuid,uuid,uuid,uuid,date) FROM refs_app;
+DROP FUNCTION refs_create_fixed_asset_disposal(uuid,uuid,uuid,uuid,text,date,uuid,bigint,text,text,text,text,text,text,text,text);
+DROP FUNCTION refs_create_fixed_asset_disposal_hash(uuid,uuid,uuid,uuid,text,date,uuid,bigint,text,text,text,text,text,text);
+DROP FUNCTION refs_read_fixed_asset_disposal_options(uuid,uuid,uuid,uuid,date);
+DROP FUNCTION refs_asset_disposal_journal_snapshot(uuid,uuid,uuid);
+DROP FUNCTION refs_fixed_asset_disposal_snapshot(uuid,uuid,uuid,uuid,date);
+DROP TABLE fixed_asset_disposal_draft_binding;
+UPDATE permission_catalog SET active=false,effective_to=COALESCE(effective_to,clock_timestamp()),version=version+1 WHERE permission_code='FIXED_ASSET.DISPOSAL.DRAFT';
+COMMIT;

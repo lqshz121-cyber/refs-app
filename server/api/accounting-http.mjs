@@ -1,3 +1,9 @@
+import {validFixedAssetRegister,validFixedAssetMovements} from './fixed-asset-register-contract.mjs';
+import {validFixedAssetAcquisitionOptions} from './fixed-asset-acquisition-options-contract.mjs';
+import {validFixedAssetDepreciationOptions} from './fixed-asset-depreciation-options-contract.mjs';
+import {validFixedAssetDisposalOptions} from './fixed-asset-disposal-options-contract.mjs';
+import {validCounterpartyRegisterSelection,validCounterpartyRegisterPage} from '../runtime/counterparty-register.mjs';
+import {validPaymentBankCandidates} from '../runtime/payment-bank-candidates.mjs';
 import {validBusinessRecordKind,validBusinessRecord} from '../runtime/business-record-detail.mjs';
 import {validSalesReceiptSelection,validSalesReceiptDetail,validSalesReceiptPage} from '../runtime/sales-receipt-reads.mjs';
 import {validSalesReceiptOptionSelection,validSalesReceiptOptions} from '../runtime/sales-receipt-options.mjs';
@@ -36,6 +42,8 @@ import {assertAiAccountingDecisionPacketBatch} from '../runtime/ai-accounting-de
 import {assertAiAccountingDecisionPacketFullBatch} from '../runtime/ai-accounting-approved-decision-service.mjs';
 import {safeAiEvidenceTree} from '../runtime/ai-secret-safety.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
+import {validCounterpartyProposal,validCounterpartyReview,validCounterpartyChangeReceipt} from '../runtime/counterparty-maintenance.mjs';
+import {validCounterpartyDetailSelection,validCounterpartyDetail,validCounterpartyChangesSelection,validCounterpartyChangesPage} from '../runtime/counterparty-maintenance-reads.mjs';
 import {assertWbsH1ImportInventory} from '../runtime/wbs-h1-import-inventory.mjs';
 import {assertWbsH1AccountingSettingsProposal,assertWbsH1AccountingSettingsHumanDecision} from '../runtime/wbs-h1-accounting-settings-proposal.mjs';
 import {projectAuthoritativeAccountingSettings} from '../runtime/authoritative-accounting-settings.mjs';
@@ -336,6 +344,57 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
       if(method==='POST'&&parts.length===7&&parts[4]==='access'&&parts[5]==='self-service-controlled-test-workflow-grant'&&parts[6]==='upgrade'){
         throw new AccountingApiError(410,'ROUTE_RETIRED','The mixed-authority controlled test grant is retired; use separate finite workflow and service roles');
       }
+      if(method==='GET'&&parts.length===8&&parts[4]==='fixed-assets'&&parts[5]==='register'&&parts[7]==='acquisition-options'){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        if(body!==null||header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_FIELDS_FORBIDDEN','Acquisition options do not accept command fields');
+        const assetId=requireUuid(parts[6],'assetId').toLowerCase(),kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readFixedAssetAcquisitionOptions!=='function')throw new AccountingApiError(503,'FIXED_ASSET_ACQUISITION_OPTIONS_UNAVAILABLE','Acquisition options are unavailable');
+        result=await kernel.readFixedAssetAcquisitionOptions({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),assetId});
+        if(!validFixedAssetAcquisitionOptions(result,{tenantId:principal.tenantId.toLowerCase(),entityId:entityId.toLowerCase(),assetId}))throw new AccountingApiError(502,'FIXED_ASSET_ACQUISITION_OPTIONS_INVALID','Acquisition options returned invalid source information');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===8&&parts[4]==='fixed-assets'&&parts[5]==='register'&&parts[7]==='depreciation-options'){
+        requireExactQuery(parsedUrl.searchParams,['periodId']);
+        if(body!==null||header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_FIELDS_FORBIDDEN','Depreciation options do not accept command fields');
+        const assetId=requireUuid(parts[6],'assetId').toLowerCase(),periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId').toLowerCase(),kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readFixedAssetDepreciationOptions!=='function')throw new AccountingApiError(503,'FIXED_ASSET_DEPRECIATION_OPTIONS_UNAVAILABLE','Depreciation options are unavailable');
+        result=await kernel.readFixedAssetDepreciationOptions({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),assetId,periodId});
+        if(!validFixedAssetDepreciationOptions(result,{tenantId:principal.tenantId.toLowerCase(),entityId:entityId.toLowerCase(),assetId,periodId}))throw new AccountingApiError(502,'FIXED_ASSET_DEPRECIATION_OPTIONS_INVALID','Depreciation options returned invalid evidence');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===8&&parts[4]==='fixed-assets'&&parts[5]==='register'&&parts[7]==='disposal-options'){
+        requireExactQuery(parsedUrl.searchParams,['periodId','disposalDate']);
+        if(body!==null||header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_FIELDS_FORBIDDEN','Disposal options do not accept command fields');
+        const assetId=requireUuid(parts[6],'assetId').toLowerCase(),periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId').toLowerCase(),disposalDate=requireIsoDate(parsedUrl.searchParams.get('disposalDate'),'disposalDate'),kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readFixedAssetDisposalOptions!=='function')throw new AccountingApiError(503,'FIXED_ASSET_DISPOSAL_OPTIONS_UNAVAILABLE','Disposal options are unavailable');
+        result=await kernel.readFixedAssetDisposalOptions({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),assetId,periodId,disposalDate});
+        if(!validFixedAssetDisposalOptions(result,{tenantId:principal.tenantId.toLowerCase(),entityId:entityId.toLowerCase(),assetId,periodId,disposalDate}))throw new AccountingApiError(502,'FIXED_ASSET_DISPOSAL_OPTIONS_INVALID','Disposal options returned invalid evidence');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===8&&parts[4]==='fixed-assets'&&parts[5]==='register'&&parts[7]==='movements'){
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a body');
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Asset reads do not accept command headers');
+        requireExactQuery(parsedUrl.searchParams,['asOfDate','limit','after']);const assetId=requireUuid(parts[6],'assetId'),asOfDate=requireIsoDate(parsedUrl.searchParams.get('asOfDate'),'asOfDate'),limit=Number(parsedUrl.searchParams.get('limit')??50),after=parsedUrl.searchParams.get('after');
+        if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new AccountingApiError(400,'INVALID_LIMIT','limit must be from 1 to 100');
+        if(after!==null&&(after.length>2048||! /^[A-Za-z0-9+/=]+[.][a-f0-9]{64}$/.test(after)))throw new AccountingApiError(400,'INVALID_ASSET_CURSOR','Invalid asset cursor');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readFixedAssetMovements!=='function')throw new AccountingApiError(503,'FIXED_ASSET_MOVEMENTS_UNAVAILABLE','Asset movement trace is unavailable');
+        try{result=await kernel.readFixedAssetMovements({tenantId:principal.tenantId,entityId,assetId,asOfDate,limit,after});}catch(error){if(error?.code==='P0002')throw new AccountingApiError(404,'FIXED_ASSET_NOT_FOUND','Asset is unavailable in this company');throw error;}
+        if(!validFixedAssetMovements(result,{tenantId:principal.tenantId,entityId,assetId,asOfDate,limit}))throw new AccountingApiError(500,'FIXED_ASSET_MOVEMENTS_RESULT_INVALID','Asset movement trace is invalid');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&(parts.length===6||parts.length===7)&&parts[4]==='fixed-assets'&&parts[5]==='register'){
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a body');
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Asset reads do not accept command headers');
+        const detail=parts.length===7;requireExactQuery(parsedUrl.searchParams,detail?['asOfDate']:['asOfDate','limit','after']);
+        const asOfDate=requireIsoDate(parsedUrl.searchParams.get('asOfDate'),'asOfDate'),limit=detail?1:Number(parsedUrl.searchParams.get('limit')??50),after=parsedUrl.searchParams.get('after'),assetId=detail?requireUuid(parts[6],'assetId'):null;
+        if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new AccountingApiError(400,'INVALID_LIMIT','limit must be from 1 to 100');
+        if(after!==null&&(after.length>2048||! /^[A-Za-z0-9+/=]+[.][a-f0-9]{64}$/.test(after)))throw new AccountingApiError(400,'INVALID_ASSET_CURSOR','Invalid asset cursor');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readFixedAssetRegister!=='function')throw new AccountingApiError(503,'FIXED_ASSET_REGISTER_UNAVAILABLE','Asset register is unavailable');
+        result=await kernel.readFixedAssetRegister({tenantId:principal.tenantId,entityId,asOfDate,limit,after,assetId});
+        if(!validFixedAssetRegister(result,{tenantId:principal.tenantId,entityId,asOfDate,limit,assetId}))throw new AccountingApiError(500,'FIXED_ASSET_REGISTER_RESULT_INVALID','Asset register response is invalid');
+        if(detail&&result.rows.length===0)throw new AccountingApiError(404,'FIXED_ASSET_NOT_FOUND','Asset is unavailable in this company');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='live-pilot'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
         if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','If-Match is not used by read operations');
@@ -620,6 +679,14 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         result=await kernel.getWbsPayableReviewCandidate({tenantId:principal.tenantId,entityId,wbsInboundRowId:requireUuid(parts[8],'wbsInboundRowId')});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result[0]}};
       }
+      if(method==='GET'&&parts.length===10&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[7]==='reviews'&&parts[9]==='acceptance-evidence'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','WBS Payable acceptance evidence reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.getWbsPayableAcceptanceEvidence!=='function')throw new AccountingApiError(503,'WBS_PAYABLE_ACCEPTANCE_EVIDENCE_READ_UNAVAILABLE','Complete retained WBS Payable acceptance evidence is unavailable');
+        result=await kernel.getWbsPayableAcceptanceEvidence({tenantId:principal.tenantId,entityId,reviewEvidenceId:requireUuid(parts[8],'reviewEvidenceId')});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===9&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[7]==='reviews'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','WBS Payable evidence reads do not accept command headers');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
@@ -743,6 +810,19 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!validSettlementContext(result,{entityId,...selection}))throw new AccountingApiError(500,'SETTLEMENT_CONTEXT_INVALID','Settlement context did not match its scope or balances');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===8&&parts[4]==='bank'&&parts[5]==='transactions'&&parts[7]==='payment-candidates'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Candidate reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['afterId','limit']);
+        const selection={bankSourceId:requireUuid(parts[6],'bankSourceId').toLowerCase(),afterId:parsedUrl.searchParams.has('afterId')?requireUuid(parsedUrl.searchParams.get('afterId'),'afterId').toLowerCase():null,limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):50};
+        if(!Number.isInteger(selection.limit)||selection.limit<1||selection.limit>100||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Candidate page size is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readPaymentBankCandidates!=='function')throw new AccountingApiError(503,'PAYMENT_BANK_CANDIDATES_UNAVAILABLE','Payment bank candidates are unavailable');
+        try{result=await kernel.readPaymentBankCandidates({tenantId:principal.tenantId,entityId,...selection});}
+        catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'PAYMENT_BANK_CURSOR_INVALID','The payment cursor is invalid for this company. Refresh from the first page.');throw error;}
+        if(!validPaymentBankCandidates(result,{entityId,...selection}))throw new AccountingApiError(500,'PAYMENT_BANK_CANDIDATES_INVALID','Payment candidates did not match the requested scope');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===8&&parts[4]==='bank'&&parts[5]==='transactions'&&parts[7]==='sales-receipt-candidates'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Candidate reads do not accept command headers');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
@@ -828,6 +908,50 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!kernel||typeof kernel.readCreditUsageContext!=='function')throw new AccountingApiError(503,'CREDIT_USAGE_CONTEXT_UNAVAILABLE','Credit availability is unavailable');
         result=await kernel.readCreditUsageContext({tenantId:principal.tenantId,entityId,...selection});
         if(!validCreditUsageContext(result,{entityId,...selection}))throw new AccountingApiError(500,'CREDIT_USAGE_CONTEXT_INVALID','Credit availability did not match its scope or balances');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&(parts.length===5&&parts[4]==='counterparty-changes'||parts.length===6&&parts[4]==='counterparties'&&parts[5]==='detail')){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Counterparty reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        const detail=parts[4]==='counterparties';
+        requireExactQuery(parsedUrl.searchParams,detail?['kind','memberRef']:['kind','status','memberRef','afterId','limit']);
+        const selection={kind:parsedUrl.searchParams.get('kind'),memberRef:parsedUrl.searchParams.get('memberRef'),...(detail?{}:{status:parsedUrl.searchParams.get('status')??'PENDING',afterId:parsedUrl.searchParams.get('afterId'),limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):25})};
+        if(!(detail?validCounterpartyDetailSelection(selection):validCounterpartyChangesSelection(selection))||!detail&&parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Counterparty detail or history selection is invalid');
+        const operation=detail?'readCounterpartyDetail':'readCounterpartyChanges',kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel[operation]!=='function')throw new AccountingApiError(503,'COUNTERPARTY_READ_UNAVAILABLE','Counterparty detail or history is unavailable');
+        result=await kernel[operation]({tenantId:principal.tenantId,entityId,...selection});
+        if(!(detail?validCounterpartyDetail(result,{entityId,...selection}):validCounterpartyChangesPage(result,{entityId,...selection})))throw new AccountingApiError(500,'COUNTERPARTY_READ_INVALID','Counterparty data did not match the requested scope or revision');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='POST'&&parts[4]==='counterparty-changes'&&(parts.length===5||parts.length===7&&parts[6]==='review')){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const idempotencyKey=requireIdempotency(headers);
+        if(!/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey))throw new AccountingApiError(400,'INVALID_IDEMPOTENCY_KEY','A stable counterparty change key is required');
+        const reviewing=parts.length===7;
+        if(!(reviewing?validCounterpartyReview(body):validCounterpartyProposal(body)))throw new AccountingApiError(400,'COUNTERPARTY_CHANGE_INVALID','Counterparty change fields are invalid');
+        let expectedVersion;
+        if(!reviewing&&body.changeType==='CREATE'){
+          if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','New counterparties do not have a current revision');
+          expectedVersion=0;
+        }else expectedVersion=requireRevision(headers);
+        if(reviewing&&expectedVersion!==0)throw new AccountingApiError(412,'COUNTERPARTY_CHANGE_STALE','Review requires the pending change revision');
+        const changeId=reviewing?requireUuid(parts[5],'changeId'):undefined;
+        const operation=reviewing?'reviewCounterpartyChange':'proposeCounterpartyChange',kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel[operation]!=='function')throw new AccountingApiError(503,'COUNTERPARTY_CHANGE_UNAVAILABLE','Counterparty maintenance is unavailable');
+        result=await kernel[operation]({tenantId:principal.tenantId,entityId,...body,...(reviewing?{changeId}:{}),expectedVersion,idempotencyKey});
+        if(!validCounterpartyChangeReceipt(result,{entityId,...(reviewing?{changeId,decision:body.decision}:{kind:body.kind,memberRef:body.memberRef})}))throw new AccountingApiError(500,'COUNTERPARTY_CHANGE_RECEIPT_INVALID','Counterparty change receipt did not match this request');
+        return {status:reviewing||result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===5&&parts[4]==='counterparties'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Counterparty reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['kind','status','query','afterRef','limit']);
+        const selection={kind:parsedUrl.searchParams.get('kind'),status:parsedUrl.searchParams.get('status')??'ACTIVE',query:parsedUrl.searchParams.get('query')??'',afterRef:parsedUrl.searchParams.get('afterRef'),limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):50};
+        if(!validCounterpartyRegisterSelection(selection)||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Counterparty kind, search, cursor or page size is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readCounterpartyRegister!=='function')throw new AccountingApiError(503,'COUNTERPARTY_REGISTER_UNAVAILABLE','Counterparty choices are unavailable');
+        result=await kernel.readCounterpartyRegister({tenantId:principal.tenantId,entityId,...selection});
+        if(!validCounterpartyRegisterPage(result,{entityId,...selection}))throw new AccountingApiError(500,'COUNTERPARTY_REGISTER_INVALID','Counterparty choices did not match the requested scope');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='business-documents'&&parts[5]==='draft-counterparties'){
@@ -1963,7 +2087,58 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
       }
       if(method!=='POST')throw new AccountingApiError(405,'METHOD_NOT_ALLOWED','Only POST commands and supported GET reads are available');
       const idempotencyKey=requireIdempotency(headers);
-      if(parts.length===7&&parts[4]==='periods'&&parts[6]==='close'){
+      if(parts.length===8&&parts[4]==='fixed-assets'&&parts[5]==='register'&&parts[7]==='acquisitions'){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Use expectedSourceVersion when creating an acquisition Draft');
+        allowOnly(payload,['periodId','journalNumber','journalDate','expectedSourceVersion','attachmentIds','reason']);
+        const assetId=requireUuid(parts[6],'assetId').toLowerCase(),periodId=requireUuid(payload.periodId,'periodId'),journalDate=requireIsoDate(payload.journalDate,'journalDate');
+        const {journalNumber,expectedSourceVersion}=payload;
+        if(typeof journalNumber!=='string'||journalNumber!==journalNumber.trim()||journalNumber.length<1||journalNumber.length>100||/[\u0000-\u001f\u007f]/.test(journalNumber))throw new AccountingApiError(400,'INVALID_JOURNAL_NUMBER','Enter a journal number of 1-100 characters');
+        if(!Number.isSafeInteger(expectedSourceVersion)||expectedSourceVersion<1)throw new AccountingApiError(400,'INVALID_SOURCE_VERSION','expectedSourceVersion must be a positive safe integer');
+        const attachmentIds=requireAttachmentIds(requireAttachmentIds(payload.attachmentIds).map(id=>id.toLowerCase())),reason=requireReviewReason(payload.reason);
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.createFixedAssetAcquisition!=='function')throw new AccountingApiError(503,'FIXED_ASSET_ACQUISITION_UNAVAILABLE','Asset acquisition is unavailable');
+        try{result=await kernel.createFixedAssetAcquisition({tenantId:principal.tenantId,entityId,assetId,periodId,journalNumber,journalDate,expectedSourceVersion,attachmentIds,reason,idempotencyKey});}
+        catch(error){
+          if(error?.code==='40001'&&error.message==='Acquisition source changed')throw new AccountingApiError(412,'PRECONDITION_FAILED','The source changed. Refresh it before creating the acquisition');
+          if(error?.code==='55006'&&error.message==='Acquisition requires verified original payable evidence')throw new AccountingApiError(409,'FIXED_ASSET_ORIGINAL_SOURCE_REQUIRED','Original source evidence must be retained before creating this acquisition');
+          if(error?.code==='55006'&&error.message==='Retained source attachment identity is ambiguous; acquisition evidence must be corrected')throw new AccountingApiError(409,'FIXED_ASSET_ATTACHMENT_IDENTITY_AMBIGUOUS','The retained attachment association needs correction before creating this acquisition');
+          throw error;
+        }
+        const receiptKeys=['journal_entry_id','status','revision','idempotent','schema_version','binding_id','asset_id','source_document_id','source_document_version','source_payload_hash','source_link_id'].sort();
+        if(!exactKeys(result,receiptKeys)||result.schema_version!=='FIXED_ASSET_ACQUISITION_DRAFT_V1'||result.asset_id!==assetId||result.status!=='DRAFT'||result.revision!==0||typeof result.idempotent!=='boolean'||result.source_document_version!==expectedSourceVersion||!['journal_entry_id','binding_id','source_document_id','source_link_id'].every(key=>typeof result[key]==='string'&&UUID.test(result[key]))||!/^sha256:[a-f0-9]{64}$/.test(result.source_payload_hash||''))throw new AccountingApiError(502,'FIXED_ASSET_ACQUISITION_RESULT_INVALID','Asset acquisition returned an invalid Draft receipt');
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store','etag':'"0"'},body:{ok:true,data:result}};
+      }else if(parts.length===8&&parts[4]==='fixed-assets'&&parts[5]==='register'&&parts[7]==='depreciations'){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Use the retained register and schedule hashes when creating a depreciation Draft');
+        allowOnly(payload,['periodId','journalNumber','journalDate','expectedRegisterEvidenceHash','expectedScheduleHash','reason']);
+        const assetId=requireUuid(parts[6],'assetId').toLowerCase(),periodId=requireUuid(payload.periodId,'periodId').toLowerCase(),journalDate=requireIsoDate(payload.journalDate,'journalDate');
+        const {journalNumber}=payload;if(typeof journalNumber!=='string'||journalNumber!==journalNumber.trim()||journalNumber.length<1||journalNumber.length>100||/[\u0000-\u001f\u007f]/.test(journalNumber))throw new AccountingApiError(400,'INVALID_JOURNAL_NUMBER','Enter a journal number of 1-100 characters');
+        const expectedRegisterEvidenceHash=requireSha256(payload.expectedRegisterEvidenceHash,'expectedRegisterEvidenceHash'),expectedScheduleHash=requireSha256(payload.expectedScheduleHash,'expectedScheduleHash'),reason=requireReviewReason(payload.reason),kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.createFixedAssetDepreciation!=='function')throw new AccountingApiError(503,'FIXED_ASSET_DEPRECIATION_UNAVAILABLE','Asset depreciation is unavailable');
+        try{result=await kernel.createFixedAssetDepreciation({tenantId:principal.tenantId,entityId,assetId,periodId,journalNumber,journalDate,expectedRegisterEvidenceHash,expectedScheduleHash,reason,idempotencyKey});}
+        catch(error){if(error?.code==='40001'&&['Depreciation schedule changed','Acquisition source changed before depreciation'].includes(error.message))throw new AccountingApiError(412,'PRECONDITION_FAILED','The retained asset evidence changed. Refresh it before creating depreciation');if(error?.code==='0A000'&&error.message==='Post-impairment depreciation policy is required')throw new AccountingApiError(409,'FIXED_ASSET_POST_IMPAIRMENT_POLICY_REQUIRED','A reviewed post-impairment depreciation policy is required');throw error;}
+        const receiptKeys=['journal_entry_id','status','revision','idempotent','schema_version','binding_id','asset_id','period_id','expected_amount','register_evidence_hash','schedule_snapshot_hash','source_document_id','source_document_version','source_payload_hash','source_link_id','acquisition_binding_id','acquisition_journal_entry_id'].sort();
+        if(!exactKeys(result,receiptKeys)||result.schema_version!=='FIXED_ASSET_DEPRECIATION_DRAFT_V1'||result.asset_id!==assetId||result.period_id!==periodId||result.status!=='DRAFT'||result.revision!==0||typeof result.idempotent!=='boolean'||!['journal_entry_id','binding_id','source_document_id','source_link_id','acquisition_binding_id','acquisition_journal_entry_id'].every(key=>typeof result[key]==='string'&&UUID.test(result[key]))||!Number.isSafeInteger(result.source_document_version)||result.source_document_version<1||!/^sha256:[a-f0-9]{64}$/.test(result.source_payload_hash||'')||result.register_evidence_hash!==expectedRegisterEvidenceHash||result.schedule_snapshot_hash!==expectedScheduleHash||!/^\d{1,16}\.\d{4}$/.test(result.expected_amount||'')||BigInt(result.expected_amount.replace('.',''))<=0n)throw new AccountingApiError(502,'FIXED_ASSET_DEPRECIATION_RESULT_INVALID','Asset depreciation returned an invalid Draft receipt');
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store','etag':'"0"'},body:{ok:true,data:result}};
+      }else if(parts.length===8&&parts[4]==='fixed-assets'&&parts[5]==='register'&&parts[7]==='disposals'){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Use the retained source and options evidence when creating a disposal Draft');
+        allowOnly(payload,['periodId','journalNumber','disposalDate','sourceDocumentId','expectedSourceVersion','expectedSourceHash','proceedsAccountCode','proceedsMemberRef','gainLossAccountCode','expectedOptionsHash','reason']);
+        const assetId=requireUuid(parts[6],'assetId').toLowerCase(),periodId=requireUuid(payload.periodId,'periodId').toLowerCase(),disposalDate=requireIsoDate(payload.disposalDate,'disposalDate'),sourceDocumentId=requireUuid(payload.sourceDocumentId,'sourceDocumentId').toLowerCase();
+        const {journalNumber}=payload;if(typeof journalNumber!=='string'||journalNumber!==journalNumber.trim()||journalNumber.length<1||journalNumber.length>100||/[\u0000-\u001f\u007f]/.test(journalNumber))throw new AccountingApiError(400,'INVALID_JOURNAL_NUMBER','Enter a journal number of 1-100 characters');
+        const expectedSourceVersion=payload.expectedSourceVersion;if(!Number.isSafeInteger(expectedSourceVersion)||expectedSourceVersion<1)throw new AccountingApiError(400,'INVALID_SOURCE_VERSION','expectedSourceVersion must be a positive safe integer');
+        const expectedSourceHash=requireSha256(payload.expectedSourceHash,'expectedSourceHash'),expectedOptionsHash=requireSha256(payload.expectedOptionsHash,'expectedOptionsHash'),gainLossAccountCode=requireAccountCode(payload.gainLossAccountCode),reason=requireReviewReason(payload.reason);
+        const nullableRef=(value,name)=>{if(value===null)return null;if(typeof value!=='string'||value!==value.trim()||value.length<1||value.length>128||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_DISPOSAL_REFERENCE',`${name} must be null or a canonical reference`);return value;};
+        const proceedsAccountCode=payload.proceedsAccountCode===null?null:requireAccountCode(payload.proceedsAccountCode),proceedsMemberRef=nullableRef(payload.proceedsMemberRef,'proceedsMemberRef'),kernel=await kernelFactory(principal);
+        if((proceedsAccountCode===null)!==(proceedsMemberRef===null))throw new AccountingApiError(400,'INVALID_DISPOSAL_PROCEEDS_SELECTION','Select both a proceeds account and member, or neither for zero proceeds');
+        if(!kernel||typeof kernel.createFixedAssetDisposal!=='function')throw new AccountingApiError(503,'FIXED_ASSET_DISPOSAL_UNAVAILABLE','Asset disposal is unavailable');
+        try{result=await kernel.createFixedAssetDisposal({tenantId:principal.tenantId,entityId,assetId,periodId,journalNumber,disposalDate,sourceDocumentId,expectedSourceVersion,expectedSourceHash,proceedsAccountCode,proceedsMemberRef,gainLossAccountCode,expectedOptionsHash,reason,idempotencyKey});}
+        catch(error){if(error?.code==='40001'&&['Disposal options changed','Disposal source changed or is unavailable'].includes(error.message))throw new AccountingApiError(412,'PRECONDITION_FAILED','The retained disposal evidence changed. Refresh it before creating the disposal');throw error;}
+        const receiptKeys='schema_version binding_id journal_entry_id asset_id period_id source_document_id source_document_version source_payload_hash source_link_id register_evidence_hash options_hash proceeds accumulated_depreciation accumulated_impairment carrying_value gain_or_loss status revision idempotent'.split(' ').sort();
+        if(!exactKeys(result,receiptKeys)||result.schema_version!=='FIXED_ASSET_DISPOSAL_DRAFT_V1'||result.asset_id!==assetId||result.period_id!==periodId||result.source_document_id!==sourceDocumentId||result.source_document_version!==expectedSourceVersion||result.source_payload_hash!==expectedSourceHash||result.options_hash!==expectedOptionsHash||result.status!=='DRAFT'||result.revision!==1||typeof result.idempotent!=='boolean'||!['journal_entry_id','binding_id','source_link_id'].every(key=>UUID.test(result[key]||''))||![result.proceeds,result.accumulated_depreciation,result.accumulated_impairment,result.carrying_value,result.gain_or_loss].every(value=>/^-?\d{1,16}\.\d{4}$/.test(value||'')))throw new AccountingApiError(502,'FIXED_ASSET_DISPOSAL_RESULT_INVALID','Asset disposal returned an invalid Draft receipt');
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store','etag':'"1"'},body:{ok:true,data:result}};
+      }else if(parts.length===7&&parts[4]==='periods'&&parts[6]==='close'){
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['expectedReadinessHash','reason']);
         for(const key of ['expectedReadinessHash','reason'])if(!Object.hasOwn(payload,key))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${key} is required`);
         const periodId=requireUuid(parts[5],'periodId'),expectedReadinessHash=requireSha256(payload.expectedReadinessHash,'expectedReadinessHash');
@@ -2064,6 +2239,11 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Fixed asset register review uses immutable proposal evidence, not If-Match');allowOnly(payload,['capitalizationProposalId','assetTag','salvageValue','accumulatedDepreciationAccountCode','depreciationExpenseAccountCode','depreciationMethod','depreciationConvention','reason']);
         const assetTag=typeof payload.assetTag==='string'?payload.assetTag.trim():'';if(assetTag.length<1||assetTag.length>100)throw new AccountingApiError(400,'INVALID_ASSET_TAG','assetTag must be between 1 and 100 characters');const salvageValue=String(payload.salvageValue??'');if(!/^(?:0|[1-9]\d*)\.\d{4}$/.test(salvageValue))throw new AccountingApiError(400,'INVALID_SALVAGE_VALUE','salvageValue must be non-negative MONEY4');if(payload.depreciationMethod!=='STRAIGHT_LINE'||payload.depreciationConvention!=='FULL_MONTH')throw new AccountingApiError(400,'INVALID_DEPRECIATION_POLICY','Only STRAIGHT_LINE with FULL_MONTH convention is supported by this contract');
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.reviewFixedAssetRegister!=='function')throw new AccountingApiError(503,'FIXED_ASSET_REGISTER_REVIEW_UNAVAILABLE','Fixed asset register review persistence is unavailable');result=await kernel.reviewFixedAssetRegister({tenantId:principal.tenantId,entityId,capitalizationProposalId:requireUuid(payload.capitalizationProposalId,'capitalizationProposalId'),assetTag,salvageValue,accumulatedDepreciationAccountCode:requireAccountCode(payload.accumulatedDepreciationAccountCode),depreciationExpenseAccountCode:requireAccountCode(payload.depreciationExpenseAccountCode),depreciationMethod:payload.depreciationMethod,depreciationConvention:payload.depreciationConvention,reason:requireReviewReason(payload.reason),idempotencyKey});if(!result||result.schema_version!=='FIXED_ASSET_REGISTER_EVIDENCE_V1'||result.status!=='ACTIVE'||!UUID.test(result.fixed_asset_register_evidence_id||'')||result.can_create_draft!==false||result.can_review!==false||result.can_approve!==false||result.can_post!==false)throw new AccountingApiError(500,'FIXED_ASSET_REGISTER_REVIEW_RESULT_INVALID','Fixed asset register review must remain immutable no-action evidence');
+      }else if(parts.length===6&&parts[4]==='fixed-assets'&&parts[5]==='disposal-source-bindings'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['fixedAssetRegisterEvidenceId','journalEntryId','sourceDocumentId','expectedSourceHash','reason']);const expectedRevision=requireRevision(headers);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.bindFixedAssetDisposalSource!=='function')throw new AccountingApiError(503,'FIXED_ASSET_SOURCE_BIND_UNAVAILABLE','Disposal source binding is unavailable');
+        result=await kernel.bindFixedAssetDisposalSource({tenantId:principal.tenantId,entityId,fixedAssetRegisterEvidenceId:requireUuid(payload.fixedAssetRegisterEvidenceId,'fixedAssetRegisterEvidenceId'),journalEntryId:requireUuid(payload.journalEntryId,'journalEntryId'),sourceDocumentId:requireUuid(payload.sourceDocumentId,'sourceDocumentId'),expectedSourceHash:requireSha256(payload.expectedSourceHash,'expectedSourceHash'),expectedRevision,reason:requireReviewReason(payload.reason),idempotencyKey});
+        if(!result||result.schema_version!=='FIXED_ASSET_DISPOSAL_SOURCE_BINDING_V1'||result.status!=='DRAFT'||!UUID.test(result.binding_id||'')||!UUID.test(result.source_link_id||'')||result.fixed_asset_register_evidence_id!==payload.fixedAssetRegisterEvidenceId||result.journal_entry_id!==payload.journalEntryId||result.source_document_id!==payload.sourceDocumentId||result.source_payload_hash!==payload.expectedSourceHash||!Number.isSafeInteger(result.source_document_version)||result.source_document_version<1||result.revision!==expectedRevision+1||typeof result.idempotent!=='boolean')throw new AccountingApiError(500,'FIXED_ASSET_SOURCE_BIND_RESULT_INVALID','Invalid disposal source binding result');
       }else if(parts.length===7&&parts[4]==='ai'&&parts[5]==='fixed-assets'&&parts[6]==='disposal-reviews'){
         requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Fixed asset disposal review uses immutable register and Posted evidence, not If-Match');allowOnly(payload,['fixedAssetRegisterEvidenceId','accountingPeriodId','disposalSourceDocumentId','disposalDate','accumulatedDepreciation','proceeds','reason']);
         const accumulatedDepreciation=String(payload.accumulatedDepreciation??''),proceeds=String(payload.proceeds??'');if(!/^(?:0|[1-9]\d*)\.\d{4}$/.test(accumulatedDepreciation)||!/^(?:0|[1-9]\d*)\.\d{4}$/.test(proceeds))throw new AccountingApiError(400,'INVALID_DISPOSAL_AMOUNTS','accumulatedDepreciation and proceeds must be non-negative MONEY4');
@@ -2071,6 +2251,16 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
       }else if(parts.length===7&&parts[4]==='ai'&&parts[5]==='fixed-assets'&&parts[6]==='impairment-reviews'){
         requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Fixed asset impairment review uses immutable asset and valuation evidence, not If-Match');allowOnly(payload,['fixedAssetRegisterEvidenceId','accountingPeriodId','valuationSourceDocumentId','assessmentDate','recoverableAmount','impairmentExpenseAccountCode','accumulatedImpairmentAccountCode','reason']);const recoverableAmount=String(payload.recoverableAmount??'');if(!/^(?:0|[1-9]\d*)\.\d{4}$/.test(recoverableAmount))throw new AccountingApiError(400,'INVALID_RECOVERABLE_AMOUNT','recoverableAmount must be non-negative MONEY4');
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.reviewFixedAssetImpairment!=='function')throw new AccountingApiError(503,'FIXED_ASSET_IMPAIRMENT_REVIEW_UNAVAILABLE','Fixed asset impairment review persistence is unavailable');result=await kernel.reviewFixedAssetImpairment({tenantId:principal.tenantId,entityId,fixedAssetRegisterEvidenceId:requireUuid(payload.fixedAssetRegisterEvidenceId,'fixedAssetRegisterEvidenceId'),accountingPeriodId:requireUuid(payload.accountingPeriodId,'accountingPeriodId'),valuationSourceDocumentId:requireUuid(payload.valuationSourceDocumentId,'valuationSourceDocumentId'),assessmentDate:requireIsoDate(payload.assessmentDate,'assessmentDate'),recoverableAmount,impairmentExpenseAccountCode:requireAccountCode(payload.impairmentExpenseAccountCode),accumulatedImpairmentAccountCode:requireAccountCode(payload.accumulatedImpairmentAccountCode),reason:requireReviewReason(payload.reason),idempotencyKey});if(!result||result.schema_version!=='FIXED_ASSET_IMPAIRMENT_ASSESSMENT_EVIDENCE_V1'||result.status!=='INDEPENDENTLY_REVIEWED'||!UUID.test(result.impairment_assessment_evidence_id||'')||result.can_create_draft!==false||result.can_review!==false||result.can_approve!==false||result.can_post!==false)throw new AccountingApiError(500,'FIXED_ASSET_IMPAIRMENT_REVIEW_RESULT_INVALID','Fixed asset impairment assessment must remain immutable no-action evidence');
+      }else if(parts.length===7&&parts[4]==='ai'&&parts[5]==='fixed-assets'&&parts[6]==='post-impairment-depreciation-policy-reviews'){
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Post-impairment policy review uses immutable assessment and Posted evidence, not If-Match');allowOnly(payload,['fixedAssetRegisterEvidenceId','impairmentAssessmentEvidenceId','effectivePeriodId','remainingUsefulLifeMonths','convention','reason']);
+        const remainingUsefulLifeMonths=payload.remainingUsefulLifeMonths;if(!Number.isSafeInteger(remainingUsefulLifeMonths)||remainingUsefulLifeMonths<1||remainingUsefulLifeMonths>600)throw new AccountingApiError(400,'INVALID_REMAINING_USEFUL_LIFE','remainingUsefulLifeMonths must be an integer from 1 to 600');if(payload.convention!=='NEXT_PERIOD_FULL_MONTH')throw new AccountingApiError(400,'INVALID_POST_IMPAIRMENT_CONVENTION','Only NEXT_PERIOD_FULL_MONTH is supported');
+        const fixedAssetRegisterEvidenceId=requireUuid(payload.fixedAssetRegisterEvidenceId,'fixedAssetRegisterEvidenceId'),impairmentAssessmentEvidenceId=requireUuid(payload.impairmentAssessmentEvidenceId,'impairmentAssessmentEvidenceId'),effectivePeriodId=requireUuid(payload.effectivePeriodId,'effectivePeriodId'),kernel=await kernelFactory(principal);if(!kernel||typeof kernel.reviewFixedAssetPostImpairmentPolicy!=='function')throw new AccountingApiError(503,'FIXED_ASSET_POST_IMPAIRMENT_POLICY_REVIEW_UNAVAILABLE','Post-impairment depreciation policy review is unavailable');
+        result=await kernel.reviewFixedAssetPostImpairmentPolicy({tenantId:principal.tenantId,entityId,fixedAssetRegisterEvidenceId,impairmentAssessmentEvidenceId,effectivePeriodId,remainingUsefulLifeMonths,convention:payload.convention,reason:requireReviewReason(payload.reason),idempotencyKey});
+        const required=['can_approve','can_create_draft','can_post','can_review','convention','effective_from','effective_period_id','final_period_amount','fixed_asset_register_evidence_id','idempotent','impairment_assessment_evidence_id','impairment_assessment_hash','impairment_journal_entry_id','impairment_posting_snapshot_hash','policy_evidence_hash','policy_id','posted_accumulated_impairment','posted_cost_balance','prior_accumulated_depreciation','regular_period_amount','remaining_useful_life_months','revised_carrying_value','revised_depreciable_basis','salvage_value','schema_version','status'];
+        const monetary=['posted_accumulated_impairment','posted_cost_balance','prior_accumulated_depreciation','regular_period_amount','final_period_amount','revised_carrying_value','revised_depreciable_basis','salvage_value'],money4=value=>/^(?:0|[1-9]\d*)\.\d{4}$/.test(value||'');
+        let arithmeticClosed=monetary.every(key=>money4(result?.[key]));
+        if(arithmeticClosed){const units=key=>BigInt(result[key].replace('.','')),cost=units('posted_cost_balance'),prior=units('prior_accumulated_depreciation'),impairment=units('posted_accumulated_impairment'),carrying=units('revised_carrying_value'),salvage=units('salvage_value'),basis=units('revised_depreciable_basis'),regular=units('regular_period_amount'),finalAmount=units('final_period_amount'),months=BigInt(result.remaining_useful_life_months),roundedRegular=(basis*2n+months)/(2n*months);arithmeticClosed=carrying===cost-prior-impairment&&basis===carrying-salvage&&basis>0n&&regular===roundedRegular&&regular>0n&&finalAmount>0n&&finalAmount===basis-regular*(months-1n);}
+        if(!exactKeys(result,required)||result.schema_version!=='FIXED_ASSET_POST_IMPAIRMENT_DEPRECIATION_POLICY_V1'||result.status!=='INDEPENDENTLY_REVIEWED'||result.fixed_asset_register_evidence_id!==fixedAssetRegisterEvidenceId||result.impairment_assessment_evidence_id!==impairmentAssessmentEvidenceId||result.effective_period_id!==effectivePeriodId||result.remaining_useful_life_months!==remainingUsefulLifeMonths||result.convention!=='NEXT_PERIOD_FULL_MONTH'||!UUID.test(result.policy_id||'')||!UUID.test(result.impairment_journal_entry_id||'')||!canonicalDate(result.effective_from)||!AI_ACCRUAL_HASH.test(result.impairment_assessment_hash||'')||!AI_ACCRUAL_HASH.test(result.impairment_posting_snapshot_hash||'')||!AI_ACCRUAL_HASH.test(result.policy_evidence_hash||'')||!arithmeticClosed||typeof result.idempotent!=='boolean'||result.can_create_draft!==false||result.can_review!==false||result.can_approve!==false||result.can_post!==false)throw new AccountingApiError(500,'FIXED_ASSET_POST_IMPAIRMENT_POLICY_RESULT_INVALID','Post-impairment depreciation policy must remain closed immutable no-action evidence');
       }else if(parts.length===7&&parts[4]==='ai'&&parts[5]==='invoice-expense'&&parts[6]==='proposals'){
         requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Invoice expense proposals use immutable classification hashes, not If-Match');
         allowOnly(payload,['classificationEvidenceId','classificationHash','accountingPeriodId','expenseAccountCode','liabilityAccountCode','memberTrace','reason']);
@@ -2313,7 +2503,12 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         result=await kernel.transitionJournal({tenantId:principal.tenantId,entityId,journalEntryId:requireUuid(parts[5],'journalEntryId'),action:parts[7].toUpperCase(),expectedRevision:requireRevision(headers),reason:payload.reason??null,idempotencyKey});
       }else if(parts.length===7&&parts[4]==='journal-entries'&&parts[6]==='post'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
-        result=await kernel.postJournal({tenantId:principal.tenantId,entityId,journalEntryId:requireUuid(parts[5],'journalEntryId'),periodId:requireUuid(payload.periodId,'periodId'),expectedRevision:requireRevision(headers),idempotencyKey});
+        try{result=await kernel.postJournal({tenantId:principal.tenantId,entityId,journalEntryId:requireUuid(parts[5],'journalEntryId'),periodId:requireUuid(payload.periodId,'periodId'),expectedRevision:requireRevision(headers),idempotencyKey});}
+        catch(error){
+          if(error?.code==='40001'&&error.message==='Acquisition source changed before depreciation')throw new AccountingApiError(412,'PRECONDITION_FAILED','The retained acquisition source changed. Refresh the asset before posting depreciation');
+          if(error?.code==='0A000'&&error.message==='Post-impairment depreciation policy is required')throw new AccountingApiError(409,'FIXED_ASSET_POST_IMPAIRMENT_POLICY_REQUIRED','A reviewed post-impairment depreciation policy is required');
+          throw error;
+        }
       }else if(parts.length===8&&parts[4]==='journal-entries'&&parts[6]==='adjustments'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.createJournalAdjustment({...payload,action:parts[7].toUpperCase(),tenantId:principal.tenantId,entityId,originalJournalEntryId:requireUuid(parts[5],'journalEntryId'),idempotencyKey});
@@ -2350,8 +2545,8 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         result=await kernel.createApPayment({tenantId:principal.tenantId,entityId,businessDocumentId:requireUuid(parts[6],'businessDocumentId'),periodId:requireUuid(payload.periodId,'periodId'),paymentNumber:payload.paymentNumber,paymentDate:payload.paymentDate,cashAccountCode:payload.cashAccountCode,bankMemberRef:payload.bankMemberRef??null,amount:payload.amount,reason:payload.reason,idempotencyKey});
       }else if(parts.length===6&&parts[4]==='ap'&&parts[5]==='vendor-credits'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
-        allowOnly(payload,['periodId','creditNumber','creditDate','vendorRef','vendorName','amount','lines','reason']);
-        result=await kernel.createApVendorCredit({tenantId:principal.tenantId,entityId,periodId:requireUuid(payload.periodId,'periodId'),creditNumber:payload.creditNumber,creditDate:payload.creditDate,vendorRef:payload.vendorRef,vendorName:payload.vendorName,amount:payload.amount,lines:payload.lines,reason:payload.reason,idempotencyKey});
+        allowOnly(payload,['periodId','creditNumber','creditDate','vendorRef','vendorName','amount','lines','reason','attachmentIds']);
+        result=await kernel.createApVendorCredit({tenantId:principal.tenantId,entityId,periodId:requireUuid(payload.periodId,'periodId'),creditNumber:payload.creditNumber,creditDate:payload.creditDate,vendorRef:payload.vendorRef,vendorName:payload.vendorName,amount:payload.amount,lines:payload.lines,reason:payload.reason,attachmentIds:requireAttachmentIds(payload.attachmentIds),idempotencyKey});
       }else if(parts.length===7&&parts[4]==='ap'&&parts[5]==='vendor-credits'&&parts[6].length>0){
         throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
       }else if(parts.length===8&&parts[4]==='ap'&&parts[5]==='vendor-credits'&&parts[7]==='allocations'){
@@ -2412,8 +2607,8 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         result=await kernel.createApPaymentReversal({tenantId:principal.tenantId,entityId,sourceOccurrenceId:requireUuid(parts[6],'sourceOccurrenceId'),periodId:requireUuid(payload.periodId,'periodId'),journalNumber:payload.journalNumber,journalDate:payload.journalDate,reason:payload.reason,idempotencyKey});
       }else if(parts.length===6&&parts[4]==='ar'&&parts[5]==='credit-memos'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
-        allowOnly(payload,['periodId','memoNumber','memoDate','customerRef','customerName','amount','lines','reason']);
-        result=await kernel.createArCreditMemo({tenantId:principal.tenantId,entityId,periodId:requireUuid(payload.periodId,'periodId'),memoNumber:payload.memoNumber,memoDate:payload.memoDate,customerRef:payload.customerRef,customerName:payload.customerName,amount:payload.amount,lines:payload.lines,reason:payload.reason,idempotencyKey});
+        allowOnly(payload,['periodId','memoNumber','memoDate','customerRef','customerName','amount','lines','reason','attachmentIds']);
+        result=await kernel.createArCreditMemo({tenantId:principal.tenantId,entityId,periodId:requireUuid(payload.periodId,'periodId'),memoNumber:payload.memoNumber,memoDate:payload.memoDate,customerRef:payload.customerRef,customerName:payload.customerName,amount:payload.amount,lines:payload.lines,reason:payload.reason,attachmentIds:requireAttachmentIds(payload.attachmentIds),idempotencyKey});
       }else throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
       const responseHeaders={'content-type':'application/json','cache-control':'no-store'};
       if(Number.isSafeInteger(result?.revision)&&result.revision>=0)responseHeaders.etag=`"${result.revision}"`;

@@ -1,4 +1,8 @@
 import test from 'node:test';
+import './counterparty-register.test.mjs';
+import './counterparty-maintenance.test.mjs';
+import './counterparty-maintenance-reads.test.mjs';
+import './context-issuer-retry.test.mjs';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
@@ -116,6 +120,75 @@ test('migration manifest freezes normalized up and down artifacts including appe
       assert.equal(checksum,item[direction],`${direction} checksum mismatch for ${item.name}`);
     }
   }
+});
+
+test('fixed asset depreciation migration enforces composite lineage and locks before down evidence checks',async()=>{
+  const up=await readFile(new URL('../db/migrations/355_fixed_asset_depreciation_draft.sql',import.meta.url),'utf8'),down=await readFile(new URL('../db/migrations/down/355_fixed_asset_depreciation_draft.sql',import.meta.url),'utf8');
+  assert.match(up,/FOREIGN KEY\(tenant_id,entity_id,fixed_asset_register_evidence_id,acquisition_binding_id,acquisition_journal_entry_id\) REFERENCES fixed_asset_acquisition_binding\(tenant_id,entity_id,asset_id,binding_id,journal_entry_id\)/);
+  assert.match(up,/UNIQUE\(tenant_id,entity_id,fixed_asset_register_evidence_id,accounting_period_id,binding_id,journal_entry_id\)/);
+  assert.match(up,/FOREIGN KEY\(tenant_id,entity_id,fixed_asset_register_evidence_id,accounting_period_id,binding_id,journal_entry_id\) REFERENCES fixed_asset_depreciation_binding\(tenant_id,entity_id,fixed_asset_register_evidence_id,accounting_period_id,binding_id,journal_entry_id\)/);
+  const lock=down.indexOf('LOCK TABLE journal_entry,fixed_asset_depreciation_binding,fixed_asset_depreciation_posting IN ACCESS EXCLUSIVE MODE;'),check=down.indexOf('IF EXISTS(SELECT 1 FROM fixed_asset_depreciation_binding)');
+  assert.ok(lock>0&&check>lock,'down must freeze the journal and evidence writers before checking retained business data');
+});
+
+test('fixed asset depreciation movement migration retains posted evidence and restores V2',async()=>{
+  const up=await readFile(new URL('../db/migrations/357_fixed_asset_depreciation_movement_source.sql',import.meta.url),'utf8'),down=await readFile(new URL('../db/migrations/down/357_fixed_asset_depreciation_movement_source.sql',import.meta.url),'utf8');
+  assert.match(up,/FIXED_ASSET_MOVEMENTS_V3/);
+  assert.match(up,/EXACT_DEPRECIATION_SOURCE/);
+  assert.match(up,/JOIN fixed_asset_depreciation_posting posted ON posted\.tenant_id=b\.tenant_id AND posted\.entity_id=b\.entity_id AND posted\.fixed_asset_register_evidence_id=b\.fixed_asset_register_evidence_id AND posted\.accounting_period_id=b\.accounting_period_id AND posted\.binding_id=b\.binding_id AND posted\.journal_entry_id=b\.journal_entry_id/);
+  assert.match(up,/s\.link_type='FIXED_ASSET_DEPRECIATION_TO_JE' AND s\.source_document_id=b\.source_document_id AND s\.journal_entry_id=b\.journal_entry_id/);
+  for(const field of ['depreciation_binding_id','depreciation_period_id','depreciation_register_evidence_hash','depreciation_schedule_snapshot_hash','depreciation_policy_snapshot_id','depreciation_policy_snapshot_hash','depreciation_expected_amount'])assert.match(up,new RegExp("'"+field+"'"),field);
+  assert.match(up,/b\.expected_amount::text/);
+  assert.match(down,/FIXED_ASSET_MOVEMENTS_V2/);
+  assert.doesNotMatch(down,/EXACT_DEPRECIATION_SOURCE/);
+});
+
+test('post-impairment policy migration requires exact Posted evidence and refuses destructive rollback',async()=>{
+  const up=await readFile(new URL('../db/migrations/358_fixed_asset_post_impairment_depreciation_policy.sql',import.meta.url),'utf8'),down=await readFile(new URL('../db/migrations/down/358_fixed_asset_post_impairment_depreciation_policy.sql',import.meta.url),'utf8');
+  assert.match(up,/FIXED_ASSET\.DEPRECIATION\.POLICY\.REVIEW/);
+  assert.match(up,/count\(\*\)=2 AND count\(\*\) FILTER\(WHERE l\.account_code=assessment\.impairment_expense_account_code\)=1/);
+  assert.match(up,/l\.dimensions->>'fixed_asset_impairment_assessment_evidence_id'=p_assessment::text/);
+  assert.match(up,/SELECT count\(\*\) FROM ledger_line all_line[\s\S]*journal_entry_id=j\.journal_entry_id\)=2/);
+  assert.match(up,/all_line\.dimensions->>'fixed_asset_register_evidence_id' IS DISTINCT FROM p_asset::text/);
+  assert.match(up,/fixed_asset_impairment_scope_identity UNIQUE\(tenant_id,entity_id,fixed_asset_register_evidence_id,fixed_asset_impairment_assessment_evidence_id\)/);
+  assert.match(up,/FOREIGN KEY\(tenant_id,entity_id,fixed_asset_register_evidence_id,impairment_assessment_evidence_id\) REFERENCES fixed_asset_impairment_assessment_evidence/);
+  assert.match(up,/actor=ANY\(ARRAY\[posting\.created_by,posting\.reviewed_by,posting\.approved_by,posting\.posted_by\]\)/);
+  assert.match(up,/d\.disposal_date<=effective\.starts_on/);
+  for(const actor of ['created_by','reviewed_by','approved_by','posted_by'])assert.match(up,new RegExp("'"+actor+"',posting\\."+actor));
+  assert.match(up,/carrying<>assessment\.recoverable_amount/);
+  assert.match(up,/regular:=round\(basis\/p_remaining_months,4\);final_amount:=basis-regular\*\(p_remaining_months-1\)/);
+  assert.match(down,/LOCK TABLE fixed_asset_post_impairment_depreciation_policy IN ACCESS EXCLUSIVE MODE/);
+  assert.match(down,/Cannot remove retained post-impairment depreciation policy evidence/);
+  assert.match(down,/DROP CONSTRAINT fixed_asset_impairment_scope_identity/);
+});
+
+test('post-impairment schedule migration validates retained policy evidence and restores V1',async()=>{
+  const up=await readFile(new URL('../db/migrations/359_fixed_asset_post_impairment_depreciation_schedule.sql',import.meta.url),'utf8'),down=await readFile(new URL('../db/migrations/down/359_fixed_asset_post_impairment_depreciation_schedule.sql',import.meta.url),'utf8');
+  assert.match(up,/CREATE FUNCTION refs_validated_fixed_asset_post_impairment_policy/);
+  assert.match(up,/CREATE FUNCTION refs_validated_fixed_asset_post_impairment_policy_for_assessment/);
+  assert.match(up,/p\.effective_from<=row\.starts_on/);
+  assert.match(up,/actual_impairment=\(coverage_policy->>'posted_accumulated_impairment'\)::numeric/);
+  assert.match(up,/active_policy_valid:=post_policy IS NOT NULL/);
+  assert.match(up,/FIXED_ASSET_DEPRECIATION_SCHEDULE_SNAPSHOT_V2/);
+  assert.match(up,/FIXED_ASSET_DEPRECIATION_OPTIONS_V2/);
+  assert.match(up,/POST_IMPAIRMENT_REVISED/);
+  assert.match(up,/BLOCKED_POST_IMPAIRMENT_POLICY_REQUIRED/);
+  assert.match(up,/count\(\*\) line_count/);
+  assert.match(up,/posting\.line_count<>2/);
+  assert.match(up,/IS NOT DISTINCT FROM assessment\.fixed_asset_impairment_assessment_evidence_id::text/);
+  assert.match(up,/posting\.dimensions_exact IS DISTINCT FROM true/);
+  assert.match(up,/l\.dimensions->>'fixed_asset_impairment_assessment_evidence_id' IS NOT DISTINCT FROM assessment\.fixed_asset_impairment_assessment_evidence_id::text/);
+  assert.match(up,/policy\.reviewed_by=ANY\(ARRAY\[posting\.created_by,posting\.reviewed_by,posting\.approved_by,posting\.posted_by\]\)/);
+  assert.match(up,/expected_policy_hash:=refs_jsonb_hash/);
+  assert.match(up,/policy\.policy_evidence_hash<>expected_policy_hash/);
+  assert.match(up,/post_policy-'impairment_posting_snapshot'/);
+  assert.match(down,/DROP FUNCTION refs_validated_fixed_asset_post_impairment_policy_for_assessment/);
+  assert.doesNotMatch(up,/INSERT INTO journal_entry/);
+  assert.doesNotMatch(up,/INSERT INTO ledger_line/);
+  assert.match(down,/FIXED_ASSET_DEPRECIATION_SCHEDULE_SNAPSHOT_V1/);
+  assert.match(down,/FIXED_ASSET_DEPRECIATION_OPTIONS_V1/);
+  assert.match(down,/DROP FUNCTION refs_validated_fixed_asset_post_impairment_policy/);
+  assert.match(down,/Post-impairment depreciation policy is required/);
 });
 
 test('WBS snapshots are immutable scoped observations, not current source events or journals',()=>{
@@ -633,6 +706,13 @@ test('large TEST_ONLY Bank import checkpoints privately and publishes core rows 
   assert.equal((batchRepository.match(/WBS_TEST_BANK_BATCH_STATEMENT_TIMEOUT/g)||[]).length,6);
 });
 
+test('bounded Final-1 evidence retention receives a transaction-local bulk timeout',()=>{
+  const retain=repository.slice(repository.indexOf('async retainWbsProviderFinal1SourceEvidence'),repository.indexOf('async readWbsFinal1PayableDocumentRevisions'));
+  assert.match(repository,/const WBS_FINAL1_RETAIN_STATEMENT_TIMEOUT='120s'/);
+  assert.match(retain,/set_config\('statement_timeout',\$1,true\)[\s\S]+WBS_FINAL1_RETAIN_STATEMENT_TIMEOUT/);
+  assert.equal((retain.match(/set_config\('statement_timeout'/g)||[]).length,1);
+});
+
 test('isolated issuer derives authorization from DB grants and supports revoke and cleanup',()=>{
   assert.match(sql,/session_user<>'refs_context_issuer'/);
   assert.match(sql,/FROM runtime_actor_grant/);
@@ -732,4 +812,19 @@ test('WBS TEST Bank persistence namespaces immutable Provider hashes by the mont
   assert.match(backward,/count\(DISTINCT bank_account_ref\)>1/);
   assert.match(backward,/ERRCODE='55006'/);
   assert.doesNotMatch(forward,/UPDATE raw_event|UPDATE source_document/);
+});
+
+test('native fixed asset disposal creates only an evidence-derived Draft and keeps rollback safe',async()=>{
+  const forward=await readFile(new URL('../db/migrations/360_fixed_asset_disposal_draft.sql',import.meta.url),'utf8');
+  const backward=await readFile(new URL('../db/migrations/down/360_fixed_asset_disposal_draft.sql',import.meta.url),'utf8');
+  assert.match(forward,/FIXED_ASSET\.DISPOSAL\.DRAFT/);
+  assert.match(forward,/refs_create_manual_journal\(/);
+  assert.match(forward,/source\.gross_amount-\(snapshot->>'carrying_value'\)::numeric/);
+  assert.match(forward,/refs_guard_native_fixed_asset_disposal_post/);
+  assert.match(forward,/journal_snapshot_hash IS DISTINCT FROM refs_asset_disposal_journal_snapshot/);
+  assert.match(forward,/Historical impairment journal has an invalid|impairment_expense_account_code/);
+  assert.doesNotMatch(forward,/UPDATE journal_entry SET status='POSTED'/);
+  assert.match(forward,/REVOKE ALL ON fixed_asset_disposal_draft_binding FROM PUBLIC,refs_app/);
+  assert.match(backward,/Cannot remove retained fixed asset disposal Draft bindings/);
+  assert.match(backward,/UPDATE permission_catalog SET active=false/);
 });

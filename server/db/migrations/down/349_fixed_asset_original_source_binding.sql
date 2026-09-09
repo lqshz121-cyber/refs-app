@@ -1,0 +1,11 @@
+BEGIN;
+LOCK TABLE journal_entry,source_document,source_document_line,raw_event,fixed_asset_acquisition_binding,wbs_payable_original_row_evidence IN ACCESS EXCLUSIVE MODE;
+DO $$ BEGIN IF EXISTS(SELECT 1 FROM fixed_asset_original_source_binding) THEN RAISE EXCEPTION 'Original acquisition bindings must remain protected' USING ERRCODE='55006';END IF;END;$$;
+DROP TRIGGER fixed_asset_source_original_post_guard ON journal_entry;
+DROP FUNCTION refs_guard_asset_original_source_post();
+DROP TRIGGER fixed_asset_original_source_bind ON fixed_asset_acquisition_binding;
+DROP FUNCTION refs_bind_asset_original_source();
+DROP TABLE fixed_asset_original_source_binding;
+DROP FUNCTION refs_validate_asset_original_source(uuid,uuid,uuid);
+ALTER TABLE wbs_payable_original_row_evidence DROP CONSTRAINT original_payable_scoped_hash_unique;
+COMMIT;

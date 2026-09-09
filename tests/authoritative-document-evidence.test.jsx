@@ -9,6 +9,8 @@ import {
   AuthoritativeDocumentDetail,
   AuthoritativeDocumentTable,
   AuthoritativeDocumentWorkspace,
+  authoritativeAdjustmentJournalTarget,
+  authoritativeAdjustmentScopeMatches,
   authoritativeLineageFor,
   isAuthoritativeDateFilterValue,
 } from '../src/authoritative-workspace.jsx';
@@ -230,7 +232,9 @@ assert.match(adjustmentList,/1 adjustment/);
 assert.match(adjustmentList,/Details/);
 assert.match(adjustmentList,/View details/);
 assert.doesNotMatch(adjustmentList,/Authoritative adjustment rows only|Open evidence/);
-const adjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={adjustment} side="AP" entityId={entityId} config={displayConfig} returnContext={{view:{query:'Credit evidence',status:'POSTED',transactionType:'VENDOR_CREDIT',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
+const adjustmentReturnContext={entityId,periodId,adjustmentId:adjustment.business_adjustment_id,adjustmentVersion:2,adjustmentSide:'AP',adjustmentKind:'AP_VENDOR_CREDIT',adjustmentPeriodId:periodId,journalEntryId:null,journalStatus:null,journalRevision:null,view:{query:'Credit evidence',status:'POSTED',transactionType:'VENDOR_CREDIT',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}};
+assert.equal(authoritativeAdjustmentScopeMatches(adjustment,'AP',displayConfig,adjustmentReturnContext),true);
+const adjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={adjustment} side="AP" entityId={entityId} config={displayConfig} returnContext={adjustmentReturnContext} onBack={()=>{}}/>);
 assert.match(adjustmentDetail,/Back to AP adjustments/);
 assert.match(adjustmentDetail,/<details class="authoritative-return-context"><summary>List filters retained<\/summary>/,'adjustment Back context must use the same compact disclosure as Bill and Invoice evidence');
 assert.match(adjustmentDetail,/REFS US Staging/);
@@ -253,10 +257,19 @@ assert.match(adjustmentDetail,/<th scope="row">Reason<\/th><td colSpan="3">Retai
 
 const completeAdjustment={...adjustment,status:'POSTED',journal_entry_id:postedJournalId,journal_status:'POSTED',journal_revision:5,lineage:{...completeBill.lineage,record_id:adjustment.business_adjustment_id,record_revision:2,posted_journal_entry_id:postedJournalId,posted_journal_revision:5}};
 assert.equal(authoritativeLineageFor(completeAdjustment,entityId)?.posted_journal_revision,5,'adjustment lineage must also bind to its own exact immutable revision');
-const completeAdjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={completeAdjustment} side="AP" entityId={entityId} onBack={()=>{}}/>);
+const completeAdjustmentReturnContext={...adjustmentReturnContext,journalEntryId:postedJournalId,journalStatus:'POSTED',journalRevision:5};
+assert.deepEqual(authoritativeAdjustmentJournalTarget(completeAdjustment,'AP',displayConfig,completeAdjustmentReturnContext),{journalEntryId:postedJournalId,status:'POSTED',revision:5});
+const completeAdjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={completeAdjustment} side="AP" entityId={entityId} config={displayConfig} returnContext={completeAdjustmentReturnContext} onBack={()=>{}} onOpenJournal={()=>{}}/>);
 assert.match(completeAdjustmentDetail,/Immutable authoritative lineage/);
 assert.match(completeAdjustmentDetail,/aria-label="Adjustment immutable lineage"/,'adjustments must use the same compact lineage disclosure');
 assert.doesNotMatch(completeAdjustmentDetail,/authoritative lineage unavailable/);
+assert.match(completeAdjustmentDetail,/Open posted Journal/,'an exact same-revision linked Journal must be reachable from the adjustment evidence');
+const inertAdjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={completeAdjustment} side="AP" entityId={entityId} config={displayConfig} returnContext={completeAdjustmentReturnContext} onBack={()=>{}}/>);
+assert.doesNotMatch(inertAdjustmentDetail,/Open posted Journal/,'a reusable detail without a real Journal opener must fail closed');
+const staleAdjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={completeAdjustment} side="AP" entityId={entityId} config={displayConfig} returnContext={{...completeAdjustmentReturnContext,journalRevision:4}} onBack={()=>{}} onOpenJournal={()=>{}}/>);
+assert.match(staleAdjustmentDetail,/Retained adjustment evidence/,'same adjustment facts remain readable when only the optional Journal binding is stale');
+assert.doesNotMatch(staleAdjustmentDetail,/Open posted Journal/,'a changed Journal binding must fail closed before exposing navigation');
+assert.equal(authoritativeAdjustmentJournalTarget(completeAdjustment,'AR',displayConfig,completeAdjustmentReturnContext),null,'a cross-module adjustment must never expose its Journal link');
 
 const empty=renderToStaticMarkup(<AuthoritativeDocumentTable title="AR invoices" documents={[]} kind="AR"/>);
 assert.match(empty,/does not prove that an upstream source is empty\. It is not evidence of a zero balance\./);
@@ -270,6 +283,7 @@ for(const route of [apRoute,arRoute]){
   assert.match(route,/AuthoritativeDocumentDetail/);
   assert.match(route,/AuthoritativeAdjustmentDetail/);
   assert.match(route,/AuthoritativeAdjustmentDetail[\s\S]*?returnContext=\{adjustmentDetail\.returnContext\}/,'adjustment details must receive the exact immutable list return token');
+  assert.match(route,/AuthoritativeAdjustmentDetail[\s\S]*?onOpenJournal=\{openAdjustmentJournalWorkflow\}/,'adjustment details must open Journals only through exact server readback');
   assert.match(route,/config=\{displayConfig\}/,'AP/AR full-page evidence routes must inherit the shared readable company and period scope');
   assert.match(route,/AuthoritativeDocumentWorkspace/);
 }
@@ -287,6 +301,8 @@ assert.match(app,/restoreAuthoritativeReturnContext/,'full-page Back must restor
 assert.match(app,/scrollY:Number\(environment\?\.scrollY\)\|\|0,\s*tableX,/,'AP and AR evidence openers must freeze the contained table position in the immutable return context');
 assert.match(app,/getTable:\(\)=>environment\?\.document\?\.querySelector\?\.\('\.authoritative-document-table'\)/,'Bill and invoice Back must restore the exact wide-table position');
 assert.match(app,/getTable:\(\)=>environment\?\.document\?\.querySelector\?\.\('\.authoritative-adjustment-table'\)/,'Vendor-credit and adjustment Back must restore the exact wide-table position');
+assert.match(app,/adjustmentId:row\.business_adjustment_id[\s\S]*journalRevision:row\.journal_revision==null\?null:Number\(row\.journal_revision\)/,'the adjustment return token must freeze exact adjustment and Journal identities');
+assert.match(app,/row\.journal_entry_id===target\.journalEntryId&&row\.status===target\.status&&Number\(row\.revision\)===target\.revision[\s\S]*ADJUSTMENT_JOURNAL_STALE/,'Journal navigation must read back the same ID, status, and revision before routing');
 assert.match(workspace,/closest\('\.table-wrap'\)\?\.scrollLeft/,'AP and AR row actions must capture their own contained scroller rather than the page');
 const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
 assert.match(styles,/\.authoritative-document-workspace,.authoritative-document-workspace>\*,.authoritative-document-table,.authoritative-adjustment-table\{min-width:0;max-width:100%;\}/,'AP/AR workspace descendants must be shrinkable so their table regions, not the page, own narrow-width overflow');
