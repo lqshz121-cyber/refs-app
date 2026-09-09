@@ -111,7 +111,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Permission-scoped plan, expert-service entitlement, appointment, service-state, and audit evidence bound to the authenticated company and user role.',
       'Read-only service and appointment state is required; scheduling, expert contact, service enablement, feedback, external promotion, and expert accounting actions remain unavailable.',
     ]),
-    item('accruals', 'Accrual Center'),
+    item('accruals', 'Accrual Center', 'API_READ'),
   ]),
   group('Close', [
     item('month-end-close', 'Month-End Close', 'API_COMMAND'),
