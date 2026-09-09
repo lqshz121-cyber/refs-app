@@ -148,10 +148,18 @@ test('post-impairment policy migration requires exact Posted evidence and refuse
   assert.match(up,/FIXED_ASSET\.DEPRECIATION\.POLICY\.REVIEW/);
   assert.match(up,/count\(\*\)=2 AND count\(\*\) FILTER\(WHERE l\.account_code=assessment\.impairment_expense_account_code\)=1/);
   assert.match(up,/l\.dimensions->>'fixed_asset_impairment_assessment_evidence_id'=p_assessment::text/);
+  assert.match(up,/SELECT count\(\*\) FROM ledger_line all_line[\s\S]*journal_entry_id=j\.journal_entry_id\)=2/);
+  assert.match(up,/all_line\.dimensions->>'fixed_asset_register_evidence_id' IS DISTINCT FROM p_asset::text/);
+  assert.match(up,/fixed_asset_impairment_scope_identity UNIQUE\(tenant_id,entity_id,fixed_asset_register_evidence_id,fixed_asset_impairment_assessment_evidence_id\)/);
+  assert.match(up,/FOREIGN KEY\(tenant_id,entity_id,fixed_asset_register_evidence_id,impairment_assessment_evidence_id\) REFERENCES fixed_asset_impairment_assessment_evidence/);
+  assert.match(up,/actor=ANY\(ARRAY\[posting\.created_by,posting\.reviewed_by,posting\.approved_by,posting\.posted_by\]\)/);
+  assert.match(up,/d\.disposal_date<=effective\.starts_on/);
+  for(const actor of ['created_by','reviewed_by','approved_by','posted_by'])assert.match(up,new RegExp("'"+actor+"',posting\\."+actor));
   assert.match(up,/carrying<>assessment\.recoverable_amount/);
   assert.match(up,/regular:=round\(basis\/p_remaining_months,4\);final_amount:=basis-regular\*\(p_remaining_months-1\)/);
   assert.match(down,/LOCK TABLE fixed_asset_post_impairment_depreciation_policy IN ACCESS EXCLUSIVE MODE/);
   assert.match(down,/Cannot remove retained post-impairment depreciation policy evidence/);
+  assert.match(down,/DROP CONSTRAINT fixed_asset_impairment_scope_identity/);
 });
 
 test('WBS snapshots are immutable scoped observations, not current source events or journals',()=>{

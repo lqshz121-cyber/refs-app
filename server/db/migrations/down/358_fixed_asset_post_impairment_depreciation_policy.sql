@@ -7,5 +7,6 @@ REVOKE ALL ON FUNCTION refs_review_fixed_asset_post_impairment_policy_hash(uuid,
 DROP FUNCTION refs_review_fixed_asset_post_impairment_policy(uuid,uuid,uuid,uuid,uuid,integer,text,text,text,text);
 DROP FUNCTION refs_review_fixed_asset_post_impairment_policy_hash(uuid,uuid,uuid,uuid,uuid,integer,text,text);
 DROP TABLE fixed_asset_post_impairment_depreciation_policy;
+ALTER TABLE fixed_asset_impairment_assessment_evidence DROP CONSTRAINT fixed_asset_impairment_scope_identity;
 UPDATE permission_catalog SET active=false,effective_to=clock_timestamp(),version=version+1 WHERE permission_code='FIXED_ASSET.DEPRECIATION.POLICY.REVIEW';
 COMMIT;

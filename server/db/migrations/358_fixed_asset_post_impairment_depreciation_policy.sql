@@ -6,12 +6,15 @@ ON CONFLICT(permission_code) DO UPDATE SET active=true,version=permission_catalo
 INSERT INTO runtime_human_permission_authority(permission_code,authority_class)
 VALUES('FIXED_ASSET.DEPRECIATION.POLICY.REVIEW','REVIEWER') ON CONFLICT(permission_code) DO NOTHING;
 
+ALTER TABLE fixed_asset_impairment_assessment_evidence
+  ADD CONSTRAINT fixed_asset_impairment_scope_identity UNIQUE(tenant_id,entity_id,fixed_asset_register_evidence_id,fixed_asset_impairment_assessment_evidence_id);
+
 CREATE TABLE fixed_asset_post_impairment_depreciation_policy (
   policy_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL,
   entity_id uuid NOT NULL,
-  fixed_asset_register_evidence_id uuid NOT NULL REFERENCES fixed_asset_register_evidence,
-  impairment_assessment_evidence_id uuid NOT NULL REFERENCES fixed_asset_impairment_assessment_evidence,
+  fixed_asset_register_evidence_id uuid NOT NULL,
+  impairment_assessment_evidence_id uuid NOT NULL,
   impairment_assessment_hash text NOT NULL CHECK(impairment_assessment_hash~'^sha256:[a-f0-9]{64}$'),
   impairment_journal_entry_id uuid NOT NULL,
   impairment_posting_snapshot jsonb NOT NULL,
@@ -36,6 +39,8 @@ CREATE TABLE fixed_asset_post_impairment_depreciation_policy (
   UNIQUE(tenant_id,entity_id,fixed_asset_register_evidence_id,impairment_assessment_evidence_id),
   UNIQUE(tenant_id,entity_id,policy_evidence_hash),
   FOREIGN KEY(tenant_id,entity_id) REFERENCES entity(tenant_id,entity_id),
+  FOREIGN KEY(tenant_id,entity_id,fixed_asset_register_evidence_id) REFERENCES fixed_asset_register_evidence(tenant_id,entity_id,fixed_asset_register_evidence_id),
+  FOREIGN KEY(tenant_id,entity_id,fixed_asset_register_evidence_id,impairment_assessment_evidence_id) REFERENCES fixed_asset_impairment_assessment_evidence(tenant_id,entity_id,fixed_asset_register_evidence_id,fixed_asset_impairment_assessment_evidence_id),
   FOREIGN KEY(tenant_id,entity_id,effective_period_id) REFERENCES accounting_period(tenant_id,entity_id,period_id),
   FOREIGN KEY(tenant_id,entity_id,impairment_journal_entry_id) REFERENCES journal_entry(tenant_id,entity_id,journal_entry_id),
   CHECK(revised_carrying_value=posted_cost_balance-prior_accumulated_depreciation-posted_accumulated_impairment),
@@ -75,21 +80,27 @@ BEGIN
  SELECT * INTO effective FROM accounting_period WHERE tenant_id=p_tenant AND entity_id=p_entity AND period_id=p_effective_period AND ledger_code='PRIMARY' FOR SHARE;
  IF assessment_period.period_id IS NULL OR effective.period_id IS NULL OR effective.starts_on<>assessment_period.ends_on+1 THEN RAISE EXCEPTION 'Revised policy must start in the immediately following primary period' USING ERRCODE='23514';END IF;
  IF EXISTS(SELECT 1 FROM fixed_asset_impairment_assessment_evidence later WHERE later.tenant_id=p_tenant AND later.entity_id=p_entity AND later.fixed_asset_register_evidence_id=p_asset AND later.assessment_date>assessment.assessment_date AND later.assessment_date<effective.starts_on) THEN RAISE EXCEPTION 'A later impairment assessment supersedes this policy basis' USING ERRCODE='23514';END IF;
- IF EXISTS(SELECT 1 FROM fixed_asset_disposal_evidence d WHERE d.tenant_id=p_tenant AND d.entity_id=p_entity AND d.fixed_asset_register_evidence_id=p_asset AND d.disposal_date<effective.starts_on)
-  OR EXISTS(SELECT 1 FROM fixed_asset_disposal_posting d JOIN journal_entry j ON j.tenant_id=d.tenant_id AND j.entity_id=d.entity_id AND j.journal_entry_id=d.journal_entry_id WHERE d.tenant_id=p_tenant AND d.entity_id=p_entity AND d.fixed_asset_register_evidence_id=p_asset AND j.journal_date<effective.starts_on) THEN RAISE EXCEPTION 'Disposed asset cannot receive a revised depreciation policy' USING ERRCODE='23514';END IF;
+ IF EXISTS(SELECT 1 FROM fixed_asset_disposal_evidence d WHERE d.tenant_id=p_tenant AND d.entity_id=p_entity AND d.fixed_asset_register_evidence_id=p_asset AND d.disposal_date<=effective.starts_on)
+  OR EXISTS(SELECT 1 FROM fixed_asset_disposal_posting d JOIN journal_entry j ON j.tenant_id=d.tenant_id AND j.entity_id=d.entity_id AND j.journal_entry_id=d.journal_entry_id WHERE d.tenant_id=p_tenant AND d.entity_id=p_entity AND d.fixed_asset_register_evidence_id=p_asset AND j.journal_date<=effective.starts_on) THEN RAISE EXCEPTION 'Disposed asset cannot receive a revised depreciation policy' USING ERRCODE='23514';END IF;
  SELECT candidate.*,count(*) OVER() candidate_count INTO posting FROM (
-  SELECT j.journal_entry_id,j.journal_date,j.posted_at,j.posted_by,array_agg(l.journal_line_id ORDER BY l.journal_line_id) journal_line_ids,array_agg(l.ledger_line_id ORDER BY l.ledger_line_id) ledger_line_ids,
+  SELECT j.journal_entry_id,j.period_id,j.journal_date,j.created_by,j.reviewed_by,j.approved_by,j.posted_at,j.posted_by,array_agg(l.journal_line_id ORDER BY l.journal_line_id) journal_line_ids,array_agg(l.ledger_line_id ORDER BY l.ledger_line_id) ledger_line_ids,
    sum(CASE WHEN l.account_code=assessment.impairment_expense_account_code THEN l.debit_amount-l.credit_amount ELSE 0 END)::numeric(20,4) expense_amount,
    sum(CASE WHEN l.account_code=assessment.accumulated_impairment_account_code THEN l.credit_amount-l.debit_amount ELSE 0 END)::numeric(20,4) accumulated_amount
   FROM journal_entry j JOIN ledger_line l ON l.tenant_id=j.tenant_id AND l.entity_id=j.entity_id AND l.journal_entry_id=j.journal_entry_id
-  WHERE j.tenant_id=p_tenant AND j.entity_id=p_entity AND j.status='POSTED' AND j.journal_date BETWEEN assessment.assessment_date AND assessment_period.ends_on
+  WHERE j.tenant_id=p_tenant AND j.entity_id=p_entity AND j.status='POSTED' AND j.period_id=assessment.accounting_period_id AND j.journal_date BETWEEN assessment.assessment_date AND assessment_period.ends_on
+   AND j.created_by IS NOT NULL AND j.reviewed_by IS NOT NULL AND j.approved_by IS NOT NULL AND j.posted_by IS NOT NULL
+   AND cardinality(ARRAY(SELECT DISTINCT workflow_actor FROM unnest(ARRAY[j.created_by,j.reviewed_by,j.approved_by,j.posted_by]) workflow_actor))=4
    AND l.dimensions->>'fixed_asset_register_evidence_id'=p_asset::text AND l.dimensions->>'fixed_asset_impairment_assessment_evidence_id'=p_assessment::text
-  GROUP BY j.journal_entry_id,j.journal_date,j.posted_at,j.posted_by
+   AND (SELECT count(*) FROM ledger_line all_line WHERE all_line.tenant_id=j.tenant_id AND all_line.entity_id=j.entity_id AND all_line.journal_entry_id=j.journal_entry_id)=2
+   AND NOT EXISTS(SELECT 1 FROM ledger_line all_line WHERE all_line.tenant_id=j.tenant_id AND all_line.entity_id=j.entity_id AND all_line.journal_entry_id=j.journal_entry_id
+    AND (all_line.dimensions->>'fixed_asset_register_evidence_id' IS DISTINCT FROM p_asset::text OR all_line.dimensions->>'fixed_asset_impairment_assessment_evidence_id' IS DISTINCT FROM p_assessment::text))
+  GROUP BY j.journal_entry_id,j.period_id,j.journal_date,j.created_by,j.reviewed_by,j.approved_by,j.posted_at,j.posted_by
   HAVING count(*)=2 AND count(*) FILTER(WHERE l.account_code=assessment.impairment_expense_account_code)=1 AND count(*) FILTER(WHERE l.account_code=assessment.accumulated_impairment_account_code)=1
    AND sum(CASE WHEN l.account_code=assessment.impairment_expense_account_code THEN l.debit_amount-l.credit_amount ELSE 0 END)=assessment.impairment_loss
    AND sum(CASE WHEN l.account_code=assessment.accumulated_impairment_account_code THEN l.credit_amount-l.debit_amount ELSE 0 END)=assessment.impairment_loss
  ) candidate ORDER BY candidate.journal_entry_id LIMIT 1;
  IF posting.journal_entry_id IS NULL OR posting.candidate_count<>1 THEN RAISE EXCEPTION 'Exactly one assessment-bound Posted impairment journal is required' USING ERRCODE='23514';END IF;
+ IF actor=ANY(ARRAY[posting.created_by,posting.reviewed_by,posting.approved_by,posting.posted_by]) THEN RAISE EXCEPTION 'Post-impairment policy reviewer must be independent of the impairment journal workflow' USING ERRCODE='23514';END IF;
  SELECT coalesce(sum(CASE WHEN l.account_code=asset.asset_account_code THEN l.debit_amount-l.credit_amount ELSE 0 END),0),
   coalesce(sum(CASE WHEN l.account_code=asset.accumulated_depreciation_account_code THEN l.credit_amount-l.debit_amount ELSE 0 END),0),
   coalesce(sum(CASE WHEN l.account_code IN(SELECT DISTINCT e.accumulated_impairment_account_code FROM fixed_asset_impairment_assessment_evidence e WHERE e.tenant_id=p_tenant AND e.entity_id=p_entity AND e.fixed_asset_register_evidence_id=p_asset) THEN l.credit_amount-l.debit_amount ELSE 0 END),0)
@@ -100,7 +111,7 @@ BEGIN
  IF cost_balance<>asset.cost_basis OR carrying<>assessment.recoverable_amount OR carrying<=asset.salvage_value THEN RAISE EXCEPTION 'Posted post-impairment carrying value does not reconcile to retained evidence' USING ERRCODE='23514';END IF;
  basis:=carrying-asset.salvage_value;regular:=round(basis/p_remaining_months,4);final_amount:=basis-regular*(p_remaining_months-1);
  IF regular<=0 OR final_amount<=0 THEN RAISE EXCEPTION 'Remaining basis cannot be distributed with four-decimal positive charges' USING ERRCODE='23514';END IF;
- posting_snapshot:=jsonb_build_object('schema_version','FIXED_ASSET_IMPAIRMENT_POSTING_SNAPSHOT_V1','tenant_id',p_tenant,'entity_id',p_entity,'fixed_asset_register_evidence_id',p_asset,'impairment_assessment_evidence_id',p_assessment,'impairment_assessment_hash',assessment.impairment_assessment_hash,'journal_entry_id',posting.journal_entry_id,'journal_date',posting.journal_date,'posted_at',posting.posted_at,'posted_by',posting.posted_by,'journal_line_ids',posting.journal_line_ids,'ledger_line_ids',posting.ledger_line_ids,'expense_amount',to_char(posting.expense_amount,'FM999999999999990.0000'),'accumulated_amount',to_char(posting.accumulated_amount,'FM999999999999990.0000'));
+ posting_snapshot:=jsonb_build_object('schema_version','FIXED_ASSET_IMPAIRMENT_POSTING_SNAPSHOT_V1','tenant_id',p_tenant,'entity_id',p_entity,'fixed_asset_register_evidence_id',p_asset,'impairment_assessment_evidence_id',p_assessment,'impairment_assessment_hash',assessment.impairment_assessment_hash,'journal_entry_id',posting.journal_entry_id,'period_id',posting.period_id,'journal_date',posting.journal_date,'created_by',posting.created_by,'reviewed_by',posting.reviewed_by,'approved_by',posting.approved_by,'posted_at',posting.posted_at,'posted_by',posting.posted_by,'journal_line_ids',posting.journal_line_ids,'ledger_line_ids',posting.ledger_line_ids,'expense_amount',to_char(posting.expense_amount,'FM999999999999990.0000'),'accumulated_amount',to_char(posting.accumulated_amount,'FM999999999999990.0000'));
  posting_hash:=refs_jsonb_hash(posting_snapshot);
  evidence_hash:=refs_jsonb_hash(jsonb_build_object('schema_version','FIXED_ASSET_POST_IMPAIRMENT_DEPRECIATION_POLICY_V1','tenant_id',p_tenant,'entity_id',p_entity,'policy_id',policy,'fixed_asset_register_evidence_id',p_asset,'impairment_assessment_evidence_id',p_assessment,'impairment_assessment_hash',assessment.impairment_assessment_hash,'impairment_posting_snapshot_hash',posting_hash,'effective_period_id',p_effective_period,'effective_from',effective.starts_on,'convention','NEXT_PERIOD_FULL_MONTH','remaining_useful_life_months',p_remaining_months,'posted_cost_balance',to_char(cost_balance,'FM999999999999990.0000'),'prior_accumulated_depreciation',to_char(prior_depreciation,'FM999999999999990.0000'),'posted_accumulated_impairment',to_char(accumulated_impairment,'FM999999999999990.0000'),'revised_carrying_value',to_char(carrying,'FM999999999999990.0000'),'salvage_value',to_char(asset.salvage_value,'FM999999999999990.0000'),'revised_depreciable_basis',to_char(basis,'FM999999999999990.0000'),'regular_period_amount',to_char(regular,'FM999999999999990.0000'),'final_period_amount',to_char(final_amount,'FM999999999999990.0000'),'reviewed_by',actor,'review_reason',btrim(p_reason),'status','INDEPENDENTLY_REVIEWED'));
  INSERT INTO fixed_asset_post_impairment_depreciation_policy(policy_id,tenant_id,entity_id,fixed_asset_register_evidence_id,impairment_assessment_evidence_id,impairment_assessment_hash,impairment_journal_entry_id,impairment_posting_snapshot,impairment_posting_snapshot_hash,effective_period_id,effective_from,convention,remaining_useful_life_months,posted_cost_balance,prior_accumulated_depreciation,posted_accumulated_impairment,revised_carrying_value,salvage_value,revised_depreciable_basis,regular_period_amount,final_period_amount,reviewed_by,review_reason,policy_evidence_hash,status)

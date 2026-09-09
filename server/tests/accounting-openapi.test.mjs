@@ -98,6 +98,15 @@ test('fixed asset depreciation OpenAPI matches the evidence-bound Draft runtime'
   assert.equal(receipt.properties.expected_amount.pattern,'^(?!0[.]0000$)(0|[1-9][0-9]{0,15})\\.[0-9]{4}$');assert.equal(new RegExp(receipt.properties.expected_amount.pattern).test('0.0000'),false);assert.equal(new RegExp(receipt.properties.expected_amount.pattern).test('0.0001'),true);
 });
 
+test('post-impairment policy OpenAPI exposes the exact closed immutable receipt',()=>{
+  const operation=contract.paths['/entities/{entityId}/ai/fixed-assets/post-impairment-depreciation-policy-reviews'].post;
+  assert.equal(operation.operationId,'reviewFixedAssetPostImpairmentPolicy');assert.match(operation.description,/independent of the asset, assessment, and journal workflow actors/);
+  for(const status of ['200','201']){assert.equal(operation.responses[status].headers['Cache-Control'].schema.const,'no-store');assert.equal(operation.responses[status].content['application/json'].schema.$ref,'#/components/schemas/FixedAssetPostImpairmentDepreciationPolicyEnvelope');}
+  const envelope=contract.components.schemas.FixedAssetPostImpairmentDepreciationPolicyEnvelope,evidence=contract.components.schemas.FixedAssetPostImpairmentDepreciationPolicyEvidence;
+  assert.equal(envelope.additionalProperties,false);assert.deepEqual(envelope.required,['ok','data']);assert.equal(envelope.properties.data.$ref,'#/components/schemas/FixedAssetPostImpairmentDepreciationPolicyEvidence');
+  assert.equal(evidence.additionalProperties,false);assert.equal(evidence.properties.schema_version.const,'FIXED_ASSET_POST_IMPAIRMENT_DEPRECIATION_POLICY_V1');assert.equal(evidence.required.length,26);for(const flag of ['can_create_draft','can_review','can_approve','can_post'])assert.equal(evidence.properties[flag].const,false);
+});
+
 test('fixed asset acquisition OpenAPI names the dedicated Draft permission',()=>{
   const options=contract.paths['/entities/{entityId}/fixed-assets/register/{assetId}/acquisition-options'].get,draft=contract.paths['/entities/{entityId}/fixed-assets/register/{assetId}/acquisitions'].post;
   assert.match(options.description,/FIXED_ASSET\.ACQUISITION\.DRAFT/);assert.match(options.description,/GL\.JE\.VIEW/);assert.match(draft.description,/FIXED_ASSET\.ACQUISITION\.DRAFT/);assert.match(draft.description,/GL\.JE\.CREATE/);
