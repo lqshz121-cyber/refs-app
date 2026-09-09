@@ -33,10 +33,15 @@ export class PostgresAccountingKernel{
 
   async inSession(work){
     let databaseStage='CONTEXT_ISSUE';
+    let session=null;
     try{
     return await withSerializableRetry(this.pool,async client=>{
       databaseStage='CONTEXT_ISSUE';
-      const session=assertTrustedSession(await this.sessionProvider());
+      // Issue only after the first runtime connection is acquired, so a pool
+      // wait cannot consume the context TTL. A serialization retry reuses the
+      // same capability: the failed transaction rolls its binding back, while
+      // issuing another capability here would retain an unused context row.
+      session=session||assertTrustedSession(await this.sessionProvider());
       databaseStage='RUNTIME_IDENTITY';
       const identity=requireRow(await client.query(`SELECT session_user,current_user,
         COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname=session_user),false) AS is_superuser`),'DB_IDENTITY_MISSING','Database identity is unavailable');

@@ -1188,7 +1188,7 @@ pgTest('parallel authorized read contexts complete under bounded serializable re
     completed+=results.length;
   }
   assert.equal(completed,128);
-  const contexts=(await adminPool.query("SELECT count(*)::int total,count(*) FILTER (WHERE actor_id='parallel-ai-reader' AND tenant_id=$1 AND bound_backend_pid IS NOT NULL AND bound_txid IS NOT NULL)::int bound,count(*) FILTER (WHERE actor_id='parallel-ai-reader' AND tenant_id<>$1)::int cross_tenant FROM runtime_auth_context",[ids.tenantId])).rows[0];
+  const contexts=(await adminPool.query("SELECT count(*) FILTER (WHERE actor_id='parallel-ai-reader')::int total,count(*) FILTER (WHERE actor_id='parallel-ai-reader' AND tenant_id=$1 AND bound_backend_pid IS NOT NULL AND bound_txid IS NOT NULL)::int bound,count(*) FILTER (WHERE actor_id='parallel-ai-reader' AND tenant_id<>$1)::int cross_tenant FROM runtime_auth_context",[ids.tenantId])).rows[0];
   assert.deepEqual(contexts,{total:128,bound:128,cross_tenant:0});
 });
 
