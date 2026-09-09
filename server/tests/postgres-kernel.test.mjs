@@ -605,6 +605,33 @@ pgTest('counterparty maintenance detail and history preserve scoped versions and
   await proveCounterpartyMaintenanceReads({adminPool,runtimePool,seed,trustedSession,migrateDownThrough,migrateUp});
 });
 
+pgTest('Bill Payment register reads exact Draft Posted ledger bank and audit identities without mutation',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO'}),source=await attachAutoSource(ids);
+  const sourcePoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bill-payment-source-poster',['GL.JE.POST'])});
+  await sourcePoster.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'bill-payment-source-post'});
+  const billId=randomUUID();
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by)
+    VALUES($1,$2,$3,$4,'AP_BILL','BILL-PAYMENT-REGISTER-1','VENDOR-1','Vendor','USD','2026-07-15','2026-07-31',100,100,'OPEN',$5,'fixture')`,[billId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bill-payment-maker',['AP.PAYMENT.CREATE'])});
+  const payment=await maker.createNativeSettlement({...ids,settlementKind:'AP_PAYMENT',businessDocumentId:billId,number:'PAY-REGISTER-1',date:'2026-07-20',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:'25.0000',reason:'Retained Bill Payment register integration evidence',attachmentIds:[ids.attachmentId],idempotencyKey:'bill-payment-register-create'});
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bill-payment-reader',['AP.VIEW'])});
+  const draft=await reader.readBillPaymentRegister({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,limit:1});
+  assert.equal(draft.schema_version,'BILL_PAYMENT_REGISTER_V1');assert.equal(draft.rows.length,1);assert.equal(draft.rows[0].payment_occurrence_id,payment.payment_occurrence_id);assert.equal(draft.rows[0].payment_status,'DRAFT');assert.equal(draft.rows[0].journal_entry_id,payment.journal_entry_id);assert.equal(draft.rows[0].journal_status,'DRAFT');assert.ok(draft.rows[0].draft_audit_event_id);assert.equal(draft.rows[0].posted_audit_event_id,null);assert.equal(draft.rows[0].bank_match_id,null);assert.deepEqual(draft.action_flags,{can_initiate_payment:false,can_approve:false,can_void:false,can_release:false});
+  const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bill-payment-submitter',['GL.JE.SUBMIT'])}),reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bill-payment-reviewer',['GL.JE.REVIEW'])}),approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bill-payment-approver',['GL.JE.APPROVE'])}),poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bill-payment-poster',['GL.JE.POST'])});
+  await submitter.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'bill-payment-submit'});
+  await reviewer.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'bill-payment-review'});
+  await approver.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'bill-payment-approve'});
+  await poster.postJournal({...ids,journalEntryId:payment.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'bill-payment-post'});
+  const cash=(await adminPool.query(`SELECT jl.journal_line_id,ll.ledger_line_id FROM journal_line jl JOIN ledger_line ll ON ll.tenant_id=jl.tenant_id AND ll.entity_id=jl.entity_id AND ll.journal_line_id=jl.journal_line_id WHERE jl.journal_entry_id=$1 AND jl.account_code='111000'`,[payment.journal_entry_id])).rows[0],bankSourceId=randomUUID(),bankMatchId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount) VALUES($1,$2,$3,$4,'BANK-1','BILL-PAYMENT-REGISTER-BANK-1','2026-07-20','USD',-25)`,[bankSourceId,ids.tenantId,ids.entityId,source.documentId]);
+  await adminPool.query(`INSERT INTO bank_match(bank_match_id,tenant_id,entity_id,bank_source_id,business_source_document_id,payment_occurrence_id,journal_entry_id,journal_line_id,ledger_line_id,currency_match,status,matched_by) VALUES($1,$2,$3,$4,NULL,$5,$6,$7,$8,true,'ACTIVE','fixture')`,[bankMatchId,ids.tenantId,ids.entityId,bankSourceId,payment.payment_occurrence_id,payment.journal_entry_id,cash.journal_line_id,cash.ledger_line_id]);
+  const posted=await reader.readBillPaymentRegister({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,limit:1});
+  assert.equal(posted.rows[0].payment_status,'POSTED');assert.equal(posted.rows[0].journal_status,'POSTED');assert.equal(posted.rows[0].journal_revision,'4');assert.equal(posted.rows[0].bank_match_id,bankMatchId);assert.equal(posted.rows[0].journal_line_id,cash.journal_line_id);assert.equal(posted.rows[0].ledger_line_id,cash.ledger_line_id);assert.ok(posted.rows[0].posted_audit_event_id);
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bill-payment-denied',['AR.VIEW'])});await assert.rejects(denied.readBillPaymentRegister({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId}),error=>error.code==='42501');
+  await assert.rejects(reader.readBillPaymentRegister({tenantId:ids.tenantId,entityId:ids.entityId,periodId:randomUUID()}),error=>error.code==='22023');
+  await assert.rejects(reader.readBillPaymentRegister({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,afterId:randomUUID()}),error=>error.code==='22023');
+});
+
 pgTest('company catalog returns every allowed period in a 120-company tenant and respects revocation',async()=>{
   const ids=await seed({status:'DRAFT'}),actor='company-catalog-reader';
   const companies=(await adminPool.query(`INSERT INTO entity(tenant_id,entity_code,source_entity_id,name,base_currency)

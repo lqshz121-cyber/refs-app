@@ -121,7 +121,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('payables', 'Expense transactions', 'API_READ'),
     item('vendors', 'Vendors', 'API_READ'),
     item('customers', 'Customers', 'API_READ'),
-    item('bill-payments', 'Bill payments', 'API_UNAVAILABLE', [
+    item('bill-payments', 'Bill payments', 'API_READ', [
       'Entity- and period-scoped retained Bill Payment evidence with immutable Bill, payment, Journal, ledger, and audit identifiers.',
       'Read-only list and detail endpoints; payment initiation, approval, void, release, and external money movement remain unavailable.',
     ]),

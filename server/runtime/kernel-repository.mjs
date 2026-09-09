@@ -1791,6 +1791,13 @@ export class PostgresAccountingKernel{
     ),'SETTLEMENT_HISTORY_UNAVAILABLE','Settlement history is unavailable').result);
   }
 
+  async readBillPaymentRegister({tenantId,entityId,periodId,afterId=null,limit=50}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_bill_payment_register($1,$2,$3,$4,$5) AS result',
+      [tenantId,entityId,periodId,afterId,limit]
+    ),'BILL_PAYMENT_REGISTER_UNAVAILABLE','Bill Payment register is unavailable').result);
+  }
+
   async readSettlementBankMembers({tenantId,entityId,settlementKind,query='',afterRef=null,limit=50}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_settlement_bank_members($1,$2,$3,$4,$5,$6) AS result',
