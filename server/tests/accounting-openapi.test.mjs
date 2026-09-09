@@ -105,6 +105,7 @@ test('post-impairment policy OpenAPI exposes the exact closed immutable receipt'
   const envelope=contract.components.schemas.FixedAssetPostImpairmentDepreciationPolicyEnvelope,evidence=contract.components.schemas.FixedAssetPostImpairmentDepreciationPolicyEvidence;
   assert.equal(envelope.additionalProperties,false);assert.deepEqual(envelope.required,['ok','data']);assert.equal(envelope.properties.data.$ref,'#/components/schemas/FixedAssetPostImpairmentDepreciationPolicyEvidence');
   assert.equal(evidence.additionalProperties,false);assert.equal(evidence.properties.schema_version.const,'FIXED_ASSET_POST_IMPAIRMENT_DEPRECIATION_POLICY_V1');assert.equal(evidence.required.length,26);for(const flag of ['can_create_draft','can_review','can_approve','can_post'])assert.equal(evidence.properties[flag].const,false);
+  for(const field of ['revised_carrying_value','revised_depreciable_basis','regular_period_amount','final_period_amount']){const pattern=new RegExp(evidence.properties[field].pattern);assert.equal(pattern.test('0.0000'),false,field);assert.equal(pattern.test('0.0001'),true,field);}
 });
 
 test('fixed asset acquisition OpenAPI names the dedicated Draft permission',()=>{
