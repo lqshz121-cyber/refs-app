@@ -11,6 +11,7 @@ import {validSalesReceiptBankCandidates} from '../runtime/sales-receipt-bank-can
 import {validCreditHistorySelection,validCreditHistory} from '../runtime/credit-allocation-history.mjs';
 import {validSettlementHistorySelection,validSettlementHistory} from '../runtime/settlement-history.mjs';
 import {validBillPaymentRegisterSelection,validBillPaymentRegister} from '../runtime/bill-payment-register.mjs';
+import {validConstructionLoanRegisterSelection,validConstructionLoanRegister} from '../runtime/construction-loan-register.mjs';
 import {createServer} from 'node:http';
 import {reportAccessFailure} from './access-failure-diagnostics.mjs';
 import {validSettlementKind,validSettlementBankSelection,validSettlementBankPage,validSettlementContext} from '../runtime/settlement-input-reads.mjs';
@@ -739,6 +740,18 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!kernel||typeof kernel.readBillPaymentRegister!=='function')throw new AccountingApiError(503,'BILL_PAYMENT_REGISTER_UNAVAILABLE','Bill Payment register is unavailable');
         try{result=await kernel.readBillPaymentRegister({tenantId:principal.tenantId,entityId,...selection});}catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'BILL_PAYMENT_CURSOR_INVALID','The company, period, or page cursor is invalid. Refresh from the first page.');throw error;}
         if(!validBillPaymentRegister(result,{entityId,...selection}))throw new AccountingApiError(500,'BILL_PAYMENT_REGISTER_INVALID','Bill Payment register did not match its scope');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='reports'&&parts[5]==='construction-loan-register'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Loan Register reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId']);
+        const selection={periodId:parsedUrl.searchParams.get('periodId')};
+        if(!validConstructionLoanRegisterSelection(selection))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Loan Register selection is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readConstructionLoanRegister!=='function')throw new AccountingApiError(503,'CONSTRUCTION_LOAN_REGISTER_UNAVAILABLE','Loan Register is unavailable');
+        try{result=await kernel.readConstructionLoanRegister({tenantId:principal.tenantId,entityId,...selection});}catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'CONSTRUCTION_LOAN_SCOPE_INVALID','The company or primary accounting period is invalid.');throw error;}
+        if(!validConstructionLoanRegister(result,{entityId,...selection}))throw new AccountingApiError(500,'CONSTRUCTION_LOAN_REGISTER_INVALID','Loan Register did not match its scope');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='journal-entries'){

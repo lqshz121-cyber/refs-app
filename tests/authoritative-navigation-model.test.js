@@ -4,7 +4,7 @@ import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTE
 
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the formal navigation must retain the full product taxonomy');
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'every formal route needs a stable unique identity');
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['vendors','customers','account-inquiry','accounting-analysis-report','accruals','ai-audit','ai-je-workbench','amortization','audit-log','bank','bank-batch-pipeline','bill-payments','chart-of-accounts','consolidation','construction-loan','fixed-assets','general-ledger','integration-hub','intercompany','journals','mapping','overview','payables','period-management','project-cost-cwip','property-ops-pickup','receivables','reconciliation','reports','settings','source-documents','subsidiary-ledger','unit-cost-ledger','wbs-autorec-evidence','wbs-payable-review'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['vendors','customers','account-inquiry','accounting-analysis-report','accruals','ai-audit','ai-je-workbench','amortization','audit-log','bank','bank-batch-pipeline','bill-payments','chart-of-accounts','consolidation','construction-loan','fixed-assets','general-ledger','integration-hub','intercompany','journals','loan-register','mapping','overview','payables','period-management','project-cost-cwip','property-ops-pickup','receivables','reconciliation','reports','settings','source-documents','subsidiary-ledger','unit-cost-ledger','wbs-autorec-evidence','wbs-payable-review'].sort());
 for (const group of AUTHORITATIVE_NAVIGATION) {
   assert.ok(group.items.length > 0, `${group.label} may not be empty`);
   for (const item of group.items) assert.ok(AUTHORITATIVE_ROUTES.includes(item.route));
@@ -13,6 +13,7 @@ assert.equal(navigationItemForRoute('project-cost-cwip').availability, 'API_READ
 assert.equal(navigationItemForRoute('unit-cost-ledger').availability, 'API_READ');
 assert.equal(navigationItemForRoute('property-ops-pickup').availability, 'API_READ');
 assert.equal(navigationItemForRoute('construction-loan').availability, 'API_READ');
+assert.equal(navigationItemForRoute('loan-register').availability, 'API_READ');
 assert.equal(navigationItemForRoute('amortization').availability, 'API_READ');
 assert.equal(navigationItemForRoute('accruals').availability, 'API_READ');
 assert.equal(navigationItemForRoute('bill-payments').availability, 'API_READ');
