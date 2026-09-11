@@ -792,6 +792,38 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async createUnitTransferReversal({tenantId,entityId,pairId,expectedPairRevision,expectedSourceRevision,expectedTargetRevision,reversalDate,sourceJournalNumber,targetJournalNumber,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,pairId,expectedPairRevision,expectedSourceRevision,expectedTargetRevision,reversalDate,sourceJournalNumber,targetJournalNumber,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_create_unit_transfer_reversal_pair_hash($1,$2,$3,$4::bigint,$5::bigint,$6::bigint,$7::date,$8,$9,$10) AS request_hash',args),'UNIT_TRANSFER_REVERSAL_HASH_MISSING','Unit Transfer reversal command hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_create_unit_transfer_reversal_pair($1,$2,$3,$4::bigint,$5::bigint,$6::bigint,$7::date,$8,$9,$10,$11,$12) AS result',[...args,idempotencyKey,requestHash]),'UNIT_TRANSFER_REVERSAL_FAILED','Unit Transfer reversal unavailable').result;
+    });
+  }
+
+  async transitionUnitTransferReversal({tenantId,entityId,pairId,reversalPairId,action,expectedReversalPairRevision,expectedSourceReversalRevision,expectedTargetReversalRevision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,pairId,reversalPairId,action,expectedReversalPairRevision,expectedSourceReversalRevision,expectedTargetReversalRevision,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_unit_transfer_reversal_transition_hash($1,$2,$3,$4,$5,$6::bigint,$7::bigint,$8::bigint,$9) AS request_hash',args),'UNIT_TRANSFER_REVERSAL_TRANSITION_HASH_MISSING','Unit Transfer reversal transition hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_transition_unit_transfer_reversal_pair($1,$2,$3,$4,$5,$6::bigint,$7::bigint,$8::bigint,$9,$10,$11) AS result',[...args,idempotencyKey,requestHash]),'UNIT_TRANSFER_REVERSAL_TRANSITION_FAILED','Unit Transfer reversal transition unavailable').result;
+    });
+  }
+
+  async cancelUnitTransferReversal({tenantId,entityId,pairId,reversalPairId,expectedReversalPairRevision,expectedSourceReversalRevision,expectedTargetReversalRevision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,pairId,reversalPairId,expectedReversalPairRevision,expectedSourceReversalRevision,expectedTargetReversalRevision,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_unit_transfer_reversal_cancel_hash($1,$2,$3,$4,$5::bigint,$6::bigint,$7::bigint,$8) AS request_hash',args),'UNIT_TRANSFER_REVERSAL_CANCEL_HASH_MISSING','Unit Transfer reversal cancellation hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_cancel_unit_transfer_reversal_pair($1,$2,$3,$4,$5::bigint,$6::bigint,$7::bigint,$8,$9,$10) AS result',[...args,idempotencyKey,requestHash]),'UNIT_TRANSFER_REVERSAL_CANCEL_FAILED','Unit Transfer reversal cancellation unavailable').result;
+    });
+  }
+
+  async postUnitTransferReversal({tenantId,entityId,pairId,reversalPairId,expectedReversalPairRevision,expectedSourceReversalRevision,expectedTargetReversalRevision,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,pairId,reversalPairId,expectedReversalPairRevision,expectedSourceReversalRevision,expectedTargetReversalRevision];
+      const requestHash=requireRow(await client.query('SELECT refs_unit_transfer_reversal_post_hash($1,$2,$3,$4,$5::bigint,$6::bigint,$7::bigint) AS request_hash',args),'UNIT_TRANSFER_REVERSAL_POST_HASH_MISSING','Unit Transfer reversal Post hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_post_unit_transfer_reversal_pair($1,$2,$3,$4,$5::bigint,$6::bigint,$7::bigint,$8,$9) AS result',[...args,idempotencyKey,requestHash]),'UNIT_TRANSFER_REVERSAL_POST_FAILED','Unit Transfer reversal Post unavailable').result;
+    });
+  }
+
   async bindFixedAssetDisposalSource({tenantId,entityId,fixedAssetRegisterEvidenceId,journalEntryId,sourceDocumentId,expectedSourceHash,expectedRevision,reason,idempotencyKey}){
     return this.inSession(async client=>{const args=[tenantId,entityId,fixedAssetRegisterEvidenceId,journalEntryId,sourceDocumentId,expectedSourceHash,expectedRevision,reason];const requestHash=requireRow(await client.query('SELECT refs_bind_fixed_asset_disposal_source_hash($1,$2,$3,$4,$5,$6,$7,$8) request_hash',args),'FIXED_ASSET_SOURCE_HASH_FAILED','Source binding hash missing').request_hash;return requireRow(await client.query('SELECT refs_bind_fixed_asset_disposal_source($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_SOURCE_BIND_FAILED','Source binding response missing').result;});
   }

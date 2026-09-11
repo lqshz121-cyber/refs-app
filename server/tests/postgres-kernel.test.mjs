@@ -294,6 +294,25 @@ pgTest('authoritative setting history is immutable, redacted, reference-counted 
   const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'settings-history-denied',['GL.REPORT.VIEW'])});await assert.rejects(denied.readAuthoritativeSettingHistory({tenantId:ids.tenantId,entityId:ids.entityId,family,limit:10}),error=>error.code==='42501');
 });
 
+pgTest('Unit Transfer paired reversal migration cleanly roundtrips and keeps IC evidence private',async()=>{
+ const up=await readFile(new URL('../db/migrations/371_unit_transfer_paired_reversal.sql',import.meta.url),'utf8'),down=await readFile(new URL('../db/migrations/down/371_unit_transfer_paired_reversal.sql',import.meta.url),'utf8'),strip=sql=>sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');
+ assert.equal((await adminPool.query("SELECT to_regclass('unit_transfer_reversal_pair') table_name,to_regprocedure('refs_create_unit_transfer_reversal_pair(uuid,uuid,uuid,bigint,bigint,bigint,date,text,text,text,text,text)') create_fn,to_regprocedure('refs_post_unit_transfer_reversal_pair(uuid,uuid,uuid,uuid,bigint,bigint,bigint,text,text)') post_fn")).rows[0].table_name,'unit_transfer_reversal_pair');
+ assert.equal((await adminPool.query("SELECT has_table_privilege('refs_app','unit_transfer_ic_open_item','INSERT') allowed")).rows[0].allowed,false);
+ const client=await adminPool.connect();try{
+  await client.query('BEGIN');
+  await client.query(strip(down));
+  assert.equal((await client.query("SELECT to_regclass('unit_transfer_reversal_pair') table_name")).rows[0].table_name,null);
+  await client.query(strip(up));
+  const restored=(await client.query("SELECT to_regclass('unit_transfer_reversal_pair') table_name,to_regprocedure('refs_read_unit_transfer_pair(uuid,uuid,uuid)') read_fn,to_regprocedure('refs_post_unit_transfer_pair(uuid,uuid,uuid,bigint,bigint,bigint,text,text)') post_fn")).rows[0];
+  assert.equal(restored.table_name,'unit_transfer_reversal_pair');assert.ok(restored.read_fn);assert.ok(restored.post_fn);
+  assert.match((await client.query("SELECT pg_get_functiondef('refs_post_unit_transfer_pair(uuid,uuid,uuid,bigint,bigint,bigint,text,text)'::regprocedure) body")).rows[0].body,/unit_transfer_ic_open_item/);
+  const readBody=(await client.query("SELECT pg_get_functiondef('refs_read_unit_transfer_pair(uuid,uuid,uuid)'::regprocedure) body")).rows[0].body;
+  assert.match(readBody,/refs_unit_transfer_can_reverse/);assert.match(readBody,/reversal_history/);assert.match(readBody,/active_reversal/);assert.match(readBody,/ORDER BY r[.]created_at/);assert.match(readBody,/POSTED_PAIR[\s\S]+CANCELLED_PAIR/);
+  const reversalIndexes=(await client.query("SELECT indexname,indexdef FROM pg_indexes WHERE schemaname='public' AND tablename='unit_transfer_reversal_pair' AND indexname IN('unit_transfer_reversal_one_live_original_uq','unit_transfer_reversal_one_open_unit_uq') ORDER BY indexname")).rows;
+  assert.equal(reversalIndexes.length,2);assert.match(reversalIndexes.find(row=>row.indexname==='unit_transfer_reversal_one_live_original_uq').indexdef,/WHERE \(status <> 'CANCELLED_PAIR'::text\)/);assert.match(reversalIndexes.find(row=>row.indexname==='unit_transfer_reversal_one_open_unit_uq').indexdef,/WHERE \(status <> ALL \(ARRAY\['POSTED_PAIR'::text, 'CANCELLED_PAIR'::text\]\)\)/);
+ }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
 after(async()=>{
   if(adminPool)await adminPool.query('TRUNCATE tenant CASCADE').catch(()=>{});
   if(runtimePool)await runtimePool.end();

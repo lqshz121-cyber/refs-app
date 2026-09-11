@@ -49,6 +49,22 @@ test('Unit Transfer kernel binds pair and both Journal revisions to transition a
   assert.deepEqual(calls[1].args,[...calls[0].args,'unit-transfer-cancel-001',hash]);
 });
 
+test('Unit Transfer kernel binds exact original revisions, date and Journal numbers to paired reversal',async()=>{
+ const {kernel,calls}=kernelWithCalls(),input={tenantId:id(),entityId:id(),pairId:id(),expectedPairRevision:4,expectedSourceRevision:3,expectedTargetRevision:3,reversalDate:'2026-10-01',sourceJournalNumber:'UT-RS-001',targetJournalNumber:'UT-RT-001',reason:'Reverse the exact posted pair after retained controller review.',idempotencyKey:'unit-transfer-reversal-001'};
+ assert.deepEqual(await kernel.createUnitTransferReversal(input),{ok:true});
+ assert.equal(calls.length,2);assert.match(calls[0].text,/refs_create_unit_transfer_reversal_pair_hash/);
+ assert.deepEqual(calls[0].args,[input.tenantId,input.entityId,input.pairId,4,3,3,input.reversalDate,input.sourceJournalNumber,input.targetJournalNumber,input.reason]);
+ assert.match(calls[1].text,/refs_create_unit_transfer_reversal_pair/);assert.deepEqual(calls[1].args,[...calls[0].args,input.idempotencyKey,hash]);
+});
+
+test('Unit Transfer kernel binds every reversal lifecycle command to the reversal pair and both reversal Journals',async()=>{
+ const {kernel,calls}=kernelWithCalls(),scope={tenantId:id(),entityId:id(),pairId:id(),reversalPairId:id(),expectedReversalPairRevision:4,expectedSourceReversalRevision:7,expectedTargetReversalRevision:9};
+ await kernel.transitionUnitTransferReversal({...scope,action:'APPROVE',reason:'Approve both exact reversal Journals after independent review.',idempotencyKey:'unit-transfer-reversal-approve'});
+ assert.match(calls[0].text,/refs_unit_transfer_reversal_transition_hash/);assert.deepEqual(calls[0].args,[scope.tenantId,scope.entityId,scope.pairId,scope.reversalPairId,'APPROVE',4,7,9,'Approve both exact reversal Journals after independent review.']);assert.deepEqual(calls[1].args,[...calls[0].args,'unit-transfer-reversal-approve',hash]);
+ calls.length=0;await kernel.cancelUnitTransferReversal({...scope,reason:'Cancel both retained reversal Drafts after independent review.',idempotencyKey:'unit-transfer-reversal-cancel'});assert.match(calls[0].text,/refs_unit_transfer_reversal_cancel_hash/);assert.deepEqual(calls[0].args,[scope.tenantId,scope.entityId,scope.pairId,scope.reversalPairId,4,7,9,'Cancel both retained reversal Drafts after independent review.']);assert.deepEqual(calls[1].args,[...calls[0].args,'unit-transfer-reversal-cancel',hash]);
+ calls.length=0;await kernel.postUnitTransferReversal({...scope,idempotencyKey:'unit-transfer-reversal-post'});assert.match(calls[0].text,/refs_unit_transfer_reversal_post_hash/);assert.deepEqual(calls[0].args,[scope.tenantId,scope.entityId,scope.pairId,scope.reversalPairId,4,7,9]);assert.deepEqual(calls[1].args,[...calls[0].args,'unit-transfer-reversal-post',hash]);
+});
+
 test('Unit Transfer kernel reads a pair and entity-period register without command hashes',async()=>{
   const {kernel,calls}=kernelWithCalls(),tenantId=id(),entityId=id(),periodId=id(),pairId=id();
   assert.deepEqual(await kernel.readUnitTransferRegister({tenantId,entityId,periodId}),{ok:true});
