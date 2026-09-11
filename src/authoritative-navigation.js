@@ -98,9 +98,9 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     // The available scope is the existing two-entity reconciliation reader;
     // it does not expose an uncontracted intercompany posting workflow.
     item('intercompany', 'Intercompany', 'API_READ'),
-    item('recurring-transactions', 'Recurring transactions', 'API_UNAVAILABLE', [
-      'Entity-scoped recurring-template rows with immutable template identity, revision, type, interval, dates, counterparty, currency, amount, and status.',
-      'Read-only filter, paging, and detail endpoints; template lifecycle, reminder execution, recurring payment management, and accounting commands remain unavailable.',
+    item('recurring-transactions', 'Recurring transactions', 'API_READ', [
+      'Entity-scoped provider-signed recurring Bill rows with immutable Source Document identity, revision, interval, service dates, counterparty, currency, amount, status, hashes, and audit evidence.',
+      'Read-only status and interval filters, bounded paging, and detail endpoints; template lifecycle, reminder execution, recurring payment management, and accounting commands remain unavailable.',
     ]),
     item('revenue-recognition', 'Revenue recognition', 'API_UNAVAILABLE', [
       'Entity- and period-scoped recognition schedules with immutable source, schedule revision, dates, accounts, currency, amount, status, Journal, ledger, and audit identifiers.',

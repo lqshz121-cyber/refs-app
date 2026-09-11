@@ -2660,6 +2660,18 @@ export class PostgresAccountingKernel{
     ),'RULE_DETAIL_UNAVAILABLE','Rule evidence is unavailable').result);
   }
 
+  async readRecurringTransactionRegister({tenantId,entityId,status='ALL',interval='ALL',afterId=null,limit=25}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_recurring_transaction_register($1,$2,$3,$4,$5,$6) AS result',[tenantId,entityId,status,interval,afterId,limit]
+    ),'RECURRING_TRANSACTION_REGISTER_UNAVAILABLE','Recurring transactions are unavailable').result);
+  }
+
+  async readRecurringTransactionDetail({tenantId,entityId,recurringTransactionId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_recurring_transaction_detail($1,$2,$3) AS result',[tenantId,entityId,recurringTransactionId]
+    ),'RECURRING_TRANSACTION_DETAIL_UNAVAILABLE','Recurring transaction evidence is unavailable').result);
+  }
+
   async getAiConstructionLoanCwipPopulationAttestation({tenantId,entityId,accountingPeriodId}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_ai_construction_loan_cwip_population_attestation($1,$2,$3) AS result',
