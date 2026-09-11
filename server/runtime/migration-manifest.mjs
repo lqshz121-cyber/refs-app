@@ -373,5 +373,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"365_mapping_exception_register_read.sql","up":"9c9744ea06d9d4569011ff0e1a08e3d12e0960c1446bb8bc27a173444710a236","down":"ef976dd1f2fca0f1b8f2018ab8be736e41f4eabdfd8b60a6d89a0bb0cb080b22"}),
   Object.freeze({"name":"366_receipt_register_read.sql","up":"191c86b0ccac760fee41ec38f9c135ffced031a4480184c3a8e5797558997b68","down":"f8c42488877ad563132e70ebc45ca66994590d96e0599a3197d4f4eac2020967"}),
   Object.freeze({"name":"367_integration_transaction_register_read.sql","up":"e344eff6d7c9b30004345e2ca710116541206411f7a8df0d3ec7a88ac889ec5a","down":"ac1ec9fd230716d26e83d6f48f34d14c2b989ffb3d20a0a6b5d4ed1f44b1b181"}),
-  Object.freeze({"name":"368_rule_register_read.sql","up":"8bc712c4d7f8adb424f20252187130ec22542ae3908602690a9eb52f2c86bc07","down":"4d704d12221507fbc95cac982293078987438e7ad619d32c2b311535eb6b98de"}),
+  Object.freeze({"name":"368_rule_register_read.sql","up":"8dfc60e9af2b153f21749c1f1204f78a1f6907f10f20a704ae0f8b99802131c5","down":"4d704d12221507fbc95cac982293078987438e7ad619d32c2b311535eb6b98de"}),
 ]);

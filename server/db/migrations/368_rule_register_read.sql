@@ -2,7 +2,7 @@ BEGIN;
 
 CREATE FUNCTION refs_rule_text_is_safe(p_value text) RETURNS boolean
 LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
-  SELECT p_value IS NULL OR p_value!~*'(bearer[[:space:]]+[[:alnum:]_.~+/-]{8,}|(api[_ -]?key|access[_ -]?token|refresh[_ -]?token|authorization|password|secret|credential|private[_ -]?key)[[:space:]]*[:=][[:space:]]*[^[:space:],;]+|(sk|rk|pk)-[a-z0-9_-]{8,})';
+  SELECT p_value IS NULL OR p_value!~*'(bearer[[:space:]]+[[:alnum:]_.~+/-]{8,}|(api[_ -]?key|access[_ -]?token|refresh[_ -]?token|token|authorization|password|secret|credential|private[_ -]?key)[[:space:]]*[:=][[:space:]]*[^[:space:],;]+|(sk|rk|pk)-[a-z0-9_-]{8,})';
 $$;
 
 CREATE FUNCTION refs_rule_redact_text(p_value text) RETURNS text
@@ -17,7 +17,7 @@ BEGIN
   IF p_value IS NULL THEN RETURN false;END IF;
   IF jsonb_typeof(p_value)='object' THEN
     FOR pair IN SELECT * FROM jsonb_each(p_value) LOOP
-      IF pair.key~*'(password|secret|credential|access[_-]?token|refresh[_-]?token|api[_-]?key|private[_-]?key)' OR NOT refs_rule_json_is_safe(pair.value) THEN RETURN false;END IF;
+      IF pair.key~*'(password|secret|credential|token|authorization|access[_-]?token|refresh[_-]?token|api[_-]?key|private[_-]?key)' OR NOT refs_rule_json_is_safe(pair.value) THEN RETURN false;END IF;
     END LOOP;
   ELSIF jsonb_typeof(p_value)='array' THEN
     FOR item IN SELECT value FROM jsonb_array_elements(p_value) LOOP IF NOT refs_rule_json_is_safe(item) THEN RETURN false;END IF;END LOOP;
