@@ -2648,6 +2648,18 @@ export class PostgresAccountingKernel{
     ),'INTEGRATION_TRANSACTION_DETAIL_UNAVAILABLE','Integration transaction evidence is unavailable').result);
   }
 
+  async readRuleRegister({tenantId,entityId,kind='BANK',status='ALL',afterId=null,limit=25}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_rule_register($1,$2,$3,$4,$5,$6) AS result',[tenantId,entityId,kind,status,afterId,limit]
+    ),'RULE_REGISTER_UNAVAILABLE','Rules are unavailable').result);
+  }
+
+  async readRuleDetail({tenantId,entityId,ruleId,kind='BANK'}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_rule_detail($1,$2,$3,$4) AS result',[tenantId,entityId,ruleId,kind]
+    ),'RULE_DETAIL_UNAVAILABLE','Rule evidence is unavailable').result);
+  }
+
   async getAiConstructionLoanCwipPopulationAttestation({tenantId,entityId,accountingPeriodId}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_ai_construction_loan_cwip_population_attestation($1,$2,$3) AS result',

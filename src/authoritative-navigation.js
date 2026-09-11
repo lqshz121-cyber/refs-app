@@ -66,7 +66,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('wbs-autorec-evidence', 'WBS AutoRec evidence', 'API_READ'),
     item('bank', 'Bank transactions', 'API_READ'),
     item('reconciliation', 'Reconcile', 'API_READ'),
-    item('rules', 'Rules', 'API_UNAVAILABLE', [
+    item('rules', 'Rules', 'API_READ', [
       'Entity-scoped immutable rule identity, revision, priority, conditions, mapping actions, status, usage, and audit evidence.',
       'Read-only Bank and Integration rule lists, filters, paging, detail, and history; creation, editing, reordering, copying, enablement, automatic categorisation, matching, and posting remain unavailable.',
     ]),
