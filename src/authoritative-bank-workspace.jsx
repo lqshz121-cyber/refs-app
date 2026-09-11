@@ -292,8 +292,8 @@ export function AuthoritativeReconciliationDetail({row,scope,onBack,config,fetch
 </section>;
 }
 
-export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,environment=globalThis}){
-  const [scope,setScope]=useState({bankAccountRef:'',from:'',through:''});
+export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,environment=globalThis,initialScope=null}){
+  const [scope,setScope]=useState(()=>({bankAccountRef:initialScope?.bankAccountRef||'',from:initialScope?.from||'',through:initialScope?.through||''}));
   const [state,setState]=useState({phase:'IDLE',rows:[],error:null,offset:0,readAt:null});
   const [selected,setSelected]=useState(null);
   const load=async(event,{preserveDetail=false,offset=0}={})=>{event?.preventDefault?.();if(!preserveDetail)setSelected(null);setState(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeBankTransactions({config,bankAccountRef:scope.bankAccountRef,from:scope.from||null,through:scope.through||null,limit:100,offset,fetcher});const readAt=new Date().toISOString();setState(result.ok?{phase:'READY',rows:result.rows,error:null,offset,readAt}:{phase:'ERROR',rows:[],error:result,offset,readAt});if(preserveDetail&&result.ok)setSelected(current=>{if(!current)return current;const refreshed=result.rows.find(row=>row.bank_source_id===current.row.bank_source_id);return refreshed?{...current,row:refreshed}:null;});return result;};
@@ -325,8 +325,8 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
     <AuthoritativeSecondaryDisclosure label="External WBS evidence"><AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.bank} title="External WBS bank observations"/></AuthoritativeSecondaryDisclosure>
   </AuthoritativeWorkspaceView>;
 }
-export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.fetch,environment=globalThis,onBack=null}){
-  const [scope,setScope]=useState({bankAccountRef:'',statementEndingDate:''});
+export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.fetch,environment=globalThis,onBack=null,initialScope=null}){
+  const [scope,setScope]=useState(()=>({bankAccountRef:initialScope?.bankAccountRef||'',statementEndingDate:initialScope?.statementEndingDate||''}));
   const [scopeDiscovery,setScopeDiscovery]=useState({phase:'LOADING',rows:[],error:null});
   const [state,setState]=useState({phase:'IDLE',row:null,error:null,readAt:null});
   const [selected,setSelected]=useState(null);

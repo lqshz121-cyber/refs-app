@@ -10,6 +10,14 @@ import {validSalesReceiptOptionSelection,validSalesReceiptOptions} from '../runt
 import {validSalesReceiptBankCandidates} from '../runtime/sales-receipt-bank-candidates.mjs';
 import {validCreditHistorySelection,validCreditHistory} from '../runtime/credit-allocation-history.mjs';
 import {validSettlementHistorySelection,validSettlementHistory} from '../runtime/settlement-history.mjs';
+import {validBillPaymentRegisterSelection,validBillPaymentRegister} from '../runtime/bill-payment-register.mjs';
+import {validConstructionLoanRegisterSelection,validConstructionLoanRegister} from '../runtime/construction-loan-register.mjs';
+import {validAccountingStagingSelection,validAccountingStagingRegister} from '../runtime/accounting-staging-register.mjs';
+import {validMappingExceptionSelection,validMappingExceptionRegister} from '../runtime/mapping-exception-register.mjs';
+import {validReceiptSelection,validReceiptRow,validReceiptRegister} from '../runtime/receipt-register.mjs';
+import {validIntegrationTransactionSelection,validIntegrationTransactionRow,validIntegrationTransactionRegister} from '../runtime/integration-transaction-register.mjs';
+import {validRuleSelection,validRuleRow,validRuleRegister} from '../runtime/rule-register.mjs';
+import {validRecurringTransactionSelection,validRecurringTransactionRow,validRecurringTransactionRegister} from '../runtime/recurring-transaction-register.mjs';
 import {createServer} from 'node:http';
 import {reportAccessFailure} from './access-failure-diagnostics.mjs';
 import {validSettlementKind,validSettlementBankSelection,validSettlementBankPage,validSettlementContext} from '../runtime/settlement-input-reads.mjs';
@@ -727,6 +735,111 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.getJournalWorkflowCapabilities!=='function')throw new AccountingApiError(503,'JOURNAL_WORKFLOW_CAPABILITIES_UNAVAILABLE','Journal workflow capabilities are unavailable');
         result=await kernel.getJournalWorkflowCapabilities({tenantId:principal.tenantId,entityId});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='ap'&&parts[5]==='bill-payments'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Bill Payment register reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId','afterId','limit']);
+        const selection={periodId:parsedUrl.searchParams.get('periodId'),afterId:parsedUrl.searchParams.get('afterId'),limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):50};
+        if(!validBillPaymentRegisterSelection(selection)||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Bill Payment register selection is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readBillPaymentRegister!=='function')throw new AccountingApiError(503,'BILL_PAYMENT_REGISTER_UNAVAILABLE','Bill Payment register is unavailable');
+        try{result=await kernel.readBillPaymentRegister({tenantId:principal.tenantId,entityId,...selection});}catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'BILL_PAYMENT_CURSOR_INVALID','The company, period, or page cursor is invalid. Refresh from the first page.');throw error;}
+        if(!validBillPaymentRegister(result,{entityId,...selection}))throw new AccountingApiError(500,'BILL_PAYMENT_REGISTER_INVALID','Bill Payment register did not match its scope');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='reports'&&parts[5]==='construction-loan-register'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Loan Register reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId']);
+        const selection={periodId:parsedUrl.searchParams.get('periodId')};
+        if(!validConstructionLoanRegisterSelection(selection))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Loan Register selection is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readConstructionLoanRegister!=='function')throw new AccountingApiError(503,'CONSTRUCTION_LOAN_REGISTER_UNAVAILABLE','Loan Register is unavailable');
+        try{result=await kernel.readConstructionLoanRegister({tenantId:principal.tenantId,entityId,...selection});}catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'CONSTRUCTION_LOAN_SCOPE_INVALID','The company or primary accounting period is invalid.');throw error;}
+        if(!validConstructionLoanRegister(result,{entityId,...selection}))throw new AccountingApiError(500,'CONSTRUCTION_LOAN_REGISTER_INVALID','Loan Register did not match its scope');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===5&&parts[4]==='staging'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Accounting Staging reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId']);
+        const selection={periodId:parsedUrl.searchParams.get('periodId')};
+        if(!validAccountingStagingSelection(selection))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Accounting Staging selection is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readAccountingStagingRegister!=='function')throw new AccountingApiError(503,'ACCOUNTING_STAGING_REGISTER_UNAVAILABLE','Accounting Staging is unavailable');
+        try{result=await kernel.readAccountingStagingRegister({tenantId:principal.tenantId,entityId,...selection});}catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'ACCOUNTING_STAGING_SCOPE_INVALID','The company or primary accounting period is invalid.');throw error;}
+        if(!validAccountingStagingRegister(result,{entityId,...selection}))throw new AccountingApiError(500,'ACCOUNTING_STAGING_REGISTER_INVALID','Accounting Staging did not match its scope');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===5&&parts[4]==='mapping-exceptions'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Mapping Exception reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId']);
+        const selection={periodId:parsedUrl.searchParams.get('periodId')};
+        if(!validMappingExceptionSelection(selection))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Mapping Exception selection is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readMappingExceptionRegister!=='function')throw new AccountingApiError(503,'MAPPING_EXCEPTION_REGISTER_UNAVAILABLE','Mapping Exceptions is unavailable');
+        try{result=await kernel.readMappingExceptionRegister({tenantId:principal.tenantId,entityId,...selection});}catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'MAPPING_EXCEPTION_SCOPE_INVALID','The company or primary accounting period is invalid.');throw error;}
+        if(!validMappingExceptionRegister(result,{entityId,...selection}))throw new AccountingApiError(500,'MAPPING_EXCEPTION_REGISTER_INVALID','Mapping Exceptions did not match its scope');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===5&&parts[4]==='receipts'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Receipt reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['reviewStatus']);
+        const selection={reviewStatus:parsedUrl.searchParams.get('reviewStatus')};
+        if(!validReceiptSelection(selection))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Receipt selection is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readReceiptRegister!=='function')throw new AccountingApiError(503,'RECEIPT_REGISTER_UNAVAILABLE','Receipts are unavailable');
+        try{result=await kernel.readReceiptRegister({tenantId:principal.tenantId,entityId,...selection});}catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'RECEIPT_SCOPE_INVALID','The company or receipt review status is invalid.');throw error;}
+        if(!validReceiptRegister(result,{entityId,...selection}))throw new AccountingApiError(500,'RECEIPT_REGISTER_INVALID','Receipts did not match their scope');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='receipts'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Receipt reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const receiptId=requireUuid(parts[5],'receiptId'),kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readReceiptDetail!=='function')throw new AccountingApiError(503,'RECEIPT_DETAIL_UNAVAILABLE','Receipt evidence is unavailable');
+        try{result=await kernel.readReceiptDetail({tenantId:principal.tenantId,entityId,receiptId});}catch(error){if(error?.code==='P0002')throw new AccountingApiError(404,'RECEIPT_NOT_FOUND','Receipt is absent or outside the company.');throw error;}
+        if(!validReceiptRow(result,{receiptId}))throw new AccountingApiError(500,'RECEIPT_DETAIL_INVALID','Receipt evidence did not match its identity');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===5&&parts[4]==='integration-transactions'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Integration transaction reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['connectorCode','sourceModule','status','afterId','limit']);
+        const selection={connectorCode:parsedUrl.searchParams.get('connectorCode'),sourceModule:parsedUrl.searchParams.get('sourceModule'),status:parsedUrl.searchParams.get('status')??'ALL',afterId:parsedUrl.searchParams.get('afterId'),limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):25};
+        if(!validIntegrationTransactionSelection(selection)||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Integration transaction selection is invalid');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readIntegrationTransactionRegister!=='function')throw new AccountingApiError(503,'INTEGRATION_TRANSACTION_REGISTER_UNAVAILABLE','Integration transactions are unavailable');
+        try{result=await kernel.readIntegrationTransactionRegister({tenantId:principal.tenantId,entityId,...selection});}catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'INTEGRATION_TRANSACTION_SCOPE_INVALID','The company, filter, or cursor is invalid.');throw error;}
+        if(!validIntegrationTransactionRegister(result,{entityId,...selection}))throw new AccountingApiError(500,'INTEGRATION_TRANSACTION_REGISTER_INVALID','Integration transactions did not match their scope');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='integration-transactions'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Integration transaction reads do not accept command headers');if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');requireExactQuery(parsedUrl.searchParams,[]);
+        const rawEventId=requireUuid(parts[5],'rawEventId'),kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readIntegrationTransactionDetail!=='function')throw new AccountingApiError(503,'INTEGRATION_TRANSACTION_DETAIL_UNAVAILABLE','Integration transaction evidence is unavailable');
+        try{result=await kernel.readIntegrationTransactionDetail({tenantId:principal.tenantId,entityId,rawEventId});}catch(error){if(error?.code==='P0002')throw new AccountingApiError(404,'INTEGRATION_TRANSACTION_NOT_FOUND','Integration transaction is absent or outside the company.');throw error;}
+        if(!validIntegrationTransactionRow(result,{rawEventId}))throw new AccountingApiError(500,'INTEGRATION_TRANSACTION_DETAIL_INVALID','Integration transaction evidence did not match its identity');return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===5&&parts[4]==='rules'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Rule reads do not accept command headers');if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');requireExactQuery(parsedUrl.searchParams,['kind','status','afterId','limit']);
+        const selection={kind:parsedUrl.searchParams.get('kind')??'BANK',status:parsedUrl.searchParams.get('status')??'ALL',afterId:parsedUrl.searchParams.get('afterId'),limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):25};if(!validRuleSelection(selection)||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Rule selection is invalid');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readRuleRegister!=='function')throw new AccountingApiError(503,'RULE_REGISTER_UNAVAILABLE','Rules are unavailable');try{result=await kernel.readRuleRegister({tenantId:principal.tenantId,entityId,...selection});}catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'RULE_SCOPE_INVALID','The company, filter, or cursor is invalid.');throw error;}if(!validRuleRegister(result,{entityId,...selection}))throw new AccountingApiError(500,'RULE_REGISTER_INVALID','Rules did not match their scope');return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===5&&parts[4]==='recurring-transactions'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Recurring transaction reads do not accept command headers');if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');requireExactQuery(parsedUrl.searchParams,['status','interval','afterId','limit']);
+        const selection={status:parsedUrl.searchParams.get('status')??'ALL',interval:parsedUrl.searchParams.get('interval')??'ALL',afterId:parsedUrl.searchParams.get('afterId'),limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):25};if(!validRecurringTransactionSelection(selection)||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Recurring transaction selection is invalid');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readRecurringTransactionRegister!=='function')throw new AccountingApiError(503,'RECURRING_TRANSACTION_REGISTER_UNAVAILABLE','Recurring transactions are unavailable');try{result=await kernel.readRecurringTransactionRegister({tenantId:principal.tenantId,entityId,...selection});}catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'RECURRING_TRANSACTION_SCOPE_INVALID','The company, filter, or cursor is invalid.');throw error;}if(!validRecurringTransactionRegister(result,{entityId,...selection}))throw new AccountingApiError(500,'RECURRING_TRANSACTION_REGISTER_INVALID','Recurring transactions did not match their scope');return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='recurring-transactions'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Recurring transaction reads do not accept command headers');if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');requireExactQuery(parsedUrl.searchParams,[]);
+        const recurringTransactionId=requireUuid(parts[5],'recurringTransactionId'),kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readRecurringTransactionDetail!=='function')throw new AccountingApiError(503,'RECURRING_TRANSACTION_DETAIL_UNAVAILABLE','Recurring transaction evidence is unavailable');try{result=await kernel.readRecurringTransactionDetail({tenantId:principal.tenantId,entityId,recurringTransactionId});}catch(error){if(error?.code==='P0002')throw new AccountingApiError(404,'RECURRING_TRANSACTION_NOT_FOUND','Recurring transaction is absent, superseded, or outside the company.');throw error;}if(!validRecurringTransactionRow(result,{recurringTransactionId}))throw new AccountingApiError(500,'RECURRING_TRANSACTION_DETAIL_INVALID','Recurring transaction evidence did not match its identity');return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='rules'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Rule reads do not accept command headers');if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');requireExactQuery(parsedUrl.searchParams,['kind']);
+        const ruleId=requireUuid(parts[5],'ruleId'),kind=parsedUrl.searchParams.get('kind')??'BANK';if(!validRuleSelection({kind,status:'ALL',afterId:null,limit:25}))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Rule kind is invalid');const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readRuleDetail!=='function')throw new AccountingApiError(503,'RULE_DETAIL_UNAVAILABLE','Rule evidence is unavailable');try{result=await kernel.readRuleDetail({tenantId:principal.tenantId,entityId,ruleId,kind});}catch(error){if(error?.code==='P0002')throw new AccountingApiError(404,'RULE_NOT_FOUND','Rule is absent or outside the company.');if(error?.code==='22023')throw new AccountingApiError(400,'RULE_SCOPE_INVALID','Rule kind does not match the retained rule.');throw error;}if(!validRuleRow(result,{ruleId,kind}))throw new AccountingApiError(500,'RULE_DETAIL_INVALID','Rule evidence did not match its identity');return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='journal-entries'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');

@@ -366,4 +366,13 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"358_fixed_asset_post_impairment_depreciation_policy.sql","up":"b0bd0b1fe54c3f155c5e16cc67867b663eb40a95a44a503e9e8b3a545d5daa0d","down":"5fbe32b9169b2a8ab3ee0e3730937710e1a112ad178bcf1f82b87577352b1fb5"}),
   Object.freeze({"name":"359_fixed_asset_post_impairment_depreciation_schedule.sql","up":"980362f910e996c97d81b6587bedd4c3f55513d93f693429903144a800796b0a","down":"c66d881cfcf29faefab5fd8a958e3bf155d2965c8443380dfa5bf336a18d8f0c"}),
   Object.freeze({"name":"360_fixed_asset_disposal_draft.sql","up":"f122f8aa59190e9ab23d17a9d909e74069c1a3bbc3b6c06340ebac8b3a36ea79","down":"91f6435a95c386a2cad3e82861ddeb5863d70f8a366094b5f5e7a4d734da0e3c"}),
+  Object.freeze({"name":"361_bill_payment_register_read.sql","up":"41370517205566c7c5f4d827daab14b588580c31c8011b8ccf8eb99b1b5e1855","down":"4a88e24ef784492ad8cf41d50f58fada36e52cbdf9aba502727d011ff32ec21e"}),
+  Object.freeze({"name":"362_bill_payment_register_bank_identity.sql","up":"e463e24e8c23613afbff4aa0145aa1fb0528c8eada69803fd2e03ce418b30828","down":"c18659617d979632426eb851d64784d289f7a858318cac484709dcd755b41ed0"}),
+  Object.freeze({"name":"363_construction_loan_register_read.sql","up":"aa8241b066cbf9722b98974fa05b87fe9ab0d178ad9e774bf980e64e6081afad","down":"183e80866c300938d3f50662bb31712656e333466e485bb20f7efba2cd8bee35"}),
+  Object.freeze({"name":"364_accounting_staging_register_read.sql","up":"ba3dfccd4ca5d5807fa54cce539b554b7400f8be4cdc5b29ff36a538f1ba64e9","down":"f62b2d17e1a6c6f1a51f6dc1f11baf3da510c1ec1c966ae3d3a1b2773723a917"}),
+  Object.freeze({"name":"365_mapping_exception_register_read.sql","up":"9c9744ea06d9d4569011ff0e1a08e3d12e0960c1446bb8bc27a173444710a236","down":"ef976dd1f2fca0f1b8f2018ab8be736e41f4eabdfd8b60a6d89a0bb0cb080b22"}),
+  Object.freeze({"name":"366_receipt_register_read.sql","up":"191c86b0ccac760fee41ec38f9c135ffced031a4480184c3a8e5797558997b68","down":"f8c42488877ad563132e70ebc45ca66994590d96e0599a3197d4f4eac2020967"}),
+  Object.freeze({"name":"367_integration_transaction_register_read.sql","up":"e344eff6d7c9b30004345e2ca710116541206411f7a8df0d3ec7a88ac889ec5a","down":"ac1ec9fd230716d26e83d6f48f34d14c2b989ffb3d20a0a6b5d4ed1f44b1b181"}),
+  Object.freeze({"name":"368_rule_register_read.sql","up":"8dfc60e9af2b153f21749c1f1204f78a1f6907f10f20a704ae0f8b99802131c5","down":"4d704d12221507fbc95cac982293078987438e7ad619d32c2b311535eb6b98de"}),
+  Object.freeze({"name":"369_recurring_transaction_register_read.sql","up":"c1a669a87cd661651e7a43fcab24d64cb8274ec5f3e072235e47fba6e22b0bd9","down":"e0e2585ac735554270587e4a8c06059b0d65ec3385aeaecb002c59ef918e1730"}),
 ]);

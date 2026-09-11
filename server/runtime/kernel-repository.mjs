@@ -1791,6 +1791,13 @@ export class PostgresAccountingKernel{
     ),'SETTLEMENT_HISTORY_UNAVAILABLE','Settlement history is unavailable').result);
   }
 
+  async readBillPaymentRegister({tenantId,entityId,periodId,afterId=null,limit=50}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_bill_payment_register($1,$2,$3,$4,$5) AS result',
+      [tenantId,entityId,periodId,afterId,limit]
+    ),'BILL_PAYMENT_REGISTER_UNAVAILABLE','Bill Payment register is unavailable').result);
+  }
+
   async readSettlementBankMembers({tenantId,entityId,settlementKind,query='',afterRef=null,limit=50}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_settlement_bank_members($1,$2,$3,$4,$5,$6) AS result',
@@ -2590,6 +2597,79 @@ export class PostgresAccountingKernel{
       'SELECT * FROM refs_get_construction_loan_rollforward($1,$2,$3)',
       [tenantId,entityId,periodId]
     )).rows);
+  }
+
+  async readConstructionLoanRegister({tenantId,entityId,periodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_construction_loan_register($1,$2,$3) AS result',
+      [tenantId,entityId,periodId]
+    ),'CONSTRUCTION_LOAN_REGISTER_UNAVAILABLE','Loan Register is unavailable').result);
+  }
+
+  async readAccountingStagingRegister({tenantId,entityId,periodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_accounting_staging_register($1,$2,$3) AS result',
+      [tenantId,entityId,periodId]
+    ),'ACCOUNTING_STAGING_REGISTER_UNAVAILABLE','Accounting Staging is unavailable').result);
+  }
+
+  async readMappingExceptionRegister({tenantId,entityId,periodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_mapping_exception_register($1,$2,$3) AS result',
+      [tenantId,entityId,periodId]
+    ),'MAPPING_EXCEPTION_REGISTER_UNAVAILABLE','Mapping Exceptions is unavailable').result);
+  }
+
+  async readReceiptRegister({tenantId,entityId,reviewStatus}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_receipt_register($1,$2,$3) AS result',
+      [tenantId,entityId,reviewStatus]
+    ),'RECEIPT_REGISTER_UNAVAILABLE','Receipts are unavailable').result);
+  }
+
+  async readReceiptDetail({tenantId,entityId,receiptId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_receipt_detail($1,$2,$3) AS result',
+      [tenantId,entityId,receiptId]
+    ),'RECEIPT_DETAIL_UNAVAILABLE','Receipt evidence is unavailable').result);
+  }
+
+  async readIntegrationTransactionRegister({tenantId,entityId,connectorCode=null,sourceModule=null,status='ALL',afterId=null,limit=25}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_integration_transaction_register($1,$2,$3,$4,$5,$6,$7) AS result',
+      [tenantId,entityId,connectorCode,sourceModule,status,afterId,limit]
+    ),'INTEGRATION_TRANSACTION_REGISTER_UNAVAILABLE','Integration transactions are unavailable').result);
+  }
+
+  async readIntegrationTransactionDetail({tenantId,entityId,rawEventId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_integration_transaction_detail($1,$2,$3) AS result',
+      [tenantId,entityId,rawEventId]
+    ),'INTEGRATION_TRANSACTION_DETAIL_UNAVAILABLE','Integration transaction evidence is unavailable').result);
+  }
+
+  async readRuleRegister({tenantId,entityId,kind='BANK',status='ALL',afterId=null,limit=25}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_rule_register($1,$2,$3,$4,$5,$6) AS result',[tenantId,entityId,kind,status,afterId,limit]
+    ),'RULE_REGISTER_UNAVAILABLE','Rules are unavailable').result);
+  }
+
+  async readRuleDetail({tenantId,entityId,ruleId,kind='BANK'}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_rule_detail($1,$2,$3,$4) AS result',[tenantId,entityId,ruleId,kind]
+    ),'RULE_DETAIL_UNAVAILABLE','Rule evidence is unavailable').result);
+  }
+
+  async readRecurringTransactionRegister({tenantId,entityId,status='ALL',interval='ALL',afterId=null,limit=25}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_recurring_transaction_register($1,$2,$3,$4,$5,$6) AS result',[tenantId,entityId,status,interval,afterId,limit]
+    ),'RECURRING_TRANSACTION_REGISTER_UNAVAILABLE','Recurring transactions are unavailable').result);
+  }
+
+  async readRecurringTransactionDetail({tenantId,entityId,recurringTransactionId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_recurring_transaction_detail($1,$2,$3) AS result',[tenantId,entityId,recurringTransactionId]
+    ),'RECURRING_TRANSACTION_DETAIL_UNAVAILABLE','Recurring transaction evidence is unavailable').result);
   }
 
   async getAiConstructionLoanCwipPopulationAttestation({tenantId,entityId,accountingPeriodId}){

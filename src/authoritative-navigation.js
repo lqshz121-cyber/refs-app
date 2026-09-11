@@ -14,7 +14,10 @@ const group = (label, items) => Object.freeze({ label, items: Object.freeze(item
 export const AUTHORITATIVE_NAVIGATION = Object.freeze([
   group('Control Center', [
     item('overview', 'Dashboard', 'API_READ'),
-    item('approvals', 'Action required'),
+    item('approvals', 'Action required', 'API_COMMAND', [
+      'Current company- and period-scoped Draft, review, approval, and posting Journal queues open the existing server-authorized Journal workflow.',
+      'Retained AI accounting decisions preserve separate human decision and Journal controls; no browser-side bulk approval or posting is available.',
+    ]),
     item('ai-audit', 'AI Audit Center', 'API_READ'),
     item('ai-je-workbench', 'AI JE Workbench', 'API_READ', [
       'Only immutable amortization proposal lines with exact source and proposal hashes may be selected.',
@@ -36,19 +39,19 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Only server-derived, signed and admitted WBS Payables may enter the review queue.',
       'Attachment binding, independent review and the separate AP Draft step preserve exact receipt and object-version evidence.',
     ]),
-    item('staging', 'Accounting Staging', 'API_UNAVAILABLE', [
-      'Entity-scoped persisted staging items with immutable receipt, source version, mapping version, and review state.',
-      'Read-only list and detail endpoints before any controller workflow can be exposed.',
+    item('staging', 'Accounting Staging', 'API_READ', [
+      'Period-scoped persisted staging state, exact Source Document identity, configuration references, exceptions, and linked Journal evidence are available through one closed no-store API.',
+      'Import, assignment, review, Draft creation, approval, and posting remain unavailable from this register.',
     ]),
     item('source-documents', 'Source Documents', 'API_READ', [
       'Entity-scoped source-document list and immutable detail endpoints.',
       'Separate authorised attachment-read contract; upload and finalise endpoints are not a document reader.',
     ]),
-    item('receipts', 'Receipts', 'API_UNAVAILABLE', [
+    item('receipts', 'Receipts', 'API_READ', [
       'Entity-scoped receipt queue with immutable receipt, attachment object/version, content hash, creator, review status, and extracted accounting facts.',
       'Read-only For review and Reviewed list/detail endpoints; upload, OCR, review mutation, add-to-books, export, customize, and payment promotion remain unavailable.',
     ]),
-    item('integration-transactions', 'Integration transactions', 'API_UNAVAILABLE', [
+    item('integration-transactions', 'Integration transactions', 'API_READ', [
       'Permission-scoped connector definitions and imported-transaction rows with immutable connector identity, connection revision, source key and version, receipt and payload hashes, transaction status, read timestamp, and audit identifiers.',
       'Read-only connection status, transaction filters, bounded paging, and detail evidence are required; connector setup, provider synchronisation, import, mapping, posting, and external actions remain unavailable.',
     ]),
@@ -56,9 +59,9 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Read production WBS Payables, Bank, AutoRec and Journal evidence for one explicit company and date scope.',
       'The controlled H1 test import remains server-authorised, TEST ONLY, company-scoped and fully auditable.',
     ]),
-    item('mapping-exceptions', 'Mapping Exceptions', 'API_UNAVAILABLE', [
-      'Entity- and period-scoped exception read model with mapping version, reason, and retained audit evidence.',
-      'A reviewed resolution command must be separately authorised and versioned.',
+    item('mapping-exceptions', 'Mapping Exceptions', 'API_READ', [
+      'Entity- and period-scoped retained mapping exceptions with exact Source Document, staging, ownership, outcome, and immutable mapping version evidence.',
+      'Assignment, review, resolution, waiver, Draft creation, and posting remain unavailable from this register.',
     ]),
   ]),
   group('Auto Reconciliation', [
@@ -66,11 +69,14 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('wbs-autorec-evidence', 'WBS AutoRec evidence', 'API_READ'),
     item('bank', 'Bank transactions', 'API_READ'),
     item('reconciliation', 'Reconcile', 'API_READ'),
-    item('rules', 'Rules', 'API_UNAVAILABLE', [
+    item('rules', 'Rules', 'API_READ', [
       'Entity-scoped immutable rule identity, revision, priority, conditions, mapping actions, status, usage, and audit evidence.',
       'Read-only Bank and Integration rule lists, filters, paging, detail, and history; creation, editing, reordering, copying, enablement, automatic categorisation, matching, and posting remain unavailable.',
     ]),
-    item('checks-payments', 'Checks & payments'),
+    item('checks-payments', 'Checks & payments', 'API_READ', [
+      'The current company and period use the retained Bill Payment register with exact Bill, Journal, ledger, bank-account, bank-match, and audit evidence.',
+      'Check printing, payment initiation, approval, void, release, external money movement, and posting actions remain unavailable.',
+    ]),
   ]),
   group('Journal Entry', [item('journals', 'Journal entries', 'API_READ')]),
   group('General Ledger', [
@@ -78,7 +84,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     // Consolidation is an evidence reader only. It cannot create eliminations
     // or substitute a legacy browser-side consolidation workbook.
     item('consolidation', 'Consolidation', 'API_READ'),
-    item('account-inquiry', 'Account inquiry', 'API_READ'), item('subsidiary-ledger', 'Subsidiary ledger'),
+    item('account-inquiry', 'Account inquiry', 'API_READ'), item('subsidiary-ledger', 'Subsidiary ledger', 'API_READ', [
+      'Entity-, period-, and as-of-scoped AP and AR snapshots with exact retained document identities.',
+      'Subledger open balances reconcile to Posted general-ledger control accounts without browser-derived totals.',
+    ]),
     item('chart-of-accounts', 'Chart of accounts', 'API_READ'),
   ]),
   group('Accounting Operations', [
@@ -87,21 +96,24 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     // until their own server read contracts exist.
     item('project-cost-cwip', 'Project Cost & CWIP', 'API_READ'), item('unit-cost-ledger', 'Unit Cost Ledger', 'API_READ'),
     item('unit-transfer', 'Unit Transfer'),
-    // Existing OIDC report readers expose only mapping-backed rollforward
-    // evidence. The loan register and lender workflow remain unavailable.
+    // Both surfaces read OIDC-scoped POSTED ledger evidence. The register
+    // additionally requires exact retained loan and lender source identity.
     item('construction-loan', 'Construction Loan', 'API_READ'),
-    item('loan-register', 'Loan Register'), item('property-ops-pickup', 'Property Ops Pickup', 'API_READ'),
-    item('closing-accounting', 'Closing Accounting'),
+    item('loan-register', 'Loan Register', 'API_READ'), item('property-ops-pickup', 'Property Ops Pickup', 'API_READ'),
+    item('closing-accounting', 'Closing Accounting', 'API_COMMAND', [
+      'The current company and period use the existing policy-, source-, Journal-, ledger-, and approved-statement-bound close-readiness workflow.',
+      'Close and independent reopen commands retain their existing permission, exact-version, idempotency, audit, outbox, and segregation-of-duties controls.',
+    ]),
     // The available scope is the existing two-entity reconciliation reader;
     // it does not expose an uncontracted intercompany posting workflow.
     item('intercompany', 'Intercompany', 'API_READ'),
-    item('recurring-transactions', 'Recurring transactions', 'API_UNAVAILABLE', [
-      'Entity-scoped recurring-template rows with immutable template identity, revision, type, interval, dates, counterparty, currency, amount, and status.',
-      'Read-only filter, paging, and detail endpoints; template lifecycle, reminder execution, recurring payment management, and accounting commands remain unavailable.',
+    item('recurring-transactions', 'Recurring transactions', 'API_READ', [
+      'Entity-scoped provider-signed recurring Bill rows with immutable Source Document identity, revision, interval, service dates, counterparty, currency, amount, status, hashes, and audit evidence.',
+      'Read-only status and interval filters, bounded paging, and detail endpoints; template lifecycle, reminder execution, recurring payment management, and accounting commands remain unavailable.',
     ]),
-    item('revenue-recognition', 'Revenue recognition', 'API_UNAVAILABLE', [
-      'Entity- and period-scoped recognition schedules with immutable source, schedule revision, dates, accounts, currency, amount, status, Journal, ledger, and audit identifiers.',
-      'Read-only list, detail, and report endpoints; settings, rule changes, schedule creation, automatic Journal generation, and posting remain unavailable.',
+    item('revenue-recognition', 'Revenue recognition', 'API_READ', [
+      'Entity- and period-scoped Property Rent revenue and cutoff exceptions with immutable source, approved mapping, expected amount, Posted Journal, and ledger-derived revenue evidence.',
+      'Read-only list and evidence detail; settings, rule changes, schedule creation, automatic Journal generation, and posting remain unavailable.',
     ]),
     item('fixed-assets', 'Fixed assets', 'API_READ'),
     // QBO calls this surface Prepaid expenses. REFS keeps its stronger
@@ -111,7 +123,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Permission-scoped plan, expert-service entitlement, appointment, service-state, and audit evidence bound to the authenticated company and user role.',
       'Read-only service and appointment state is required; scheduling, expert contact, service enablement, feedback, external promotion, and expert accounting actions remain unavailable.',
     ]),
-    item('accruals', 'Accrual Center'),
+    item('accruals', 'Accrual Center', 'API_READ'),
   ]),
   group('Close', [
     item('month-end-close', 'Month-End Close', 'API_COMMAND'),
@@ -121,7 +133,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('payables', 'Expense transactions', 'API_READ'),
     item('vendors', 'Vendors', 'API_READ'),
     item('customers', 'Customers', 'API_READ'),
-    item('bill-payments', 'Bill payments', 'API_UNAVAILABLE', [
+    item('bill-payments', 'Bill payments', 'API_READ', [
       'Entity- and period-scoped retained Bill Payment evidence with immutable Bill, payment, Journal, ledger, and audit identifiers.',
       'Read-only list and detail endpoints; payment initiation, approval, void, release, and external money movement remain unavailable.',
     ]),
@@ -160,7 +172,13 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('accounting-analysis-report', 'Accounting Analysis Report', 'API_READ'),
   ]),
   group('Administration', [
-    item('master-data', 'Master Data'), item('bank-accounts', 'Bank Accounts'),
+    item('master-data', 'Master Data', 'API_COMMAND', [
+      'The current company uses the existing authenticated Vendor, Customer, and Chart of Accounts workspaces.',
+      'Counterparty creation and changes retain the existing server access, revision, review-history, and validation controls; accounts remain read-only.',
+    ]), item('bank-accounts', 'Bank Accounts', 'API_READ', [
+      'Entity-scoped bank account references discovered only from retained reconciliation-scope evidence, including latest statement date, currency, status, revision, and history count.',
+      'This is not a complete bank-account master or balance source; connections, credentials, account maintenance, balance refresh, transfers, payments, and posting remain unavailable.',
+    ]),
     item('my-accountant', 'My accountant', 'API_UNAVAILABLE', [
       'Permission-scoped, entity-bound accountant collaboration records with immutable membership identity, revision, status, firm display name, role, and audit history.',
       'Read-only accountant access and history endpoints; invitations, role or permission changes, subscriptions, provider calls, and external expert services remain unavailable.',

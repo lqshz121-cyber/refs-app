@@ -39,16 +39,18 @@ test('PostgreSQL fixture suite fails closed for malformed or unknown selection',
   assert.throws(()=>selectFixtures(['--fixture','not-a-fixture']),/Unknown PostgreSQL fixture/);
 });
 
-test('PostgreSQL fixture suite fails closed unless its named test actually passes without skips',()=>{
-  const output='# tests 1\n# pass 1\n# fail 0\n# skipped 0\n';
-  assert.deepEqual(readTapSummary(output),{tests:1,pass:1,fail:0,skipped:0});
+test('PostgreSQL fixture suite accepts only a child-verified pattern receipt with every selected test passing',()=>{
+  const output='# tests 266\n# pass 7\n# fail 0\n# cancelled 0\n# skipped 259\n# todo 0\nFresh PostgreSQL gate verified mode=PATTERN tests=266 pass=7 fail=0 cancelled=0 skipped=259 todo=0\nFresh PostgreSQL gate executed_selected_test_count=7 skipped_unmatched_test_count=259\n';
+  assert.deepEqual(readTapSummary(output),{tests:266,pass:7,fail:0,cancelled:0,skipped:259,todo:0});
   assert.equal(fixtureResult({id:'fixture',exitCode:0,output,durationMs:1}).exitCode,0);
   for(const rejected of [
-    '# tests 0\n# pass 0\n# fail 0\n# skipped 0\n',
-    '# tests 1\n# pass 0\n# fail 0\n# skipped 1\n',
-    '# tests 1\n# pass 1\n# fail 1\n# skipped 0\n',
+    '# tests 266\n# pass 7\n# fail 0\n# cancelled 0\n# skipped 259\n# todo 0\n',
+    output.replace('mode=PATTERN','mode=FULL'),
+    output.replace('pass=7 fail=0','pass=8 fail=0'),
+    output.replace('# todo 0','# todo 1').replace('todo=0','todo=1'),
     'no TAP summary'
   ])assert.equal(fixtureResult({id:'fixture',exitCode:0,output:rejected,durationMs:1}).exitCode,1);
+  assert.equal(fixtureResult({id:'fixture',exitCode:1,output,durationMs:1}).exitCode,1);
 });
 
 test('PostgreSQL fixture suite waits for child exit and owned Docker cleanup after timeout',async()=>{

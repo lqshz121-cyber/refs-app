@@ -56,9 +56,9 @@ jobs:
   postgres-required:
     name: PostgreSQL ${{ matrix.postgres }} required gate
     runs-on: ubuntu-latest
-    # PostgreSQL 15 can approach 19 minutes for the complete 162-test fresh
-    # gate under runner variance; retain time for the mandatory restore drill.
-    timeout-minutes: 30
+    # PostgreSQL 15 can exceed 30 minutes for the 225+ test fresh gate under
+    # runner variance; retain time for the mandatory restore drill.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
