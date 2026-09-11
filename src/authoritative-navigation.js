@@ -95,7 +95,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     // project-cost register. Cost-code and vendor registers remain unavailable
     // until their own server read contracts exist.
     item('project-cost-cwip', 'Project Cost & CWIP', 'API_READ'), item('unit-cost-ledger', 'Unit Cost Ledger', 'API_READ'),
-    item('unit-transfer', 'Unit Transfer'),
+    item('unit-transfer', 'Unit Transfer', 'API_COMMAND', [
+      'One property Unit transfers through paired source and target Journals with exact source, attachment, mapping, cost-basis, period and ownership evidence.',
+      'Submit, review, approve, reject and Post execute for both companies in one database transaction under separate finite authorities.',
+    ]),
     // Both surfaces read OIDC-scoped POSTED ledger evidence. The register
     // additionally requires exact retained loan and lender source identity.
     item('construction-loan', 'Construction Loan', 'API_READ'),

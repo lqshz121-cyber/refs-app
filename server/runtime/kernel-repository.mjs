@@ -742,6 +742,56 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async readUnitTransferRegister({tenantId,entityId,periodId,limit=100,afterDate=null,afterPairId=null}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_unit_transfer_register($1,$2,$3,$4::integer,$5::date,$6::uuid) AS result',[tenantId,entityId,periodId,limit,afterDate,afterPairId]
+    ),'UNIT_TRANSFER_REGISTER_MISSING','Unit Transfer register unavailable').result);
+  }
+
+  async readUnitTransferCreateOptions({tenantId,entityId,periodId,targetEntityId,transferDate,targetAttachmentIds=[]}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_unit_transfer_create_options($1,$2,$3,$4,$5::date,$6::uuid[]) AS result',[tenantId,entityId,periodId,targetEntityId,transferDate,targetAttachmentIds]
+    ),'UNIT_TRANSFER_CREATE_OPTIONS_MISSING','Unit Transfer create options unavailable').result);
+  }
+
+  async readUnitTransferPair({tenantId,entityId,pairId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_unit_transfer_pair($1,$2,$3) AS result',[tenantId,entityId,pairId]
+    ),'UNIT_TRANSFER_PAIR_MISSING','Unit Transfer pair unavailable').result);
+  }
+
+  async createUnitTransfer({tenantId,entityId,targetEntityId,sourcePeriodId,targetPeriodId,transferDate,unitRef,sourceDocumentId,sourceDocumentLineId,expectedSourceVersion,expectedSourceHash,expectedSourceLineHash,expectedSourceAttachmentHash,expectedTransferPrice,sourceMappingSnapshotId,expectedSourceMappingHash,targetMappingSnapshotId,expectedTargetMappingHash,sourceCarryingAccountCodes,sourceGainLossAccountCode,targetInventoryAccountCode,expectedCarryingAmount,expectedUnitVersion,targetAttachmentIds,expectedTargetAttachmentHash,sourceJournalNumber,targetJournalNumber,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,targetEntityId,sourcePeriodId,targetPeriodId,transferDate,unitRef,sourceDocumentId,sourceDocumentLineId,expectedSourceVersion,expectedSourceHash,expectedSourceLineHash,expectedSourceAttachmentHash,expectedTransferPrice,sourceMappingSnapshotId,expectedSourceMappingHash,targetMappingSnapshotId,expectedTargetMappingHash,sourceCarryingAccountCodes,sourceGainLossAccountCode,targetInventoryAccountCode,expectedCarryingAmount,expectedUnitVersion,targetAttachmentIds,expectedTargetAttachmentHash,sourceJournalNumber,targetJournalNumber,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_create_unit_transfer_hash($1,$2,$3,$4,$5,$6::date,$7,$8,$9,$10::bigint,$11,$12,$13,$14::numeric,$15,$16,$17,$18,$19::text[],$20,$21,$22::numeric,$23::bigint,$24::uuid[],$25,$26,$27,$28) AS request_hash',args),'UNIT_TRANSFER_HASH_MISSING','Unit Transfer command hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_create_unit_transfer($1,$2,$3,$4,$5,$6::date,$7,$8,$9,$10::bigint,$11,$12,$13,$14::numeric,$15,$16,$17,$18,$19::text[],$20,$21,$22::numeric,$23::bigint,$24::uuid[],$25,$26,$27,$28,$29,$30) AS result',[...args,idempotencyKey,requestHash]),'UNIT_TRANSFER_CREATE_FAILED','Unit Transfer Draft pair unavailable').result;
+    });
+  }
+
+  async transitionUnitTransfer({tenantId,entityId,pairId,action,expectedPairRevision,expectedSourceRevision,expectedTargetRevision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,pairId,action,expectedPairRevision,expectedSourceRevision,expectedTargetRevision,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_unit_transfer_transition_hash($1,$2,$3,$4,$5::bigint,$6::bigint,$7::bigint,$8) AS request_hash',args),'UNIT_TRANSFER_TRANSITION_HASH_MISSING','Unit Transfer transition hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_transition_unit_transfer_pair($1,$2,$3,$4,$5::bigint,$6::bigint,$7::bigint,$8,$9,$10) AS result',[...args,idempotencyKey,requestHash]),'UNIT_TRANSFER_TRANSITION_FAILED','Unit Transfer transition unavailable').result;
+    });
+  }
+
+  async cancelUnitTransfer({tenantId,entityId,pairId,expectedPairRevision,expectedSourceRevision,expectedTargetRevision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,pairId,expectedPairRevision,expectedSourceRevision,expectedTargetRevision,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_unit_transfer_cancel_hash($1,$2,$3,$4::bigint,$5::bigint,$6::bigint,$7) AS request_hash',args),'UNIT_TRANSFER_CANCEL_HASH_MISSING','Unit Transfer cancellation hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_cancel_unit_transfer_pair($1,$2,$3,$4::bigint,$5::bigint,$6::bigint,$7,$8,$9) AS result',[...args,idempotencyKey,requestHash]),'UNIT_TRANSFER_CANCEL_FAILED','Unit Transfer cancellation unavailable').result;
+    });
+  }
+
+  async postUnitTransfer({tenantId,entityId,pairId,expectedPairRevision,expectedSourceRevision,expectedTargetRevision,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,pairId,expectedPairRevision,expectedSourceRevision,expectedTargetRevision];
+      const requestHash=requireRow(await client.query('SELECT refs_unit_transfer_post_hash($1,$2,$3,$4::bigint,$5::bigint,$6::bigint) AS request_hash',args),'UNIT_TRANSFER_POST_HASH_MISSING','Unit Transfer Post hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_post_unit_transfer_pair($1,$2,$3,$4::bigint,$5::bigint,$6::bigint,$7,$8) AS result',[...args,idempotencyKey,requestHash]),'UNIT_TRANSFER_POST_FAILED','Unit Transfer Post unavailable').result;
+    });
+  }
+
   async bindFixedAssetDisposalSource({tenantId,entityId,fixedAssetRegisterEvidenceId,journalEntryId,sourceDocumentId,expectedSourceHash,expectedRevision,reason,idempotencyKey}){
     return this.inSession(async client=>{const args=[tenantId,entityId,fixedAssetRegisterEvidenceId,journalEntryId,sourceDocumentId,expectedSourceHash,expectedRevision,reason];const requestHash=requireRow(await client.query('SELECT refs_bind_fixed_asset_disposal_source_hash($1,$2,$3,$4,$5,$6,$7,$8) request_hash',args),'FIXED_ASSET_SOURCE_HASH_FAILED','Source binding hash missing').request_hash;return requireRow(await client.query('SELECT refs_bind_fixed_asset_disposal_source($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_SOURCE_BIND_FAILED','Source binding response missing').result;});
   }
