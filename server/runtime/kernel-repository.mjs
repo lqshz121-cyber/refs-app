@@ -2634,6 +2634,20 @@ export class PostgresAccountingKernel{
     ),'RECEIPT_DETAIL_UNAVAILABLE','Receipt evidence is unavailable').result);
   }
 
+  async readIntegrationTransactionRegister({tenantId,entityId,connectorCode=null,sourceModule=null,status='ALL',afterId=null,limit=25}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_integration_transaction_register($1,$2,$3,$4,$5,$6,$7) AS result',
+      [tenantId,entityId,connectorCode,sourceModule,status,afterId,limit]
+    ),'INTEGRATION_TRANSACTION_REGISTER_UNAVAILABLE','Integration transactions are unavailable').result);
+  }
+
+  async readIntegrationTransactionDetail({tenantId,entityId,rawEventId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_integration_transaction_detail($1,$2,$3) AS result',
+      [tenantId,entityId,rawEventId]
+    ),'INTEGRATION_TRANSACTION_DETAIL_UNAVAILABLE','Integration transaction evidence is unavailable').result);
+  }
+
   async getAiConstructionLoanCwipPopulationAttestation({tenantId,entityId,accountingPeriodId}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_ai_construction_loan_cwip_population_attestation($1,$2,$3) AS result',

@@ -58,12 +58,12 @@ for (const [route, label] of [
   ['management-reports', 'Management reports'],
   ['kpi-scorecard', 'KPIs'],
   ['analytics-dashboards', 'Dashboards'],
-  ['integration-transactions', 'Integration transactions'],
 ]) {
   assert.equal(navigationItemForRoute(route)?.label, label, `${label} must remain discoverable without granting unsupported authority`);
   assert.equal(navigationItemForRoute(route)?.availability, 'API_UNAVAILABLE', `${label} must fail closed until its authoritative reader exists`);
 }
 assert.match(navigationItemForRoute('integration-transactions')?.requirements.join(' '), /immutable connector identity, connection revision, source key and version, receipt and payload hashes/);
+assert.equal(navigationItemForRoute('integration-transactions')?.availability,'API_READ','Integration transactions must expose the bounded immutable imported-transaction reader');
 assert.match(navigationItemForRoute('custom-reports')?.requirements.join(' '), /immutable report identity, revision, creator, last modifier/);
 assert.match(navigationItemForRoute('management-reports')?.requirements.join(' '), /immutable report identity, revision, lifecycle state/);
 assert.match(navigationItemForRoute('kpi-scorecard')?.requirements.join(' '), /immutable KPI and scorecard identities/);
@@ -73,7 +73,7 @@ assert.equal(navigationItemForRoute('settings')?.availability,'API_READ','Accoun
 assert.equal(navigationItemForRoute('month-end-close')?.availability,'API_COMMAND','Month-End Close must use the evidence-bound close command');
 assert.equal(navigationItemForRoute('period-management')?.availability,'API_READ','Period Management must expose the immutable close-readiness reader');
 assert.equal(navigationItemForRoute('mapping')?.availability,'API_READ','Mapping Center must expose only the complete approved account-to-report mapping reader');
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['vendors', 'customers', 'account-inquiry', 'accounting-analysis-report', 'accruals', 'ai-audit', 'ai-je-workbench', 'amortization', 'audit-log', 'bank', 'bank-batch-pipeline', 'bill-payments', 'chart-of-accounts', 'consolidation', 'construction-loan', 'fixed-assets', 'general-ledger', 'integration-hub', 'intercompany', 'journals', 'loan-register', 'mapping', 'overview', 'payables', 'period-management', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'receipts', 'reconciliation', 'reports', 'settings', 'source-documents', 'staging', 'mapping-exceptions', 'subsidiary-ledger', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['vendors', 'customers', 'account-inquiry', 'accounting-analysis-report', 'accruals', 'ai-audit', 'ai-je-workbench', 'amortization', 'audit-log', 'bank', 'bank-batch-pipeline', 'bill-payments', 'chart-of-accounts', 'consolidation', 'construction-loan', 'fixed-assets', 'general-ledger', 'integration-hub', 'integration-transactions', 'intercompany', 'journals', 'loan-register', 'mapping', 'overview', 'payables', 'period-management', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'receipts', 'reconciliation', 'reports', 'settings', 'source-documents', 'staging', 'mapping-exceptions', 'subsidiary-ledger', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
 const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation','Source & Staging']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}} onTogglePanel={() => {}}/>);
 const inertToggleMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
@@ -247,7 +247,7 @@ assert.match(fixedAssetsMarkup,/Fixed assets/);assert.match(fixedAssetsMarkup,/A
 const rulesUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('rules')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.match(rulesUnavailableMarkup,/Rules is not available yet/);assert.match(rulesUnavailableMarkup,/role="status"/);
 assert.doesNotMatch(rulesUnavailableMarkup,/New rule|Bank rules|Integration rules|Search by name or conditions|All rules|Priority|Conditions|Auto-post|Edit|reorder|categorise|categorize|match|post/,'the unavailable Rules route must not reproduce rule filters, rows, mutations, or automatic accounting actions');
-for (const route of ['intuit-experts','products-services','custom-reports','management-reports','kpi-scorecard','analytics-dashboards','integration-transactions']) {
+for (const route of ['intuit-experts','products-services','custom-reports','management-reports','kpi-scorecard','analytics-dashboards']) {
   const item = navigationItemForRoute(route);
   const markup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={item} config={{entityId:'entity-1',periodId:'period-1'}}/>);
   const renderedLabel = item.label.replaceAll('&', '&amp;');

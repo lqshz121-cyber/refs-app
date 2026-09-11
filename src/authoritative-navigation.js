@@ -48,7 +48,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Entity-scoped receipt queue with immutable receipt, attachment object/version, content hash, creator, review status, and extracted accounting facts.',
       'Read-only For review and Reviewed list/detail endpoints; upload, OCR, review mutation, add-to-books, export, customize, and payment promotion remain unavailable.',
     ]),
-    item('integration-transactions', 'Integration transactions', 'API_UNAVAILABLE', [
+    item('integration-transactions', 'Integration transactions', 'API_READ', [
       'Permission-scoped connector definitions and imported-transaction rows with immutable connector identity, connection revision, source key and version, receipt and payload hashes, transaction status, read timestamp, and audit identifiers.',
       'Read-only connection status, transaction filters, bounded paging, and detail evidence are required; connector setup, provider synchronisation, import, mapping, posting, and external actions remain unavailable.',
     ]),

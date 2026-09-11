@@ -15,6 +15,7 @@ import {validConstructionLoanRegisterSelection,validConstructionLoanRegister} fr
 import {validAccountingStagingSelection,validAccountingStagingRegister} from '../runtime/accounting-staging-register.mjs';
 import {validMappingExceptionSelection,validMappingExceptionRegister} from '../runtime/mapping-exception-register.mjs';
 import {validReceiptSelection,validReceiptRow,validReceiptRegister} from '../runtime/receipt-register.mjs';
+import {validIntegrationTransactionSelection,validIntegrationTransactionRow,validIntegrationTransactionRegister} from '../runtime/integration-transaction-register.mjs';
 import {createServer} from 'node:http';
 import {reportAccessFailure} from './access-failure-diagnostics.mjs';
 import {validSettlementKind,validSettlementBankSelection,validSettlementBankPage,validSettlementContext} from '../runtime/settlement-input-reads.mjs';
@@ -802,6 +803,23 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         try{result=await kernel.readReceiptDetail({tenantId:principal.tenantId,entityId,receiptId});}catch(error){if(error?.code==='P0002')throw new AccountingApiError(404,'RECEIPT_NOT_FOUND','Receipt is absent or outside the company.');throw error;}
         if(!validReceiptRow(result,{receiptId}))throw new AccountingApiError(500,'RECEIPT_DETAIL_INVALID','Receipt evidence did not match its identity');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===5&&parts[4]==='integration-transactions'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Integration transaction reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['connectorCode','sourceModule','status','afterId','limit']);
+        const selection={connectorCode:parsedUrl.searchParams.get('connectorCode'),sourceModule:parsedUrl.searchParams.get('sourceModule'),status:parsedUrl.searchParams.get('status')??'ALL',afterId:parsedUrl.searchParams.get('afterId'),limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):25};
+        if(!validIntegrationTransactionSelection(selection)||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Integration transaction selection is invalid');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readIntegrationTransactionRegister!=='function')throw new AccountingApiError(503,'INTEGRATION_TRANSACTION_REGISTER_UNAVAILABLE','Integration transactions are unavailable');
+        try{result=await kernel.readIntegrationTransactionRegister({tenantId:principal.tenantId,entityId,...selection});}catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'INTEGRATION_TRANSACTION_SCOPE_INVALID','The company, filter, or cursor is invalid.');throw error;}
+        if(!validIntegrationTransactionRegister(result,{entityId,...selection}))throw new AccountingApiError(500,'INTEGRATION_TRANSACTION_REGISTER_INVALID','Integration transactions did not match their scope');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='integration-transactions'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Integration transaction reads do not accept command headers');if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');requireExactQuery(parsedUrl.searchParams,[]);
+        const rawEventId=requireUuid(parts[5],'rawEventId'),kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readIntegrationTransactionDetail!=='function')throw new AccountingApiError(503,'INTEGRATION_TRANSACTION_DETAIL_UNAVAILABLE','Integration transaction evidence is unavailable');
+        try{result=await kernel.readIntegrationTransactionDetail({tenantId:principal.tenantId,entityId,rawEventId});}catch(error){if(error?.code==='P0002')throw new AccountingApiError(404,'INTEGRATION_TRANSACTION_NOT_FOUND','Integration transaction is absent or outside the company.');throw error;}
+        if(!validIntegrationTransactionRow(result,{rawEventId}))throw new AccountingApiError(500,'INTEGRATION_TRANSACTION_DETAIL_INVALID','Integration transaction evidence did not match its identity');return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='journal-entries'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
