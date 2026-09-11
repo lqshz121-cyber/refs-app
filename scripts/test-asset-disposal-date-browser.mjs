@@ -27,6 +27,7 @@ try{
  await page.getByRole('button',{name:'Load date',exact:true}).click();await save().waitFor();
  await page.getByLabel('Explanation',{exact:true}).fill('Dispose on the selected date');await save().click();
  await page.getByRole('heading',{name:'Disposal draft saved'}).waitFor();
+ assert.equal(await page.getByRole('heading',{name:'Disposal draft saved'}).evaluate(element=>element===document.activeElement),true,'A confirmed disposal draft must move keyboard focus to its result heading');
  assert.deepEqual(await page.evaluate(()=>window.saved),[{date:'2026-07-02',source:'source-2026-07-02'}]);
  console.log('PASS date edit requires fresh evidence and saves the newly loaded date/source');
 
