@@ -2613,6 +2613,13 @@ export class PostgresAccountingKernel{
     ),'ACCOUNTING_STAGING_REGISTER_UNAVAILABLE','Accounting Staging is unavailable').result);
   }
 
+  async readMappingExceptionRegister({tenantId,entityId,periodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_mapping_exception_register($1,$2,$3) AS result',
+      [tenantId,entityId,periodId]
+    ),'MAPPING_EXCEPTION_REGISTER_UNAVAILABLE','Mapping Exceptions is unavailable').result);
+  }
+
   async getAiConstructionLoanCwipPopulationAttestation({tenantId,entityId,accountingPeriodId}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_ai_construction_loan_cwip_population_attestation($1,$2,$3) AS result',

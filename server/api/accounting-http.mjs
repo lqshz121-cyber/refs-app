@@ -13,6 +13,7 @@ import {validSettlementHistorySelection,validSettlementHistory} from '../runtime
 import {validBillPaymentRegisterSelection,validBillPaymentRegister} from '../runtime/bill-payment-register.mjs';
 import {validConstructionLoanRegisterSelection,validConstructionLoanRegister} from '../runtime/construction-loan-register.mjs';
 import {validAccountingStagingSelection,validAccountingStagingRegister} from '../runtime/accounting-staging-register.mjs';
+import {validMappingExceptionSelection,validMappingExceptionRegister} from '../runtime/mapping-exception-register.mjs';
 import {createServer} from 'node:http';
 import {reportAccessFailure} from './access-failure-diagnostics.mjs';
 import {validSettlementKind,validSettlementBankSelection,validSettlementBankPage,validSettlementContext} from '../runtime/settlement-input-reads.mjs';
@@ -765,6 +766,18 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!kernel||typeof kernel.readAccountingStagingRegister!=='function')throw new AccountingApiError(503,'ACCOUNTING_STAGING_REGISTER_UNAVAILABLE','Accounting Staging is unavailable');
         try{result=await kernel.readAccountingStagingRegister({tenantId:principal.tenantId,entityId,...selection});}catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'ACCOUNTING_STAGING_SCOPE_INVALID','The company or primary accounting period is invalid.');throw error;}
         if(!validAccountingStagingRegister(result,{entityId,...selection}))throw new AccountingApiError(500,'ACCOUNTING_STAGING_REGISTER_INVALID','Accounting Staging did not match its scope');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===5&&parts[4]==='mapping-exceptions'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Mapping Exception reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId']);
+        const selection={periodId:parsedUrl.searchParams.get('periodId')};
+        if(!validMappingExceptionSelection(selection))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Mapping Exception selection is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readMappingExceptionRegister!=='function')throw new AccountingApiError(503,'MAPPING_EXCEPTION_REGISTER_UNAVAILABLE','Mapping Exceptions is unavailable');
+        try{result=await kernel.readMappingExceptionRegister({tenantId:principal.tenantId,entityId,...selection});}catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'MAPPING_EXCEPTION_SCOPE_INVALID','The company or primary accounting period is invalid.');throw error;}
+        if(!validMappingExceptionRegister(result,{entityId,...selection}))throw new AccountingApiError(500,'MAPPING_EXCEPTION_REGISTER_INVALID','Mapping Exceptions did not match its scope');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='journal-entries'){

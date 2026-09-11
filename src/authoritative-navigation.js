@@ -56,9 +56,9 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Read production WBS Payables, Bank, AutoRec and Journal evidence for one explicit company and date scope.',
       'The controlled H1 test import remains server-authorised, TEST ONLY, company-scoped and fully auditable.',
     ]),
-    item('mapping-exceptions', 'Mapping Exceptions', 'API_UNAVAILABLE', [
-      'Entity- and period-scoped exception read model with mapping version, reason, and retained audit evidence.',
-      'A reviewed resolution command must be separately authorised and versioned.',
+    item('mapping-exceptions', 'Mapping Exceptions', 'API_READ', [
+      'Entity- and period-scoped retained mapping exceptions with exact Source Document, staging, ownership, outcome, and immutable mapping version evidence.',
+      'Assignment, review, resolution, waiver, Draft creation, and posting remain unavailable from this register.',
     ]),
   ]),
   group('Auto Reconciliation', [

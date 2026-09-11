@@ -5648,6 +5648,33 @@
         }
       }
     },
+    "/entities/{entityId}/mapping-exceptions": {
+      "get": {
+        "operationId": "readMappingExceptionRegister",
+        "summary": "Read the authoritative Mapping Exception register",
+        "description": "Requires GL.JE.VIEW for the selected company. Returns period-scoped retained mapping exceptions with exact Source Document, staging, and immutable mapping snapshot evidence. This is a no-store read and exposes no assignment, review, resolution, waiver, Draft, or posting command.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "responses": {
+          "200": {
+            "description": "Scoped authoritative Mapping Exception register",
+            "headers": {"Cache-Control":{"schema":{"type":"string","const":"no-store"}}},
+            "content": {"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"object","additionalProperties":false,"required":["schema_version","entity_id","period_id","period_code","period_start","period_end","row_count","open_count","in_review_count","resolved_count","waived_count","rows","action_flags"],"properties":{
+              "schema_version":{"const":"MAPPING_EXCEPTION_REGISTER_V1"},"entity_id":{"$ref":"#/components/schemas/Uuid"},"period_id":{"$ref":"#/components/schemas/Uuid"},"period_code":{"type":"string","pattern":"^[0-9]{4}-(0[1-9]|1[0-2])$"},"period_start":{"type":"string","format":"date"},"period_end":{"type":"string","format":"date"},
+              "row_count":{"type":"integer","minimum":0},"open_count":{"type":"integer","minimum":0},"in_review_count":{"type":"integer","minimum":0},"resolved_count":{"type":"integer","minimum":0},"waived_count":{"type":"integer","minimum":0},
+              "rows":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["exception_id","exception_version","exception_code","status","severity","owner","reason","created_at","resolved_by","resolved_at","resolution","source_document_id","source_document_revision","source_system","source_module","source_record_id","source_version","document_type","document_no","accounting_date","currency","gross_amount","payload_hash","staging_item_id","staging_version","staging_status","mapping_snapshot_id","mapping_family","mapping_version","mapping_status","mapping_snapshot_hash","mapping_effective_from","mapping_effective_to","action_flags"],"properties":{
+                "exception_id":{"$ref":"#/components/schemas/Uuid"},"exception_version":{"type":"integer","minimum":0},"exception_code":{"type":"string","minLength":1},"status":{"type":"string","enum":["OPEN","IN_REVIEW","RESOLVED","WAIVED"]},"severity":{"type":"string","enum":["LOW","MEDIUM","HIGH","CRITICAL"]},"owner":{"type":["string","null"]},"reason":{"type":"string","minLength":1,"maxLength":2000},"created_at":{"type":"string","format":"date-time"},"resolved_by":{"type":["string","null"]},"resolved_at":{"type":["string","null"],"format":"date-time"},"resolution":{"type":["string","null"],"maxLength":2000},
+                "source_document_id":{"$ref":"#/components/schemas/Uuid"},"source_document_revision":{"type":"integer","minimum":0},"source_system":{"type":"string","minLength":1},"source_module":{"type":"string","minLength":1},"source_record_id":{"type":"string","minLength":1},"source_version":{"type":"string","minLength":1},"document_type":{"type":"string","minLength":1},"document_no":{"type":["string","null"]},"accounting_date":{"type":"string","format":"date"},"currency":{"type":"string","pattern":"^[A-Z]{3}$"},"gross_amount":{"type":"string","pattern":"^-?(0|[1-9][0-9]{0,15})\\.[0-9]{4}$"},"payload_hash":{"$ref":"#/components/schemas/Sha256"},
+                "staging_item_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"staging_version":{"type":["integer","null"],"minimum":0},"staging_status":{"type":["string","null"],"enum":["RECEIVED","VALIDATING","PENDING_MAPPING","PENDING_CODING","PENDING_REVIEW","READY_FOR_DRAFT","DRAFT_CREATED","PENDING_JE_REVIEW","PENDING_JE_APPROVAL","APPROVED","POSTED","RECONCILED","DUPLICATE","QUARANTINED","MAPPING_EXCEPTION","RULE_EXCEPTION","EXCLUDED","REJECTED","REVERSED",null]},
+                "mapping_snapshot_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"mapping_family":{"type":["string","null"]},"mapping_version":{"type":["integer","null"],"minimum":1},"mapping_status":{"type":["string","null"],"enum":["DRAFT","APPROVED","RETIRED",null]},"mapping_snapshot_hash":{"oneOf":[{"$ref":"#/components/schemas/Sha256"},{"type":"null"}]},"mapping_effective_from":{"type":["string","null"],"format":"date-time"},"mapping_effective_to":{"type":["string","null"],"format":"date-time"},
+                "action_flags":{"type":"object","additionalProperties":false,"required":["can_assign","can_review","can_resolve","can_waive","can_create_draft","can_post"],"properties":{"can_assign":{"const":false},"can_review":{"const":false},"can_resolve":{"const":false},"can_waive":{"const":false},"can_create_draft":{"const":false},"can_post":{"const":false}}}
+              }}},
+              "action_flags":{"type":"object","additionalProperties":false,"required":["can_assign","can_review","can_resolve","can_waive","can_create_draft","can_post"],"properties":{"can_assign":{"const":false},"can_review":{"const":false},"can_resolve":{"const":false},"can_waive":{"const":false},"can_create_draft":{"const":false},"can_post":{"const":false}}}
+            }}}}}}
+          },
+          "400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"500":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/reports/prepaid-rollforward": {
       "get": {
         "operationId": "getPrepaidRollforward",
