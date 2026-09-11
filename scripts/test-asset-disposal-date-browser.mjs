@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 import http from 'node:http';
 import {fileURLToPath} from 'node:url';
 import {build} from 'esbuild';
@@ -12,7 +13,8 @@ const bundle=await build({stdin:{contents:`import React from 'react';import{crea
  const readOptions=({disposalDate})=>{window.calls.push(disposalDate);return window.defer?new Promise(resolve=>window.pending.push(()=>resolve({ok:true,data:fixture(disposalDate)}))):Promise.resolve({ok:true,data:fixture(disposalDate)});};
  window.saved=[];const createDraft=async request=>{window.saved.push({date:request.options.snapshot.disposal_date,source:request.sourceDocumentId});return {ok:true,data:{journal_entry_id:'journal',period_id:'period',proceeds:'0.0000',gain_or_loss:'-100.0000'}};};
  createRoot(document.getElementById('app')).render(<AuthoritativeAssetDisposal config={{baseUrl:location.origin,tenantId:'tenant',entityId:'entity',periodId:'period'}} assetId="asset" disposalDate="2026-07-01" readOptions={readOptions} createDraft={createDraft}/>);`,resolveDir:root,loader:'jsx'},bundle:true,jsx:'automatic',write:false,format:'iife',platform:'browser'});
-const server=http.createServer((req,res)=>{res.setHeader('content-type',req.url==='/app.js'?'text/javascript':'text/html');res.end(req.url==='/app.js'?bundle.outputFiles[0].text:'<!doctype html><html><body><main id="app"></main><script src="/app.js"></script></body></html>');});
+const index=await fs.readFile(new URL('../index.html',import.meta.url),'utf8'),styles=[...index.matchAll(/<style[^>]*>[\s\S]*?<\/style>/g)].map(match=>match[0]).join('\n');
+const server=http.createServer((req,res)=>{res.setHeader('content-type',req.url==='/app.js'?'text/javascript':'text/html');res.end(req.url==='/app.js'?bundle.outputFiles[0].text:`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">${styles}</head><body><main id="app"></main><script src="/app.js"></script></body></html>`);});
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 let browser;
 try{
@@ -21,6 +23,7 @@ try{
  const open=async()=>{await page.goto(`http://127.0.0.1:${server.address().port}`);await page.getByRole('button',{name:'Record disposal',exact:true}).click();await page.getByRole('button',{name:'Save disposal draft',exact:true}).waitFor({timeout:5000}).catch(async e=>{console.error(await page.locator('body').innerText());throw e;});};
  const save=()=>page.getByRole('button',{name:'Save disposal draft',exact:true});
  await open();
+ for(const width of [1280,390]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`disposal form overflows at ${width}px`);}
  await page.getByLabel('Disposal date',{exact:true}).fill('2026-07-02');
  assert.equal(await save().count(),0,'Changing date must discard the previous date snapshot before any save');
  assert.deepEqual(await page.evaluate(()=>window.saved),[]);
@@ -49,5 +52,5 @@ try{
  assert.equal(await page.getByRole('button',{name:'Load date',exact:true}).isDisabled(),true);
  await page.getByRole('button',{name:'Close disposal',exact:true}).click();
  assert.equal(await page.getByRole('button',{name:'Record disposal',exact:true}).evaluate(el=>el===document.activeElement),true);
- assert.deepEqual(errors,[]);console.log('PASS empty date rejects late response; closing returns focus; no browser errors');
+ assert.deepEqual(errors,[]);console.log('PASS actual-style desktop/mobile layout, empty date rejection, focus return, and no browser errors');
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}
