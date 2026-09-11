@@ -53,7 +53,7 @@
     "test:authoritative-list-context": "node ./tests/authoritative-list-context.test.js",
     "test:authoritative-journals": "esbuild ./tests/authoritative-journal-evidence.test.jsx --bundle --platform=node --format=cjs --jsx=automatic --loader:.js=jsx --loader:.jsx=jsx --outfile=tests/authoritative-journal-evidence.test.cjs && node tests/authoritative-journal-evidence.test.cjs",
     "test:attachment-client": "esbuild ./tests/attachment-api-client.test.js --bundle --platform=node --format=cjs --outfile=tests/attachment-api-client.test.cjs && node tests/attachment-api-client.test.cjs",
-    "test:oidc": "esbuild ./tests/oidc-client.test.js --bundle --platform=node --format=cjs --outfile=tests/oidc-client.test.cjs && node tests/oidc-client.test.cjs",
+    "test:oidc": "node --test tests/authoritative-identity-bootstrap.test.js && esbuild ./tests/oidc-client.test.js --bundle --platform=node --format=cjs --outfile=tests/oidc-client.test.cjs && node tests/oidc-client.test.cjs",
     "test:runtime-config": "esbuild ./tests/runtime-config.test.js --bundle --platform=node --format=cjs --outfile=tests/runtime-config.test.cjs && node tests/runtime-config.test.cjs",
     "test:authoritative-release-gate": "esbuild ./tests/authoritative-release-gate.test.js --bundle --platform=node --format=cjs --outfile=tests/authoritative-release-gate.test.cjs && node tests/authoritative-release-gate.test.cjs",
     "test:authoritative-theme-preference": "esbuild ./tests/authoritative-theme-preference.test.js --bundle --platform=node --format=cjs --outfile=tests/authoritative-theme-preference.test.cjs && node tests/authoritative-theme-preference.test.cjs",

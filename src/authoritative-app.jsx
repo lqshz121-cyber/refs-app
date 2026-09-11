@@ -66,6 +66,7 @@ import {AuthoritativeUnitTransferWorkspace} from './authoritative-unit-transfer-
 import {createAuthoritativeReadGuard} from './authoritative-read-guard.js';
 import {canResumeFixedAssetAcquisitionJournal,resolveFixedAssetAcquisitionJournalScope} from './fixed-asset-acquisition-workflow.js';
 import {resolveAuthorizedScopeFallback} from './authoritative-scope-selection.js';
+import {bootstrapAuthoritativeIdentity} from './authoritative-identity-bootstrap.js';
 
 export const authoritativeRuntimeConfigured = (environment = globalThis) =>
   Boolean(accountingApiConfig(environment) && oidcRuntimeConfig(environment));
@@ -503,20 +504,16 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       setPhase('AUTHENTICATED');
     };
     const restoreOrCompleteIdentity = async () => {
-      const result = await oidcClient.completeRedirect();
-      if (!active) return;
+      const bootstrap = await bootstrapAuthoritativeIdentity(oidcClient, () => active);
+      if (bootstrap.cancelled) return;
       // A top-level visit with no usable token starts the ordinary PKCE login
       // immediately. The provider can reuse its own first-party SSO session,
       // while a signed-out user sees the provider once instead of first taking
       // a prompt=none round trip and then returning here for another click.
       // Authentication, token validation and the retained-route restore remain
       // unchanged; only the redundant preflight redirect is removed.
-      if (!result.ok && result.code === 'OIDC_LOGIN_REQUIRED') {
-        try { await oidcClient.startLogin(); }
-        catch { finishIdentity({ok:false,code:'OIDC_LOGIN_REQUIRED'}); }
-        return;
-      }
-      finishIdentity(result);
+      if (bootstrap.redirectStarted) return;
+      finishIdentity(bootstrap.result);
     };
     void restoreOrCompleteIdentity();
     return () => { active = false; };
