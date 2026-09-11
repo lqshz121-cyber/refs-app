@@ -5,6 +5,7 @@ import { accountingApiConfig, refreshAuthoritativeChartOfAccounts, refreshAuthor
 import { AuthoritativeSourceDocumentsWorkspace } from './authoritative-source-documents-workspace.jsx';
 import { BrowserOidcClient, RENEWAL_MIN_INTERVAL_MS, oidcRuntimeConfig, silentRenewalSchedule } from './oidc-client.js';
 import { AuthoritativeBankWorkspace, AuthoritativeReconciliationWorkspace } from './authoritative-bank-workspace.jsx';
+import { AuthoritativeBankAccountsWorkspace } from './authoritative-bank-accounts-workspace.jsx';
 import { AuthoritativeBankBatchPipelineWorkspace } from './authoritative-bank-batch-pipeline-workspace.jsx';
 import { Icon, StateBlock } from './ui.jsx';
 import { focusFirstControl, navDrawerAttributes, readOffCanvas, restoreFocus, watchOffCanvas } from './nav-drawer.js';
@@ -177,6 +178,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   // and journal reads complete, so the visible workspace never keeps stale
   // evidence while the header claims that the reader refreshed the system.
   const [workspaceRefreshVersion, setWorkspaceRefreshVersion] = useState(0);
+  const [bankWorkspaceScope,setBankWorkspaceScope]=useState(null);
   const [sharedAccountingLoaded, setSharedAccountingLoaded] = useState(false);
   const [scopeRows,setScopeRows]=useState([]);
   const [scopeMetadata,setScopeMetadata]=useState(null);
@@ -372,6 +374,14 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     setRouteState(next); retainRoute(environment, next);
     setPhase(current => current === 'ACCESS_DENIED' ? 'AUTHENTICATED' : current);
   }, [environment]);
+  const openBankTransactionsForAccount=useCallback(bankAccountRef=>{
+    setBankWorkspaceScope({bankAccountRef});
+    setRoute('bank');
+  },[setRoute]);
+  const openReconciliationForAccount=useCallback((bankAccountRef,statementEndingDate)=>{
+    setBankWorkspaceScope({bankAccountRef,statementEndingDate});
+    setRoute('reconciliation');
+  },[setRoute]);
   useEffect(() => watchRetainedRoute(environment, next => {
     setDocumentDetail(null); setAdjustmentDetail(null); setAgingDetail(null); setReportAgingDetail(null); setReportGeneralLedgerDetail(null); setReportReconciliationDetail(null); setReportCatalogReturn(null);
     if (next === 'reports') setReportsNavigationVersion(current => current + 1);
@@ -698,8 +708,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'receivables' && (reportAgingDetail?<AuthoritativeAgingWorkspace config={displayConfig} side="ar" fetcher={boundFetcher} onBack={closeReportAgingEvidence} backLabel="Back to Reports" returnContext={reportAgingDetail.returnContext} expectedOrigin="REPORTS"/>:agingDetail?.side==='AR'?<AuthoritativeAgingWorkspace config={displayConfig} side="ar" fetcher={boundFetcher} onBack={closeAgingEvidence} returnContext={agingDetail.returnContext} expectedOrigin="RECEIVABLES"/>:documentDetail?.kind==='AR'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AR" entityId={config.entityId} config={displayConfig} returnContext={documentDetail.returnContext} onBack={closeDocumentEvidence} currentActorAccess={accessState.status==='READY'?accessState.row:null} accounts={scopeRows} scopes={scopeCatalog} fetcher={boundFetcher} onOpenDraft={openNativeSettlementDraft} onRefresh={()=>{closeDocumentEvidence();refresh();}}/>:adjustmentDetail?.side==='AR'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AR" entityId={config.entityId} config={displayConfig} returnContext={adjustmentDetail.returnContext} onBack={closeAdjustmentEvidence} onOpenJournal={openAdjustmentJournalWorkflow} currentActorAccess={accessState.status==='READY'?accessState.row:null} accounts={scopeRows} scopes={scopeCatalog} fetcher={boundFetcher} onOpenDraft={openNativeSettlementDraft} onRefresh={()=>{closeAdjustmentEvidence();refresh();}}/>:<AuthoritativeDocumentWorkspace kind="AR" onRefresh={refresh} currentActorAccess={accessState.status==='READY'?accessState.row:null} scope={scopeMetadata} accounts={scopeRows} onOpenDraft={receipt=>openDraftJournalWorkflow(receipt,'NATIVE_DOCUMENT_DRAFT_NOT_FOUND')} config={displayConfig} fetcher={boundFetcher} documents={data.ar.invoices} adjustments={data.ar.adjustments} readScopes={{documents:data.ar.scope,adjustments:data.ar.adjustmentsScope}} view={listViews.AR} onViewChange={view=>updateListView('AR',view)} onOpenDocument={(row,focusId,tableX)=>openDocumentEvidence('AR',row,focusId,tableX)} onOpenAdjustment={(row,focusId,tableX)=>openAdjustmentEvidence('AR',row,focusId,tableX)} onOpenAging={()=>openAgingEvidence('AR','authoritative-ar-aging-launch','RECEIVABLES')}/>) }
         {phase === 'READY' && ['vendors','customers'].includes(route) && <CounterpartyRegisterWorkspace key={`${route}-${config.tenantId}-${config.entityId}-${workspaceRefreshVersion}`} config={displayConfig} kind={route==='vendors'?'VENDOR':'CUSTOMER'} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'bank-batch-pipeline' && <AuthoritativeBankBatchPipelineWorkspace key={`bank-batch-pipeline-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment}/>}
-        {phase === 'READY' && route === 'bank' && <AuthoritativeBankWorkspace key={`bank-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment}/>}
-        {phase === 'READY' && route === 'reconciliation' && <AuthoritativeReconciliationWorkspace key={`reconciliation-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} onBack={reportReconciliationDetail?closeReportReconciliation:null}/>}
+        {phase === 'READY' && route === 'bank' && <AuthoritativeBankWorkspace key={`bank-${workspaceRefreshVersion}-${bankWorkspaceScope?.bankAccountRef||''}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialScope={bankWorkspaceScope}/>}
+        {phase === 'READY' && route === 'reconciliation' && <AuthoritativeReconciliationWorkspace key={`reconciliation-${workspaceRefreshVersion}-${bankWorkspaceScope?.bankAccountRef||''}-${bankWorkspaceScope?.statementEndingDate||''}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialScope={bankWorkspaceScope} onBack={reportReconciliationDetail?closeReportReconciliation:null}/>}
         {phase === 'READY' && route === 'wbs-payable-review' && <AuthoritativeWbsPayableReviewWorkspace key={`wbs-payable-review-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'staging' && <AuthoritativeAccountingStagingWorkspace key={`staging-${workspaceRefreshVersion}`} config={displayConfig} access={accessState.status==='READY'?accessState.row:null} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'mapping-exceptions' && <AuthoritativeMappingExceptionsWorkspace key={`mapping-exceptions-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
@@ -737,7 +747,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'settings' && <AuthoritativeAccountingSettingsWorkspace key={`accounting-settings-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'mapping' && <AuthoritativeReportMappingsWorkspace key={`report-mappings-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'master-data' && <AuthoritativeMasterDataWorkspace key={`master-data-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
-        {phase === 'READY' && !['vendors','customers','overview','approvals','payables','receivables','bill-payments','bank-batch-pipeline','bank','reconciliation','rules','checks-payments','recurring-transactions','revenue-recognition','wbs-payable-review','staging','mapping-exceptions','receipts','integration-transactions','ai-audit','ai-je-workbench','accounting-analysis-report','wbs-autorec-evidence','integration-hub','reports','project-cost-cwip','unit-cost-ledger','property-ops-pickup','construction-loan','loan-register','amortization','fixed-assets','intercompany','consolidation','journals','source-documents','chart-of-accounts','account-inquiry','subsidiary-ledger','general-ledger','accruals','closing-accounting','month-end-close','period-management','audit-log','settings','mapping','master-data'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
+        {phase === 'READY' && route === 'bank-accounts' && <AuthoritativeBankAccountsWorkspace key={`bank-accounts-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onOpenTransactions={openBankTransactionsForAccount} onOpenReconciliation={openReconciliationForAccount}/>}
+        {phase === 'READY' && !['vendors','customers','overview','approvals','payables','receivables','bill-payments','bank-batch-pipeline','bank','reconciliation','rules','checks-payments','recurring-transactions','revenue-recognition','wbs-payable-review','staging','mapping-exceptions','receipts','integration-transactions','ai-audit','ai-je-workbench','accounting-analysis-report','wbs-autorec-evidence','integration-hub','reports','project-cost-cwip','unit-cost-ledger','property-ops-pickup','construction-loan','loan-register','amortization','fixed-assets','intercompany','consolidation','journals','source-documents','chart-of-accounts','account-inquiry','subsidiary-ledger','general-ledger','accruals','closing-accounting','month-end-close','period-management','audit-log','settings','mapping','master-data','bank-accounts'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
       </main>
     </div>
   </div>;
