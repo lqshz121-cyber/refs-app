@@ -24,4 +24,7 @@ test('fresh PostgreSQL gate requires all isolated runtime identities and the req
   assert.match(source,/postgresTestArgs\.push\('tests\/postgres-kernel\.test\.mjs'\)/);
   assert.match(source,/process\.execPath,postgresTestArgs/);
   assert.match(source,/shell:process\.platform==='win32'&&command==='docker'/);
+  assert.match(source,/for\(const key of \['tests','pass','fail','skipped'\]\)/);
+  assert.match(source,/tap\.pass!==tap\.tests\|\|tap\.fail!==0\|\|tap\.skipped!==0/);
+  assert.match(source,/Fresh PostgreSQL gate requires one or more passing, non-skipped tests/);
 });

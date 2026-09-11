@@ -58,6 +58,24 @@ function run(command,args,env,{capture=false}={}){
   });
 }
 
+function readTapSummary(output){
+  const summary={};
+  for(const key of ['tests','pass','fail','skipped']){
+    const match=output.match(new RegExp(`^# ${key} (\\d+)$`,'m'));
+    if(!match)return null;
+    summary[key]=Number(match[1]);
+  }
+  return summary;
+}
+
+function assertZeroSkipPostgresResults(output){
+  const tap=readTapSummary(output);
+  if(tap===null||tap.tests<1||tap.pass!==tap.tests||tap.fail!==0||tap.skipped!==0){
+    throw new Error(`Fresh PostgreSQL gate requires one or more passing, non-skipped tests; received ${tap?JSON.stringify(tap):'no TAP summary'}`);
+  }
+  console.log(`Fresh PostgreSQL gate verified tests=${tap.tests} pass=${tap.pass} fail=${tap.fail} skipped=${tap.skipped}`);
+}
+
 async function probePostgres(databaseUrl){
   const pool=await createPool({databaseUrl,applicationName:'refs-fresh-gate-readiness',max:1});
   try{await pool.query('SELECT 1');}
@@ -90,6 +108,7 @@ try{
   const readiness=await waitForPostgresReadiness({probe:()=>probePostgres(testEnv.MIGRATION_DATABASE_URL)});
   console.log(`Fresh PostgreSQL gate ready after ${readiness.attempts} probe(s) in ${readiness.elapsedMs}ms`);
   const tap=await run(process.execPath,postgresTestArgs,testEnv,{capture:true});
+  assertZeroSkipPostgresResults(tap);
   if(postgresTestNamePattern){const count=Number(tap.match(/^# tests (\d+)$/m)?.[1]||0);if(count<1)throw new Error(`PostgreSQL test runner executed zero tests for pattern: ${postgresTestNamePattern}`);console.log(`Fresh PostgreSQL gate executed_test_count=${count}`);}
 }finally{
   await run('docker',['compose','-p',project,'-f','compose.yaml','down','-v','--remove-orphans'],composeEnv).catch(error=>{
