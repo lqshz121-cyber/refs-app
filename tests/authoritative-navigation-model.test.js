@@ -41,6 +41,8 @@ assert.equal(navigationItemForRoute('approvals').availability, 'API_COMMAND');
 assert.match(navigationItemForRoute('approvals').requirements.join(' '), /server-authorized Journal workflow/);
 assert.equal(navigationItemForRoute('closing-accounting').availability, 'API_COMMAND');
 assert.match(navigationItemForRoute('closing-accounting').requirements.join(' '), /segregation-of-duties controls/);
+assert.equal(navigationItemForRoute('master-data').availability, 'API_COMMAND');
+assert.match(navigationItemForRoute('master-data').requirements.join(' '), /Vendor, Customer, and Chart of Accounts/);
 for (const route of AUTHORITATIVE_API_ROUTES) {
   const item = navigationItemForRoute(route);
   assert.ok(item, `every API-backed route ${route} must resolve to a navigation item`);

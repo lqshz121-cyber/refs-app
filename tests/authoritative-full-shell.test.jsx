@@ -3,6 +3,7 @@ import {AuthoritativeRulesWorkspace} from '../src/authoritative-rules-workspace.
 import {AuthoritativeRecurringTransactionsWorkspace} from '../src/authoritative-recurring-transactions-workspace.jsx';
 import {AuthoritativeRevenueRecognitionWorkspace} from '../src/authoritative-revenue-recognition-workspace.jsx';
 import {AuthoritativeActionRequiredWorkspace} from '../src/authoritative-action-required-workspace.jsx';
+import {AuthoritativeMasterDataWorkspace} from '../src/authoritative-master-data-workspace.jsx';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import React from 'react';
@@ -78,6 +79,7 @@ assert.equal(navigationItemForRoute('settings')?.availability,'API_READ','Accoun
 assert.equal(navigationItemForRoute('month-end-close')?.availability,'API_COMMAND','Month-End Close must use the evidence-bound close command');
 assert.equal(navigationItemForRoute('approvals')?.availability,'API_COMMAND','Action required must expose real server-authorized Journal and AI workflows');
 assert.equal(navigationItemForRoute('closing-accounting')?.availability,'API_COMMAND','Closing Accounting must reuse the evidence-bound period-close workflow');
+assert.equal(navigationItemForRoute('master-data')?.availability,'API_COMMAND','Master Data must compose the existing server-authorized vendor, customer, and account workspaces');
 assert.equal(navigationItemForRoute('period-management')?.availability,'API_READ','Period Management must expose the immutable close-readiness reader');
 assert.equal(navigationItemForRoute('mapping')?.availability,'API_READ','Mapping Center must expose only the complete approved account-to-report mapping reader');
 assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['vendors', 'customers', 'account-inquiry', 'accounting-analysis-report', 'accruals', 'ai-audit', 'ai-je-workbench', 'amortization', 'audit-log', 'bank', 'bank-batch-pipeline', 'bill-payments', 'chart-of-accounts', 'checks-payments', 'consolidation', 'construction-loan', 'fixed-assets', 'general-ledger', 'integration-hub', 'integration-transactions', 'intercompany', 'journals', 'loan-register', 'mapping', 'overview', 'payables', 'period-management', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'receipts', 'reconciliation', 'recurring-transactions', 'revenue-recognition', 'reports', 'rules', 'settings', 'source-documents', 'staging', 'mapping-exceptions', 'subsidiary-ledger', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
@@ -369,6 +371,7 @@ assert.match(appSource, /AuthoritativeRevenueRecognitionWorkspace/, 'Revenue rec
 assert.match(appSource, /route === 'revenue-recognition'/, 'Revenue recognition must mount at its stable authoritative route');
 assert.match(appSource, /route === 'checks-payments'[\s\S]*?AuthoritativeBillPaymentsWorkspace[\s\S]*?workspaceTitle="Checks & payments"/, 'Checks & payments must mount the retained Bill Payment evidence reader with an honest route title');
 assert.match(appSource, /\['month-end-close','period-management','closing-accounting'\]\.includes\(route\)[\s\S]*?AuthoritativePeriodCloseWorkspace/, 'Closing Accounting must mount the existing evidence-bound period-close workflow');
+assert.match(appSource, /route === 'master-data'[\s\S]*?AuthoritativeMasterDataWorkspace[\s\S]*?config=\{displayConfig\}/, 'Master Data must mount the authenticated vendor, customer, and account hub');
 assert.match(appSource, /route === 'approvals'[\s\S]*?AuthoritativeActionRequiredWorkspace[\s\S]*?journals=\{data\.journals\}/, 'Action required must mount the current authoritative Journal queue');
 assert.match(appSource, /openActionRequiredJournalWorkflow[\s\S]*?setRoute\('journals'\)[\s\S]*?setWorkflowJournalId\(journal\.journal_entry_id\)/, 'Action required must route one exact Journal ID into the existing re-read workflow');
 assert.match(appSource, /'overview', 'approvals', 'payables', 'receivables', 'journals'/, 'Action required must wait for the same authoritative accounting bootstrap as the Journal register');

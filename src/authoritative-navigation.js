@@ -172,7 +172,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('accounting-analysis-report', 'Accounting Analysis Report', 'API_READ'),
   ]),
   group('Administration', [
-    item('master-data', 'Master Data'), item('bank-accounts', 'Bank Accounts'),
+    item('master-data', 'Master Data', 'API_COMMAND', [
+      'The current company uses the existing authenticated Vendor, Customer, and Chart of Accounts workspaces.',
+      'Counterparty creation and changes retain the existing server access, revision, review-history, and validation controls; accounts remain read-only.',
+    ]), item('bank-accounts', 'Bank Accounts'),
     item('my-accountant', 'My accountant', 'API_UNAVAILABLE', [
       'Permission-scoped, entity-bound accountant collaboration records with immutable membership identity, revision, status, firm display name, role, and audit history.',
       'Read-only accountant access and history endpoints; invitations, role or permission changes, subscriptions, provider calls, and external expert services remain unavailable.',
