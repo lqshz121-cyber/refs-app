@@ -2,6 +2,7 @@ import {AuthoritativeFixedAssetsWorkspace} from '../src/authoritative-fixed-asse
 import {AuthoritativeRulesWorkspace} from '../src/authoritative-rules-workspace.jsx';
 import {AuthoritativeRecurringTransactionsWorkspace} from '../src/authoritative-recurring-transactions-workspace.jsx';
 import {AuthoritativeRevenueRecognitionWorkspace} from '../src/authoritative-revenue-recognition-workspace.jsx';
+import {AuthoritativeActionRequiredWorkspace} from '../src/authoritative-action-required-workspace.jsx';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import React from 'react';
@@ -74,6 +75,7 @@ assert.match(navigationItemForRoute('analytics-dashboards')?.requirements.join('
 assert.ok(AUTHORITATIVE_ROUTES.includes('settings'),'the observed Settings navigation must keep Accounting settings discoverable without granting policy mutation authority');
 assert.equal(navigationItemForRoute('settings')?.availability,'API_READ','Accounting settings must expose only the immutable approved entity-period policy reader');
 assert.equal(navigationItemForRoute('month-end-close')?.availability,'API_COMMAND','Month-End Close must use the evidence-bound close command');
+assert.equal(navigationItemForRoute('approvals')?.availability,'API_COMMAND','Action required must expose real server-authorized Journal and AI workflows');
 assert.equal(navigationItemForRoute('period-management')?.availability,'API_READ','Period Management must expose the immutable close-readiness reader');
 assert.equal(navigationItemForRoute('mapping')?.availability,'API_READ','Mapping Center must expose only the complete approved account-to-report mapping reader');
 assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['vendors', 'customers', 'account-inquiry', 'accounting-analysis-report', 'accruals', 'ai-audit', 'ai-je-workbench', 'amortization', 'audit-log', 'bank', 'bank-batch-pipeline', 'bill-payments', 'chart-of-accounts', 'consolidation', 'construction-loan', 'fixed-assets', 'general-ledger', 'integration-hub', 'integration-transactions', 'intercompany', 'journals', 'loan-register', 'mapping', 'overview', 'payables', 'period-management', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'receipts', 'reconciliation', 'recurring-transactions', 'revenue-recognition', 'reports', 'rules', 'settings', 'source-documents', 'staging', 'mapping-exceptions', 'subsidiary-ledger', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
@@ -240,6 +242,9 @@ assert.doesNotMatch(recurringMarkup,/Create template|Edit|Pause|Resume|Run now|M
 const revenueRecognitionMarkup=renderToStaticMarkup(<AuthoritativeRevenueRecognitionWorkspace config={{baseUrl:'https://fixture.example',tenantId:'11111111-1111-4111-8111-111111111111',entityId:'22222222-2222-4222-8222-222222222222',periodId:'33333333-3333-4333-8333-333333333333'}}/>);
 assert.match(revenueRecognitionMarkup,/Revenue recognition/);assert.match(revenueRecognitionMarkup,/Read-only exception review/);assert.match(revenueRecognitionMarkup,/Loading Revenue recognition controls/);
 assert.doesNotMatch(revenueRecognitionMarkup,/Manage settings|New schedule|Get started|ASC 606|automatically recognise|Create Journal|Post now/,'the Revenue recognition reader must not reproduce settings, schedule, onboarding, or automatic-Journal actions');
+const actionRequiredMarkup=renderToStaticMarkup(<AuthoritativeActionRequiredWorkspace journals={[{journal_entry_id:'11111111-1111-4111-8111-111111111111',journal_number:'JE-42',journal_date:'2026-08-31',description:'Accrued expense',journal_type:'MANUAL',status:'PENDING_APPROVAL',revision:3}]} config={{baseUrl:'https://fixture.example',tenantId:'11111111-1111-4111-8111-111111111111',entityId:'22222222-2222-4222-8222-222222222222',periodId:'33333333-3333-4333-8333-333333333333'}}/>);
+assert.match(actionRequiredMarkup,/Action required/);assert.match(actionRequiredMarkup,/JE-42/);assert.match(actionRequiredMarkup,/Open Journal workflow/);assert.match(actionRequiredMarkup,/Accounting decision queue/);
+assert.doesNotMatch(actionRequiredMarkup,/Approve all|Post all|Auto approve|Auto post/i,'Action required must retain per-entry server-owned accounting authority');
 assert.match(navigationItemForRoute('audit-log').requirements.join(' '),/immutable event identity/i);
 const myAccountantUnavailableMarkup=renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={navigationItemForRoute('my-accountant')} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.match(myAccountantUnavailableMarkup,/My accountant is not available yet/);assert.match(myAccountantUnavailableMarkup,/role="status"/);
@@ -360,6 +365,9 @@ assert.match(appSource, /AuthoritativeRecurringTransactionsWorkspace/, 'Recurrin
 assert.match(appSource, /route === 'recurring-transactions'/, 'Recurring transactions must mount at its stable authoritative route');
 assert.match(appSource, /AuthoritativeRevenueRecognitionWorkspace/, 'Revenue recognition must mount its immutable Property Rent revenue review');
 assert.match(appSource, /route === 'revenue-recognition'/, 'Revenue recognition must mount at its stable authoritative route');
+assert.match(appSource, /route === 'approvals'[\s\S]*?AuthoritativeActionRequiredWorkspace[\s\S]*?journals=\{data\.journals\}/, 'Action required must mount the current authoritative Journal queue');
+assert.match(appSource, /openActionRequiredJournalWorkflow[\s\S]*?setRoute\('journals'\)[\s\S]*?setWorkflowJournalId\(journal\.journal_entry_id\)/, 'Action required must route one exact Journal ID into the existing re-read workflow');
+assert.match(appSource, /'overview', 'approvals', 'payables', 'receivables', 'journals'/, 'Action required must wait for the same authoritative accounting bootstrap as the Journal register');
 assert.match(appSource, /route === 'bank-batch-pipeline'/, 'the API-backed Bank Batch Pipeline must mount at its stable navigation route');
 assert.match(appSource, /route === 'bank-batch-pipeline'[\s\S]*?AuthoritativeBankBatchPipelineWorkspace[\s\S]*?config=\{displayConfig\}/,
   'the composed Bank and Reconciliation readers must receive the same readable company and period scope as their direct routes');

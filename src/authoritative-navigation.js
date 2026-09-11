@@ -14,7 +14,10 @@ const group = (label, items) => Object.freeze({ label, items: Object.freeze(item
 export const AUTHORITATIVE_NAVIGATION = Object.freeze([
   group('Control Center', [
     item('overview', 'Dashboard', 'API_READ'),
-    item('approvals', 'Action required'),
+    item('approvals', 'Action required', 'API_COMMAND', [
+      'Current company- and period-scoped Draft, review, approval, and posting Journal queues open the existing server-authorized Journal workflow.',
+      'Retained AI accounting decisions preserve separate human decision and Journal controls; no browser-side bulk approval or posting is available.',
+    ]),
     item('ai-audit', 'AI Audit Center', 'API_READ'),
     item('ai-je-workbench', 'AI JE Workbench', 'API_READ', [
       'Only immutable amortization proposal lines with exact source and proposal hashes may be selected.',

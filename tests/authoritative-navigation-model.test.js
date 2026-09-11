@@ -36,6 +36,8 @@ assert.equal(navigationItemForRoute('integration-transactions').availability, 'A
 assert.equal(navigationItemForRoute('rules').availability, 'API_READ');
 assert.equal(navigationItemForRoute('recurring-transactions').availability, 'API_READ');
 assert.equal(navigationItemForRoute('revenue-recognition').availability, 'API_READ');
+assert.equal(navigationItemForRoute('approvals').availability, 'API_COMMAND');
+assert.match(navigationItemForRoute('approvals').requirements.join(' '), /server-authorized Journal workflow/);
 for (const route of AUTHORITATIVE_API_ROUTES) {
   const item = navigationItemForRoute(route);
   assert.ok(item, `every API-backed route ${route} must resolve to a navigation item`);

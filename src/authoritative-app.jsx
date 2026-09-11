@@ -34,6 +34,7 @@ import { AuthoritativeIntegrationTransactionsWorkspace } from './authoritative-i
 import { AuthoritativeRulesWorkspace } from './authoritative-rules-workspace.jsx';
 import { AuthoritativeRecurringTransactionsWorkspace } from './authoritative-recurring-transactions-workspace.jsx';
 import { AuthoritativeRevenueRecognitionWorkspace } from './authoritative-revenue-recognition-workspace.jsx';
+import { AuthoritativeActionRequiredWorkspace } from './authoritative-action-required-workspace.jsx';
 import { AuthoritativeAmortizationWorkspace } from './authoritative-amortization-workspace.jsx';
 import { AuthoritativePropertyRentWorkspace } from './authoritative-property-rent-workspace.jsx';
 import { resolveInitialTheme, watchOsTheme, writeStoredTheme } from './authoritative-theme-preference.js';
@@ -86,9 +87,9 @@ export const bindAuthoritativeFetcher = (environment, fetcher) =>
 // ---------------------------------------------------------------------------
 const ROUTES = AUTHORITATIVE_ROUTES;
 const ROUTE_KEY = 'refs_authoritative_route';
-const SHARED_ACCOUNTING_BOOTSTRAP_ROUTES = new Set(['overview', 'payables', 'receivables', 'journals']);
+const SHARED_ACCOUNTING_BOOTSTRAP_ROUTES = new Set(['overview', 'approvals', 'payables', 'receivables', 'journals']);
 
-// These four workspaces consume the shared AP/AR/Journal bundle held by this
+// These five workspaces consume the shared AP/AR/Journal bundle held by this
 // component. Every other authoritative workspace owns a smaller scoped reader
 // and must be allowed to mount before that unrelated bundle is requested. In
 // particular, a slow AP or Journal request must never hold a direct Bank or
@@ -471,6 +472,10 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   },[config,boundFetcher,setRoute,accountingReadGeneration]);
   const openWbsH1DraftWorkflow = useCallback(receipt=>openDraftJournalWorkflow(receipt,'WBS_H1_DRAFT_JOURNAL_NOT_FOUND'),[openDraftJournalWorkflow]);
   const openAiDraftWorkflow = useCallback(receipt=>openDraftJournalWorkflow(receipt,'AI_DRAFT_JOURNAL_NOT_FOUND'),[openDraftJournalWorkflow]);
+  const openActionRequiredJournalWorkflow = useCallback(journal=>{
+    if(!journal?.journal_entry_id)return;
+    setError(null);setRoute('journals');setWorkflowJournalId(journal.journal_entry_id);
+  },[setRoute]);
 
   useEffect(() => {
     if (!configured || !oidcClient || phase !== 'CHECKING_IDENTITY' || typeof environment?.document === 'undefined') return;
@@ -704,6 +709,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'revenue-recognition' && <AuthoritativeRevenueRecognitionWorkspace key={`revenue-recognition-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'ai-audit' && <AuthoritativeAiAuditWorkspace key={`ai-audit-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onAccountingRefresh={refreshAfterControlledTestWorkflow}/>}
         {phase === 'READY' && route === 'ai-je-workbench' && <AuthoritativeAiJeWorkspace key={`ai-je-workbench-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onAccountingRefresh={refreshAfterControlledTestWorkflow} onOpenJournalWorkflow={openAiDraftWorkflow}/>}
+        {phase === 'READY' && route === 'approvals' && <AuthoritativeActionRequiredWorkspace key={`action-required-${workspaceRefreshVersion}`} journals={data.journals} config={displayConfig} fetcher={boundFetcher} onAccountingRefresh={refreshAfterControlledTestWorkflow} onOpenJournalWorkflow={openActionRequiredJournalWorkflow}/>}
         {phase === 'READY' && route === 'accounting-analysis-report' && <AuthoritativeAccountingAnalysisReport key={`accounting-analysis-report-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onNavigate={setRoute}/>}
         {phase === 'READY' && route === 'accruals' && <AuthoritativeAccrualWorkspace key={`accruals-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'bill-payments' && <AuthoritativeBillPaymentsWorkspace key={`bill-payments-${workspaceRefreshVersion}`} config={displayConfig} access={accessState.status==='READY'?accessState.row:null} fetcher={boundFetcher} onBack={()=>setRoute('payables')}/>}
@@ -728,7 +734,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'audit-log' && <AuthoritativeAuditLogWorkspace key={`audit-log-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'settings' && <AuthoritativeAccountingSettingsWorkspace key={`accounting-settings-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'mapping' && <AuthoritativeReportMappingsWorkspace key={`report-mappings-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
-        {phase === 'READY' && !['vendors','customers','overview','payables','receivables','bill-payments','bank-batch-pipeline','bank','reconciliation','rules','recurring-transactions','revenue-recognition','wbs-payable-review','staging','mapping-exceptions','receipts','integration-transactions','ai-audit','ai-je-workbench','accounting-analysis-report','wbs-autorec-evidence','integration-hub','reports','project-cost-cwip','unit-cost-ledger','property-ops-pickup','construction-loan','loan-register','amortization','fixed-assets','intercompany','consolidation','journals','source-documents','chart-of-accounts','account-inquiry','subsidiary-ledger','general-ledger','accruals','month-end-close','period-management','audit-log','settings','mapping'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
+        {phase === 'READY' && !['vendors','customers','overview','approvals','payables','receivables','bill-payments','bank-batch-pipeline','bank','reconciliation','rules','recurring-transactions','revenue-recognition','wbs-payable-review','staging','mapping-exceptions','receipts','integration-transactions','ai-audit','ai-je-workbench','accounting-analysis-report','wbs-autorec-evidence','integration-hub','reports','project-cost-cwip','unit-cost-ledger','property-ops-pickup','construction-loan','loan-register','amortization','fixed-assets','intercompany','consolidation','journals','source-documents','chart-of-accounts','account-inquiry','subsidiary-ledger','general-ledger','accruals','month-end-close','period-management','audit-log','settings','mapping'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
       </main>
     </div>
   </div>;
