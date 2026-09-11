@@ -505,14 +505,14 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     const restoreOrCompleteIdentity = async () => {
       const result = await oidcClient.completeRedirect();
       if (!active) return;
-      // A top-level reload has no usable local token, but it may still have a
-      // first-party provider SSO session. Use one PKCE prompt=none round trip
-      // to restore it. It creates no durable credential beyond the same
-      // validated session record an interactive sign-in would create. An IdP
-      // refusal returns through completeRedirect and stops here; there is no
-      // loop and no demo fallback.
+      // A top-level visit with no usable token starts the ordinary PKCE login
+      // immediately. The provider can reuse its own first-party SSO session,
+      // while a signed-out user sees the provider once instead of first taking
+      // a prompt=none round trip and then returning here for another click.
+      // Authentication, token validation and the retained-route restore remain
+      // unchanged; only the redundant preflight redirect is removed.
       if (!result.ok && result.code === 'OIDC_LOGIN_REQUIRED') {
-        try { await oidcClient.startLogin({prompt:'none'}); }
+        try { await oidcClient.startLogin(); }
         catch { finishIdentity({ok:false,code:'OIDC_LOGIN_REQUIRED'}); }
         return;
       }
