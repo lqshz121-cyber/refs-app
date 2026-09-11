@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import {fileURLToPath} from 'node:url';
 import {build} from 'esbuild';
-import {chromium} from 'playwright';
+const {chromium}=await import(process.env.REFS_PLAYWRIGHT_MODULE||'playwright');
 
 // Component-only fixtures: these prove UI request handling, not ledger acceptance.
 const root=fileURLToPath(new URL('../',import.meta.url));
@@ -43,6 +43,7 @@ try{
 
  await open();await page.evaluate(()=>window.defer=true);await page.getByRole('button',{name:'Load date',exact:true}).click();
  await page.getByLabel('Disposal date',{exact:true}).fill('');await page.evaluate(()=>window.pending[0]());
+ await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
  assert.equal(await save().count(),0,'A late response must not restore an emptied date');
  assert.equal(await page.getByRole('button',{name:'Load date',exact:true}).isDisabled(),true);
  await page.getByRole('button',{name:'Close disposal',exact:true}).click();
