@@ -5620,6 +5620,34 @@
         }
       }
     },
+    "/entities/{entityId}/staging": {
+      "get": {
+        "operationId": "readAccountingStagingRegister",
+        "summary": "Read the authoritative Accounting Staging register",
+        "description": "Requires GL.JE.VIEW for the selected company. Returns period-scoped persisted staging items with exact Source Document identity, configuration references, exceptions, and linked Journal evidence. This is a no-store read and exposes no import, assignment, review, Draft, or posting command.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "responses": {
+          "200": {
+            "description": "Scoped authoritative Accounting Staging register",
+            "headers": {"Cache-Control":{"schema":{"type":"string","const":"no-store"}}},
+            "content": {"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"object","additionalProperties":false,"required":["schema_version","entity_id","period_id","period_code","period_start","period_end","row_count","exception_count","ready_for_draft_count","draft_or_later_count","rows","action_flags"],"properties":{
+              "schema_version":{"const":"ACCOUNTING_STAGING_REGISTER_V1"},"entity_id":{"$ref":"#/components/schemas/Uuid"},"period_id":{"$ref":"#/components/schemas/Uuid"},"period_code":{"type":"string","pattern":"^[0-9]{4}-(0[1-9]|1[0-2])$"},"period_start":{"type":"string","format":"date"},"period_end":{"type":"string","format":"date"},
+              "row_count":{"type":"integer","minimum":0},"exception_count":{"type":"integer","minimum":0},"ready_for_draft_count":{"type":"integer","minimum":0},"draft_or_later_count":{"type":"integer","minimum":0},
+              "rows":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["staging_item_id","staging_version","status","assigned_to","reviewed_by","reviewed_at","created_at","updated_at","source_document_id","source_document_revision","source_system","source_module","source_record_id","source_version","document_type","document_no","accounting_date","currency","gross_amount","payload_hash","setting_snapshot_id","mapping_snapshot_id","rule_evaluation_id","ai_decision_id","exceptions","journal_evidence","action_flags"],"properties":{
+                "staging_item_id":{"$ref":"#/components/schemas/Uuid"},"staging_version":{"type":"integer","minimum":0},"status":{"type":"string","enum":["RECEIVED","VALIDATING","PENDING_MAPPING","PENDING_CODING","PENDING_REVIEW","READY_FOR_DRAFT","DRAFT_CREATED","PENDING_JE_REVIEW","PENDING_JE_APPROVAL","APPROVED","POSTED","RECONCILED","DUPLICATE","QUARANTINED","MAPPING_EXCEPTION","RULE_EXCEPTION","EXCLUDED","REJECTED","REVERSED"]},"assigned_to":{"type":["string","null"]},"reviewed_by":{"type":["string","null"]},"reviewed_at":{"type":["string","null"],"format":"date-time"},"created_at":{"type":"string","format":"date-time"},"updated_at":{"type":"string","format":"date-time"},
+                "source_document_id":{"$ref":"#/components/schemas/Uuid"},"source_document_revision":{"type":"integer","minimum":0},"source_system":{"type":"string","minLength":1},"source_module":{"type":"string","minLength":1},"source_record_id":{"type":"string","minLength":1},"source_version":{"type":"string","minLength":1},"document_type":{"type":"string","minLength":1},"document_no":{"type":["string","null"]},"accounting_date":{"type":"string","format":"date"},"currency":{"type":"string","pattern":"^[A-Z]{3}$"},"gross_amount":{"type":"string","pattern":"^-?(0|[1-9][0-9]{0,15})\\.[0-9]{4}$"},"payload_hash":{"$ref":"#/components/schemas/Sha256"},
+                "setting_snapshot_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"mapping_snapshot_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"rule_evaluation_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"ai_decision_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},
+                "exceptions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["exception_id","exception_code","status","severity","owner","version","created_at"],"properties":{"exception_id":{"$ref":"#/components/schemas/Uuid"},"exception_code":{"type":"string","minLength":1},"status":{"type":"string","enum":["OPEN","IN_REVIEW","RESOLVED","WAIVED"]},"severity":{"type":"string","enum":["LOW","MEDIUM","HIGH","CRITICAL"]},"owner":{"type":["string","null"]},"version":{"type":"integer","minimum":0},"created_at":{"type":"string","format":"date-time"}}}},
+                "journal_evidence":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["journal_entry_id","journal_number","status","revision"],"properties":{"journal_entry_id":{"$ref":"#/components/schemas/Uuid"},"journal_number":{"type":"string","minLength":1},"status":{"type":"string","enum":["DRAFT","PENDING_REVIEW","PENDING_APPROVAL","APPROVED","POSTED"]},"revision":{"type":"integer","minimum":0}}}},
+                "action_flags":{"type":"object","additionalProperties":false,"required":["can_assign","can_review","can_create_draft","can_post"],"properties":{"can_assign":{"const":false},"can_review":{"const":false},"can_create_draft":{"const":false},"can_post":{"const":false}}}
+              }}},
+              "action_flags":{"type":"object","additionalProperties":false,"required":["can_import","can_assign","can_review","can_create_draft","can_post"],"properties":{"can_import":{"const":false},"can_assign":{"const":false},"can_review":{"const":false},"can_create_draft":{"const":false},"can_post":{"const":false}}}
+            }}}}}}
+          },
+          "400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"500":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/reports/prepaid-rollforward": {
       "get": {
         "operationId": "getPrepaidRollforward",

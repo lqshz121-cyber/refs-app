@@ -2606,6 +2606,13 @@ export class PostgresAccountingKernel{
     ),'CONSTRUCTION_LOAN_REGISTER_UNAVAILABLE','Loan Register is unavailable').result);
   }
 
+  async readAccountingStagingRegister({tenantId,entityId,periodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_accounting_staging_register($1,$2,$3) AS result',
+      [tenantId,entityId,periodId]
+    ),'ACCOUNTING_STAGING_REGISTER_UNAVAILABLE','Accounting Staging is unavailable').result);
+  }
+
   async getAiConstructionLoanCwipPopulationAttestation({tenantId,entityId,accountingPeriodId}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_ai_construction_loan_cwip_population_attestation($1,$2,$3) AS result',

@@ -36,9 +36,9 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Only server-derived, signed and admitted WBS Payables may enter the review queue.',
       'Attachment binding, independent review and the separate AP Draft step preserve exact receipt and object-version evidence.',
     ]),
-    item('staging', 'Accounting Staging', 'API_UNAVAILABLE', [
-      'Entity-scoped persisted staging items with immutable receipt, source version, mapping version, and review state.',
-      'Read-only list and detail endpoints before any controller workflow can be exposed.',
+    item('staging', 'Accounting Staging', 'API_READ', [
+      'Period-scoped persisted staging state, exact Source Document identity, configuration references, exceptions, and linked Journal evidence are available through one closed no-store API.',
+      'Import, assignment, review, Draft creation, approval, and posting remain unavailable from this register.',
     ]),
     item('source-documents', 'Source Documents', 'API_READ', [
       'Entity-scoped source-document list and immutable detail endpoints.',

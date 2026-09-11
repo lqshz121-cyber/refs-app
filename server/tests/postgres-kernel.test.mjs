@@ -5874,6 +5874,17 @@ pgTest('Loan Register groups only exact loan and lender source identity on mappe
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'loan-register-reader'}),kernelFactory:async()=>reader}),response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/construction-loan-register?periodId=${ids.periodId}`,body:null,headers:{}});assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.rows[0].loan_ref,'LOAN-1');
 });
 
+pgTest('Accounting Staging reads exact Source, exception, configuration, and Journal evidence from PostgreSQL',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN'}),trace=await attachAutoSource(ids);
+  const exceptionId=randomUUID();await adminPool.query(`INSERT INTO accounting_exception(exception_id,tenant_id,entity_id,source_document_id,staging_item_id,exception_code,status,severity,details,owner)
+    VALUES($1,$2,$3,$4,$5,'FIXTURE_REVIEW','OPEN','HIGH','{}'::jsonb,'controller')`,[exceptionId,ids.tenantId,ids.entityId,trace.documentId,trace.stagingId]);
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'staging-poster',['GL.JE.POST'])});await poster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'staging-register-post-001'});
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'staging-reader',['GL.JE.VIEW'])}),page=await reader.readAccountingStagingRegister({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
+  assert.deepEqual({schema:page.schema_version,rows:page.row_count,exceptions:page.exception_count,ready:page.ready_for_draft_count,progressed:page.draft_or_later_count,actions:page.action_flags},{schema:'ACCOUNTING_STAGING_REGISTER_V1',rows:1,exceptions:1,ready:0,progressed:1,actions:{can_import:false,can_assign:false,can_review:false,can_create_draft:false,can_post:false}});
+  const row=page.rows[0];assert.deepEqual({staging:row.staging_item_id,status:row.status,source:row.source_document_id,sourceVersion:row.source_document_revision,exception:row.exceptions[0].exception_id,journal:row.journal_evidence[0].journal_entry_id,journalStatus:row.journal_evidence[0].status},{staging:trace.stagingId,status:'POSTED',source:trace.documentId,sourceVersion:0,exception:exceptionId,journal:ids.journalId,journalStatus:'POSTED'});assert.equal(row.action_flags.can_post,false);
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'staging-reader'}),kernelFactory:async()=>reader}),response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/staging?periodId=${ids.periodId}`,body:null,headers:{}});assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.rows[0].staging_item_id,trace.stagingId);
+});
+
 pgTest('construction-loan/CWIP population attestation is atomic, scope-bound, and fail-closed for ambiguity',async()=>{
   const ordinary=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN'}),ordinaryTrace=await attachAutoSource(ordinary);
   const ordinaryPoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ordinary,'loan-cwip-ordinary-poster',['GL.JE.POST'])});
