@@ -65,7 +65,7 @@ export function AuthoritativeBankAccountsWorkspace({config,fetcher=globalThis.fe
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading bank account evidence…</StateBlock>}
     {state.phase==='ERROR'&&<StateBlock tone="error" title={state.error?.code||'BANK_ACCOUNT_EVIDENCE_UNAVAILABLE'} actions={<button type="button" className="btn btn-sm" onClick={load}>Retry read</button>}><p>{state.error?.message||'The accounting API did not return bank account evidence.'}</p><p>This failure is not evidence that the company has no bank accounts.</p></StateBlock>}
     {state.phase==='READY'&&!accounts.length&&<StateBlock tone="empty" title="No retained reconciliation history"><p>The API returned no reconciliation-backed bank account references for this company.</p><p>This does not prove that the company has no bank accounts or a zero cash balance.</p></StateBlock>}
-    {state.phase==='READY'&&accounts.length>0&&<AuthoritativeBankAccountsTable accounts={accounts} onOpenTransactions={onOpenTransactions} onOpenReconciliation={onOpenReconciliation}/>} 
+    {state.phase==='READY'&&accounts.length>0&&<AuthoritativeBankAccountsTable accounts={accounts} onOpenTransactions={onOpenTransactions} onOpenReconciliation={onOpenReconciliation}/>}
     <p className="muted sm">Bank connections, credentials, account creation or editing, balance refresh, transfers, payments, and posting are not available from this evidence register.</p>
   </AuthoritativeWorkspaceView>;
 }
