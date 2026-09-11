@@ -2,6 +2,7 @@ import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {dirname,resolve} from 'node:path';
+import {readFreshPostgresVerification,readTapSummary} from './postgres-fresh-tap.mjs';
 
 const serverRoot=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 
@@ -46,26 +47,20 @@ export function selectFixtures(args=[]){
   return [fixture];
 }
 
-export function readTapSummary(output){
-  const summary={};
-  for(const key of ['tests','pass','fail','skipped']){
-    const match=output.match(new RegExp(`^# ${key} (\\d+)$`,'m'));
-    if(!match)return null;
-    summary[key]=Number(match[1]);
-  }
-  return summary;
-}
+export {readTapSummary};
 
 export function fixtureResult({id,exitCode,output,durationMs,signal=null,error=null}){
   const tap=readTapSummary(output);
-  const verified=tap!==null&&tap.tests>0&&tap.pass>0&&tap.fail===0&&tap.skipped===0;
+  const receipt=readFreshPostgresVerification(output);
+  const verified=tap!==null&&receipt?.mode==='PATTERN'&&Object.keys(tap).every(key=>tap[key]===receipt.tap[key])&&tap.tests>0&&tap.pass>0&&tap.fail===0&&tap.cancelled===0&&tap.todo===0&&tap.tests===tap.pass+tap.skipped;
   return Object.freeze({
     id,
     exitCode:verified&&exitCode===0?0:1,
     durationMs,
     signal,
-    error:error??(verified&&exitCode===0?null:'Fixture must execute at least one passing, non-skipped PostgreSQL test.'),
-    tap
+    error:error??(verified&&exitCode===0?null:'Fixture must return one verified patterned PostgreSQL receipt with every selected test passing.'),
+    tap,
+    verification:receipt
   });
 }
 

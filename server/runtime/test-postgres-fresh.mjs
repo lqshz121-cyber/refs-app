@@ -6,6 +6,7 @@ import {readFileSync} from 'node:fs';
 import {postgresDataVolumeTarget} from './postgres-container.mjs';
 import {createPool} from './db.mjs';
 import {waitForPostgresReadiness} from './postgres-readiness.mjs';
+import {formatFreshPostgresVerification,verifyFreshPostgresTap} from './postgres-fresh-tap.mjs';
 
 const serverRoot=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const generatedProject=`refs_kernel_gate_${process.pid}_${Date.now().toString(36)}`.toLowerCase();
@@ -21,12 +22,14 @@ const cliArgs=process.argv.slice(2);
 const patternIndex=cliArgs.indexOf('--pattern');
 if(cliArgs.length!==0&&(patternIndex!==0||cliArgs.length!==2||!cliArgs[1]))throw new Error('Usage: node runtime/test-postgres-fresh.mjs [--pattern <test name>]');
 const postgresTestNamePattern=cliArgs[1]||process.env.PG_TEST_NAME_PATTERN||null;
+let expectedPatternPassCount=null;
 if(postgresTestNamePattern){
   let matcher;try{matcher=new RegExp(postgresTestNamePattern);}catch{throw new Error('PostgreSQL test name pattern must be a valid regular expression');}
   const source=readFileSync(resolve(serverRoot,'tests/postgres-kernel.test.mjs'),'utf8');
   const declared=[...source.matchAll(/pgTest\((['"`])([^'"`]+)\1/g)].map(match=>match[2]);
   const matched=declared.filter(name=>matcher.test(name));
   if(matched.length<1)throw new Error(`PostgreSQL test name pattern matched zero declared pgTest cases: ${postgresTestNamePattern}`);
+  expectedPatternPassCount=matched.length;
   console.log(`Fresh PostgreSQL gate declared_test_count=${matched.length} pattern=${JSON.stringify(postgresTestNamePattern)}`);
 }
 const rawTestTimeout=process.env.REFS_PG_TEST_TIMEOUT_MS||'';
@@ -56,24 +59,6 @@ function run(command,args,env,{capture=false}={}){
     child.once('error',reject);
     child.once('exit',(code,signal)=>code===0?resolveRun(stdout):reject(new Error(`${command} exited ${code??signal}`)));
   });
-}
-
-function readTapSummary(output){
-  const summary={};
-  for(const key of ['tests','pass','fail','skipped']){
-    const match=output.match(new RegExp(`^# ${key} (\\d+)$`,'m'));
-    if(!match)return null;
-    summary[key]=Number(match[1]);
-  }
-  return summary;
-}
-
-function assertZeroSkipPostgresResults(output){
-  const tap=readTapSummary(output);
-  if(tap===null||tap.tests<1||tap.pass!==tap.tests||tap.fail!==0||tap.skipped!==0){
-    throw new Error(`Fresh PostgreSQL gate requires one or more passing, non-skipped tests; received ${tap?JSON.stringify(tap):'no TAP summary'}`);
-  }
-  console.log(`Fresh PostgreSQL gate verified tests=${tap.tests} pass=${tap.pass} fail=${tap.fail} skipped=${tap.skipped}`);
 }
 
 async function probePostgres(databaseUrl){
@@ -108,8 +93,9 @@ try{
   const readiness=await waitForPostgresReadiness({probe:()=>probePostgres(testEnv.MIGRATION_DATABASE_URL)});
   console.log(`Fresh PostgreSQL gate ready after ${readiness.attempts} probe(s) in ${readiness.elapsedMs}ms`);
   const tap=await run(process.execPath,postgresTestArgs,testEnv,{capture:true});
-  assertZeroSkipPostgresResults(tap);
-  if(postgresTestNamePattern){const count=Number(tap.match(/^# tests (\d+)$/m)?.[1]||0);if(count<1)throw new Error(`PostgreSQL test runner executed zero tests for pattern: ${postgresTestNamePattern}`);console.log(`Fresh PostgreSQL gate executed_test_count=${count}`);}
+  const verified=verifyFreshPostgresTap(tap,{expectedPatternPassCount});
+  console.log(formatFreshPostgresVerification(verified));
+  if(postgresTestNamePattern)console.log(`Fresh PostgreSQL gate executed_selected_test_count=${verified.tap.pass} skipped_unmatched_test_count=${verified.tap.skipped}`);
 }finally{
   await run('docker',['compose','-p',project,'-f','compose.yaml','down','-v','--remove-orphans'],composeEnv).catch(error=>{
     console.error(`Fresh gate cleanup failed for owned project ${project}: ${error.message}`);
