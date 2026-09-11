@@ -371,4 +371,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"363_construction_loan_register_read.sql","up":"aa8241b066cbf9722b98974fa05b87fe9ab0d178ad9e774bf980e64e6081afad","down":"183e80866c300938d3f50662bb31712656e333466e485bb20f7efba2cd8bee35"}),
   Object.freeze({"name":"364_accounting_staging_register_read.sql","up":"ba3dfccd4ca5d5807fa54cce539b554b7400f8be4cdc5b29ff36a538f1ba64e9","down":"f62b2d17e1a6c6f1a51f6dc1f11baf3da510c1ec1c966ae3d3a1b2773723a917"}),
   Object.freeze({"name":"365_mapping_exception_register_read.sql","up":"9c9744ea06d9d4569011ff0e1a08e3d12e0960c1446bb8bc27a173444710a236","down":"ef976dd1f2fca0f1b8f2018ab8be736e41f4eabdfd8b60a6d89a0bb0cb080b22"}),
+  Object.freeze({"name":"366_receipt_register_read.sql","up":"191c86b0ccac760fee41ec38f9c135ffced031a4480184c3a8e5797558997b68","down":"f8c42488877ad563132e70ebc45ca66994590d96e0599a3197d4f4eac2020967"}),
 ]);

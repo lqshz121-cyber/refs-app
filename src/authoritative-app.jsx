@@ -29,6 +29,7 @@ import { AuthoritativeSubsidiaryLedgerWorkspace } from './authoritative-subsidia
 import { AuthoritativeLoanRegisterWorkspace } from './authoritative-loan-register-workspace.jsx';
 import { AuthoritativeAccountingStagingWorkspace } from './authoritative-accounting-staging-workspace.jsx';
 import { AuthoritativeMappingExceptionsWorkspace } from './authoritative-mapping-exceptions-workspace.jsx';
+import { AuthoritativeReceiptsWorkspace } from './authoritative-receipts-workspace.jsx';
 import { AuthoritativeAmortizationWorkspace } from './authoritative-amortization-workspace.jsx';
 import { AuthoritativePropertyRentWorkspace } from './authoritative-property-rent-workspace.jsx';
 import { resolveInitialTheme, watchOsTheme, writeStoredTheme } from './authoritative-theme-preference.js';
@@ -692,6 +693,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'wbs-payable-review' && <AuthoritativeWbsPayableReviewWorkspace key={`wbs-payable-review-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'staging' && <AuthoritativeAccountingStagingWorkspace key={`staging-${workspaceRefreshVersion}`} config={displayConfig} access={accessState.status==='READY'?accessState.row:null} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'mapping-exceptions' && <AuthoritativeMappingExceptionsWorkspace key={`mapping-exceptions-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
+        {phase === 'READY' && route === 'receipts' && <AuthoritativeReceiptsWorkspace key={`receipts-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'ai-audit' && <AuthoritativeAiAuditWorkspace key={`ai-audit-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onAccountingRefresh={refreshAfterControlledTestWorkflow}/>}
         {phase === 'READY' && route === 'ai-je-workbench' && <AuthoritativeAiJeWorkspace key={`ai-je-workbench-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onAccountingRefresh={refreshAfterControlledTestWorkflow} onOpenJournalWorkflow={openAiDraftWorkflow}/>}
         {phase === 'READY' && route === 'accounting-analysis-report' && <AuthoritativeAccountingAnalysisReport key={`accounting-analysis-report-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onNavigate={setRoute}/>}
@@ -718,7 +720,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'audit-log' && <AuthoritativeAuditLogWorkspace key={`audit-log-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'settings' && <AuthoritativeAccountingSettingsWorkspace key={`accounting-settings-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'mapping' && <AuthoritativeReportMappingsWorkspace key={`report-mappings-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
-        {phase === 'READY' && !['vendors','customers','overview','payables','receivables','bill-payments','bank-batch-pipeline','bank','reconciliation','wbs-payable-review','staging','mapping-exceptions','ai-audit','ai-je-workbench','accounting-analysis-report','wbs-autorec-evidence','integration-hub','reports','project-cost-cwip','unit-cost-ledger','property-ops-pickup','construction-loan','loan-register','amortization','fixed-assets','intercompany','consolidation','journals','source-documents','chart-of-accounts','account-inquiry','subsidiary-ledger','general-ledger','accruals','month-end-close','period-management','audit-log','settings','mapping'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
+        {phase === 'READY' && !['vendors','customers','overview','payables','receivables','bill-payments','bank-batch-pipeline','bank','reconciliation','wbs-payable-review','staging','mapping-exceptions','receipts','ai-audit','ai-je-workbench','accounting-analysis-report','wbs-autorec-evidence','integration-hub','reports','project-cost-cwip','unit-cost-ledger','property-ops-pickup','construction-loan','loan-register','amortization','fixed-assets','intercompany','consolidation','journals','source-documents','chart-of-accounts','account-inquiry','subsidiary-ledger','general-ledger','accruals','month-end-close','period-management','audit-log','settings','mapping'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
       </main>
     </div>
   </div>;

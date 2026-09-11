@@ -14,6 +14,7 @@ import {validBillPaymentRegisterSelection,validBillPaymentRegister} from '../run
 import {validConstructionLoanRegisterSelection,validConstructionLoanRegister} from '../runtime/construction-loan-register.mjs';
 import {validAccountingStagingSelection,validAccountingStagingRegister} from '../runtime/accounting-staging-register.mjs';
 import {validMappingExceptionSelection,validMappingExceptionRegister} from '../runtime/mapping-exception-register.mjs';
+import {validReceiptSelection,validReceiptRow,validReceiptRegister} from '../runtime/receipt-register.mjs';
 import {createServer} from 'node:http';
 import {reportAccessFailure} from './access-failure-diagnostics.mjs';
 import {validSettlementKind,validSettlementBankSelection,validSettlementBankPage,validSettlementContext} from '../runtime/settlement-input-reads.mjs';
@@ -778,6 +779,28 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!kernel||typeof kernel.readMappingExceptionRegister!=='function')throw new AccountingApiError(503,'MAPPING_EXCEPTION_REGISTER_UNAVAILABLE','Mapping Exceptions is unavailable');
         try{result=await kernel.readMappingExceptionRegister({tenantId:principal.tenantId,entityId,...selection});}catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'MAPPING_EXCEPTION_SCOPE_INVALID','The company or primary accounting period is invalid.');throw error;}
         if(!validMappingExceptionRegister(result,{entityId,...selection}))throw new AccountingApiError(500,'MAPPING_EXCEPTION_REGISTER_INVALID','Mapping Exceptions did not match its scope');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===5&&parts[4]==='receipts'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Receipt reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['reviewStatus']);
+        const selection={reviewStatus:parsedUrl.searchParams.get('reviewStatus')};
+        if(!validReceiptSelection(selection))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Receipt selection is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readReceiptRegister!=='function')throw new AccountingApiError(503,'RECEIPT_REGISTER_UNAVAILABLE','Receipts are unavailable');
+        try{result=await kernel.readReceiptRegister({tenantId:principal.tenantId,entityId,...selection});}catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'RECEIPT_SCOPE_INVALID','The company or receipt review status is invalid.');throw error;}
+        if(!validReceiptRegister(result,{entityId,...selection}))throw new AccountingApiError(500,'RECEIPT_REGISTER_INVALID','Receipts did not match their scope');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='receipts'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Receipt reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const receiptId=requireUuid(parts[5],'receiptId'),kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readReceiptDetail!=='function')throw new AccountingApiError(503,'RECEIPT_DETAIL_UNAVAILABLE','Receipt evidence is unavailable');
+        try{result=await kernel.readReceiptDetail({tenantId:principal.tenantId,entityId,receiptId});}catch(error){if(error?.code==='P0002')throw new AccountingApiError(404,'RECEIPT_NOT_FOUND','Receipt is absent or outside the company.');throw error;}
+        if(!validReceiptRow(result,{receiptId}))throw new AccountingApiError(500,'RECEIPT_DETAIL_INVALID','Receipt evidence did not match its identity');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='journal-entries'){

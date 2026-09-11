@@ -2620,6 +2620,20 @@ export class PostgresAccountingKernel{
     ),'MAPPING_EXCEPTION_REGISTER_UNAVAILABLE','Mapping Exceptions is unavailable').result);
   }
 
+  async readReceiptRegister({tenantId,entityId,reviewStatus}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_receipt_register($1,$2,$3) AS result',
+      [tenantId,entityId,reviewStatus]
+    ),'RECEIPT_REGISTER_UNAVAILABLE','Receipts are unavailable').result);
+  }
+
+  async readReceiptDetail({tenantId,entityId,receiptId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_receipt_detail($1,$2,$3) AS result',
+      [tenantId,entityId,receiptId]
+    ),'RECEIPT_DETAIL_UNAVAILABLE','Receipt evidence is unavailable').result);
+  }
+
   async getAiConstructionLoanCwipPopulationAttestation({tenantId,entityId,accountingPeriodId}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_ai_construction_loan_cwip_population_attestation($1,$2,$3) AS result',
