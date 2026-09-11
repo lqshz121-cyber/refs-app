@@ -4,7 +4,7 @@ import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTE
 
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the formal navigation must retain the full product taxonomy');
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'every formal route needs a stable unique identity');
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['vendors','customers','account-inquiry','accounting-analysis-report','accruals','ai-audit','ai-je-workbench','amortization','audit-log','bank','bank-batch-pipeline','bill-payments','chart-of-accounts','consolidation','construction-loan','fixed-assets','general-ledger','integration-hub','integration-transactions','intercompany','journals','loan-register','mapping','overview','payables','period-management','project-cost-cwip','property-ops-pickup','receivables','receipts','reconciliation','recurring-transactions','revenue-recognition','reports','rules','settings','source-documents','staging','mapping-exceptions','subsidiary-ledger','unit-cost-ledger','wbs-autorec-evidence','wbs-payable-review'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['vendors','customers','account-inquiry','accounting-analysis-report','accruals','ai-audit','ai-je-workbench','amortization','audit-log','bank','bank-batch-pipeline','bill-payments','chart-of-accounts','checks-payments','consolidation','construction-loan','fixed-assets','general-ledger','integration-hub','integration-transactions','intercompany','journals','loan-register','mapping','overview','payables','period-management','project-cost-cwip','property-ops-pickup','receivables','receipts','reconciliation','recurring-transactions','revenue-recognition','reports','rules','settings','source-documents','staging','mapping-exceptions','subsidiary-ledger','unit-cost-ledger','wbs-autorec-evidence','wbs-payable-review'].sort());
 for (const group of AUTHORITATIVE_NAVIGATION) {
   assert.ok(group.items.length > 0, `${group.label} may not be empty`);
   for (const item of group.items) assert.ok(AUTHORITATIVE_ROUTES.includes(item.route));
@@ -36,8 +36,11 @@ assert.equal(navigationItemForRoute('integration-transactions').availability, 'A
 assert.equal(navigationItemForRoute('rules').availability, 'API_READ');
 assert.equal(navigationItemForRoute('recurring-transactions').availability, 'API_READ');
 assert.equal(navigationItemForRoute('revenue-recognition').availability, 'API_READ');
+assert.equal(navigationItemForRoute('checks-payments').availability, 'API_READ');
 assert.equal(navigationItemForRoute('approvals').availability, 'API_COMMAND');
 assert.match(navigationItemForRoute('approvals').requirements.join(' '), /server-authorized Journal workflow/);
+assert.equal(navigationItemForRoute('closing-accounting').availability, 'API_COMMAND');
+assert.match(navigationItemForRoute('closing-accounting').requirements.join(' '), /segregation-of-duties controls/);
 for (const route of AUTHORITATIVE_API_ROUTES) {
   const item = navigationItemForRoute(route);
   assert.ok(item, `every API-backed route ${route} must resolve to a navigation item`);

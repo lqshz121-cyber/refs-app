@@ -73,7 +73,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Entity-scoped immutable rule identity, revision, priority, conditions, mapping actions, status, usage, and audit evidence.',
       'Read-only Bank and Integration rule lists, filters, paging, detail, and history; creation, editing, reordering, copying, enablement, automatic categorisation, matching, and posting remain unavailable.',
     ]),
-    item('checks-payments', 'Checks & payments'),
+    item('checks-payments', 'Checks & payments', 'API_READ', [
+      'The current company and period use the retained Bill Payment register with exact Bill, Journal, ledger, bank-account, bank-match, and audit evidence.',
+      'Check printing, payment initiation, approval, void, release, external money movement, and posting actions remain unavailable.',
+    ]),
   ]),
   group('Journal Entry', [item('journals', 'Journal entries', 'API_READ')]),
   group('General Ledger', [
@@ -97,7 +100,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     // additionally requires exact retained loan and lender source identity.
     item('construction-loan', 'Construction Loan', 'API_READ'),
     item('loan-register', 'Loan Register', 'API_READ'), item('property-ops-pickup', 'Property Ops Pickup', 'API_READ'),
-    item('closing-accounting', 'Closing Accounting'),
+    item('closing-accounting', 'Closing Accounting', 'API_COMMAND', [
+      'The current company and period use the existing policy-, source-, Journal-, ledger-, and approved-statement-bound close-readiness workflow.',
+      'Close and independent reopen commands retain their existing permission, exact-version, idempotency, audit, outbox, and segregation-of-duties controls.',
+    ]),
     // The available scope is the existing two-entity reconciliation reader;
     // it does not expose an uncontracted intercompany posting workflow.
     item('intercompany', 'Intercompany', 'API_READ'),
