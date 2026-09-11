@@ -102,9 +102,9 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Entity-scoped provider-signed recurring Bill rows with immutable Source Document identity, revision, interval, service dates, counterparty, currency, amount, status, hashes, and audit evidence.',
       'Read-only status and interval filters, bounded paging, and detail endpoints; template lifecycle, reminder execution, recurring payment management, and accounting commands remain unavailable.',
     ]),
-    item('revenue-recognition', 'Revenue recognition', 'API_UNAVAILABLE', [
-      'Entity- and period-scoped recognition schedules with immutable source, schedule revision, dates, accounts, currency, amount, status, Journal, ledger, and audit identifiers.',
-      'Read-only list, detail, and report endpoints; settings, rule changes, schedule creation, automatic Journal generation, and posting remain unavailable.',
+    item('revenue-recognition', 'Revenue recognition', 'API_READ', [
+      'Entity- and period-scoped Property Rent revenue and cutoff exceptions with immutable source, approved mapping, expected amount, Posted Journal, and ledger-derived revenue evidence.',
+      'Read-only list and evidence detail; settings, rule changes, schedule creation, automatic Journal generation, and posting remain unavailable.',
     ]),
     item('fixed-assets', 'Fixed assets', 'API_READ'),
     // QBO calls this surface Prepaid expenses. REFS keeps its stronger
