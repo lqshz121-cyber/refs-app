@@ -31,6 +31,8 @@ jobs:
       - name: Install kernel dependencies exactly
         working-directory: server
         run: npm ci
+      - name: TypeScript domain gate
+        run: npm run typecheck
       - name: Frontend build
         run: npm run build
       - name: Frontend SSR gate

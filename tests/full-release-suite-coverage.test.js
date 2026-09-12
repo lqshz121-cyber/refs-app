@@ -189,6 +189,13 @@ test('root release pretest includes the database dictionary safety contract',()=
   assert.equal(serverPackageJson.scripts?.['db:dictionary'],'node runtime/export-database-dictionary.mjs');
 });
 
+test('accounting kernel CI runs the TypeScript domain gate before the frontend build',async()=>{
+  const workflow=await readFile(new URL('../.github/workflows/accounting-kernel-ci.yml',import.meta.url),'utf8');
+  const typecheck=workflow.indexOf('name: TypeScript domain gate');
+  const build=workflow.indexOf('name: Frontend build');
+  assert.ok(typecheck>=0&&build>typecheck,'TypeScript domain gate must precede the frontend build');
+  assert.match(workflow,/name: TypeScript domain gate\s+run: npm run typecheck/);
+});
 test('accounting kernel CI makes the database dictionary least-privilege gate explicit',async()=>{
   const workflow=await readFile(new URL('../.github/workflows/accounting-kernel-ci.yml',import.meta.url),'utf8');
   assert.match(workflow,/name: Database dictionary least-privilege gate\s+working-directory: server\s+run: npm run test:database-dictionary/);
