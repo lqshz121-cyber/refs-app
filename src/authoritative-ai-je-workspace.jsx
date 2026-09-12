@@ -5,6 +5,7 @@ import {StateBlock} from './ui.jsx';
 import {AuthoritativeControlledTestAiWorkflow} from './authoritative-controlled-test-ai-workflow.jsx';
 import {AuthoritativeCapitalizationPanel} from './authoritative-capitalization-panel.jsx';
 import {AuthoritativeExpensePanel} from './authoritative-expense-panel.jsx';
+import {AuthoritativeNativeExpenseWorkspace} from './authoritative-native-expense-workspace.jsx';
 import {AuthoritativeConstructionLoanPanel} from './authoritative-construction-loan-panel.jsx';
 import {AuthoritativeAiAccountingDecisionWorkbench} from './authoritative-ai-accounting-decision-workbench.jsx';
 
@@ -39,6 +40,7 @@ export function AuthoritativeAiJeWorkspace({config,fetcher=globalThis.fetch,onAc
     <AuthoritativeWorkspaceHeader eyebrow="AUTHORITATIVE - HUMAN-CONTROLLED AI DRAFT" title="AI JE Workbench" description="Create one source-bound Draft. Journal review and posting remain separate." status="DRAFT ONLY"/>
     <AuthoritativeControlledTestAiWorkflow config={config} fetcher={fetcher} onAccountingRefresh={onAccountingRefresh}/>
     <AuthoritativeExpensePanel config={config} fetcher={fetcher}/>
+    <AuthoritativeNativeExpenseWorkspace config={config} fetcher={fetcher} onOpenJournalWorkflow={onOpenJournalWorkflow}/>
     <AuthoritativeCapitalizationPanel config={config} fetcher={fetcher}/>
     <AuthoritativeConstructionLoanPanel config={config} fetcher={fetcher}/>
     <AuthoritativeAiAccountingDecisionWorkbench config={config} fetcher={fetcher} onAccountingRefresh={onAccountingRefresh} onOpenJournalWorkflow={onOpenJournalWorkflow}/>
