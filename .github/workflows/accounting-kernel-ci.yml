@@ -47,6 +47,9 @@ jobs:
         run: npm run test:autorecon
       - name: Frontend audit gate
         run: npm run test:audit
+      - name: Database dictionary least-privilege gate
+        working-directory: server
+        run: npm run test:database-dictionary
       - name: Complete root release suite gate
         run: npm test
       - name: Accounting kernel static and unit gate

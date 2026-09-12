@@ -14,11 +14,11 @@ function pool({mismatch=false}={}){
       if(sql.startsWith('SELECT migration_name'))return {rows:MIGRATION_MANIFEST.map(({name,up},index)=>({migration_name:name,checksum:mismatch&&index===0?'0'.repeat(64):up}))};
       if(sql.includes('FROM pg_class c JOIN pg_namespace')&&sql.includes('obj_description'))return {rows:[{object_name:'journal_entry',object_kind:'r',comment:'Journal entries',row_level_security:true,force_row_level_security:false}]};
       if(sql.includes('FROM pg_attribute'))return {rows:[{table_name:'journal_entry',column_name:'memo',data_type:'text',not_null:false,default_expression:"'token=not-safe'::text",comment:'API token=not-safe'}]};
-      if(sql.includes('FROM pg_constraint'))return {rows:[{table_name:'journal_entry',constraint_name:'journal_entry_pkey',constraint_type:'p',definition:'PRIMARY KEY (journal_entry_id)'}]};
-      if(sql.includes('FROM pg_indexes'))return {rows:[{table_name:'journal_entry',index_name:'journal_entry_pkey',definition:'CREATE UNIQUE INDEX journal_entry_pkey'}]};
-      if(sql.includes('FROM pg_proc'))return {rows:[{function_name:'post_journal',identity_arguments:'uuid',result_type:'jsonb',language:'plpgsql',security_definer:true,volatility:'v',comment:'Posts an approved entry'}]};
-      if(sql.includes('FROM pg_trigger'))return {rows:[{table_name:'journal_entry',trigger_name:'journal_guard',enabled:'O',definition:'CREATE TRIGGER journal_guard'}]};
-      if(sql.includes('FROM pg_policies'))return {rows:[{table_name:'journal_entry',policy_name:'tenant_scope',permissive:'PERMISSIVE',roles:'{refs_app}',cmd:'ALL',qual:'tenant_id = current_setting(...)',with_check:null}]};
+      if(sql.includes('FROM pg_constraint'))return {rows:[{table_name:'journal_entry',constraint_name:'journal_entry_pkey',constraint_type:'p'}]};
+      if(sql.includes('FROM pg_indexes'))return {rows:[{table_name:'journal_entry',index_name:'journal_entry_pkey'}]};
+      if(sql.includes('FROM pg_proc'))return {rows:[{function_name:'post_journal',argument_count:'1',result_type:'jsonb',language:'plpgsql',security_definer:true,volatility:'v',comment:'Posts an approved entry'}]};
+      if(sql.includes('FROM pg_trigger'))return {rows:[{table_name:'journal_entry',trigger_name:'journal_guard',enabled:'O',trigger_type:'5'}]};
+      if(sql.includes('FROM pg_policies'))return {rows:[{table_name:'journal_entry',policy_name:'tenant_scope',permissive:'PERMISSIVE',roles:'{refs_app}',cmd:'ALL'}]};
       throw Error(`Unexpected query: ${sql}`);
     },
     release(){queries.push({sql:'RELEASE'});}
@@ -38,7 +38,7 @@ test('database dictionary is snapshot-read-only, manifest-bound, and omits funct
   assert.equal(dictionary.catalog.functions[0].function_name,'post_journal');
   assert.equal(dictionary.catalog.columns[0].comment,'API [REDACTED]');
   assert.equal(dictionary.catalog.columns[0].default_expression,"'[REDACTED]");
-  assert.ok(!target.queries.some(({sql})=>/pg_get_functiondef|INSERT|UPDATE|DELETE/i.test(sql)));
+  assert.ok(!target.queries.some(({sql})=>/pg_get_functiondef|pg_get_function_identity_arguments|pg_get_constraintdef|pg_get_triggerdef|\b(?:INSERT|UPDATE|DELETE)\b/i.test(sql)));
   assert.ok(target.queries.filter(({args})=>args).every(({args})=>args[0]==='public'));
   assert.match(renderDatabaseDictionaryMarkdown(dictionary),/Catalog SHA-256/);
 });

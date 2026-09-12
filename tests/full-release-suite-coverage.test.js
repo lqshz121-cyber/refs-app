@@ -185,8 +185,13 @@ test('server full test executes both fixed asset read contract suites',()=>{
 
 test('root release pretest includes the database dictionary safety contract',()=>{
   assert.match(packageJson.scripts?.pretest||'',/server\/tests\/database-dictionary\.test\.mjs/);
-  assert.equal(serverPackageJson.scripts?.['test:database-dictionary'],'node runtime/test-database-dictionary.mjs');
+  assert.equal(serverPackageJson.scripts?.['test:database-dictionary'],'node runtime/test-database-dictionary.mjs && node --test tests/database-dictionary-reader-role.test.mjs');
   assert.equal(serverPackageJson.scripts?.['db:dictionary'],'node runtime/export-database-dictionary.mjs');
+});
+
+test('accounting kernel CI makes the database dictionary least-privilege gate explicit',async()=>{
+  const workflow=await readFile(new URL('../.github/workflows/accounting-kernel-ci.yml',import.meta.url),'utf8');
+  assert.match(workflow,/name: Database dictionary least-privilege gate\s+working-directory: server\s+run: npm run test:database-dictionary/);
 });
 
 test('the infrastructure-bound allowlist cannot name a suite that npm test already runs, or one that no longer exists',()=>{

@@ -105,6 +105,7 @@ const requiredCommands = [
   { name: 'wbs-e2e-harness', command: 'npm.cmd run wbs:e2e', requiredExit: 0, scope: 'sanitized WBS contract fixture through raw/hash/version/scope, exceptions, balanced Suggested Draft, separated workflow, GL/TB/BS/IS and source return; never provider/live evidence' },
   { name: 'external-release-gate-local-sim', command: 'node tools/create-local-release-simulation.mjs; load outputs/local-release-simulation/env.json; npm.cmd run verify:external-release-gate', requiredExit: 0, scope: 'aggregate simulated provider evidence' },
   { name: 'server-test', command: 'npm.cmd --prefix server test', requiredExit: 0, scope: 'server unit/integration gate' },
+  { name: 'database-dictionary-live-export', command: 'REFS_DATABASE_DICTIONARY_DATABASE_URL=<dedicated-reader-url> npm.cmd --prefix server run db:dictionary -- --out-json <secure-evidence/dictionary.json> --out-markdown <secure-evidence/dictionary.md>', requiredExit: 0, scope: 'real target PostgreSQL catalog export using only refs_dictionary_reader; must match the frozen migration manifest and is not satisfied by unit tests or local simulation' },
   { name: 'server-pg15-fresh', command: 'POSTGRES_IMAGE=postgres:15-alpine npm.cmd --prefix server run test:postgres:fresh', requiredExit: 0, scope: 'fresh PostgreSQL 15 gate with cleanup evidence' },
   { name: 'server-pg16-fresh', command: 'POSTGRES_IMAGE=postgres:16-alpine npm.cmd --prefix server run test:postgres:fresh', requiredExit: 0, scope: 'fresh PostgreSQL 16 gate with cleanup evidence' },
   { name: 'server-pg18-fresh', command: 'POSTGRES_IMAGE=postgres:18-alpine npm.cmd --prefix server run test:postgres:fresh', requiredExit: 0, scope: 'fresh PostgreSQL 18 gate with cleanup evidence' },
@@ -236,7 +237,7 @@ const manifest = {
   required_commands: requiredCommands,
   release_acceptance: {
     local_candidate_gate: 'PASS only after recorded required local commands exit 0 on a clean frozen SHA',
-    global_release_gate: 'PARTIAL/FAIL until real HTTPS/OIDC, authenticated 23-page authoritative live E2E, provider S3/scanner lifecycle, signed WBS Payable attachment-to-GL/TB/AP Aging evidence, the signed-off Bank-to-GL/TB/BS/Cash Flow chain, signed WBS multi-source ingress-to-GL/report evidence, and immutable report-snapshot-to-source evidence exist',
+    global_release_gate: 'PARTIAL/FAIL until real HTTPS/OIDC, authenticated 23-page authoritative live E2E, a dedicated-reader live database dictionary export bound to the frozen migration manifest, provider S3/scanner lifecycle, signed WBS Payable attachment-to-GL/TB/AP Aging evidence, the signed-off Bank-to-GL/TB/BS/Cash Flow chain, signed WBS multi-source ingress-to-GL/report evidence, and immutable report-snapshot-to-source evidence exist',
   },
   head_ci: headCi,
 };
@@ -267,7 +268,7 @@ writeText(resolve(outRoot, 'README.md'), [
   '## Release boundary',
   '',
   '- Local candidate gates can pass with deterministic local simulation.',
-  '- Global release remains blocked until real HTTPS/OIDC, live authenticated browser evidence, provider S3/scanner, the signed WBS Payable attachment-to-GL/TB/AP Aging chain, the signed-off Bank-to-GL/TB/BS/Cash Flow chain, signed WBS multi-source ingress-to-GL/report evidence, and immutable report-snapshot-to-source evidence are present.',
+  '- Global release remains blocked until real HTTPS/OIDC, live authenticated browser evidence, a dedicated-reader live database dictionary export bound to the frozen migration manifest, provider S3/scanner, the signed WBS Payable attachment-to-GL/TB/AP Aging chain, the signed-off Bank-to-GL/TB/BS/Cash Flow chain, signed WBS multi-source ingress-to-GL/report evidence, and immutable report-snapshot-to-source evidence are present.',
   '',
 ].join('\n'));
 
