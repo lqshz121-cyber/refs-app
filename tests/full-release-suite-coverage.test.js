@@ -194,6 +194,12 @@ test('accounting kernel CI makes the database dictionary least-privilege gate ex
   assert.match(workflow,/name: Database dictionary least-privilege gate\s+working-directory: server\s+run: npm run test:database-dictionary/);
 });
 
+test('accounting kernel CI runs every isolated PostgreSQL business closure',async()=>{
+  const workflow=await readFile(new URL('../.github/workflows/accounting-kernel-ci.yml',import.meta.url),'utf8');
+  assert.match(workflow,/postgres-business-closures:\s+name: PostgreSQL business-closure fixture gate.*?timeout-minutes: (?:6\d|[7-9]\d|[1-9]\d{2,})/s);
+  assert.match(workflow,/name: Run every isolated PostgreSQL accounting closure\s+working-directory: server\s+env:\s+POSTGRES_IMAGE: postgres:16-alpine\s+run: npm run test:postgres:fixtures:closure/s);
+});
+
 test('the infrastructure-bound allowlist cannot name a suite that npm test already runs, or one that no longer exists',()=>{
   const scripts=serverPackageJson.scripts||{};
   const reachable=reachableTestScripts(scripts);

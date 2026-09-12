@@ -87,6 +87,32 @@ jobs:
           POSTGRES_IMAGE: postgres:${{ matrix.postgres }}-alpine
         run: npm run test:backup:restore
 
+  postgres-business-closures:
+    name: PostgreSQL business-closure fixture gate
+    runs-on: ubuntu-latest
+    # The fixture suite starts a fresh, owned database for every accounting
+    # closure. Keep it separate from the version matrix so each closure has a
+    # bounded, reviewable receipt instead of being hidden in a broad unit run.
+    # 24 serial fixtures each have a 90-second bounded test window plus fresh
+    # database startup and cleanup. Leave enough headroom for runner variance;
+    # the per-fixture watchdog still bounds a stalled closure.
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install kernel dependencies exactly
+        working-directory: server
+        run: npm ci
+      - name: Run every isolated PostgreSQL accounting closure
+        working-directory: server
+        env:
+          POSTGRES_IMAGE: postgres:16-alpine
+        run: npm run test:postgres:fixtures:closure
+
   attachment-containers:
     name: Versioned object storage and malware scan gate
     runs-on: ubuntu-latest

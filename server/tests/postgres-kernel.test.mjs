@@ -7059,8 +7059,9 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   await adminPool.query('UPDATE bank_source SET amount=2 WHERE bank_source_id=$1',[saleBankId]);
   assert.equal((await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.rows.length,0);
   await adminPool.query('UPDATE bank_source SET amount=1.2345 WHERE bank_source_id=$1',[saleBankId]);
-  // Synthetic match exercises schema/candidate exclusion and rollback guards;
-  // the cash-sale match command is not implemented by this read foundation.
+  // Synthetic history exercises schema/candidate exclusion and rollback guards.
+  // The real command is exercised below, including idempotency, CAS, audit and
+  // outbox evidence, so this fixture must not imply that matching is read-only.
   const syntheticMatchId=randomUUID();
   await adminPool.query(`INSERT INTO bank_match(bank_match_id,tenant_id,entity_id,bank_source_id,sales_receipt_id,journal_entry_id,journal_line_id,ledger_line_id,candidate_rule_code,amount_delta,currency_match,date_delta_days,status,matched_by)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,'EXACT_POSTED_SALES_RECEIPT',0,true,0,'ACTIVE','synthetic-read-fixture')`,[syntheticMatchId,ids.tenantId,ids.entityId,saleBankId,receipt.sales_receipt_id,receipt.journal_entry_id,saleCandidate.journal_line_id,saleCandidate.ledger_line_id]);
