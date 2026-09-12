@@ -353,8 +353,8 @@ assert.match(amortizationSource, /Draft creation never submits, reviews, approve
 assert.match(amortizationSource, /No AI, browser-local, or demonstration schedule is substituted/, 'the amortization control must fail closed rather than recreate accounting evidence in the browser');
 assert.match(appSource, /route === 'intercompany'/, 'Intercompany must mount its existing two-entity API evidence reader rather than a demo route');
 assert.match(appSource, /route === 'consolidation'/, 'Consolidation must mount existing snapshot evidence rather than a browser workbook');
-assert.match(appSource, /Elimination, adjustment, and intercompany posting workflows remain unavailable/, 'the intercompany surface must not overstate unavailable posting contracts');
-assert.match(appSource, /Elimination creation, group maintenance, and browser-side consolidation workbooks remain unavailable/, 'the consolidation surface must not recreate a browser-side workbook');
+assert.match(appSource, /create and route an evidence-bound two-line presentation elimination through maker, reviewer, approver, and poster controls/, 'the intercompany surface must expose the controlled elimination workflow');
+assert.match(appSource, /post only independently approved presentation evidence\. Group maintenance remains a separate controlled workflow/, 'the consolidation surface must expose approved elimination posting while preserving the group-maintenance boundary');
 assert.match(appSource, /AuthoritativeWbsTransitionWorkspace/, 'WBS evidence must mount an API-backed signed-contract verifier, not a demo workspace');
 assert.match(appSource, /AuthoritativeWbsPayableReviewWorkspace/, 'WBS Payable Review must mount the signed-and-admitted evidence queue rather than an unavailable or browser-backed route');
 assert.match(appSource, /AuthoritativeAiAuditWorkspace/, 'AI Audit Center must mount the authenticated server-backed finding reader rather than a browser-backed audit model');

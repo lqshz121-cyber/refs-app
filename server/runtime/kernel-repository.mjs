@@ -748,6 +748,56 @@ export class PostgresAccountingKernel{
     ),'UNIT_TRANSFER_REGISTER_MISSING','Unit Transfer register unavailable').result);
   }
 
+  async readIntercompanyEliminationRegister({tenantId,reportingEntityId,reportingPeriodId,limit=100}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_intercompany_elimination_register($1,$2,$3,$4::integer) AS result',[tenantId,reportingEntityId,reportingPeriodId,limit]
+    ),'INTERCOMPANY_ELIMINATION_REGISTER_MISSING','Intercompany elimination register unavailable').result);
+  }
+
+  async readIntercompanyEliminationCreateOptions({tenantId,reportingEntityId,reportingPeriodId,groupRef,sourceEntityId,sourcePeriodId,counterpartyEntityId,counterpartyPeriodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_intercompany_elimination_create_options($1,$2,$3,$4,$5,$6,$7,$8) AS result',[tenantId,reportingEntityId,reportingPeriodId,groupRef,sourceEntityId,sourcePeriodId,counterpartyEntityId,counterpartyPeriodId]
+    ),'INTERCOMPANY_ELIMINATION_CREATE_OPTIONS_MISSING','Intercompany elimination create options unavailable').result);
+  }
+
+  async readIntercompanyEliminationBatch({tenantId,reportingEntityId,batchId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_intercompany_elimination_batch($1,$2,$3) AS result',[tenantId,reportingEntityId,batchId]
+    ),'INTERCOMPANY_ELIMINATION_BATCH_MISSING','Intercompany elimination batch unavailable').result);
+  }
+
+  async createIntercompanyElimination({tenantId,reportingEntityId,reportingPeriodId,consolidationSnapshotId,sourceEntityId,sourcePeriodId,counterpartyEntityId,counterpartyPeriodId,sourceAccountCode,expectedSourceEvidenceHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,reportingEntityId,reportingPeriodId,consolidationSnapshotId,sourceEntityId,sourcePeriodId,counterpartyEntityId,counterpartyPeriodId,sourceAccountCode,expectedSourceEvidenceHash,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_intercompany_elimination_create_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS request_hash',args),'INTERCOMPANY_ELIMINATION_HASH_MISSING','Intercompany elimination command hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_create_intercompany_elimination($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) AS result',[...args,idempotencyKey,requestHash]),'INTERCOMPANY_ELIMINATION_CREATE_FAILED','Intercompany elimination Draft unavailable').result;
+    });
+  }
+
+  async transitionIntercompanyElimination({tenantId,reportingEntityId,batchId,action,expectedRevision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,reportingEntityId,batchId,action,expectedRevision,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_intercompany_elimination_transition_hash($1,$2,$3,$4,$5::bigint,$6) AS request_hash',args),'INTERCOMPANY_ELIMINATION_TRANSITION_HASH_MISSING','Intercompany elimination transition hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_transition_intercompany_elimination($1,$2,$3,$4,$5::bigint,$6,$7,$8) AS result',[...args,idempotencyKey,requestHash]),'INTERCOMPANY_ELIMINATION_TRANSITION_FAILED','Intercompany elimination transition unavailable').result;
+    });
+  }
+
+  async cancelIntercompanyElimination({tenantId,reportingEntityId,batchId,expectedRevision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,reportingEntityId,batchId,expectedRevision,reason];
+      const requestHash=requireRow(await client.query("SELECT refs_intercompany_elimination_transition_hash($1,$2,$3,'CANCEL',$4::bigint,$5) AS request_hash",args),'INTERCOMPANY_ELIMINATION_CANCEL_HASH_MISSING','Intercompany elimination cancellation hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_cancel_intercompany_elimination($1,$2,$3,$4::bigint,$5,$6,$7) AS result',[...args,idempotencyKey,requestHash]),'INTERCOMPANY_ELIMINATION_CANCEL_FAILED','Intercompany elimination cancellation unavailable').result;
+    });
+  }
+
+  async postIntercompanyElimination({tenantId,reportingEntityId,batchId,expectedRevision,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,reportingEntityId,batchId,expectedRevision];
+      const requestHash=requireRow(await client.query('SELECT refs_intercompany_elimination_post_hash($1,$2,$3,$4::bigint) AS request_hash',args),'INTERCOMPANY_ELIMINATION_POST_HASH_MISSING','Intercompany elimination Post hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_post_intercompany_elimination($1,$2,$3,$4::bigint,$5,$6) AS result',[...args,idempotencyKey,requestHash]),'INTERCOMPANY_ELIMINATION_POST_FAILED','Intercompany elimination Post unavailable').result;
+    });
+  }
+
   async readUnitTransferCreateOptions({tenantId,entityId,periodId,targetEntityId,transferDate,targetAttachmentIds=[]}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_unit_transfer_create_options($1,$2,$3,$4,$5::date,$6::uuid[]) AS result',[tenantId,entityId,periodId,targetEntityId,transferDate,targetAttachmentIds]

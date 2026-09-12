@@ -11,7 +11,9 @@ const reversalUp=await readFile(new URL('../db/migrations/371_unit_transfer_pair
 const reversalDown=await readFile(new URL('../db/migrations/down/371_unit_transfer_paired_reversal.sql',import.meta.url),'utf8');
 
 test('Unit Transfer paired reversal migration is checksum-bound in order',()=>{
- const entry=MIGRATION_MANIFEST.at(-1);assert.equal(entry.name,'371_unit_transfer_paired_reversal.sql');assert.equal(entry.up,createHash('sha256').update(reversalUp).digest('hex'));assert.equal(entry.down,createHash('sha256').update(reversalDown).digest('hex'));
+ const index=MIGRATION_MANIFEST.findIndex(entry=>entry.name==='371_unit_transfer_paired_reversal.sql');
+ assert.ok(index>=0);assert.equal(MIGRATION_MANIFEST[index-1]?.name,'370_unit_transfer_authoritative.sql');
+ const entry=MIGRATION_MANIFEST[index];assert.equal(entry.up,createHash('sha256').update(reversalUp).digest('hex'));assert.equal(entry.down,createHash('sha256').update(reversalDown).digest('hex'));
 });
 
 test('Unit Transfer migration uses private one-shot gates instead of caller-settable session flags',()=>{

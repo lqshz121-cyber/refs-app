@@ -3,6 +3,7 @@ import {validFixedAssetAcquisitionOptions} from './fixed-asset-acquisition-optio
 import {validFixedAssetDepreciationOptions} from './fixed-asset-depreciation-options-contract.mjs';
 import {validFixedAssetDisposalOptions} from './fixed-asset-disposal-options-contract.mjs';
 import {UNIT_TRANSFER_CREATE_FIELDS,validUnitTransferCreateOptions,validUnitTransferDraftReceipt,validUnitTransferTransitionReceipt,validUnitTransferCancelReceipt,validUnitTransferPostReceipt,validUnitTransferReversalDraftReceipt,validUnitTransferReversalTransitionReceipt,validUnitTransferReversalCancelReceipt,validUnitTransferReversalPostReceipt,validUnitTransferPair,validUnitTransferRegister} from '../runtime/unit-transfer-contract.mjs';
+import {INTERCOMPANY_ELIMINATION_CREATE_FIELDS,validIntercompanyEliminationCreateOptions,validIntercompanyEliminationBatch,validIntercompanyEliminationRegister,validIntercompanyEliminationCreateReceipt,validIntercompanyEliminationTransitionReceipt,validIntercompanyEliminationCancelReceipt,validIntercompanyEliminationPostReceipt} from '../runtime/intercompany-elimination-contract.mjs';
 import {validCounterpartyRegisterSelection,validCounterpartyRegisterPage} from '../runtime/counterparty-register.mjs';
 import {validPaymentBankCandidates} from '../runtime/payment-bank-candidates.mjs';
 import {validBusinessRecordKind,validBusinessRecord} from '../runtime/business-record-detail.mjs';
@@ -383,6 +384,34 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         result=await kernel.readUnitTransferPair({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),pairId});
         if(!validUnitTransferPair(result,{entityId:entityId.toLowerCase(),pairId}))throw new AccountingApiError(502,'UNIT_TRANSFER_PAIR_INVALID','Unit Transfer pair returned invalid evidence');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===5&&parts[4]==='intercompany-eliminations'){
+        if(body!==null||header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_FIELDS_FORBIDDEN','Intercompany elimination reads do not accept command fields');
+        requireExactQuery(parsedUrl.searchParams,['reportingPeriodId','limit']);
+        const reportingEntityId=entityId.toLowerCase(),reportingPeriodId=requireUuid(parsedUrl.searchParams.get('reportingPeriodId'),'reportingPeriodId').toLowerCase(),limit=optionalReadLimit(parsedUrl.searchParams.get('limit'));
+        if(limit>200)throw new AccountingApiError(400,'INVALID_LIMIT','Intercompany elimination limit must be 1..200');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readIntercompanyEliminationRegister!=='function')throw new AccountingApiError(503,'INTERCOMPANY_ELIMINATION_REGISTER_UNAVAILABLE','Intercompany elimination register is unavailable');
+        result=await kernel.readIntercompanyEliminationRegister({tenantId:principal.tenantId,reportingEntityId,reportingPeriodId,limit});
+        if(!validIntercompanyEliminationRegister(result,{reportingEntityId,reportingPeriodId,limit}))throw new AccountingApiError(502,'INTERCOMPANY_ELIMINATION_REGISTER_INVALID','Intercompany elimination register returned invalid evidence');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='intercompany-eliminations'&&parts[5]==='create-options'){
+        if(body!==null||header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_FIELDS_FORBIDDEN','Intercompany elimination option reads do not accept command fields');
+        requireExactQuery(parsedUrl.searchParams,['reportingPeriodId','groupRef','sourceEntityId','sourcePeriodId','counterpartyEntityId','counterpartyPeriodId']);
+        const reportingEntityId=entityId.toLowerCase(),reportingPeriodId=requireUuid(parsedUrl.searchParams.get('reportingPeriodId'),'reportingPeriodId').toLowerCase(),groupRef=requireDimensionRef(parsedUrl.searchParams.get('groupRef')),sourceEntityId=requireUuid(parsedUrl.searchParams.get('sourceEntityId'),'sourceEntityId').toLowerCase(),sourcePeriodId=requireUuid(parsedUrl.searchParams.get('sourcePeriodId'),'sourcePeriodId').toLowerCase(),counterpartyEntityId=requireUuid(parsedUrl.searchParams.get('counterpartyEntityId'),'counterpartyEntityId').toLowerCase(),counterpartyPeriodId=requireUuid(parsedUrl.searchParams.get('counterpartyPeriodId'),'counterpartyPeriodId').toLowerCase();
+        if(sourceEntityId===counterpartyEntityId)throw new AccountingApiError(400,'INVALID_COUNTERPARTY_ENTITY','Counterparty company must differ from source company');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readIntercompanyEliminationCreateOptions!=='function')throw new AccountingApiError(503,'INTERCOMPANY_ELIMINATION_CREATE_OPTIONS_UNAVAILABLE','Intercompany elimination create options are unavailable');
+        result=await kernel.readIntercompanyEliminationCreateOptions({tenantId:principal.tenantId,reportingEntityId,reportingPeriodId,groupRef,sourceEntityId,sourcePeriodId,counterpartyEntityId,counterpartyPeriodId});
+        if(!validIntercompanyEliminationCreateOptions(result,{reportingEntityId,reportingPeriodId,groupRef,sourceEntityId,sourcePeriodId,counterpartyEntityId,counterpartyPeriodId}))throw new AccountingApiError(502,'INTERCOMPANY_ELIMINATION_CREATE_OPTIONS_INVALID','Intercompany elimination create options returned invalid evidence');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='intercompany-eliminations'){
+        if(body!==null||header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_FIELDS_FORBIDDEN','Intercompany elimination reads do not accept command fields');
+        requireExactQuery(parsedUrl.searchParams,[]);const reportingEntityId=entityId.toLowerCase(),batchId=requireUuid(parts[5],'batchId').toLowerCase(),kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readIntercompanyEliminationBatch!=='function')throw new AccountingApiError(503,'INTERCOMPANY_ELIMINATION_BATCH_UNAVAILABLE','Intercompany elimination batch is unavailable');
+        result=await kernel.readIntercompanyEliminationBatch({tenantId:principal.tenantId,reportingEntityId,batchId});
+        if(!validIntercompanyEliminationBatch(result,{reportingEntityId,batchId}))throw new AccountingApiError(502,'INTERCOMPANY_ELIMINATION_BATCH_INVALID','Intercompany elimination batch returned invalid evidence');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store','etag':`"${result.revision}"`},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===8&&parts[4]==='fixed-assets'&&parts[5]==='register'&&parts[7]==='acquisition-options'){
         requireExactQuery(parsedUrl.searchParams,[]);
@@ -2232,7 +2261,36 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
       }
       if(method!=='POST')throw new AccountingApiError(405,'METHOD_NOT_ALLOWED','Only POST commands and supported GET reads are available');
       const idempotencyKey=requireIdempotency(headers);
-      if(parts.length===5&&parts[4]==='unit-transfers'){
+      if(parts.length===5&&parts[4]==='intercompany-eliminations'){
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Intercompany elimination commands carry exact evidence revisions in the request body');
+        allowOnly(payload,INTERCOMPANY_ELIMINATION_CREATE_FIELDS);for(const field of INTERCOMPANY_ELIMINATION_CREATE_FIELDS)if(!Object.hasOwn(payload,field))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${field} is required`);
+        const reportingEntityId=entityId.toLowerCase(),sourceEntityId=requireUuid(payload.sourceEntityId,'sourceEntityId').toLowerCase(),counterpartyEntityId=requireUuid(payload.counterpartyEntityId,'counterpartyEntityId').toLowerCase();
+        if(sourceEntityId===counterpartyEntityId)throw new AccountingApiError(400,'INVALID_COUNTERPARTY_ENTITY','Counterparty company must differ from source company');
+        const args={tenantId:principal.tenantId,reportingEntityId,reportingPeriodId:requireUuid(payload.reportingPeriodId,'reportingPeriodId').toLowerCase(),consolidationSnapshotId:requireUuid(payload.consolidationSnapshotId,'consolidationSnapshotId').toLowerCase(),sourceEntityId,sourcePeriodId:requireUuid(payload.sourcePeriodId,'sourcePeriodId').toLowerCase(),counterpartyEntityId,counterpartyPeriodId:requireUuid(payload.counterpartyPeriodId,'counterpartyPeriodId').toLowerCase(),sourceAccountCode:requireAccountCode(payload.sourceAccountCode),expectedSourceEvidenceHash:requireSha256(payload.expectedSourceEvidenceHash,'expectedSourceEvidenceHash'),reason:requireReviewReason(payload.reason),idempotencyKey};
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.createIntercompanyElimination!=='function')throw new AccountingApiError(503,'INTERCOMPANY_ELIMINATION_CREATE_UNAVAILABLE','Intercompany elimination Draft creation is unavailable');
+        result=await kernel.createIntercompanyElimination(args);if(!validIntercompanyEliminationCreateReceipt(result,args))throw new AccountingApiError(502,'INTERCOMPANY_ELIMINATION_CREATE_INVALID','Intercompany elimination returned an invalid Draft');
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store','etag':`"${result.revision}"`},body:{ok:true,data:result}};
+      }else if(parts.length===7&&parts[4]==='intercompany-eliminations'&&['transitions','cancel','post'].includes(parts[6])){
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Intercompany elimination commands carry the exact batch revision in the request body');
+        const reportingEntityId=entityId.toLowerCase(),batchId=requireUuid(parts[5],'batchId').toLowerCase(),safeRevision=(value)=>{if(!Number.isSafeInteger(value)||value<0)throw new AccountingApiError(400,'INVALID_REVISION','expectedRevision must be a non-negative safe integer');return value;},kernel=await kernelFactory(principal);
+        let receiptValid=false;
+        if(parts[6]==='transitions'){
+          allowOnly(payload,['action','expectedRevision','reason']);for(const field of ['action','expectedRevision','reason'])if(!Object.hasOwn(payload,field))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${field} is required`);
+          const action=typeof payload.action==='string'?payload.action.toUpperCase():'';if(!['SUBMIT','REVIEW','APPROVE'].includes(action))throw new AccountingApiError(400,'INVALID_TRANSITION','action must be SUBMIT, REVIEW, or APPROVE');
+          if(!kernel||typeof kernel.transitionIntercompanyElimination!=='function')throw new AccountingApiError(503,'INTERCOMPANY_ELIMINATION_TRANSITION_UNAVAILABLE','Intercompany elimination transition is unavailable');
+          const expectedRevision=safeRevision(payload.expectedRevision);result=await kernel.transitionIntercompanyElimination({tenantId:principal.tenantId,reportingEntityId,batchId,action,expectedRevision,reason:requireReviewReason(payload.reason),idempotencyKey});receiptValid=validIntercompanyEliminationTransitionReceipt(result,{reportingEntityId,batchId,action,expectedRevision});
+        }else if(parts[6]==='cancel'){
+          allowOnly(payload,['expectedRevision','reason']);for(const field of ['expectedRevision','reason'])if(!Object.hasOwn(payload,field))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${field} is required`);
+          if(!kernel||typeof kernel.cancelIntercompanyElimination!=='function')throw new AccountingApiError(503,'INTERCOMPANY_ELIMINATION_CANCEL_UNAVAILABLE','Intercompany elimination cancellation is unavailable');
+          const expectedRevision=safeRevision(payload.expectedRevision);result=await kernel.cancelIntercompanyElimination({tenantId:principal.tenantId,reportingEntityId,batchId,expectedRevision,reason:requireReviewReason(payload.reason),idempotencyKey});receiptValid=validIntercompanyEliminationCancelReceipt(result,{reportingEntityId,batchId,expectedRevision});
+        }else{
+          allowOnly(payload,['expectedRevision']);if(!Object.hasOwn(payload,'expectedRevision'))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING','expectedRevision is required');
+          if(!kernel||typeof kernel.postIntercompanyElimination!=='function')throw new AccountingApiError(503,'INTERCOMPANY_ELIMINATION_POST_UNAVAILABLE','Intercompany elimination Post is unavailable');
+          const expectedRevision=safeRevision(payload.expectedRevision);result=await kernel.postIntercompanyElimination({tenantId:principal.tenantId,reportingEntityId,batchId,expectedRevision,idempotencyKey});receiptValid=validIntercompanyEliminationPostReceipt(result,{reportingEntityId,batchId,expectedRevision});
+        }
+        if(!receiptValid)throw new AccountingApiError(502,'INTERCOMPANY_ELIMINATION_COMMAND_INVALID','Intercompany elimination returned invalid evidence');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store','etag':`"${result.revision}"`},body:{ok:true,data:result}};
+      }else if(parts.length===5&&parts[4]==='unit-transfers'){
         requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Unit Transfer commands carry exact evidence revisions in the request body');
         allowOnly(payload,UNIT_TRANSFER_CREATE_FIELDS);for(const field of UNIT_TRANSFER_CREATE_FIELDS)if(!Object.hasOwn(payload,field))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${field} is required`);
         const safeRevision=(value,name)=>{if(!Number.isSafeInteger(value)||value<0)throw new AccountingApiError(400,'INVALID_REVISION',`${name} must be a non-negative safe integer`);return value;};
