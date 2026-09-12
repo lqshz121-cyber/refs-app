@@ -65850,38 +65850,6 @@
           }
         }
       },
-      "RecurringScheduleEnvelope": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ok",
-          "data"
-        ],
-        "properties": {
-          "ok": {
-            "const": true
-          },
-          "data": {
-            "$ref": "#/components/schemas/RecurringSchedule"
-          }
-        }
-      },
-      "RecurringScheduleRunBatchEnvelope": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ok",
-          "data"
-        ],
-        "properties": {
-          "ok": {
-            "const": true
-          },
-          "data": {
-            "$ref": "#/components/schemas/RecurringScheduleRunBatch"
-          }
-        }
-      },
       "PostedLedgerExportHistoryCreate": {
         "type": "object",
         "additionalProperties": false,
