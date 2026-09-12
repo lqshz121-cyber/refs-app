@@ -59,6 +59,10 @@ test('dictionary CLI requires a distinct dedicated reader and emits only safe ev
   assert.throws(()=>databaseDictionaryOptions(['--out-json','out.json'],{}),{code:'DATABASE_DICTIONARY_URL_REQUIRED'});
   assert.throws(()=>databaseDictionaryOptions(['--out-json','out.json'],{REFS_DATABASE_DICTIONARY_DATABASE_URL:env.DATABASE_URL,DATABASE_URL:env.DATABASE_URL}),{code:'DATABASE_DICTIONARY_URL_REUSED'});
   assert.throws(()=>databaseDictionaryOptions(['--out-json','out.json'],{REFS_DATABASE_DICTIONARY_DATABASE_URL:'postgresql://refs_app:secret@db.example/refs?sslmode=require'}),{code:'DATABASE_DICTIONARY_READER_ROLE_REQUIRED'});
+  assert.throws(()=>databaseDictionaryOptions(['--out-json','out.json','--schema','pg_catalog'],env),{code:'DATABASE_DICTIONARY_SCHEMA_INVALID'});
+  assert.throws(()=>databaseDictionaryOptions(['--out-json','out.json','--unexpected'],env),{code:'DATABASE_DICTIONARY_ARGUMENT_INVALID'});
+  assert.throws(()=>databaseDictionaryOptions(['--out-json','out.json'],{REFS_DATABASE_DICTIONARY_DATABASE_URL:'postgresql://refs_dictionary_reader@db.example/refs'}),{code:'DATABASE_DICTIONARY_URL_INVALID'});
+  assert.throws(()=>databaseDictionaryOptions(['--out-json','out.json'],{REFS_DATABASE_DICTIONARY_DATABASE_URL:'https://refs_dictionary_reader:secret@db.example/refs'}),{code:'DATABASE_DICTIONARY_URL_INVALID'});
   const writes=[],directories=[],target=pool();
   const event=await exportDatabaseDictionary({argv:['--out-json','outputs/dictionary.json'],env,poolFactory:async options=>{assert.equal(options.applicationName,'refs-database-dictionary-export');assert.equal(options.max,1);assert.equal(options.statementTimeoutMs,30000);return {...target,end:async()=>{}};},writer:async(path,value,options)=>writes.push({path,value,options}),mkdirp:async(path,options)=>directories.push({path,options}),clock:()=>new Date('2026-09-13T00:00:00.000Z')});
   assert.equal(event.event,'database_dictionary_exported');

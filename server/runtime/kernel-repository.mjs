@@ -2299,6 +2299,15 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async readJournalUploadRows({tenantId,entityId,periodId}){
+    return this.inSession(async client=>{
+      const rows=(await client.query(
+        'SELECT * FROM refs_read_journal_upload_rows($1,$2,$3)',[tenantId,entityId,periodId]
+      )).rows.map(row=>({...row,journal_date:publicDate(row.journal_date),source_document_ids:Array.isArray(row.source_document_ids)?row.source_document_ids:[]}));
+      return rows;
+    });
+  }
+
   async getJournalWorkflowCapabilities({tenantId,entityId}){
     return this.inSession(async client=>{
       await client.query("SELECT refs_assert_scope($1,$2,'GL.JE.VIEW')",[tenantId,entityId]);

@@ -126,6 +126,11 @@ assert.match(styles,/\.authoritative-journal-summary \.journal-summary-card\{fle
 assert.doesNotMatch(styles,/@media \(max-width:600px\)\{\.authoritative-journal-summary,\.journal-evidence-scope\{grid-template-columns:minmax\(0,1fr\);\}/,
   'mobile Journal queues must never regress to four single-column cards');
 assert.match(workspace,/readAuthoritativeJournalEntryDetail/,'opening evidence must perform an exact authoritative detail read');
+assert.match(workspace,/exportAuthoritativeJournalUploadFile/,'the controlled Journal register exposes the verified upload-file reader');
+assert.match(workspace,/Download approved JE CSV/,'the user-facing export action must name its approved-Journal boundary');
+assert.match(workspace,/Download only balanced APPROVED Journal Entries/,'the UI must state the server-verified population boundary');
+assert.match(workspace,/environment\.crypto\|\|globalThis\.crypto/,'the local verified download must work in supported browser hosts without adding a new credential path');
+assert.doesNotMatch(workspace,/POSTED ledger export history|recordPostedLedgerExportHistory/,'upload preparation must not be represented as a posted-ledger export or create history state');
 assert.match(workspace,/journalCurrency:journal\.currency/);assert.match(workspace,/context\?\.periodId === journal\.period_id/);
 assert.match(workspace,/entityLabel:config\?\.scopePresentation\?\.entityLabel/,'loading and blocked Journal detail states must freeze the same readable company label as the ready drill');
 assert.doesNotMatch(workspace,/localStorage|SEED_|legacy-demo|seed\.js|repo\.js/,'authoritative Journal evidence must not read browser accounting state');
@@ -135,6 +140,8 @@ assert.match(mismatchedDetail,/Back to Journal entries/);
 assert.doesNotMatch(mismatchedDetail,/JOURNAL LINES/,'a stale Journal identity must block before line evidence');
 const evidenceWorkspace=renderToStaticMarkup(<AuthoritativeJournalWorkspace journals={[journal]} config={{entityId,periodId:'33333333-3333-4333-8333-333333333333'}} environment={{scrollY:0,setTimeout:callback=>callback(),document:{getElementById:()=>null}}}/>);
 assert.match(evidenceWorkspace,/GENERAL LEDGER \| JOURNAL REGISTER/);
+assert.match(evidenceWorkspace,/Journal upload file/);
+assert.match(evidenceWorkspace,/Download approved JE CSV/);
 assert.doesNotMatch(evidenceWorkspace,/\u8def|鈥|路/,'authority Journal workspace must render English-only separators');
 assert.doesNotMatch(detail,/\u8def|鈥|路/,'authority Journal detail must render English-only separators');
 assert.match(styles,/\.authoritative-journal-table \.tbl\{min-width:1060px;table-layout:fixed;\}/,

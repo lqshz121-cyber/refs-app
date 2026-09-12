@@ -14,6 +14,7 @@ import {validWebhookSubscription,validWebhookDeliveryHistory} from '../runtime/w
 import {validImportExportHistorySelection,validImportExportHistoryPage,validImportExportHistoryRow} from '../runtime/import-export-history-contract.mjs';
 import {validSourceParseResult} from '../runtime/source-parse-contract.mjs';
 import {buildFinancialStatementCsv} from '../runtime/financial-statement-export.mjs';
+import {buildJournalUploadCsv,validJournalUploadRows} from '../runtime/journal-upload-export.mjs';
 import {validCounterpartyRegisterSelection,validCounterpartyRegisterPage} from '../runtime/counterparty-register.mjs';
 import {validPaymentBankCandidates} from '../runtime/payment-bank-candidates.mjs';
 import {validBusinessRecordKind,validBusinessRecord} from '../runtime/business-record-detail.mjs';
@@ -912,6 +913,19 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.listJournalEntries({tenantId:principal.tenantId,entityId,periodId,limit,offset});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result.rows,scope:result.scope}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='journal-entries'&&parts[5]==='export'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Journal upload exports are read-only and do not accept Idempotency-Key');
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Journal upload exports do not accept If-Match');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Journal upload exports do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId','format']);
+        const periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId').toLowerCase(),format=parsedUrl.searchParams.get('format');
+        if(format!=='csv')throw new AccountingApiError(400,'INVALID_EXPORT_FORMAT','Only the authoritative CSV JE upload export is supported');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readJournalUploadRows!=='function')throw new AccountingApiError(503,'JOURNAL_UPLOAD_EXPORT_UNAVAILABLE','Journal upload export is unavailable');
+        let rows;try{rows=await kernel.readJournalUploadRows({tenantId:principal.tenantId,entityId,periodId});}catch(error){if(error?.code==='22023')throw new AccountingApiError(422,'JOURNAL_UPLOAD_EXPORT_INCOMPLETE','The approved Journal population is too large to export safely');throw error;}
+        const artifact=buildJournalUploadCsv({rows,entityId,periodId});
+        if(!artifact||!validJournalUploadRows(rows))throw new AccountingApiError(502,'JOURNAL_UPLOAD_EXPORT_RESPONSE_INVALID','The approved Journal population could not be safely exported');
+        return {status:200,headers:{'content-type':artifact.content_type,'content-disposition':`attachment; filename="${artifact.filename}"`,'cache-control':'no-store','etag':`"${artifact.content_hash}"`,'x-journal-upload-export-hash':artifact.content_hash,'x-journal-upload-row-count':String(artifact.row_count)},rawBody:artifact.content};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='journal-workflow'&&parts[5]==='capabilities'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');

@@ -10,5 +10,7 @@ test('dictionary reader provisioning grants only metadata access and has a rever
   assert.doesNotMatch(grant,/GRANT\s+(?:ALL|SELECT)\s+ON\s+(?:ALL\s+TABLES|TABLE\s+(?!refs_schema_migration))/i);
   assert.doesNotMatch(grant,/\b(?:CREATE|ALTER)\s+ROLE\s+refs_dictionary_reader\b[^;]*\s(?:PASSWORD|CREATEROLE|SUPERUSER|BYPASSRLS)\b/i);
   assert.match(grant,/NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS/);
+  assert.doesNotMatch(grant,/GRANT\s+EXECUTE/i);
+  assert.doesNotMatch(grant,/GRANT\s+(?:INSERT|UPDATE|DELETE|TRUNCATE|REFERENCES|TRIGGER)/i);
   for(const token of ['REVOKE ALL ON TABLE refs_schema_migration FROM refs_dictionary_reader','REVOKE USAGE ON SCHEMA public FROM refs_dictionary_reader','ALTER ROLE refs_dictionary_reader NOLOGIN'])assert.ok(revoke.includes(token),`missing ${token}`);
 });

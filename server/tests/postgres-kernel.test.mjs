@@ -537,6 +537,7 @@ async function seed({status='APPROVED',journalType='MANUAL',attachmentStatus='VE
   await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-07','2026-07-01','2026-07-31','OPEN')",[periodId,tenantId,entityId]);
   await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type) VALUES($1,$2,'111000','Cash',true,'BANK'),($1,$2,'291001','Accounts Payable',true,'VENDOR'),($1,$2,'120200','Accounts Receivable',true,'CUSTOMER_OR_AFFILIATE')",[tenantId,entityId]);
   await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'BANK-1','BANK','Operating Cash'),($1,$2,'VENDOR-1','VENDOR','Vendor')",[tenantId,entityId]);
+  await adminPool.query("INSERT INTO cash_transfer_bank_account_control(tenant_id,entity_id,bank_member_ref,cash_account_code,currency,effective_from,status,created_by,approved_by,approved_at) VALUES($1,$2,'BANK-1','111000','USD','2026-01-01','APPROVED','fixture-control-maker','fixture-control-approver',clock_timestamp())",[tenantId,entityId]);
   for(const account of extraAccounts)await adminPool.query('INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type) VALUES($1,$2,$3,$4,$5,$6)',[tenantId,entityId,account.accountCode,account.accountName,account.requiresMember??false,account.requiredMemberType??null]);
   for(const member of extraMembers)await adminPool.query('INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,$3,$4,$5)',[tenantId,entityId,member.memberRef,member.memberType,member.displayName]);
   const actors=status==='DRAFT'?[null,null,null]:['reviewer','approver',null];
@@ -5139,6 +5140,23 @@ pgTest('bank and reconciliation reads enforce permission, tenant, entity, accoun
   assert.equal(scopeResponse.status,200);assert.equal(scopeResponse.headers['cache-control'],'no-store');assert.deepEqual(scopeResponse.body.data.map(row=>row.reconciliation_id),[reconciliationId,priorReconciliationId]);
 });
 
+pgTest('bank reader stays scoped, deterministically ordered, and bounded across a 100001-row population',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),trace=await attachAutoSource(ids,{linkJournal:false});
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    SELECT gen_random_uuid(),$1,$2,$3,'BANK-1','HV-'||lpad(item::text,6,'0'),'2026-07-31'::date,'USD',1
+    FROM generate_series(1,100001) item`,[ids.tenantId,ids.entityId,trace.documentId]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'high-volume-bank-reader',['BANK.VIEW'])});
+  const first=await reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',limit:200,offset:0});
+  const boundary=await reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',limit:200,offset:10000});
+  assert.equal(first.length,200);assert.equal(boundary.length,200);
+  assert.equal(first[0].external_bank_line_id,'HV-100001');assert.equal(first.at(-1).external_bank_line_id,'HV-099802');
+  assert.equal(boundary[0].external_bank_line_id,'HV-090001');assert.equal(boundary.at(-1).external_bank_line_id,'HV-089802');
+  assert.ok(first.every(row=>row.bank_account_ref==='BANK-1'&&row.transaction_date==='2026-07-31'));
+  assert.ok(boundary.every(row=>row.bank_account_ref==='BANK-1'&&row.transaction_date==='2026-07-31'));
+  await assert.rejects(reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',limit:201,offset:0}),error=>error.code==='22023');
+  await assert.rejects(reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',limit:1,offset:10001}),error=>error.code==='22023');
+});
+
 pgTest('reconciliation lifecycle is scoped, idempotent, separated by role, snapshotted, and reopen-gated',async()=>{
   const ids=await seed({status:'APPROVED',attachmentStatus:null});const billId=randomUUID();
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
@@ -5214,6 +5232,43 @@ pgTest('reconciliation lifecycle is scoped, idempotent, separated by role, snaps
   assert.equal((await unmatcher.unmatchBankPayment({...ids,bankSourceId,bankMatchId,expectedMatchVersion:0,reason:'Unmatch after controlled statement reopen',idempotencyKey:'reconciliation-unmatch-001'})).status,'UNMATCHED');
   const snapshot=(await adminPool.query('SELECT signed_off_by,snapshot_hash FROM reconciliation_snapshot WHERE reconciliation_id=$1',[started.reconciliation_id])).rows[0];
   assert.equal(snapshot.signed_off_by,'recon-signer');assert.equal(snapshot.snapshot_hash,signed.snapshot_hash);
+});
+
+pgTest('reconciliation command idempotency keys are bound to the issuing actor across every public command',async()=>{
+  const ids=await seed({status:'APPROVED'}),trace=await attachAutoSource(ids,{linkJournal:false}),bankSourceId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-1','BANK-ACTOR-IDEMPOTENCY-1','2026-07-20','USD',50)`,[bankSourceId,ids.tenantId,ids.entityId,trace.documentId]);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'recon-idempotency-maker',['BANK.RECONCILIATION.START'])});
+  const intruder=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'recon-idempotency-intruder',['BANK.RECONCILIATION.START','BANK.RECONCILIATION.ADJUSTMENT_DRAFT','GL.JE.CREATE','BANK.RECONCILIATION.CLEAR','BANK.RECONCILIATION.REVIEW'])});
+  const startArgs={...ids,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31',statementOpeningBalance:'0.0000',statementEndingBalance:'50.0000',reason:'Start statement for actor-bound idempotency evidence',idempotencyKey:'reconciliation-actor-bound-start-001'};
+  const started=await maker.startReconciliation(startArgs);assert.equal((await maker.startReconciliation(startArgs)).idempotent,true);
+  await assert.rejects(intruder.startReconciliation(startArgs),error=>error.code==='42501'&&/belongs to another actor/i.test(error.message));
+
+  const attachmentId=(await adminPool.query("SELECT attachment_id FROM source_link WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3 AND attachment_id IS NOT NULL",[ids.tenantId,ids.entityId,ids.journalId])).rows[0].attachment_id;
+  const adjustmentMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'recon-idempotency-adjustment-maker',['BANK.RECONCILIATION.ADJUSTMENT_DRAFT','GL.JE.CREATE'])});
+  const adjustmentIntruder=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'recon-idempotency-adjustment-intruder',['BANK.RECONCILIATION.ADJUSTMENT_DRAFT','GL.JE.CREATE'])});
+  const adjustmentArgs={...ids,reconciliationId:started.reconciliation_id,bankSourceId,expectedReconciliationVersion:0,periodId:ids.periodId,journalNumber:'JE-RECON-ACTOR-IDEMPOTENCY',journalDate:'2026-07-20',currency:'USD',description:'Supported adjustment used only for idempotency isolation coverage',lines:[
+    {line_no:1,account_code:'111000',debit_amount:'50.0000',credit_amount:'0.0000',member_ref:'BANK-1',description:'Bank statement item',dimensions:{}},
+    {line_no:2,account_code:'291001',debit_amount:'0.0000',credit_amount:'50.0000',member_ref:'VENDOR-1',description:'Supported offset',dimensions:{}}
+  ],attachmentIds:[attachmentId],reason:'Retain one supported adjustment before testing actor-bound replay',idempotencyKey:'reconciliation-actor-bound-adjustment-001'};
+  const adjustment=await adjustmentMaker.createReconciliationAdjustmentDraft(adjustmentArgs);assert.equal((await adjustmentMaker.createReconciliationAdjustmentDraft(adjustmentArgs)).idempotent,true);
+  await assert.rejects(adjustmentIntruder.createReconciliationAdjustmentDraft(adjustmentArgs),error=>error.code==='42501'&&/belongs to another actor/i.test(error.message));
+
+  const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'recon-idempotency-submitter',['GL.JE.SUBMIT'])}),reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'recon-idempotency-je-reviewer',['GL.JE.REVIEW'])}),approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'recon-idempotency-approver',['GL.JE.APPROVE'])}),poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'recon-idempotency-poster',['GL.JE.POST'])});
+  await submitter.transitionJournal({...ids,journalEntryId:adjustment.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'reconciliation-actor-bound-je-submit'});
+  await reviewer.transitionJournal({...ids,journalEntryId:adjustment.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'reconciliation-actor-bound-je-review'});
+  await approver.transitionJournal({...ids,journalEntryId:adjustment.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'reconciliation-actor-bound-je-approve'});
+  await poster.postJournal({...ids,journalEntryId:adjustment.journal_entry_id,expectedRevision:3,idempotencyKey:'reconciliation-actor-bound-je-post'});
+
+  const clearanceMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'recon-idempotency-clearer',['BANK.RECONCILIATION.CLEAR'])}),clearanceIntruder=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'recon-idempotency-clearance-intruder',['BANK.RECONCILIATION.CLEAR'])});
+  const clearanceArgs={...ids,reconciliationId:started.reconciliation_id,bankSourceId,expectedReconciliationVersion:1,expectedBankVersion:0,clear:true,reason:'Clear the exact posted adjustment statement item',idempotencyKey:'reconciliation-actor-bound-clear-001'};
+  const cleared=await clearanceMaker.setReconciliationAdjustmentClearance(clearanceArgs);assert.equal((await clearanceMaker.setReconciliationAdjustmentClearance(clearanceArgs)).idempotent,true);
+  await assert.rejects(clearanceIntruder.setReconciliationAdjustmentClearance(clearanceArgs),error=>error.code==='42501'&&/belongs to another actor/i.test(error.message));
+
+  const transitionMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'recon-idempotency-reviewer',['BANK.RECONCILIATION.REVIEW'])}),transitionIntruder=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'recon-idempotency-review-intruder',['BANK.RECONCILIATION.REVIEW'])});
+  const reviewArgs={...ids,reconciliationId:started.reconciliation_id,action:'REVIEW',expectedVersion:cleared.revision,reason:'Review the actor-bound reconciliation evidence',idempotencyKey:'reconciliation-actor-bound-review-001'};
+  const reviewed=await transitionMaker.transitionReconciliation(reviewArgs);assert.equal((await transitionMaker.transitionReconciliation(reviewArgs)).idempotent,true);assert.equal(reviewed.status,'IN_REVIEW');
+  await assert.rejects(transitionIntruder.transitionReconciliation(reviewArgs),error=>error.code==='42501'&&/belongs to another actor/i.test(error.message));
 });
 
 pgTest('reconciliation adjustment Draft binds one unresolved bank source through Posted clearance, review, and immutable sign-off',async()=>{
@@ -7163,7 +7218,7 @@ pgTest('native expense creates, preserves evidence, posts through normal approva
   const body={periodId:ids.periodId,number:'NATIVE-EXPENSE-1',vendorRef:'VENDOR-1',bankMemberRef:'BANK-1',cashAccountCode:'111000',expenseAccountCode:'610000',date:'2026-07-18',currency:'USD',amount:'1.2345',reason:'Verified direct vendor expense evidence',attachmentIds:[attachmentId]};
   const send=(actor,path,payload,key,revision)=>api({method:'POST',url:path,body:payload,headers:{'x-test-actor':actor,'idempotency-key':key,...(revision==null?{}:{'if-match':String.fromCharCode(34)+revision+String.fromCharCode(34)})}});
   assert.equal((await send('expense-reader',url,body,'expense-denied-001')).status,403);
-  for(const [index,patch] of [{vendorRef:'MISSING-VENDOR'},{vendorRef:'BANK-1'},{bankMemberRef:'VENDOR-1'},{cashAccountCode:'610000'},{expenseAccountCode:'111000'},{attachmentIds:[ids.journalId]}].entries())assert.equal((await send('expense-maker',url,{...body,...patch},`expense-invalid-${index}`)).status,422,JSON.stringify(patch));
+  for(const [index,patch] of [{vendorRef:'MISSING-VENDOR'},{vendorRef:'BANK-1'},{bankMemberRef:'VENDOR-1'},{cashAccountCode:'610000'},{expenseAccountCode:'111000'},{currency:'CAD'},{attachmentIds:[ids.journalId]}].entries())assert.equal((await send('expense-maker',url,{...body,...patch},`expense-invalid-${index}`)).status,422,JSON.stringify(patch));
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM expense WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);
   const created=await Promise.all([send('expense-maker',url,body,'expense-concurrent-001'),send('expense-maker',url,body,'expense-concurrent-001')]);
   assert.deepEqual(created.map(row=>row.status).sort(),[200,201],JSON.stringify(created));
@@ -7175,7 +7230,7 @@ pgTest('native expense creates, preserves evidence, posts through normal approva
   const optionsReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'expense-options-maker',['AP.EXPENSE.CREATE'])});
   const options=await optionsReader.readNativeExpenseCreateOptions(ids);
   assert.deepEqual(options.vendors,[{vendor_ref:'VENDOR-1',vendor_name:'Vendor'}]);
-  assert.deepEqual(options.bank_cash_accounts,[{bank_member_ref:'BANK-1',bank_name:'Bank',cash_account_code:'111000',cash_account_name:'Cash'}]);
+  assert.deepEqual(options.bank_cash_accounts,[{bank_member_ref:'BANK-1',bank_name:'Bank',cash_account_code:'111000',cash_account_name:'Cash',currency:'USD'}]);
   assert.deepEqual(options.expense_accounts,[{expense_account_code:'610000',expense_account_name:'Expense'}]);
   assert.ok(options.attachments.some(row=>row.attachment_id===attachmentId));
   await assert.rejects(reader.readNativeExpenseCreateOptions(ids),error=>error.code==='42501');

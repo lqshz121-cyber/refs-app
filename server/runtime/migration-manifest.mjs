@@ -401,4 +401,6 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"393_native_expense_authoritative.sql","up":"a992e420686dfb14bd7253f515767cd75c65f5e22756e00d56248fcf0fdce27f","down":"75320399b48dfeda214d844f4346e5f58ca7e92dbe839aac8aa0b7f8eaabb192"}),
   Object.freeze({"name":"394_native_expense_reads.sql","up":"9a494d17d861cb0c6665b5e10c28469cf56825da6d2380e244740f2dcb690505","down":"33a8896aa6fe04aca0f99e298b14f79914cbd0e19edb798aa410e271f91170db"}),
   Object.freeze({"name":"395_native_expense_create_options.sql","up":"e023ffa85b9c20045e42c4aa4e7bc81c672f7f5a57f4564328e573183f733fac","down":"ef1c64cb8a1ac9e56edf04c011dd588b00c881fa35eb6b64f1d3816dc1d53b62"}),
+  Object.freeze({"name":"396_native_expense_bank_account_control.sql","up":"91674097e84adce4a27ef09e75045b3f721d6f70f20de749e2dd6ebd84214be8","down":"6908cecbefb1a9a93bc2c958cfff082e1ac8f4c85c3b5804917a4fa9551580cc"}),
+  Object.freeze({"name":"397_journal_upload_export_read.sql","up":"8b1bdbf1a2f04c6e0aaef70740d686cd9cbf8c6f9cd2397c84ae282381c9662d","down":"d6ce265f3681155b1700803d94ec239c66a513cba1f7bb8f5967f38a36a61ab2"}),
 ]);

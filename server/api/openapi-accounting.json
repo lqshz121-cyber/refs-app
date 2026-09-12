@@ -18648,6 +18648,15 @@
         }
       }
     },
+    "/entities/{entityId}/journal-entries/export": {
+      "get": {
+        "operationId": "exportJournalUploadFile",
+        "summary": "Export approved Journal Entries as a QuickBooks-compatible upload CSV",
+        "description": "Returns a deterministic, read-only CSV containing only balanced APPROVED Journal Entry lines from the exact entity and accounting period. Each line retains source document identifiers and the response is hash-bound.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"name":"format","in":"query","required":true,"schema":{"type":"string","enum":["csv"]}}],
+        "responses": {"200":{"$ref":"#/components/responses/JournalUploadExportOk"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/journal-entries/{journalEntryId}": {
       "get": {
         "operationId": "getJournalEntryDetail",
@@ -68439,6 +68448,16 @@
             }
           }
         }
+      },
+      "JournalUploadExportOk": {
+        "description": "Deterministic CSV upload file for approved balanced Journal Entries",
+        "headers": {
+          "Cache-Control": {"schema":{"const":"no-store"}},
+          "ETag": {"schema":{"type":"string","pattern":"^\\\"sha256:[a-f0-9]{64}\\\"$"}},
+          "X-Journal-Upload-Export-Hash": {"schema":{"type":"string","pattern":"^sha256:[a-f0-9]{64}$"}},
+          "X-Journal-Upload-Row-Count": {"schema":{"type":"string","pattern":"^[1-9][0-9]{0,4}$"}}
+        },
+        "content": {"text/csv":{"schema":{"type":"string","format":"binary"}}}
       },
       "FinancialStatementSnapshotExportOk": {
         "description": "Deterministic CSV export of one approved immutable statement snapshot",
