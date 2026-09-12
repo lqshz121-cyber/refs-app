@@ -2188,6 +2188,12 @@ export class PostgresAccountingKernel{
     ),'EXPENSE_UNAVAILABLE','Expense page is unavailable').result);
   }
 
+  async readNativeExpenseCreateOptions({tenantId,entityId,periodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_native_expense_create_options($1,$2,$3) AS result',[tenantId,entityId,periodId]
+    ),'NATIVE_EXPENSE_OPTIONS_UNAVAILABLE','Expense creation options are unavailable').result);
+  }
+
   async readBusinessRecord({tenantId,entityId,recordId,recordKind}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_business_record($1,$2,$3,$4) AS result',[tenantId,entityId,recordId,recordKind]

@@ -21,6 +21,7 @@ import {validSalesReceiptSelection,validSalesReceiptDetail,validSalesReceiptPage
 import {validSalesReceiptOptionSelection,validSalesReceiptOptions} from '../runtime/sales-receipt-options.mjs';
 import {validSalesReceiptBankCandidates} from '../runtime/sales-receipt-bank-candidates.mjs';
 import {validExpenseSelection,validExpenseDetail,validExpensePage} from '../runtime/expense-reads.mjs';
+import {validNativeExpenseCreateOptions} from '../runtime/expense-options.mjs';
 import {validCreditHistorySelection,validCreditHistory} from '../runtime/credit-allocation-history.mjs';
 import {validSettlementHistorySelection,validSettlementHistory} from '../runtime/settlement-history.mjs';
 import {validBillPaymentRegisterSelection,validBillPaymentRegister} from '../runtime/bill-payment-register.mjs';
@@ -1171,6 +1172,17 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         try{result=await kernel[methodName]({tenantId:principal.tenantId,entityId,...selection});}
         catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'SALES_RECEIPT_SELECTION_INVALID','The receipt selection or cursor is invalid. Refresh from the first page.');throw error;}
         if(!(detail?validSalesReceiptDetail:validSalesReceiptPage)(result,{entityId,...selection}))throw new AccountingApiError(500,'SALES_RECEIPT_INVALID','Sales receipt response did not match the requested scope');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===7&&parts[4]==='ap'&&parts[5]==='expenses'&&parts[6]==='options'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Expense options do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId']);
+        const periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId').toLowerCase();
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readNativeExpenseCreateOptions!=='function')throw new AccountingApiError(503,'NATIVE_EXPENSE_OPTIONS_UNAVAILABLE','Expense creation options are unavailable');
+        result=await kernel.readNativeExpenseCreateOptions({tenantId:principal.tenantId,entityId,periodId});
+        if(!validNativeExpenseCreateOptions(result,{entityId,periodId}))throw new AccountingApiError(500,'NATIVE_EXPENSE_OPTIONS_INVALID','Expense creation options did not match the requested scope');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&[6,7].includes(parts.length)&&parts[4]==='ap'&&parts[5]==='expenses'){

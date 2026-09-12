@@ -5690,7 +5690,15 @@
         }
       }
     },
-    "/entities/{entityId}/ap/expenses/{expenseId}": {
+    "/entities/{entityId}/ap/expenses/options": {
+      "get": {
+        "operationId":"readNativeExpenseCreateOptions",
+        "summary":"Read verified server-scoped choices for a direct-bank Expense Draft",
+        "description":"Requires AP.EXPENSE.CREATE. Returns only active Vendors, BANK-controlled cash accounts, active non-member EXPENSE accounts, and clean verified attachments for the selected OPEN period. This endpoint has no accounting action.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "responses":{"200":{"description":"Scoped immutable Expense creation options","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"object"}}}}}},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"500":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },    "/entities/{entityId}/ap/expenses/{expenseId}": {
       "get": {
         "operationId":"readExpense",
         "summary":"Read one saved direct-bank Expense",
