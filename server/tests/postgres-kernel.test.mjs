@@ -7185,6 +7185,41 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   assert.equal((await adminPool.query('SELECT sales_receipt_id FROM bank_match WHERE bank_match_id=$1',[matched.body.data.bank_match_id])).rows[0].sales_receipt_id,receipt.sales_receipt_id);
   await migrateUp(adminPool);
   assertSaleSource(await saleBankReader.getReconciliationWorksheetItem({...sourceWorksheetArgs,bankSourceId:saleBankId}));
+  // A second exact sales receipt proves the 400 reconciliation path end-to-end
+  // without disturbing the earlier unmatch/read-history assertions.
+  const reconciliationReceipt=await send('sale-maker',url,{...body,number:'NATIVE-SALE-RECON-1'},'sale-reconciliation-create-001');
+  assert.equal(reconciliationReceipt.status,201,JSON.stringify(reconciliationReceipt.body));
+  const reconciledSale=reconciliationReceipt.body.data;
+  await advance(reconciledSale.journal_entry_id,'sale-reconciliation');
+  const reconciliationJournalRevision=(await adminPool.query('SELECT revision FROM journal_entry WHERE journal_entry_id=$1',[reconciledSale.journal_entry_id])).rows[0].revision;
+  assert.equal((await send('sale-post',`${root}/journal-entries/${reconciledSale.journal_entry_id}/post`,{periodId:ids.periodId},'sale-reconciliation-post-001',reconciliationJournalRevision)).status,201);
+  const reconciliationBankId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-1','NATIVE-SALE-RECON-BANK','2026-07-19','USD',1.2345)`,[reconciliationBankId,ids.tenantId,ids.entityId,bankTrace.documentId]);
+  const reconciliationCandidates=await bankCandidateApi({method:'GET',url:`${root}/bank/transactions/${reconciliationBankId}/sales-receipt-candidates`,headers:{}});
+  assert.equal(reconciliationCandidates.status,200,JSON.stringify(reconciliationCandidates.body));
+  const reconciliationCandidate=reconciliationCandidates.body.data.rows.find(row=>row.sales_receipt_id===reconciledSale.sales_receipt_id);
+  assert.ok(reconciliationCandidate);
+  const reconciliationMatch=await bankCandidateApi({method:'POST',url:`${root}/bank/transactions/${reconciliationBankId}/sales-receipt-matches`,headers:{'idempotency-key':'sale-reconciliation-match-001','if-match':'\"0\"'},body:{salesReceiptId:reconciledSale.sales_receipt_id,expectedReceiptRevision:1,reason:'Exact posted cash sale retained for reconciliation'}});
+  assert.equal(reconciliationMatch.status,201,JSON.stringify(reconciliationMatch.body));
+  const reconciliationStarter=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'sale-reconciliation-starter',['BANK.RECONCILIATION.START'])});
+  const reconciliationClearer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'sale-reconciliation-clearer',['BANK.RECONCILIATION.CLEAR'])});
+  const reconciliationReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'sale-reconciliation-reviewer',['BANK.RECONCILIATION.REVIEW'])});
+  const reconciliationSigner=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'sale-reconciliation-signer',['BANK.RECONCILIATION.SIGN_OFF'])});
+  const reconciliationStarted=await reconciliationStarter.startReconciliation({...ids,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31',statementOpeningBalance:'0.0000',statementEndingBalance:'2.4690',reason:'Start sales receipt evidence reconciliation',idempotencyKey:'sale-reconciliation-start-001'});
+  await assert.rejects(reconciliationStarter.setReconciliationClearance({...ids,reconciliationId:reconciliationStarted.reconciliation_id,bankSourceId:reconciliationBankId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Starter cannot clear own reconciliation',idempotencyKey:'sale-reconciliation-clear-denied-001'}),error=>error.code==='42501');
+  await adminPool.query('UPDATE bank_match SET amount_delta=0.0001 WHERE bank_match_id=$1',[reconciliationMatch.body.data.bank_match_id]);
+  await assert.rejects(reconciliationClearer.setReconciliationClearance({...ids,reconciliationId:reconciliationStarted.reconciliation_id,bankSourceId:reconciliationBankId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Non-exact sales receipt evidence must not clear',idempotencyKey:'sale-reconciliation-clear-tampered-001'}),error=>error.code==='23514');
+  await adminPool.query('UPDATE bank_match SET amount_delta=0 WHERE bank_match_id=$1',[reconciliationMatch.body.data.bank_match_id]);
+  const reconciliationCleared=await reconciliationClearer.setReconciliationClearance({...ids,reconciliationId:reconciliationStarted.reconciliation_id,bankSourceId:reconciliationBankId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Clear exact posted sales receipt evidence',idempotencyKey:'sale-reconciliation-clear-001'});
+  assert.equal(reconciliationCleared.revision,1);assert.equal(Number(reconciliationCleared.difference),0);
+  const reconciliationReviewed=await reconciliationReviewer.transitionReconciliation({...ids,reconciliationId:reconciliationStarted.reconciliation_id,action:'REVIEW',expectedVersion:1,reason:'Independent reviewer confirms sales receipt evidence',idempotencyKey:'sale-reconciliation-review-001'});
+  assert.equal(reconciliationReviewed.status,'IN_REVIEW');
+  await assert.rejects(reconciliationReviewer.transitionReconciliation({...ids,reconciliationId:reconciliationStarted.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Reviewer cannot sign own sales receipt reconciliation',idempotencyKey:'sale-reconciliation-sign-denied-001'}),error=>error.code==='42501');
+  const reconciliationSigned=await reconciliationSigner.transitionReconciliation({...ids,reconciliationId:reconciliationStarted.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Independent signer completes sales receipt reconciliation',idempotencyKey:'sale-reconciliation-sign-001'});
+  assert.equal(reconciliationSigned.status,'RECONCILED');assert.match(reconciliationSigned.snapshot_hash,/^sha256:[0-9a-f]{64}$/);
+  assert.equal((await adminPool.query(`SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND object_id=$3 AND event_type IN ('RECONCILIATION_ITEM_CLEARED','RECONCILIATION_REVIEWED','RECONCILIATION_SIGNED_OFF')`,[ids.tenantId,ids.entityId,reconciliationStarted.reconciliation_id])).rows[0].n,3);
+  assert.equal((await adminPool.query(`SELECT count(*)::int n FROM reconciliation_item WHERE tenant_id=$1 AND entity_id=$2 AND reconciliation_id=$3 AND bank_source_id=$4 AND state='CLEARED'`,[ids.tenantId,ids.entityId,reconciliationStarted.reconciliation_id,reconciliationBankId])).rows[0].n,1);
   const saleUnmatcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'sale-bank-unmatcher',['BANK.MATCH.UNMATCH'])});
   await saleUnmatcher.unmatchBankPayment({...ids,bankSourceId:saleBankId,bankMatchId:matched.body.data.bank_match_id,expectedMatchVersion:0,reason:'Verify cash sale unmatched source history',idempotencyKey:'sale-source-unmatch-001'});
   const history=(await saleBankReader.listBankTransactions({...ids,bankAccountRef:'BANK-1'})).find(row=>row.bank_source_id===saleBankId);
