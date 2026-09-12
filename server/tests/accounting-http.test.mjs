@@ -5,6 +5,9 @@ import {createAccountingApi,createAccountingHttpServer} from '../api/accounting-
 const tenantId=randomUUID(),entityId=randomUUID(),journalEntryId=randomUUID(),periodId=randomUUID();
 const calls=[];const invoke=name=>async args=>{calls.push([name,args]);return {journal_entry_id:journalEntryId,status:'DRAFT',idempotent:false};};
 const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createApPaymentReversal:invoke('createApPaymentReversal'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),getArAging:invoke('getArAging'),getApAging:invoke('getApAging'),getAgingSnapshotSummary:invoke('getAgingSnapshotSummary'),getAgingSnapshotDetail:invoke('getAgingSnapshotDetail'),getArControlTotal:invoke('getArControlTotal'),getApControlTotal:invoke('getApControlTotal'),listBusinessDocuments:invoke('listBusinessDocuments'),listBusinessAdjustments:invoke('listBusinessAdjustments'),listJournalEntries:invoke('listJournalEntries'),getJournalWorkflowCapabilities:invoke('getJournalWorkflowCapabilities'),listBankTransactions:invoke('listBankTransactions'),listBankMatchCandidates:invoke('listBankMatchCandidates'),getReconciliationSummary:invoke('getReconciliationSummary'),listReconciliationScopes:invoke('listReconciliationScopes'),listAdmittedWbsBankStatementReceipts:invoke('listAdmittedWbsBankStatementReceipts'),getAdmittedWbsBankStatementReceipt:invoke('getAdmittedWbsBankStatementReceipt'),listReconciliationWorksheet:invoke('listReconciliationWorksheet'),getSignedReconciliationSnapshot:invoke('getSignedReconciliationSnapshot'),getFinancialStatements:invoke('getFinancialStatements'),getFinancialStatementSnapshot:invoke('getFinancialStatementSnapshot'),prepareFinancialStatementSnapshot:invoke('prepareFinancialStatementSnapshot'),approveFinancialStatementSnapshot:invoke('approveFinancialStatementSnapshot'),createBankPaymentMatch:invoke('createBankPaymentMatch'),unmatchBankPayment:invoke('unmatchBankPayment'),startReconciliation:invoke('startReconciliation'),startReconciliationFromAdmittedWbsStatement:invoke('startReconciliationFromAdmittedWbsStatement'),setReconciliationClearance:invoke('setReconciliationClearance'),setReconciliationAdjustmentClearance:invoke('setReconciliationAdjustmentClearance'),transitionReconciliation:invoke('transitionReconciliation'),createReconciliationAdjustmentDraft:invoke('createReconciliationAdjustmentDraft'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createArRefund:invoke('createArRefund'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit'),recordWbsSnapshot:invoke('recordWbsSnapshot')};
+kernel.createBankPaymentMatch=async args=>(calls.push(['createBankPaymentMatch',args]),{bank_match_id:randomUUID(),bank_source_id:args.bankSourceId,payment_occurrence_id:args.paymentOccurrenceId,source_document_id:randomUUID(),journal_entry_id:randomUUID(),journal_line_id:randomUUID(),ledger_line_id:randomUUID(),status:'ACTIVE',revision:0,idempotent:false});
+for(const name of ['createApVendorCredit','createArCreditMemo'])kernel[name]=async args=>(calls.push([name,args]),{business_adjustment_id:randomUUID(),journal_entry_id:randomUUID(),status:'DRAFT',revision:0,idempotent:false});
+for(const name of ['applyApVendorCredit','applyArCreditMemo'])kernel[name]=async args=>(calls.push([name,args]),{business_allocation_id:randomUUID(),business_adjustment_id:args.businessAdjustmentId,business_document_id:args.businessDocumentId,amount:args.amount,status:'PENDING',idempotent:false});
 const statementProposalId=randomUUID(),statementSnapshotId=randomUUID(),statementHash='sha256:'+'a'.repeat(64),statementEvidenceHash='sha256:'+'b'.repeat(64),statementRowHash='sha256:'+'c'.repeat(64),statementJournalLineId=randomUUID(),statementLedgerLineId=randomUUID();
 const statementQueueItem={schema_version:'FINANCIAL_STATEMENT_SNAPSHOT_PROPOSAL_QUEUE_ITEM_V1',financial_statement_snapshot_proposal_id:statementProposalId,period_id:periodId,currency:'USD',snapshot_hash:statementHash,ledger_evidence_hash:statementEvidenceHash,row_count:1,prepared_by:'preparer',prepared_at:'2026-08-28T12:00:00.000Z',status:'PENDING_APPROVAL',financial_statement_snapshot_id:null,version:null,approved_by:null,approved_at:null,can_approve:true};
 Object.assign(kernel,{
@@ -21,6 +24,15 @@ test('expired attachment reservation reports a closed upload without exposing in
   const response=await api({method:'POST',url:`/api/v1/entities/${entityId}/attachments/reservations`,headers:{'idempotency-key':'closed-upload-key'},body:{name:'support.pdf',mediaType:'application/pdf',sizeBytes:4,contentHash:'sha256:'+'a'.repeat(64)}});
   assert.equal(response.status,409);assert.equal(response.body.code,'ATTACHMENT_RESERVATION_CLOSED');
   assert.match(response.body.message,/new request key/);assert.doesNotMatch(JSON.stringify(response.body),/private storage URI/);
+});
+
+test('invalid attachment metadata is rejected without exposing storage details',async()=>{
+  const invalid=Object.assign(new Error('s3://private-bucket/path?signature=secret'),{code:'ATTACHMENT_RESERVATION_INVALID'});
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'uploader'}),kernelFactory:async()=>({}),attachmentServiceFactory:async()=>({reserve:async()=>{throw invalid;},reserveWbsPayable:async()=>{throw invalid;}})});
+  const body={name:'bad/name.pdf',mediaType:'application/pdf',sizeBytes:4,contentHash:'sha256:'+'a'.repeat(64)};
+  const native=await api({method:'POST',url:`/api/v1/entities/${entityId}/attachments/reservations`,headers:{'idempotency-key':'invalid-attachment-1'},body});
+  const row=await api({method:'POST',url:`/api/v1/entities/${entityId}/wbs/inbound/payables/${randomUUID()}/attachments/reservations`,headers:{'idempotency-key':'invalid-attachment-2'},body});
+  for(const response of [native,row]){assert.equal(response.status,400);assert.equal(response.body.code,'INVALID_ATTACHMENT_METADATA');assert.doesNotMatch(JSON.stringify(response.body),/private-bucket|signature/);}
 });
 
 test('AI amortization schedule GET and Draft POST preserve exact scope, no-store, and Draft-only output',async()=>{
@@ -424,13 +436,12 @@ test('WBS Cost GL and Property controls are authenticated evidence-only reads wi
   assert.equal((await controlApi({method:'GET',url:property.replace('2026-08-31','2026-02-30'),body:null,headers:{}})).status,400);
 });
 
-test('AP Payment route creates only Draft occurrence and pending allocation from trusted scope',async()=>{
-  calls.length=0;const billId=randomUUID();const body={periodId,paymentNumber:'APPAY-1',paymentDate:'2026-08-02',cashAccountCode:'100100',bankMemberRef:'BANK-1',amount:40,reason:'Pay vendor bill'};
-  const response=await command(`/api/v1/entities/${entityId}/ap/bills/${billId}/payments`,body);
-  assert.equal(response.status,201);assert.equal(calls[0][0],'createApPayment');
-  assert.deepEqual(calls[0][1],{...body,tenantId,entityId,businessDocumentId:billId,idempotencyKey:'idem-key-0001'});
-  assert.equal((await command(`/api/v1/entities/${entityId}/ap/bills/${billId}/payments`,{...body,actorId:'attacker'})).status,400);
-  assert.equal((await command(`/api/v1/entities/${entityId}/ap/bills/${billId}/payments`,{...body,periodId:'not-uuid'})).status,400);
+test('legacy AP Payment and AR Receipt routes are retired before any kernel call',async()=>{
+  calls.length=0;const body={periodId,paymentNumber:'APPAY-1',paymentDate:'2026-08-02',cashAccountCode:'100100',bankMemberRef:null,amount:40,reason:'Pay vendor bill'};
+  for(const path of [`/api/v1/entities/${entityId}/ap/bills/${randomUUID()}/payments`,`/api/v1/entities/${entityId}/ar/invoices/${randomUUID()}/receipts`]){
+    const response=await command(path,body);assert.equal(response.status,410);assert.equal(response.body.code,'ROUTE_RETIRED');
+  }
+  assert.deepEqual(calls,[]);
 });
 
 test('Bank match command derives scope and requires revisions, idempotency, and a posted occurrence reference',async()=>{
@@ -443,6 +454,14 @@ test('Bank match command derives scope and requires revisions, idempotency, and 
   assert.equal((await command(`/api/v1/entities/${entityId}/bank/transactions/${bankSourceId}/matches`,{...body,expectedOccurrenceRevision:-1},{'If-Match':'"3"'})).status,400);
   assert.equal((await command(`/api/v1/entities/${entityId}/bank/transactions/${bankSourceId}/matches`,{...body,actorId:'attacker'},{'If-Match':'"3"'})).status,400);
   assert.equal((await command(`/api/v1/entities/${entityId}/bank/transactions/${bankSourceId}/matches`,{...body,reason:'x'.repeat(2001)},{'If-Match':'"3"'})).body.code,'INVALID_REASON');
+});
+
+test('Bank match rejects malformed successful receipts before returning a match',async()=>{
+  const bankSourceId=randomUUID(),paymentOccurrenceId=randomUUID(),body={paymentOccurrenceId,expectedOccurrenceRevision:2,reason:'Controller reviewed exact posted payment evidence'};
+  const badKernel={...kernel,createBankPaymentMatch:async()=>({bank_match_id:randomUUID(),bank_source_id:bankSourceId,payment_occurrence_id:paymentOccurrenceId,source_document_id:randomUUID(),journal_entry_id:randomUUID(),journal_line_id:randomUUID(),ledger_line_id:randomUUID(),status:'POSTED',revision:0,idempotent:false})};
+  const badApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>badKernel});
+  const response=await badApi({method:'POST',url:`/api/v1/entities/${entityId}/bank/transactions/${bankSourceId}/matches`,body,headers:{'Idempotency-Key':'bank-match-bad-receipt-001','If-Match':'"3"'}});
+  assert.equal(response.status,502);assert.equal(response.body.code,'BANK_PAYMENT_MATCH_INVALID');
 });
 
 test('Bank unmatch command retains scope and requires the active match revision and canonical review reason',async()=>{
@@ -489,14 +508,6 @@ test('AutoRec G11 HTTP surface creates only fixed producers, independently final
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/wbs/auto-reconciliation/match-reviews/${reviewId}/g11-evidence`,body:null,headers:{'If-Match':'"1"'}})).body.code,'READ_COMMAND_HEADERS_FORBIDDEN');
 });
 
-test('AR Receipt route creates only Draft occurrence and pending allocation from trusted scope',async()=>{
-  calls.length=0;const invoiceId=randomUUID();const body={periodId,receiptNumber:'ARRCPT-1',receiptDate:'2026-08-02',cashAccountCode:'100100',bankMemberRef:'BANK-1',amount:75,reason:'Receive customer payment'};
-  const response=await command(`/api/v1/entities/${entityId}/ar/invoices/${invoiceId}/receipts`,body);
-  assert.equal(response.status,201);assert.equal(calls[0][0],'createArReceipt');
-  assert.deepEqual(calls[0][1],{...body,tenantId,entityId,businessDocumentId:invoiceId,idempotencyKey:'idem-key-0001'});
-  assert.equal((await command(`/api/v1/entities/${entityId}/ar/invoices/${invoiceId}/receipts`,{...body,actorId:'attacker'})).status,400);
-  assert.equal((await command(`/api/v1/entities/${entityId}/ar/invoices/${invoiceId}/receipts`,{...body,periodId:'not-uuid'})).status,400);
-});
 
 test('AR Receipt reversal route creates only a Draft adjustment from trusted scope',async()=>{
   calls.length=0;const response=await command('/api/v1/entities/'+entityId+'/ar/receipts/'+journalEntryId+'/reversals',{periodId,journalNumber:'AR-REV-1',journalDate:'2026-07-20',reason:'Customer receipt reversal'},{'Idempotency-Key':'ar-rev-0001'});
@@ -678,9 +689,23 @@ test('AR Credit Memo allocation route creates only a pending reservation from tr
   const response=await command(`/api/v1/entities/${entityId}/ar/credit-memos/${creditId}/allocations`,body);
   assert.equal(response.status,201);assert.equal(calls[0][0],'applyArCreditMemo');assert.equal(calls[0][1].businessAdjustmentId,creditId);
 });
-test('AR Refund route creates only a Draft from a posted credit source',async()=>{
+test('credit command routes reject malformed creation and allocation receipts',async()=>{
+  const adjustmentId=randomUUID(),documentId=randomUUID(),validDraft={business_adjustment_id:adjustmentId,journal_entry_id:randomUUID(),status:'DRAFT',revision:0,idempotent:false};
+  for(const [path,method,body,invalidResult] of [
+    ['ap/vendor-credits','createApVendorCredit',{periodId,creditNumber:'VC-BAD',creditDate:'2026-08-02',vendorRef:'V-100',vendorName:'Vendor',amount:10,lines:[{line_no:1,account_code:'610000',amount:10}],reason:'Vendor credit receipt validation',attachmentIds:[randomUUID()]},{...validDraft,status:'POSTED'}],
+    ['ar/credit-memos','createArCreditMemo',{periodId,memoNumber:'CM-BAD',memoDate:'2026-08-02',customerRef:'C-100',customerName:'Customer',amount:10,lines:[{line_no:1,account_code:'410000',amount:10}],reason:'Customer credit receipt validation',attachmentIds:[randomUUID()]},{...validDraft,revision:1}]
+  ]){
+    const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'credit-maker'}),kernelFactory:async()=>({[method]:async()=>invalidResult})});
+    const response=await api({method:'POST',url:`/api/v1/entities/${entityId}/${path}`,headers:{'Idempotency-Key':`bad-${method}`},body});assert.equal(response.status,500);assert.equal(response.body.code,'BUSINESS_ADJUSTMENT_RECEIPT_INVALID');
+  }
+  for(const [path,method] of [['ap/vendor-credits','applyApVendorCredit'],['ar/credit-memos','applyArCreditMemo']]){
+    const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'credit-applier'}),kernelFactory:async()=>({[method]:async()=>({business_allocation_id:randomUUID(),business_adjustment_id:adjustmentId,business_document_id:documentId,amount:10,status:'ACTIVE',idempotent:false})})});
+    const response=await api({method:'POST',url:`/api/v1/entities/${entityId}/${path}/${adjustmentId}/allocations`,headers:{'Idempotency-Key':`bad-${method}`},body:{businessDocumentId:documentId,amount:10,reason:'Receipt validation'}});assert.equal(response.status,500);assert.equal(response.body.code,'BUSINESS_ALLOCATION_RECEIPT_INVALID');
+  }
+});
+test('legacy AR Refund route is retired before any kernel call',async()=>{
   calls.length=0;const sourceAdjustmentId=randomUUID();const response=await command(`/api/v1/entities/${entityId}/ar/refunds`,{periodId,sourceAdjustmentId,refundNumber:'RF-1',refundDate:'2026-08-02',cashAccountCode:'100100',amount:50,reason:'Return customer overpayment'});
-  assert.equal(response.status,201);assert.equal(calls[0][0],'createArRefund');assert.equal(calls[0][1].sourceAdjustmentId,sourceAdjustmentId);
+  assert.equal(response.status,410);assert.equal(response.body.code,'ROUTE_RETIRED');assert.deepEqual(calls,[]);
 });
 test('AP Payment reversal route creates only a Draft inverse',async()=>{
   calls.length=0;const sourceOccurrenceId=randomUUID();const response=await command(`/api/v1/entities/${entityId}/ap/payments/${sourceOccurrenceId}/reversals`,{periodId,journalNumber:'REV-1',journalDate:'2026-08-02',reason:'Reverse duplicate payment'});
@@ -746,6 +771,23 @@ test('real HTTP listener preserves an absent GET body and rejects an absent POST
     response=await fetch(`${base}/api/v1/entities/${entityId}/journal-entries/manual`,{method:'POST',headers:{'idempotency-key':'idem-http-empty'}});
     assert.equal(response.status,400);assert.equal((await response.json()).code,'JSON_OBJECT_REQUIRED');
   }finally{await new Promise(resolve=>server.close(resolve));}
+});
+
+test('AP bills and AR invoices accept only confirmed native Draft receipts',async()=>{
+  const seen=[];
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'document-maker'}),kernelFactory:async()=>({createBusinessDocument:async args=>{
+    seen.push(args);
+    return {business_document_id:randomUUID(),journal_entry_id:randomUUID(),document_kind:args.documentKind,status:'DRAFT',revision:0,idempotent:false};
+  }})});
+  const attachmentId=randomUUID();
+  for(const [path,documentKind] of [['ap/bills','AP_BILL'],['ar/invoices','AR_INVOICE']]){
+    const response=await api({method:'POST',url:`/api/v1/entities/${entityId}/${path}`,headers:{'Idempotency-Key':`native-${documentKind}`},body:{periodId,documentNumber:`${documentKind}-001`,counterpartyRef:'counterparty-1',counterpartyName:'Counterparty One',currency:'USD',accountingDate:'2026-08-01',dueDate:'2026-08-31',amount:'25.0000',offsetAccountCode:'610000',description:'Native document receipt test',attachmentIds:[attachmentId]}});
+    assert.equal(response.status,201);assert.equal(response.body.data.document_kind,documentKind);
+  }
+  assert.deepEqual(seen.map(args=>args.documentKind),['AP_BILL','AR_INVOICE']);assert.ok(seen.every(args=>args.tenantId===tenantId&&args.entityId===entityId&&args.idempotencyKey));
+  const invalidApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'document-maker'}),kernelFactory:async()=>({createBusinessDocument:async()=>({business_document_id:randomUUID(),journal_entry_id:randomUUID(),document_kind:'AP_BILL',status:'POSTED',revision:0,idempotent:false})})});
+  const invalid=await invalidApi({method:'POST',url:`/api/v1/entities/${entityId}/ap/bills`,headers:{'Idempotency-Key':'native-invalid-receipt'},body:{periodId,documentNumber:'AP-BILL-INVALID',counterpartyRef:'counterparty-1',counterpartyName:'Counterparty One',currency:'USD',accountingDate:'2026-08-01',amount:'25.0000',offsetAccountCode:'610000',attachmentIds:[attachmentId]}});
+  assert.equal(invalid.status,500);assert.equal(invalid.body.code,'BUSINESS_DOCUMENT_RECEIPT_INVALID');
 });
 
 test('HTTP CORS permits only configured browser origins and preflights without authentication',async()=>{

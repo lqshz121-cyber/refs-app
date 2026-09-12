@@ -9,7 +9,7 @@ const down=await readFile(new URL('../db/migrations/down/373_intercompany_elimin
 const spec=JSON.parse(await readFile(new URL('../api/openapi-accounting.json',import.meta.url),'utf8'));
 
 test('373 is a checksummed forward-only authoritative elimination migration with retained-evidence down protection',()=>{
- const entry=MIGRATION_MANIFEST.at(-1);assert.equal(entry.name,'373_intercompany_elimination_authoritative.sql');
+ const entry=MIGRATION_MANIFEST.find(item=>item.name==='373_intercompany_elimination_authoritative.sql');assert.ok(entry,'373 must remain in the migration manifest');
  assert.equal(entry.up,createHash('sha256').update(up).digest('hex'));assert.equal(entry.down,createHash('sha256').update(down).digest('hex'));
  assert.match(down,/Refusing to remove retained intercompany elimination evidence/i);
  assert.match(down,/elimination_ref LIKE 'INTERCOMPANY_ELIMINATION_BATCH:%'/i);

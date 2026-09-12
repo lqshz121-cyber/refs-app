@@ -748,6 +748,208 @@ export class PostgresAccountingKernel{
     ),'UNIT_TRANSFER_REGISTER_MISSING','Unit Transfer register unavailable').result);
   }
 
+  // Cash Transfer evidence is database-owned.  These methods deliberately do
+  // not read the aggregate tables: the SQL functions enforce RLS, scope, SoD,
+  // retained-evidence checks and canonical idempotency request hashes.
+  async readCashTransferRegister({tenantId,entityId,periodId,limit=100,afterDate=null,afterTransferId=null}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_cash_transfer_register($1,$2,$3,$4::integer,$5::date,$6::uuid) AS result',[tenantId,entityId,periodId,limit,afterDate,afterTransferId]
+    ),'CASH_TRANSFER_REGISTER_MISSING','Cash Transfer register unavailable').result);
+  }
+
+  async readCashTransferDetail({tenantId,entityId,cashTransferId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_cash_transfer_detail($1,$2,$3::uuid) AS result',[tenantId,entityId,cashTransferId]
+    ),'CASH_TRANSFER_DETAIL_MISSING','Cash Transfer detail unavailable').result);
+  }
+
+  async readCashTransferCreateOptions({tenantId,entityId,periodId,transferDate}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_cash_transfer_create_options($1,$2,$3,$4::date) AS result',[tenantId,entityId,periodId,transferDate]
+    ),'CASH_TRANSFER_CREATE_OPTIONS_MISSING','Cash Transfer create options unavailable').result);
+  }
+
+  async readCashTransferAttachmentCandidates({tenantId,entityId,limit=100,beforeVerifiedAt=null,beforeAttachmentId=null}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_cash_transfer_attachment_candidates($1,$2,$3::integer,$4::timestamptz,$5::uuid) AS result',[tenantId,entityId,limit,beforeVerifiedAt,beforeAttachmentId]
+    ),'CASH_TRANSFER_ATTACHMENT_CANDIDATES_MISSING','Cash Transfer attachment candidates unavailable').result);
+  }
+
+  async readCashTransferBankLegCandidates({tenantId,entityId,cashTransferId,leg,limit=100,afterExternalBankLineId=null,afterBankSourceId=null}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_cash_transfer_bank_leg_candidates($1,$2,$3::uuid,$4,$5::integer,$6,$7::uuid) AS result',[tenantId,entityId,cashTransferId,leg,limit,afterExternalBankLineId,afterBankSourceId]
+    ),'CASH_TRANSFER_BANK_LEG_CANDIDATES_MISSING','Cash Transfer bank-leg candidates unavailable').result);
+  }
+
+  async readCashTransferBankAccountControls({tenantId,entityId,asOfDate=null}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_cash_transfer_bank_account_controls($1,$2,$3::date) AS result',[tenantId,entityId,asOfDate]
+    ),'CASH_TRANSFER_BANK_ACCOUNT_CONTROLS_MISSING','Cash Transfer bank-account controls unavailable').result);
+  }
+
+  async createCashTransferBankAccountControl({tenantId,entityId,bankMemberRef,cashAccountCode,currency,effectiveFrom,effectiveTo=null,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,bankMemberRef,cashAccountCode,currency,effectiveFrom,effectiveTo];
+      const requestHash=requireRow(await client.query('SELECT refs_cash_transfer_control_create_hash($1,$2,$3,$4,$5::char(3),$6::date,$7::date) AS request_hash',args),'CASH_TRANSFER_BANK_CONTROL_CREATE_HASH_MISSING','Cash Transfer bank-account control create hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_create_cash_transfer_bank_account_control($1,$2,$3,$4,$5::char(3),$6::date,$7::date,$8,$9) AS result',[...args,idempotencyKey,requestHash]),'CASH_TRANSFER_BANK_CONTROL_CREATE_FAILED','Cash Transfer bank-account control unavailable').result;
+    });
+  }
+
+  async approveCashTransferBankAccountControl({tenantId,entityId,controlId,expectedVersion,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,controlId,expectedVersion];
+      const requestHash=requireRow(await client.query('SELECT refs_cash_transfer_control_approve_hash($1,$2,$3::uuid,$4::bigint) AS request_hash',args),'CASH_TRANSFER_BANK_CONTROL_APPROVE_HASH_MISSING','Cash Transfer bank-account control approval hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_approve_cash_transfer_bank_account_control($1,$2,$3::uuid,$4::bigint,$5,$6) AS result',[...args,idempotencyKey,requestHash]),'CASH_TRANSFER_BANK_CONTROL_APPROVE_FAILED','Cash Transfer bank-account control approval unavailable').result;
+    });
+  }
+
+  async retireCashTransferBankAccountControl({tenantId,entityId,controlId,expectedVersion,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,controlId,expectedVersion];
+      const requestHash=requireRow(await client.query('SELECT refs_cash_transfer_control_retire_hash($1,$2,$3::uuid,$4::bigint) AS request_hash',args),'CASH_TRANSFER_BANK_CONTROL_RETIRE_HASH_MISSING','Cash Transfer bank-account control retirement hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_retire_cash_transfer_bank_account_control($1,$2,$3::uuid,$4::bigint,$5,$6) AS result',[...args,idempotencyKey,requestHash]),'CASH_TRANSFER_BANK_CONTROL_RETIRE_FAILED','Cash Transfer bank-account control retirement unavailable').result;
+    });
+  }
+
+  async createCashTransfer({tenantId,entityId,periodId,date,number,currency,sourceCashAccountCode,sourceBankMemberRef,destinationCashAccountCode,destinationBankMemberRef,amount,attachmentIds,reason,idempotencyKey}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_create_cash_transfer_from_public_dto($1,$2,$3,$4::date,$5,$6::char(3),$7,$8,$9,$10,$11::numeric,$12::uuid[],$13,$14) AS result',[tenantId,entityId,periodId,date,number,currency,sourceCashAccountCode,sourceBankMemberRef,destinationCashAccountCode,destinationBankMemberRef,amount,attachmentIds,reason,idempotencyKey]
+    ),'CASH_TRANSFER_CREATE_FAILED','Cash Transfer Draft unavailable').result);
+  }
+
+  async transitionCashTransfer({tenantId,entityId,cashTransferId,action,expectedRevision,expectedJournalRevision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,cashTransferId,action,expectedRevision,expectedJournalRevision,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_cash_transfer_transition_hash($1,$2,$3::uuid,$4,$5::bigint,$6::bigint,$7) AS request_hash',args),'CASH_TRANSFER_TRANSITION_HASH_MISSING','Cash Transfer transition hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_transition_cash_transfer($1,$2,$3::uuid,$4,$5::bigint,$6::bigint,$7,$8,$9) AS result',[...args,idempotencyKey,requestHash]),'CASH_TRANSFER_TRANSITION_FAILED','Cash Transfer transition unavailable').result;
+    });
+  }
+
+  async postCashTransfer({tenantId,entityId,cashTransferId,expectedRevision,expectedJournalRevision,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,cashTransferId,expectedRevision,expectedJournalRevision];
+      const requestHash=requireRow(await client.query('SELECT refs_post_cash_transfer_hash($1,$2,$3::uuid,$4::bigint,$5::bigint) AS request_hash',args),'CASH_TRANSFER_POST_HASH_MISSING','Cash Transfer post hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_post_cash_transfer($1,$2,$3::uuid,$4::bigint,$5::bigint,$6,$7) AS result',[...args,idempotencyKey,requestHash]),'CASH_TRANSFER_POST_FAILED','Cash Transfer post unavailable').result;
+    });
+  }
+
+  async cancelCashTransfer({tenantId,entityId,cashTransferId,expectedRevision,expectedJournalRevision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,cashTransferId,expectedRevision,expectedJournalRevision,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_cancel_cash_transfer_hash($1,$2,$3::uuid,$4::bigint,$5::bigint,$6) AS request_hash',args),'CASH_TRANSFER_CANCEL_HASH_MISSING','Cash Transfer cancel hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_cancel_cash_transfer($1,$2,$3::uuid,$4::bigint,$5::bigint,$6,$7,$8) AS result',[...args,idempotencyKey,requestHash]),'CASH_TRANSFER_CANCEL_FAILED','Cash Transfer cancellation unavailable').result;
+    });
+  }
+
+  async linkCashTransferBankLeg({tenantId,entityId,cashTransferId,leg,bankSourceId,expectedTransferRevision,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,cashTransferId,leg,bankSourceId,expectedTransferRevision];
+      const requestHash=requireRow(await client.query('SELECT refs_cash_transfer_bank_link_hash($1,$2,$3::uuid,$4,$5::uuid,$6::bigint) AS request_hash',args),'CASH_TRANSFER_BANK_LINK_HASH_MISSING','Cash Transfer bank-link hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_link_cash_transfer_bank_leg($1,$2,$3::uuid,$4,$5::uuid,$6::bigint,$7,$8) AS result',[...args,idempotencyKey,requestHash]),'CASH_TRANSFER_BANK_LINK_FAILED','Cash Transfer bank-link unavailable').result;
+    });
+  }
+
+  async readConsolidationConfiguration({tenantId,entityId,workflowId}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_consolidation_configuration($1,$2,$3) AS result',[tenantId,entityId,workflowId]),'CONSOLIDATION_CONFIGURATION_MISSING','Consolidation configuration unavailable').result);
+  }
+
+  async createConsolidationConfiguration({tenantId,entityId,periodId,groupRef,currency,members,accountMaps,reason,idempotencyKey}){
+    return this.inSession(async client=>{const args=[tenantId,entityId,periodId,groupRef,currency,members,accountMaps,reason];const requestHash=requireRow(await client.query('SELECT refs_consolidation_configuration_hash($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8) AS request_hash',args),'CONSOLIDATION_CONFIGURATION_HASH_MISSING','Consolidation configuration hash unavailable').request_hash;return requireRow(await client.query('SELECT refs_create_consolidation_configuration($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10) AS result',[...args,idempotencyKey,requestHash]),'CONSOLIDATION_CONFIGURATION_CREATE_FAILED','Consolidation configuration create unavailable').result;});
+  }
+
+  async transitionConsolidationConfiguration({tenantId,entityId,workflowId,action,expectedRevision,reason,idempotencyKey}){
+    return this.inSession(async client=>{const args=[tenantId,entityId,workflowId,action,expectedRevision,reason];const requestHash=requireRow(await client.query('SELECT refs_consolidation_configuration_transition_hash($1,$2,$3,$4,$5::bigint,$6) AS request_hash',args),'CONSOLIDATION_CONFIGURATION_TRANSITION_HASH_MISSING','Consolidation configuration transition hash unavailable').request_hash;return requireRow(await client.query('SELECT refs_transition_consolidation_configuration($1,$2,$3,$4,$5::bigint,$6,$7,$8) AS result',[...args,idempotencyKey,requestHash]),'CONSOLIDATION_CONFIGURATION_TRANSITION_FAILED','Consolidation configuration transition unavailable').result;});
+  }
+
+  async readForecastWorkflow({tenantId,entityId,workflowId}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_forecast_workflow($1,$2,$3) AS result',[tenantId,entityId,workflowId]),'FORECAST_WORKFLOW_MISSING','Forecast workflow unavailable').result);
+  }
+
+  async createForecastWorkflow({tenantId,entityId,periodId,name,currency,lines,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,periodId,name,currency,lines,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_forecast_create_hash($1,$2,$3,$4,$5,$6::jsonb,$7) AS request_hash',args),'FORECAST_CREATE_HASH_MISSING','Forecast create hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_create_forecast_workflow($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9) AS result',[...args,idempotencyKey,requestHash]),'FORECAST_CREATE_FAILED','Forecast creation unavailable').result;
+    });
+  }
+
+  async transitionForecastWorkflow({tenantId,entityId,workflowId,action,expectedRevision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,workflowId,action,expectedRevision,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_forecast_transition_hash($1,$2,$3,$4,$5::bigint,$6) AS request_hash',args),'FORECAST_TRANSITION_HASH_MISSING','Forecast transition hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_transition_forecast_workflow($1,$2,$3,$4,$5::bigint,$6,$7,$8) AS result',[...args,idempotencyKey,requestHash]),'FORECAST_TRANSITION_FAILED','Forecast transition unavailable').result;
+    });
+  }
+
+  async readRecurringSchedule({tenantId,entityId,scheduleId}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_recurring_schedule($1,$2,$3::uuid) AS result',[tenantId,entityId,scheduleId]),'RECURRING_SCHEDULE_MISSING','Recurring schedule unavailable').result);
+  }
+
+  async createRecurringSchedule({tenantId,entityId,name,journalPrefix,currency,frequency,nextDueOn,endsOn,lines,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,name,journalPrefix,currency,frequency,nextDueOn,endsOn,lines,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_recurring_schedule_create_hash($1,$2,$3,$4,$5,$6,$7::date,$8::date,$9::jsonb,$10) AS request_hash',args),'RECURRING_SCHEDULE_CREATE_HASH_MISSING','Recurring schedule create hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_create_recurring_schedule($1,$2,$3,$4,$5,$6,$7::date,$8::date,$9::jsonb,$10,$11,$12) AS result',[...args,idempotencyKey,requestHash]),'RECURRING_SCHEDULE_CREATE_FAILED','Recurring schedule creation unavailable').result;
+    });
+  }
+
+  async transitionRecurringSchedule({tenantId,entityId,scheduleId,action,expectedRevision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,scheduleId,action,expectedRevision,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_recurring_schedule_transition_hash($1,$2,$3::uuid,$4,$5::bigint,$6) AS request_hash',args),'RECURRING_SCHEDULE_TRANSITION_HASH_MISSING','Recurring schedule transition hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_transition_recurring_schedule($1,$2,$3::uuid,$4,$5::bigint,$6,$7,$8) AS result',[...args,idempotencyKey,requestHash]),'RECURRING_SCHEDULE_TRANSITION_FAILED','Recurring schedule transition unavailable').result;
+    });
+  }
+
+  async runDueRecurringSchedules({tenantId,entityId,asOfDate,limit,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,asOfDate,limit];
+      const requestHash=requireRow(await client.query('SELECT refs_recurring_schedule_run_hash($1,$2,$3::date,$4::integer) AS request_hash',args),'RECURRING_SCHEDULE_RUN_HASH_MISSING','Recurring schedule run hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_run_due_recurring_schedules($1,$2,$3::date,$4::integer,$5,$6) AS result',[...args,idempotencyKey,requestHash]),'RECURRING_SCHEDULE_RUN_FAILED','Recurring schedule run unavailable').result;
+    });
+  }
+
+  async readCustomReport({tenantId,entityId,periodId,reportType,dimensionType=null,dimensionRef=null,limit=100,afterAccountCode=null}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_custom_report($1,$2,$3,$4,$5,$6,$7::integer,$8) AS result',
+      [tenantId,entityId,periodId,reportType,dimensionType,dimensionRef,limit,afterAccountCode]
+    ),'CUSTOM_REPORT_MISSING','Custom report is unavailable').result);
+  }
+
+  async readReportSavedViews({tenantId,entityId,limit=50,afterUpdatedAt=null,afterId=null}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_report_saved_views($1,$2,$3::integer,$4::timestamptz,$5::uuid) AS result',[tenantId,entityId,limit,afterUpdatedAt,afterId]),'REPORT_SAVED_VIEW_PAGE_MISSING','Saved report views are unavailable').result);
+  }
+
+  async readReportSavedView({tenantId,entityId,savedViewId}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_report_saved_view_payload($1,$2,$3) AS result',[tenantId,entityId,savedViewId]),'REPORT_SAVED_VIEW_MISSING','Saved report view is unavailable').result);
+  }
+
+  async createReportSavedView({tenantId,entityId,name,reportType,periodId,filters,visibility,reason,idempotencyKey}){
+    return this.inSession(async client=>{const args=[tenantId,entityId,name,reportType,periodId,filters,visibility,reason];const requestHash=requireRow(await client.query('SELECT refs_report_saved_view_request_hash($1,$2,NULL,NULL,$3,$4,$5,$6::jsonb,$7,$8) AS request_hash',args),'REPORT_SAVED_VIEW_HASH_MISSING','Saved report view request hash unavailable').request_hash;return requireRow(await client.query('SELECT refs_create_report_saved_view($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10) AS result',[...args,idempotencyKey,requestHash]),'REPORT_SAVED_VIEW_CREATE_FAILED','Saved report view creation unavailable').result;});
+  }
+
+  async updateReportSavedView({tenantId,entityId,savedViewId,expectedRevision,name,reportType,periodId,filters,visibility,reason,idempotencyKey}){
+    return this.inSession(async client=>{const args=[tenantId,entityId,savedViewId,expectedRevision,name,reportType,periodId,filters,visibility,reason];const requestHash=requireRow(await client.query('SELECT refs_report_saved_view_request_hash($1,$2,$3,$4::bigint,$5,$6,$7,$8::jsonb,$9,$10) AS request_hash',args),'REPORT_SAVED_VIEW_HASH_MISSING','Saved report view request hash unavailable').request_hash;return requireRow(await client.query('SELECT refs_update_report_saved_view($1,$2,$3,$4::bigint,$5,$6,$7,$8::jsonb,$9,$10,$11,$12) AS result',[...args,idempotencyKey,requestHash]),'REPORT_SAVED_VIEW_UPDATE_FAILED','Saved report view update unavailable').result;});
+  }
+
+  async readImportExportHistory({tenantId,entityId,jobType='ALL',limit=25,afterCompletedAt=null,afterJobId=null}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_import_export_history($1,$2,$3,$4::integer,$5::timestamptz,$6::uuid) AS result',
+      [tenantId,entityId,jobType,limit,afterCompletedAt,afterJobId]
+    ),'IMPORT_EXPORT_HISTORY_UNAVAILABLE','Import/export history is unavailable').result);
+  }
+
+  async recordPostedLedgerExportHistory({tenantId,entityId,periodId,sourceKind,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,periodId,sourceKind];
+      const requestHash=requireRow(await client.query(
+        "SELECT refs_jsonb_hash(jsonb_build_object('schema_version','POSTED_LEDGER_EXPORT_HISTORY_V1','tenant_id',$1::uuid,'entity_id',$2::uuid,'period_id',$3::uuid,'source_kind',$4)) AS request_hash",args
+      ),'POSTED_LEDGER_EXPORT_HISTORY_HASH_MISSING','Posted ledger export history hash unavailable').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_record_posted_ledger_export_history($1,$2,$3,$4,$5,$6) AS result',[...args,idempotencyKey,requestHash]
+      ),'POSTED_LEDGER_EXPORT_HISTORY_RECORD_FAILED','Posted ledger export history could not be recorded').result;
+    });
+  }
   async readIntercompanyEliminationRegister({tenantId,reportingEntityId,reportingPeriodId,limit=100}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_intercompany_elimination_register($1,$2,$3,$4::integer) AS result',[tenantId,reportingEntityId,reportingPeriodId,limit]
@@ -2190,6 +2392,74 @@ export class PostgresAccountingKernel{
       'SELECT refs_read_wbs_ai_approved_entity_period_settings($1,$2,$3) AS settings',[tenantId,entityId,periodId]
     )),'WBS_AI_APPROVED_SETTINGS_NOT_AVAILABLE','Approved entity-period settings are unavailable');
     return validateApprovedWbsAiEntityPeriodSettings(settings.settings,{tenantId,entityId,periodId});
+  }
+
+  async readAccountingSettingsWorkflowOptions({tenantId,entityId,periodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_accounting_settings_workflow_options($1,$2,$3) AS result',[tenantId,entityId,periodId]
+    ),'ACCOUNTING_SETTINGS_WORKFLOW_OPTIONS_MISSING','Accounting settings workflow options unavailable').result);
+  }
+
+  async readAccountingSettingsWorkflowRegister({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_accounting_settings_workflow_register($1,$2,$3::integer) AS result',[tenantId,entityId,limit]
+    ),'ACCOUNTING_SETTINGS_WORKFLOW_REGISTER_MISSING','Accounting settings workflow register unavailable').result);
+  }
+
+  async readAccountingSettingsWorkflow({tenantId,entityId,workflowId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_accounting_settings_workflow($1,$2,$3) AS result',[tenantId,entityId,workflowId]
+    ),'ACCOUNTING_SETTINGS_WORKFLOW_MISSING','Accounting settings workflow unavailable').result);
+  }
+
+  async readAccountingSettingsWorkflowEvidence({tenantId,entityId,workflowId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_accounting_settings_workflow_evidence($1,$2,$3) AS result',[tenantId,entityId,workflowId]
+    ),'ACCOUNTING_SETTINGS_WORKFLOW_EVIDENCE_MISSING','Accounting settings workflow evidence unavailable').result);
+  }
+
+  async createAccountingSettingsWorkflow({tenantId,entityId,periodId,childSettingSnapshotIds,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,periodId,childSettingSnapshotIds,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_accounting_settings_create_hash($1,$2,$3,$4::jsonb,$5) AS request_hash',args),'ACCOUNTING_SETTINGS_WORKFLOW_HASH_MISSING','Accounting settings workflow command hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_create_accounting_settings_workflow($1,$2,$3,$4::jsonb,$5,$6,$7) AS result',[...args,idempotencyKey,requestHash]),'ACCOUNTING_SETTINGS_WORKFLOW_CREATE_FAILED','Accounting settings workflow Draft unavailable').result;
+    });
+  }
+
+  async transitionAccountingSettingsWorkflow({tenantId,entityId,workflowId,action,expectedRevision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,workflowId,action,expectedRevision,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_accounting_settings_transition_hash($1,$2,$3,$4,$5::bigint,$6) AS request_hash',args),'ACCOUNTING_SETTINGS_WORKFLOW_TRANSITION_HASH_MISSING','Accounting settings workflow transition hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_transition_accounting_settings_workflow($1,$2,$3,$4,$5::bigint,$6,$7,$8) AS result',[...args,idempotencyKey,requestHash]),'ACCOUNTING_SETTINGS_WORKFLOW_TRANSITION_FAILED','Accounting settings workflow transition unavailable').result;
+    });
+  }
+
+  async readWebhookSubscription({tenantId,entityId,subscriptionId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_webhook_subscription($1,$2,$3) AS result',[tenantId,entityId,subscriptionId]
+    ),'WEBHOOK_SUBSCRIPTION_MISSING','Webhook subscription is unavailable').result);
+  }
+
+  async createWebhookSubscription({tenantId,entityId,subscriptionName,endpointHost,endpointPath,eventTypes,signingKeyReference,signingKeyFingerprint,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,subscriptionName,endpointHost,endpointPath,eventTypes,signingKeyReference,signingKeyFingerprint,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_webhook_subscription_create_hash($1,$2,$3,$4,$5,$6::text[],$7,$8,$9) AS request_hash',args),'WEBHOOK_SUBSCRIPTION_HASH_MISSING','Webhook subscription request hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_create_webhook_subscription($1,$2,$3,$4,$5,$6::text[],$7,$8,$9,$10,$11) AS result',[...args,idempotencyKey,requestHash]),'WEBHOOK_SUBSCRIPTION_CREATE_FAILED','Webhook subscription Draft unavailable').result;
+    });
+  }
+
+  async transitionWebhookSubscription({tenantId,entityId,subscriptionId,action,expectedRevision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,subscriptionId,action,expectedRevision,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_webhook_subscription_transition_hash($1,$2,$3,$4,$5::bigint,$6) AS request_hash',args),'WEBHOOK_SUBSCRIPTION_HASH_MISSING','Webhook subscription transition hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_transition_webhook_subscription($1,$2,$3,$4,$5::bigint,$6,$7,$8) AS result',[...args,idempotencyKey,requestHash]),'WEBHOOK_SUBSCRIPTION_TRANSITION_FAILED','Webhook subscription transition unavailable').result;
+    });
+  }
+
+  async readWebhookDeliveryHistory({tenantId,entityId,subscriptionId,limit=50,beforeDeliveredAt=null,beforeDeliveryId=null}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_webhook_delivery_history($1,$2,$3,$4::integer,$5::timestamptz,$6::uuid) AS result',[tenantId,entityId,subscriptionId,limit,beforeDeliveredAt,beforeDeliveryId]
+    ),'WEBHOOK_DELIVERY_HISTORY_MISSING','Webhook delivery history is unavailable').result);
   }
 
   async readAiAccountMasterBindings({tenantId,entityId,accountCodes}){

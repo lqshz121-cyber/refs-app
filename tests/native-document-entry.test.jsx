@@ -9,12 +9,23 @@ import {NativeRefundEntry,NativeRefundForm} from '../src/native-refund-entry.jsx
 import {NativeCreditAllocationEntry,NativeCreditAllocationForm} from '../src/native-credit-allocation.jsx';
 import {AuthoritativeAdjustmentDetail} from '../src/authoritative-workspace.jsx';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {NativeDocumentEntry,NativeDocumentEntryForm} from '../src/native-document-entry.jsx';
 import {NativeCreditAdjustmentEntry,NativeCreditAdjustmentEntryForm} from '../src/native-credit-adjustment-entry.jsx';
 import {NativeSettlementEntry,NativeSettlementForm} from '../src/native-settlement-entry.jsx';
 import {AuthoritativeDocumentWorkspace} from '../src/authoritative-workspace.jsx';
+
+// Submission, server and recovery failures are blocking information. They
+// must interrupt assistive technology, while upload/save progress stays a
+// polite status update. Both native AP and AR entry surfaces share this rule.
+for(const file of ['src/native-document-entry.jsx','src/native-settlement-entry.jsx','src/native-refund-entry.jsx']){
+  const source=readFileSync(file,'utf8');
+  assert.match(source,/const reportError=text=>setMessage\(text\?\{tone:'error',text\}:null\)/);
+  assert.match(source,/role=\{message\.tone==='error'\?'alert':'status'\} aria-live=\{message\.tone==='error'\?'assertive':'polite'\}/);
+  assert.match(source,/const inform=text=>setMessage\(text\?\{tone:'status',text\}:null\)/);
+}
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222'};
 {
   const receiptAccess={entity_id:config.entityId,actor_id:'receipt-reader',session_refresh_required:false,permissions:['AR.VIEW']};
@@ -80,9 +91,12 @@ for(const kind of ['AP_BILL','AR_INVOICE']){
   const form=renderToStaticMarkup(<NativeDocumentEntryForm config={config} kind={kind} access={access} scope={scope} accounts={accounts}/>);
   assert.match(form,/Scoped company/);assert.match(form,/inputMode="decimal"/);assert.match(form,/min="2026-08-01" max="2026-08-31"/);assert.match(form,/610000 · Office/);assert.doesNotMatch(form,/291001|localStorage|Post journal|Approve|type="number"/);assert.match(form,/Uploaded when you save/);assert.doesNotMatch(form,/Upload and verify support/);assert.match(form,/disabled="">Create draft/);
 }
-const page=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" config={config} currentActorAccess={access} scope={scope} accounts={accounts}/>);
-assert.match(page,/DRAFT ENTRY/);assert.match(page,/New bill/);
-const readonly=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" config={config}/>);assert.match(readonly,/READ ONLY/);assert.doesNotMatch(readonly,/New bill/);
+for(const [workspaceKind,label] of [['AP','New bill'],['AR','New invoice']]){
+  const page=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind={workspaceKind} config={config} currentActorAccess={access} scope={scope} accounts={accounts}/>);
+  assert.match(page,/DRAFT ENTRY/);assert.ok(page.includes(label));
+  const readonly=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind={workspaceKind} config={config}/>);
+  assert.match(readonly,/READ ONLY/);assert.ok(!readonly.includes(label));
+}
 
 const creditAccess={entity_id:config.entityId,actor_id:'oidc|credit-maker',session_refresh_required:false,permissions:['AP.VIEW','AP.VENDOR_CREDIT.CREATE','AR.VIEW','AR.CREDIT_MEMO.CREATE','ATTACHMENT.CREATE']};
 for(const kind of ['AP_VENDOR_CREDIT','AR_CREDIT_MEMO']){

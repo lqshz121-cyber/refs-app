@@ -35,6 +35,9 @@ test('blocked or stale depreciation cannot issue a POST',async()=>{
  for(const patch of [{config:{...config,periodId:randomUUID()}},{journalDate:'2026-07-30'},{reason:'short'},{options:{...options,readiness_status:'BLOCKED_ALREADY_POSTED'}},{options:{...options,impairment_recorded:true}},{options:{...options,source:null,acquisition:null,acquisition_posted:false}},{options:{...options,schedule:{...options.schedule,expected_period_depreciation:'0.0000'} }},{options:{...options,actual_posted_cost:'24999.0000'}},{options:{...options,actual_prior_accumulated_depreciation:'100.0000'}}])assert.equal((await createAuthoritativeAssetDepreciation({...command,...patch,fetcher})).ok,false);
  assert.equal(calls,0);
 });
+test('depreciation client accepts an acquired source at version zero',async()=>{
+ const zeroOptions={...options,source:{...options.source,source_document_version:0}},zeroReceipt={...receipt,source_document_version:0};assert.equal((await createAuthoritativeAssetDepreciation({...command,options:zeroOptions,fetcher:async()=>response(zeroReceipt,201)})).ok,true);
+});
 test('depreciation receipt binds source schedule acquisition period amount and Draft state',async()=>{
  for(const patch of [{asset_id:randomUUID()},{period_id:randomUUID()},{expected_amount:'201.0000'},{source_document_id:randomUUID()},{source_document_version:2},{source_payload_hash:'sha256:'+'b'.repeat(64)},{schedule_snapshot_hash:'sha256:'+'b'.repeat(64)},{register_evidence_hash:'sha256:'+'b'.repeat(64)},{acquisition_binding_id:randomUUID()},{acquisition_journal_entry_id:randomUUID()},{status:'POSTED'},{revision:1},{idempotent:true},{can_post:true}])assert.equal((await createAuthoritativeAssetDepreciation({...command,fetcher:async()=>response({...receipt,...patch},201)})).ok,false);
  assert.equal((await createAuthoritativeAssetDepreciation({...command,fetcher:async()=>response(receipt,201)})).ok,true);

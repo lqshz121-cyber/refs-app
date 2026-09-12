@@ -128,6 +128,12 @@ services:
     pullRequestPreviewsEnabled: false
     autoDeployTrigger: off
     envVars:
+      # Production Web may enable Cash Transfer only in the same release that
+      # routes this sole API origin to the integrations API with attachments REQUIRED.
+      - key: REFS_PUBLIC_CASH_TRANSFER_UI_MODE
+        value: DISABLED
+      - key: REFS_PUBLIC_ACCOUNTING_API_ATTACHMENT_MODE
+        value: DISABLED
       - key: REFS_DEPLOYMENT_ENV
         value: production
       - key: REFS_WBS_TEST_IMPORT_MODE

@@ -82,22 +82,50 @@ const testEnv={...composeEnv,
   CONTEXT_ISSUER_DATABASE_URL:`postgresql://refs_context_issuer:${passwords.issuer}@127.0.0.1:${port}/${database}`,
   GRANT_SYNC_DATABASE_URL:`postgresql://refs_grant_sync:${passwords.grantSync}@127.0.0.1:${port}/${database}`
 };
-const postgresTestArgs=['--test'];
-if(postgresTestTimeoutMs!==null)postgresTestArgs.push(`--test-timeout=${postgresTestTimeoutMs}`);
-if(postgresTestNamePattern)postgresTestArgs.push('--test-name-pattern',postgresTestNamePattern);
-postgresTestArgs.push('tests/postgres-kernel.test.mjs');
+const postgresTestBaseArgs=['--test'];
+if(postgresTestTimeoutMs!==null)postgresTestBaseArgs.push(`--test-timeout=${postgresTestTimeoutMs}`);
 
-console.log(`Fresh PostgreSQL gate project=${project} database=${database} port=${port} image=${composeEnv.POSTGRES_IMAGE||'postgres:16-alpine'}`);
-try{
-  await run('docker',['compose','-p',project,'-f','compose.yaml','up','-d','--wait'],composeEnv);
-  const readiness=await waitForPostgresReadiness({probe:()=>probePostgres(testEnv.MIGRATION_DATABASE_URL)});
-  console.log(`Fresh PostgreSQL gate ready after ${readiness.attempts} probe(s) in ${readiness.elapsedMs}ms`);
+async function runPostgresTestFile(testFile,{expectedPatternPassCount=null,pattern=null}={}){
+  const postgresTestArgs=[...postgresTestBaseArgs];
+  if(pattern)postgresTestArgs.push('--test-name-pattern',pattern);
+  postgresTestArgs.push(testFile);
+  console.log(`Fresh PostgreSQL gate test_file=${testFile}`);
   const tap=await run(process.execPath,postgresTestArgs,testEnv,{capture:true});
   const verified=verifyFreshPostgresTap(tap,{expectedPatternPassCount});
   console.log(formatFreshPostgresVerification(verified));
-  if(postgresTestNamePattern)console.log(`Fresh PostgreSQL gate executed_selected_test_count=${verified.tap.pass} skipped_unmatched_test_count=${verified.tap.skipped}`);
+  if(pattern)console.log(`Fresh PostgreSQL gate executed_selected_test_count=${verified.tap.pass} skipped_unmatched_test_count=${verified.tap.skipped}`);
+}
+
+console.log(`Fresh PostgreSQL gate project=${project} database=${database} port=${port} image=${composeEnv.POSTGRES_IMAGE||'postgres:16-alpine'}`);
+let dockerAvailable=false;
+try{
+  try{
+    await run('docker',['info','--format','{{.ServerVersion}}'],composeEnv,{capture:true});
+    dockerAvailable=true;
+  }catch(error){
+    throw new Error(`Fresh PostgreSQL gate requires a running Docker Linux daemon before it can create its isolated database: ${error.message}`);
+  }
+  await run('docker',['compose','-p',project,'-f','compose.yaml','up','-d','--wait'],composeEnv);
+  const readiness=await waitForPostgresReadiness({probe:()=>probePostgres(testEnv.MIGRATION_DATABASE_URL)});
+  console.log(`Fresh PostgreSQL gate ready after ${readiness.attempts} probe(s) in ${readiness.elapsedMs}ms`);
+  if(postgresTestNamePattern){
+    const postgresTestArgs=['--test'];
+    if(postgresTestTimeoutMs!==null)postgresTestArgs.push(`--test-timeout=${postgresTestTimeoutMs}`);
+    postgresTestArgs.push('--test-name-pattern',postgresTestNamePattern);
+    postgresTestArgs.push('tests/postgres-kernel.test.mjs');
+    const tap=await run(process.execPath,postgresTestArgs,testEnv,{capture:true});
+    const verified=verifyFreshPostgresTap(tap,{expectedPatternPassCount});
+    console.log(formatFreshPostgresVerification(verified));
+    console.log(`Fresh PostgreSQL gate executed_selected_test_count=${verified.tap.pass} skipped_unmatched_test_count=${verified.tap.skipped}`);
+  }else{
+    // Each file owns suite-wide TRUNCATE setup, so keep them in separate serial
+    // Node processes while sharing the same isolated fresh database.
+    for(const testFile of ['tests/postgres-kernel.test.mjs','tests/accounting-settings-workflow-postgres.test.mjs']){
+      await runPostgresTestFile(testFile);
+    }
+  }
 }finally{
-  await run('docker',['compose','-p',project,'-f','compose.yaml','down','-v','--remove-orphans'],composeEnv).catch(error=>{
+  if(dockerAvailable)await run('docker',['compose','-p',project,'-f','compose.yaml','down','-v','--remove-orphans'],composeEnv).catch(error=>{
     console.error(`Fresh gate cleanup failed for owned project ${project}: ${error.message}`);
     process.exitCode=1;
   });

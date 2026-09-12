@@ -4,7 +4,7 @@ import {KernelError,requireRow,withTransaction,withSerializableRetry} from './db
 const tokenHash=token=>'sha256:'+createHash('sha256').update(token).digest('hex');
 
 function trustedPrincipal(principal){
-  if(!principal||principal.trusted!==true||!principal.actorId)throw new KernelError('AUTHENTICATED_PRINCIPAL_REQUIRED','Context issuance requires an authenticated server-side principal');
+  if(!principal||principal.trusted!==true||typeof principal.actorId!=='string'||!principal.actorId.trim()||typeof principal.tenantId!=='string'||!principal.tenantId.trim())throw new KernelError('AUTHENTICATED_PRINCIPAL_REQUIRED','Context issuance requires an authenticated server-side principal with tenant scope');
   return principal;
 }
 
@@ -16,6 +16,7 @@ export class PostgresContextIssuer{
 
   async issue({tenantId,ttlSeconds=300,readOnly=false}){
     const principal=trustedPrincipal(await this.principalProvider());
+    if(typeof tenantId!=='string'||!tenantId.trim()||principal.tenantId!==tenantId)throw new KernelError('TENANT_CONTEXT_MISMATCH','Context tenant must match the authenticated principal');
     const contextToken=randomBytes(32).toString('base64url');
     const hash=tokenHash(contextToken);
     const issued=await withSerializableRetry(this.pool,async client=>requireRow(await client.query(

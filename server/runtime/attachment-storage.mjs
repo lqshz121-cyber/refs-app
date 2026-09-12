@@ -9,6 +9,18 @@ const dateStamp=date=>timestamp(date).slice(0,8);
 const safeSegment=value=>{if(typeof value!=='string'||!/^[0-9a-zA-Z._-]+$/.test(value))throw new Error('Unsafe object key segment');return value;};
 const xmlText=(xml,tag)=>new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`).exec(xml)?.[1]?.replaceAll('&amp;','&').replaceAll('&lt;','<').replaceAll('&gt;','>').replaceAll('&quot;','"').replaceAll('&apos;',"'")||null;
 const storageFailure=(code,category,status=null)=>Object.assign(new Error(code),{code,category,status});
+const ATTACHMENT_MEDIA_TYPES=new Set(['application/pdf','image/png','image/jpeg','text/csv']);
+const validateAttachmentReservationMetadata=args=>{
+  const {name,mediaType,sizeBytes,contentHash}=args||{};
+  // This must run before S3 presigning. The database repeats these checks when
+  // it persists the reservation, but a rejected row must not leave a usable
+  // upload capability or an untracked object behind.
+  if(typeof name!=='string'||name!==name.trim()||name.length<1||name.length>255||/[\\/\u0000-\u001f\u007f]/.test(name)||
+    typeof mediaType!=='string'||mediaType!==mediaType.trim().toLowerCase()||!ATTACHMENT_MEDIA_TYPES.has(mediaType)||
+    !Number.isSafeInteger(sizeBytes)||sizeBytes<1||sizeBytes>50*1024*1024||
+    typeof contentHash!=='string'||contentHash!==contentHash.toLowerCase()||!/^sha256:[0-9a-f]{64}$/.test(contentHash))throw storageFailure('ATTACHMENT_RESERVATION_INVALID','STATE');
+  return args;
+};
 export const classifyCleanupFailure=error=>{const status=Number(error?.status);if(error?.code==='STORAGE_RETENTION'||[403,409,423].includes(status))return {errorCode:'ATTACHMENT_RETENTION_ACTIVE',errorCategory:'RETENTION'};if(error?.code==='STORAGE_PARTIAL_DELETE')return {errorCode:'ATTACHMENT_VERSION_DELETE_PARTIAL',errorCategory:'STORAGE'};return {errorCode:'ATTACHMENT_STORAGE_UNAVAILABLE',errorCategory:'STORAGE'};};
 const tlsJsonFetch=(url,init,{ca,serverName})=>new Promise((resolve,reject)=>{const req=httpsRequest(url,{method:init.method,headers:init.headers,ca,servername:serverName,rejectUnauthorized:true},res=>{const chunks=[];res.on('data',chunk=>chunks.push(chunk));res.on('end',()=>resolve(new Response(Buffer.concat(chunks),{status:res.statusCode,headers:res.headers})));});req.once('error',reject);if(init.signal){const abort=()=>req.destroy(init.signal.reason||new Error('Scanner request aborted'));if(init.signal.aborted)return abort();init.signal.addEventListener('abort',abort,{once:true});}if(init.body)req.write(init.body);req.end();});
 
@@ -190,13 +202,14 @@ export class AttachmentEvidenceService{
       const upload=await this.storage.resumeUpload({tenantId:args.tenantId,entityId:args.entityId,storageRef:existing.storage_ref,mediaType:existing.media_type,contentHash:existing.content_hash,uploadExpiresAt:existing.upload_expires_at});
       return {...receipt,upload_url:upload.uploadUrl,required_headers:upload.requiredHeaders,upload_expires_at:upload.expiresAt};
     }
+    validateAttachmentReservationMetadata(args);
     const reservation=await this.storage.reserveUpload(args);
     const record=await kernel.reserveAttachment({...args,storageRef:reservation.storageRef,storageVersion:reservation.storageVersion});
     // Presigning does not create an object. A failed retry must never delete
     // evidence uploaded after an earlier successful use of the same key.
     return {...record,upload_url:reservation.uploadUrl,required_headers:reservation.requiredHeaders,upload_expires_at:reservation.expiresAt};
   }
-  async reserveWbsPayable(principal,args){const reservation=await this.storage.reserveUpload(args);try{const kernel=await this.uploaderKernelFactory(principal);const record=await kernel.reserveWbsPayableAttachment({...args,storageRef:reservation.storageRef,storageVersion:reservation.storageVersion});return {...record,upload_url:reservation.uploadUrl,required_headers:reservation.requiredHeaders,upload_expires_at:reservation.expiresAt};}catch(error){
+  async reserveWbsPayable(principal,args){validateAttachmentReservationMetadata(args);const reservation=await this.storage.reserveUpload(args);try{const kernel=await this.uploaderKernelFactory(principal);const record=await kernel.reserveWbsPayableAttachment({...args,storageRef:reservation.storageRef,storageVersion:reservation.storageVersion});return {...record,upload_url:reservation.uploadUrl,required_headers:reservation.requiredHeaders,upload_expires_at:reservation.expiresAt};}catch(error){
     // A row-bound retry intentionally resolves to the same object key. Reserve
     // only creates a presigned contract; deleting here could erase a valid
     // object from an earlier successful replay when a later cross-row or

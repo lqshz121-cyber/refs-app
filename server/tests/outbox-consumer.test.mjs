@@ -17,7 +17,7 @@ export const fixture=()=>({schema_version:'REFS_OUTBOX_EVENT_V1',outbox_event_id
 const headers=e=>({'idempotency-key':e.outbox_event_id,'x-refs-payload-hash':e.payload_hash});
 test('closed event binds header, server scope, canonical timestamp and rejects secret material',()=>{
   const e=fixture();assert.equal(validateEvent(e,config,headers(e)),e);
-  for(const delta of [{extra:true},{tenant_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},{attempt_count:0},{created_at:'2026-02-30T00:00:00.000Z'},{payload:{authorization:'private'}},{payload:{memo:'Bearer secret-secret-token'}},{payload:{database_url:'synthetic'}}]) assert.throws(()=>validateEvent({...e,...delta},config,headers(e)));
+  for(const delta of [{extra:true},{tenant_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},{attempt_count:0},{created_at:'2026-02-30T00:00:00.000Z'},{payload:{authorization:'private'}},{payload:{memo:'Bearer secret-secret-token'}},{payload:{database_url:'synthetic'}},{payload:{rows:Array.from({length:2001},()=>({id:'retained-evidence'}))}}]) assert.throws(()=>validateEvent({...e,...delta},config,headers(e)));
   assert.throws(()=>validateEvent(e,config,{}));
   assert.throws(()=>validateEvent({...e,event_type:'ya29.syntheticOAuthToken123'},config,headers(e)),error=>error.code==='OUTBOX_SECRET_DENIED');
 });

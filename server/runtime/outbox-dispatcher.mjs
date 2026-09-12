@@ -4,6 +4,7 @@ const SHA=/^sha256:[0-9a-f]{64}$/;
 const TOKEN=/^[A-Za-z0-9._~+/=-]{16,4096}$/;
 const EVENT_KEYS=['aggregate_id','aggregate_type','attempt_count','available_at','created_at','entity_id','event_type','last_error','locked_at','locked_by','outbox_event_id','payload_canonical_text','payload_hash','published_at','status','tenant_id'];
 const RECEIPT_KEYS=['accepted','outbox_event_id','payload_hash','schema_version'];
+const COMPLETION_KEYS=['attempt_count','available_at','outbox_event_id','retry_scheduled','schema_version','status'];
 const exactKeys=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&JSON.stringify(Object.keys(value).sort())===JSON.stringify(keys);
 const fail=(code,message,{retryable=false}={})=>{const error=new Error(message);error.code=code;error.retryable=retryable;throw error;};
 const canonicalTime=value=>{const date=value instanceof Date?value:new Date(value);if(!Number.isFinite(date.valueOf()))return null;return date.toISOString();};
@@ -14,6 +15,11 @@ export function validateClaimedOutboxEvent(value,{tenantId}={}){
   if(typeof value.aggregate_type!=='string'||!value.aggregate_type||typeof value.event_type!=='string'||!value.event_type||!SHA.test(value.payload_hash)||typeof value.payload_canonical_text!=='string')fail('OUTBOX_EVENT_CONTRACT_INVALID','Claimed outbox event evidence is invalid.');
   if(value.status!=='PENDING'||!Number.isSafeInteger(value.attempt_count)||value.attempt_count<1||typeof value.locked_by!=='string'||!value.locked_by||!canonicalTime(value.locked_at)||!canonicalTime(value.available_at)||!canonicalTime(value.created_at)||value.published_at!==null)fail('OUTBOX_EVENT_STATE_INVALID','Claimed outbox event state is invalid.');
   return sealOutboxPayload({schema_version:'REFS_OUTBOX_EVENT_V1',outbox_event_id:value.outbox_event_id,tenant_id:value.tenant_id,entity_id:value.entity_id,aggregate_type:value.aggregate_type,aggregate_id:value.aggregate_id,event_type:value.event_type,payload:null,payload_hash:value.payload_hash,attempt_count:value.attempt_count,created_at:canonicalTime(value.created_at)},value.payload_canonical_text);
+}
+
+export function validateOutboxCompletion(value,{eventId,attemptCount}={}){
+  if(!UUID.test(eventId||'')||!Number.isSafeInteger(attemptCount)||attemptCount<1||!exactKeys(value,COMPLETION_KEYS)||value.schema_version!=='OUTBOX_DISPATCH_COMPLETION_V1'||value.outbox_event_id!==eventId||value.attempt_count!==attemptCount||!['PUBLISHED','PENDING','FAILED'].includes(value.status)||typeof value.retry_scheduled!=='boolean'||value.retry_scheduled!==(value.status==='PENDING')||typeof value.available_at!=='string'||canonicalTime(value.available_at)!==value.available_at)fail('OUTBOX_COMPLETION_CONTRACT_INVALID','Outbox completion receipt is invalid.');
+  return Object.freeze({...value});
 }
 
 export class HttpOutboxPublisher{
@@ -75,7 +81,7 @@ export class OutboxDispatchService{
       let event;
       try{event=validateClaimedOutboxEvent(row,{tenantId});}catch(error){
         if(!UUID.test(row?.outbox_event_id||'')||row?.tenant_id!==tenantId)throw error;
-        const errorCode=/^[A-Z][A-Z0-9_]{2,79}$/.test(error?.code||'')?error.code:'OUTBOX_EVENT_CONTRACT_INVALID',completion=await kernel.completeOutboxV2({tenantId,eventId:row.outbox_event_id,success:false,retryable:false,errorCode,maxAttempts:this.maxAttempts,retryBaseSeconds:this.retryBaseSeconds});
+        const errorCode=/^[A-Z][A-Z0-9_]{2,79}$/.test(error?.code||'')?error.code:'OUTBOX_EVENT_CONTRACT_INVALID',completion=validateOutboxCompletion(await kernel.completeOutboxV2({tenantId,eventId:row.outbox_event_id,success:false,retryable:false,errorCode,maxAttempts:this.maxAttempts,retryBaseSeconds:this.retryBaseSeconds}),{eventId:row.outbox_event_id,attemptCount:row.attempt_count});
         results.push(Object.freeze({outbox_event_id:row.outbox_event_id,status:completion.status,error_code:errorCode,attempt_count:row.attempt_count,completion}));continue;
       }
       let receipt;
@@ -83,11 +89,11 @@ export class OutboxDispatchService{
         receipt=await this.publisher.publish(event);
       }catch(error){
         const errorCode=/^[A-Z][A-Z0-9_]{2,79}$/.test(error?.code||'')?error.code:'OUTBOX_PUBLISH_INTERNAL';
-        const completion=await kernel.completeOutboxV2({tenantId,eventId:event.outbox_event_id,success:false,retryable:error?.retryable===true,errorCode,maxAttempts:this.maxAttempts,retryBaseSeconds:this.retryBaseSeconds});
+        const completion=validateOutboxCompletion(await kernel.completeOutboxV2({tenantId,eventId:event.outbox_event_id,success:false,retryable:error?.retryable===true,errorCode,maxAttempts:this.maxAttempts,retryBaseSeconds:this.retryBaseSeconds}),{eventId:event.outbox_event_id,attemptCount:event.attempt_count});
         results.push(Object.freeze({outbox_event_id:event.outbox_event_id,status:completion.status,error_code:errorCode,attempt_count:event.attempt_count,completion}));
         continue;
       }
-      const completion=await kernel.completeOutboxV2({tenantId,eventId:event.outbox_event_id,success:true,maxAttempts:this.maxAttempts,retryBaseSeconds:this.retryBaseSeconds});
+      const completion=validateOutboxCompletion(await kernel.completeOutboxV2({tenantId,eventId:event.outbox_event_id,success:true,maxAttempts:this.maxAttempts,retryBaseSeconds:this.retryBaseSeconds}),{eventId:event.outbox_event_id,attemptCount:event.attempt_count});
       results.push(Object.freeze({outbox_event_id:event.outbox_event_id,status:'PUBLISHED',attempt_count:event.attempt_count,receipt,completion}));
     }
     return Object.freeze(results);

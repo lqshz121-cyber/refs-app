@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import {WBS_LIVE_PILOT_VIEWS} from '../src/accounting-api.js';
-import {accountingApiConfig,activateAuthoritativeWbsOperatorAccess,activateAuthoritativeWbsReadAccess,activateControlledTestWorkflowAccess,applyAuthoritativeCredit,attestAuthoritativeWbsPayableObservation,createAuthoritativeAdjustment,createAuthoritativeBankPaymentMatch,createAuthoritativeBusinessDocument,createAuthoritativeReconciliationAdjustmentDraft,createAuthoritativeSettlement,readAuthoritativeAdmittedBankStatement,readAuthoritativeJournalEntryDetail,readAuthoritativeJournalWorkflowCapabilities,refreshAuthoritativeAccountRegister,refreshAuthoritativeAdmittedBankStatements,refreshAuthoritativeAiWbsExceptionFindings,refreshAuthoritativeBankTransactions,refreshAuthoritativeBankMatchCandidates,refreshAuthoritativeBudgetVsActual,refreshAuthoritativeChartOfAccounts,refreshAuthoritativeConsolidation,refreshAuthoritativeDocuments,refreshAuthoritativeJournalEntries,refreshAuthoritativeReconciliation,refreshAuthoritativeReconciliationScopes,refreshAuthoritativeReconciliationWorksheet,refreshAuthoritativeScope,refreshAuthoritativeScopeCatalog,refreshCurrentActorAccess,setAuthoritativeReconciliationAdjustmentClearance,setAuthoritativeReconciliationClearance,startAuthoritativeReconciliation,startAuthoritativeReconciliationFromAdmittedStatement,transitionAuthoritativeReconciliation,transitionAuthoritativeJournal,unmatchAuthoritativeBankPayment,refreshAuthoritativeAging,refreshAuthoritativeAgingSnapshotDetail,refreshAuthoritativeAgingSnapshotSummary,refreshAuthoritativeCashFlowClassification,refreshAuthoritativeConstructionLoanRollforward,refreshAuthoritativeCwipRollforward,refreshAuthoritativeControlTotals,refreshAuthoritativeDimensionProfitability,refreshAuthoritativeIntercompanyReconciliation,refreshAuthoritativePrepaidRollforward,refreshAuthoritativeWbsAutoRecG11Evidence,refreshAuthoritativeWbsAutoRecMatchReview,refreshAuthoritativeWbsAutoRecReview,refreshAuthoritativeWbsControlReconciliation,refreshAuthoritativeWbsLivePilot,refreshAuthoritativeWbsOperatorPayableAttestations,refreshAuthoritativeWbsOperatorPayableExceptionRows,verifyAuthoritativeWbsTransitionContract} from '../src/accounting-api.js';
+import {accountingApiConfig,activateAuthoritativeWbsOperatorAccess,activateAuthoritativeWbsReadAccess,activateControlledTestWorkflowAccess,applyAuthoritativeCredit,attestAuthoritativeWbsPayableObservation,createAuthoritativeAdjustment,createAuthoritativeBankPaymentMatch,createAuthoritativeBusinessDocument,createAuthoritativeReconciliationAdjustmentDraft,createAuthoritativeSettlement,readAuthoritativeAdmittedBankStatement,readAuthoritativeJournalEntryDetail,readAuthoritativeJournalWorkflowCapabilities,refreshAuthoritativeAccountRegister,refreshAuthoritativeAdmittedBankStatements,refreshAuthoritativeAiWbsExceptionFindings,refreshAuthoritativeBankTransactions,refreshAuthoritativeBankMatchCandidates,refreshAuthoritativeBudgetVsActual,refreshAuthoritativeChartOfAccounts,refreshAuthoritativeConsolidation,refreshAuthoritativeDocuments,refreshAuthoritativeFinancialStatements,refreshAuthoritativeGeneralLedger,refreshAuthoritativeJournalEntries,refreshAuthoritativeReconciliation,refreshAuthoritativeReconciliationScopes,refreshAuthoritativeReconciliationWorksheet,refreshAuthoritativeScope,refreshAuthoritativeScopeCatalog,refreshCurrentActorAccess,setAuthoritativeReconciliationAdjustmentClearance,setAuthoritativeReconciliationClearance,startAuthoritativeReconciliation,startAuthoritativeReconciliationFromAdmittedStatement,transitionAuthoritativeReconciliation,transitionAuthoritativeJournal,unmatchAuthoritativeBankPayment,refreshAuthoritativeAging,refreshAuthoritativeAgingSnapshotDetail,refreshAuthoritativeAgingSnapshotSummary,refreshAuthoritativeCashFlowClassification,refreshAuthoritativeConstructionLoanRollforward,refreshAuthoritativeCwipRollforward,refreshAuthoritativeControlTotals,refreshAuthoritativeDimensionProfitability,refreshAuthoritativeIntercompanyReconciliation,refreshAuthoritativePrepaidRollforward,refreshAuthoritativeWbsAutoRecG11Evidence,refreshAuthoritativeWbsAutoRecMatchReview,refreshAuthoritativeWbsAutoRecReview,refreshAuthoritativeWbsControlReconciliation,refreshAuthoritativeWbsLivePilot,refreshAuthoritativeWbsOperatorPayableAttestations,refreshAuthoritativeWbsOperatorPayableExceptionRows,verifyAuthoritativeWbsTransitionContract} from '../src/accounting-api.js';
 import {aiAmortizationDraftIdempotencyKey,createAuthoritativeAiAmortizationDraft,refreshAuthoritativeAiAmortizationSchedules} from '../src/accounting-api.js';
-import {bindAuthoritativeFetcher} from '../src/authoritative-app.jsx';
+import {bindAuthoritativeAccessToken,bindAuthoritativeFetcher} from '../src/authoritative-app.jsx';
 import {createWbsLivePilotReadService} from '../server/runtime/wbs-live-pilot-read-service.mjs';
 import {canonicalRequestHash} from '../server/runtime/request-hash.mjs';
 const entityId='11111111-1111-4111-8111-111111111111';
@@ -119,6 +119,13 @@ const periodEnvelope=data=>({ok:true,data,scope:periodScope(data)});
   assert.equal((await refreshAuthoritativeJournalEntries({config,fetcher:receiverBoundFetcher})).ok,true);
   assert.equal((await refreshAuthoritativeBankTransactions({config,bankAccountRef:'BANK-1',fetcher:receiverBoundFetcher})).ok,true);
   assert.equal(receiverCalls.length,6,'document, journal, and child-workspace reads must share the environment-bound fetcher');
+  let authenticationRequired=0;
+  const boundaryFetcher=bindAuthoritativeFetcher(receiverEnvironment,async()=>({status:401}),()=>{authenticationRequired+=1;});
+  assert.equal((await boundaryFetcher('https://api.example.test/read',{})).status,401);assert.equal(authenticationRequired,1,'one API 401 must promote the shell to its retained-route login recovery');
+  const forbiddenFetcher=bindAuthoritativeFetcher(receiverEnvironment,async()=>({status:403}),()=>{authenticationRequired+=1;});
+  assert.equal((await forbiddenFetcher('https://api.example.test/read',{})).status,403);assert.equal(authenticationRequired,1,'a 403 is an entity/function authorization refusal, never a sign-in trigger');
+  const unavailableToken=bindAuthoritativeAccessToken({...config,getAccessToken:async()=>{throw new Error('expired');}},()=>{authenticationRequired+=1;});
+  await assert.rejects(unavailableToken.getAccessToken(),/expired/);assert.equal(authenticationRequired,2,'a locally unavailable access token must use the same global login recovery');
 
   const readCalls=[];const result=await refreshAuthoritativeDocuments({config,fetcher:async(url,options)=>{readCalls.push({url,options});const path=new URL(url).pathname.replace(`/api/v1/entities/${entityId}`,'');const data=rows[path];return {ok:true,json:async()=>periodEnvelope(data)};}});
   assert.equal(result.ok,true);assert.equal(result.ap.bills[0].business_document_id,entityId);assert.equal(result.ap.bills[0].open_balance,'7.2500');assert.equal(result.ar.invoices[0].business_document_id,'22222222-2222-4222-8222-222222222222');assert.equal(result.ar.invoices[0].inv_no,'I-1');assert.equal(result.ap.adjustments[0].adjustment_kind,'AP_VENDOR_CREDIT');assert.equal(result.ar.adjustments[0].status,'POSTED');assert.equal(result.ar.adjustments[0].version,2);assert.equal(result.ar.adjustments[0].journal_revision,3);
@@ -287,21 +294,10 @@ const periodEnvelope=data=>({ok:true,data,scope:periodScope(data)});
     assert.equal(malformed.code,'ACCOUNTING_API_PROTOCOL');assert.equal(calls,1,'uncertain responses must not trigger another mutation');
     assert.match(malformed.message,/same request key/);
   }
-  const settlementReceipt={payment_occurrence_id:periodId,business_allocation_id:'44444444-4444-4444-8444-444444444444',business_document_id:entityId,journal_entry_id:'55555555-5555-4555-8555-555555555555',status:'DRAFT',allocation_status:'PENDING',revision:0,idempotent:false};
-  const paid=await createAuthoritativeSettlement({config,kind:'AP_PAYMENT',businessDocumentId:entityId,accountingDate:'2026-08-02',amount:7.25,idempotencyKey:'AP-PAY-request-0001',fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:settlementReceipt})};}});
-  assert.equal(paid.ok,true);assert.match(call.url,/\/ap\/bills\/.+\/payments$/);assert.equal(JSON.parse(call.options.body).cashAccountCode,'111000');assert.equal(JSON.parse(call.options.body).bankMemberRef,null);
   for(const kind of ['AP_PAYMENT','AR_RECEIPT']){
     const request={config,kind,businessDocumentId:entityId,accountingDate:'2026-08-02',amount:'9007199254740993.1234',idempotencyKey:`${kind}-receipt-test`};
-    for(const changed of [{status:'DRAFT'},{...settlementReceipt,payment_occurrence_id:null},{...settlementReceipt,business_allocation_id:'bad'},{...settlementReceipt,business_document_id:periodId},{...settlementReceipt,journal_entry_id:null},{...settlementReceipt,status:'POSTED'},{...settlementReceipt,allocation_status:'ACTIVE'},{...settlementReceipt,revision:1},{...settlementReceipt,revision:'0'},{...settlementReceipt,idempotent:true}]){
-      let calls=0;const malformed=await createAuthoritativeSettlement({...request,fetcher:async()=>{calls++;return {ok:true,status:201,json:async()=>({ok:true,data:changed})};}});
-      assert.equal(malformed.ok,false,`${kind} must reject incomplete, cross-document or non-Draft receipts`);assert.equal(malformed.code,'ACCOUNTING_API_PROTOCOL');assert.equal(calls,1);assert.match(malformed.message,/same request key/);
-    }
-    const replay=await createAuthoritativeSettlement({...request,fetcher:async(url,options)=>{assert.match(url,kind==='AP_PAYMENT'?/\/payments$/:/\/receipts$/);assert.equal(JSON.parse(options.body).amount,request.amount);assert.equal(options.headers['idempotency-key'],request.idempotencyKey);return {ok:true,status:200,json:async()=>({ok:true,data:{...settlementReceipt,idempotent:true}})};}});
-    assert.equal(replay.ok,true);assert.equal(replay.idempotent,true);
-    for(const response of [{ok:true,status:200,json:async()=>({ok:true,data:settlementReceipt})},{ok:true,status:202,json:async()=>({ok:true,data:settlementReceipt})},{ok:true,status:201,json:async()=>{throw Error('truncated JSON');}}]){
-      const result=await createAuthoritativeSettlement({...request,fetcher:async()=>response});assert.equal(result.code,'ACCOUNTING_API_PROTOCOL');
-    }
-    let calls=0;const unknown=await createAuthoritativeSettlement({...request,fetcher:async()=>{calls++;throw Error('response lost');}});assert.equal(unknown.code,'ACCOUNTING_API_UNREACHABLE');assert.equal(calls,1);assert.match(unknown.message,/same request key/);
+    let calls=0;const retired=await createAuthoritativeSettlement({...request,fetcher:async()=>{calls++;throw Error('must not call retired settlement route');}});
+    assert.equal(retired.ok,false);assert.equal(retired.code,'SETTLEMENT_ROUTE_RETIRED');assert.equal(calls,0);assert.match(retired.message,/native payment or native receipt/i);
   }
   const credit=await createAuthoritativeAdjustment({config,kind:'AP_VENDOR_CREDIT',idempotencyKey:'AP-CREDIT-request-0001',adjustment:{number:'VC-100',date:'2026-08-02',counterpartyRef:'V-1',counterpartyName:'Vendor',amount:10,lines:[{line_no:1,account_code:'610000',amount:10}],reason:'Approved vendor credit',attachmentIds:[attachmentId]},fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{business_adjustment_id:entityId,journal_entry_id:periodId,status:'DRAFT',revision:0,idempotent:false}})};}});
   assert.equal(credit.ok,true);assert.match(call.url,/\/ap\/vendor-credits$/);assert.equal(JSON.parse(call.options.body).creditNumber,'VC-100');
@@ -324,12 +320,12 @@ const periodEnvelope=data=>({ok:true,data,scope:periodScope(data)});
     const large=await applyAuthoritativeCredit({...request,amount:'9999999999999999.9999',fetcher:async()=>({ok:true,status:201,json:async()=>({ok:true,data:{...receipt,amount:10000000000000000}})})});assert.equal(large.code,'ACCOUNTING_API_PROTOCOL');
     let calls=0;const unknown=await applyAuthoritativeCredit({...request,fetcher:async()=>{calls++;throw Error('response lost');}});assert.equal(unknown.code,'ACCOUNTING_API_UNREACHABLE');assert.equal(calls,1);assert.match(unknown.message,/same request key/);
   }
-  const refund=await createAuthoritativeAdjustment({config,kind:'AR_REFUND',idempotencyKey:'AR-REFUND-request-0001',adjustment:{sourceAdjustmentId:entityId,number:'RF-100',date:'2026-08-02',amount:5,reason:'Return customer credit'},fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{business_adjustment_id:periodId,journal_entry_id:periodId,source_adjustment_id:entityId,status:'DRAFT',revision:0,idempotent:false}})};}});
-  assert.equal(refund.ok,true);assert.match(call.url,/\/ar\/refunds$/);assert.equal(JSON.parse(call.options.body).cashAccountCode,'111000');
-  for(const kind of ['AP_VENDOR_CREDIT','AR_CREDIT_MEMO','AR_REFUND']){
-    const request={config,kind,idempotencyKey:'adjustment-receipt-check',adjustment:{sourceAdjustmentId:entityId,amount:'1.2345',...(kind==='AR_REFUND'?{}:{attachmentIds:[attachmentId]})}};
-    const receipt={business_adjustment_id:periodId,journal_entry_id:periodId,status:'DRAFT',revision:0,idempotent:false,...(kind==='AR_REFUND'?{source_adjustment_id:entityId}:{})};
-    for(const patch of [{business_adjustment_id:null},{journal_entry_id:'bad'},{status:'POSTED'},{revision:1},{idempotent:true},{unexpected:true},...(kind==='AR_REFUND'?[{source_adjustment_id:periodId},{source_adjustment_id:null}]:[])]){
+  let refundFetches=0;const refund=await createAuthoritativeAdjustment({config,kind:'AR_REFUND',idempotencyKey:'AR-REFUND-request-0001',adjustment:{sourceAdjustmentId:entityId,number:'RF-100',date:'2026-08-02',amount:5,reason:'Return customer credit'},fetcher:async()=>{refundFetches++;throw Error('retired refund must not fetch');}});
+  assert.equal(refund.ok,false);assert.equal(refund.code,'ADJUSTMENT_ROUTE_RETIRED');assert.equal(refundFetches,0);
+  for(const kind of ['AP_VENDOR_CREDIT','AR_CREDIT_MEMO']){
+    const request={config,kind,idempotencyKey:'adjustment-receipt-check',adjustment:{sourceAdjustmentId:entityId,amount:'1.2345',attachmentIds:[attachmentId]}};
+    const receipt={business_adjustment_id:periodId,journal_entry_id:periodId,status:'DRAFT',revision:0,idempotent:false};
+    for(const patch of [{business_adjustment_id:null},{journal_entry_id:'bad'},{status:'POSTED'},{revision:1},{idempotent:true},{unexpected:true}]){
       const result=await createAuthoritativeAdjustment({...request,fetcher:async()=>({ok:true,status:201,json:async()=>({ok:true,data:{...receipt,...patch}})})});
       assert.equal(result.code,'ACCOUNTING_API_PROTOCOL',`${kind}: ${JSON.stringify(patch)}`);
     }
@@ -566,6 +562,24 @@ const periodEnvelope=data=>({ok:true,data,scope:periodScope(data)});
   const draft={...exactJournalDetail,status:'DRAFT',posted_at:null,lines:exactJournalDetail.lines.map(line=>({...line,ledger_line_id:null}))};
   assert.equal((await readAuthoritativeJournalEntryDetail({config,journalEntryId:postedJournalId,fetcher:async()=>respond(200,{ok:true,data:draft})})).ok,true);
   assert.equal((await readAuthoritativeJournalEntryDetail({config,journalEntryId:postedJournalId,fetcher:async()=>respond(200,{ok:true,data:{...draft,lines:[{...draft.lines[0],ledger_line_id:exactJournalDetail.lines[0].ledger_line_id}]}})})).code,'ACCOUNTING_API_PROTOCOL');
+
+  // A malformed entity identifier must never be interpolated into a report or bank URL.
+  const malformedEntityConfig={...config,entityId:'not-a-uuid'};
+  const mustNotFetch=async()=>{throw new Error('malformed entity scope must not fetch');};
+  for(const read of [
+    ()=>refreshAuthoritativeFinancialStatements({config:malformedEntityConfig,fetcher:mustNotFetch}),
+    ()=>refreshAuthoritativeCashFlowClassification({config:malformedEntityConfig,fetcher:mustNotFetch}),
+    ()=>refreshAuthoritativeCwipRollforward({config:malformedEntityConfig,fetcher:mustNotFetch}),
+    ()=>refreshAuthoritativeConsolidation({config:malformedEntityConfig,groupRef:'GROUP-01',fetcher:mustNotFetch}),
+    ()=>refreshAuthoritativeGeneralLedger({config:malformedEntityConfig,fetcher:mustNotFetch}),
+    ()=>refreshAuthoritativeBankTransactions({config:malformedEntityConfig,bankAccountRef:'BANK-1',fetcher:mustNotFetch}),
+    ()=>refreshAuthoritativeBankMatchCandidates({config:malformedEntityConfig,bankSourceId:entityId,fetcher:mustNotFetch}),
+    ()=>refreshAuthoritativeAdmittedBankStatements({config:malformedEntityConfig,bankAccountRef:'BANK-1',fetcher:mustNotFetch}),
+    ()=>readAuthoritativeAdmittedBankStatement({config:malformedEntityConfig,statementReceiptId:entityId,fetcher:mustNotFetch}),
+    ()=>refreshAuthoritativeReconciliation({config:malformedEntityConfig,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31',fetcher:mustNotFetch}),
+    ()=>refreshAuthoritativeReconciliationScopes({config:malformedEntityConfig,fetcher:mustNotFetch}),
+    ()=>refreshAuthoritativeReconciliationWorksheet({config:malformedEntityConfig,reconciliationId:entityId,fetcher:mustNotFetch}),
+  ])assert.equal((await read()).code,'ACCOUNTING_API_SCOPE_INVALID');
 
   console.log('accounting-api-client: all assertions passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

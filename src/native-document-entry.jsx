@@ -24,38 +24,40 @@ export function NativeDocumentEntryForm({id,config,kind,access,scope,accounts=[]
   const [file,setFile]=useState(null),[attachment,setAttachment]=useState(recovered.current?{ok:true,attachmentId:recovered.current.attachmentId}:null),[receipt,setReceipt]=useState(null);
   const [uploadAttempt,setUploadAttempt]=useState(0),[uploadClosed,setUploadClosed]=useState(false);
   const [busy,setBusy]=useState(false),[locked,setLocked]=useState(!!recovered.current),[message,setMessage]=useState(null);
+  const inform=text=>setMessage(text?{tone:'status',text}:null);
+  const reportError=text=>setMessage(text?{tone:'error',text}:null);
   const mounted=useRef(false),busyRef=useRef(false),heading=useRef(null);
   useEffect(()=>{mounted.current=true;heading.current?.focus();return()=>{mounted.current=false;};},[]);
   useEffect(()=>{if(!locked||receipt)return;const warn=event=>{event.preventDefault();event.returnValue='';};globalThis.addEventListener?.('beforeunload',warn);return()=>globalThis.removeEventListener?.('beforeunload',warn);},[locked,receipt]);
   const run=async(action)=>{
     if(busyRef.current)return;busyRef.current=true;setBusy(true);setMessage(null);
-    try{await action();}catch{if(mounted.current)setMessage('The result could not be confirmed. Retry the same request.');}
+    try{await action();}catch{if(mounted.current)reportError('The result could not be confirmed. Retry the same request.');}
     finally{busyRef.current=false;if(mounted.current)setBusy(false);}
   };
   const search=afterRef=>run(async()=>{
     const result=await readNativeDocumentCounterparties({config,kind,query:query.trim(),afterRef,fetcher});
     if(!mounted.current)return;
-    if(result.ok){setPage(result.data);setCounterparty(null);}else setMessage(result.message);
+    if(result.ok){setPage(result.data);setCounterparty(null);}else reportError(result.message);
   });
   const create=()=>run(async()=>{
     let pending=command;
     if(!pending){
       const valid=validateNativeDocumentDraft({config,kind,draft,counterparty,attachmentId:attachment?.attachmentId,scope,accounts});
-      if(!valid.ok&&valid.code!=='ATTACHMENT_REQUIRED'){setMessage(valid.message);return;}
+      if(!valid.ok&&valid.code!=='ATTACHMENT_REQUIRED'){reportError(valid.message);return;}
       let support=attachment;
       if(!support){
-        setMessage('Uploading supporting document…');const attempt=uploadAttempt+(uploadClosed?1:0);setUploadAttempt(attempt);setUploadClosed(false);
+        inform('Uploading supporting document…');const attempt=uploadAttempt+(uploadClosed?1:0);setUploadAttempt(attempt);setUploadClosed(false);
         support=await uploadNativeDocumentSupport({config,kind,file,expectedActorId:access.actor_id,uploadAttempt:attempt,fetcher});if(!mounted.current)return;
-        if(!support.ok){setUploadClosed(support.code==='ATTACHMENT_RESERVATION_CLOSED');setMessage(support.message);return;}setAttachment(support);
+        if(!support.ok){setUploadClosed(support.code==='ATTACHMENT_RESERVATION_CLOSED');reportError(support.message);return;}setAttachment(support);
       }
       const prepared=await prepareNativeDocumentDraft({config,kind,draft,counterparty,attachmentId:support.attachmentId,expectedActorId:access.actor_id,fetcher});if(!mounted.current)return;
-      if(!prepared.ok){setMessage(prepared.message);return;}pending=prepared.command;retainNativeDocument(recoveryScope,pending);setCommand(pending);setLocked(true);
+      if(!prepared.ok){reportError(prepared.message);return;}pending=prepared.command;retainNativeDocument(recoveryScope,pending);setCommand(pending);setLocked(true);
     }
-    setMessage('Saving draft…');const result=await sendNativeDocumentDraft({config,command:pending,fetcher});
-    if(result.ok){releaseNativeDocument(recoveryScope,pending);if(mounted.current){setReceipt(result.data);setMessage('Draft saved. Open the draft to review its journal and continue the approval workflow.');}return;}
+    inform('Saving draft…');const result=await sendNativeDocumentDraft({config,command:pending,fetcher});
+    if(result.ok){releaseNativeDocument(recoveryScope,pending);if(mounted.current){setReceipt(result.data);inform('Draft saved. Open the draft to review its journal and continue the approval workflow.');}return;}
     if(!uncertain.current&&!result.unconfirmed){releaseNativeDocument(recoveryScope,pending);if(mounted.current){setCommand(null);setLocked(false);}}
     else uncertain.current=true;
-    if(mounted.current)setMessage(result.unconfirmed?'The draft could not be confirmed. Retry the same draft.':result.message);
+    if(mounted.current)reportError(result.unconfirmed?'The draft could not be confirmed. Retry the same draft.':result.message);
   });
   const update=(field,value)=>{setDraft(current=>({...current,[field]:value}));setMessage(null);};
   const eligible=[...new Map(accounts.filter(row=>row.active===true&&row.requires_member===false&&row.period_id===config.periodId&&(!row.entity_id||row.entity_id===config.entityId)).map(row=>[row.account_code,row])).values()];
@@ -83,7 +85,7 @@ export function NativeDocumentEntryForm({id,config,kind,access,scope,accounts=[]
         <label>Supporting document<input type="file" accept=".pdf,.png,.jpg,.jpeg,.csv" onChange={event=>{setFile(event.target.files?.[0]||null);setAttachment(null);setUploadAttempt(0);setUploadClosed(false);}}/></label>
         <p className="muted sm">PDF, PNG, JPEG or CSV, up to 50 MB. Uploaded when you save.</p>
       </fieldset>
-      {message&&<p role="status" aria-live="polite">{message}</p>}
+      {message&&<p role={message.tone==='error'?'alert':'status'} aria-live={message.tone==='error'?'assertive':'polite'}>{message.text}</p>}
       <div className="native-document-actions">
         {!receipt&&<button className="btn" type="submit" disabled={busy||!file&&!attachment||!counterparty}>{busy?'Working…':locked?'Retry same draft':'Create draft'}</button>}
         {receipt&&<button className="btn" type="button" disabled={busy||!onOpenDraft} onClick={()=>run(()=>onOpenDraft(receipt))}>Open saved draft</button>}

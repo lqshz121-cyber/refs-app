@@ -15,8 +15,11 @@ export async function persistWbsInboundRows({repository,tenantId,entityId,idempo
     }
     const receiptRow=await tx.insertReceipt({tenantId,entityId,receipt});
     const raw=await tx.insertRawRows({tenantId,entityId,receiptId:receiptRow.receipt_id,rows:rawRows});
+    if(!Array.isArray(raw)||raw.length!==rawRows.length)fail('WBS_INBOUND_RAW_TRACE_INCOMPLETE','Raw persistence must return one trace row for every admitted source row');
     const normalized=await tx.insertNormalizedRows({tenantId,entityId,rawRows:raw,rows:normalizedRows});
+    if(!Array.isArray(normalized)||normalized.length!==normalizedRows.length)fail('WBS_INBOUND_NORMALIZED_TRACE_INCOMPLETE','Normalization must return one trace row for every raw source row');
     const outcome=await tx.insertStagingOrExceptions({tenantId,entityId,normalizedRows:normalized,rows:stagingOrExceptionRows});
+    if(!Array.isArray(outcome)||outcome.length!==stagingOrExceptionRows.length)fail('WBS_INBOUND_OUTCOME_TRACE_INCOMPLETE','Staging or exception routing must return one outcome for every normalized source row');
     const result=Object.freeze({receipt_id:receiptRow.receipt_id,raw_count:raw.length,normalized_count:normalized.length,staging_or_exception_count:outcome.length,can_create_draft:false,can_approve:false,can_post:false});
     await tx.insertInboundAudit({tenantId,entityId,receiptId:receiptRow.receipt_id,idempotencyKey,result});
     await tx.putInboundIdempotency({tenantId,entityId,idempotencyKey,receipt_hash:receipt.payload_hash,result});

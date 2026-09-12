@@ -9,6 +9,9 @@ test('acquisition client loads scoped options and rejects cross-company data',as
  let seen;const result=await readAuthoritativeAcquisitionOptions({config,assetId,fetcher:async(url,init)=>{seen={url,init};return new Response(JSON.stringify({ok:true,data:options}),{status:200});}});assert.equal(result.ok,true);assert.equal(seen.init.method,'GET');assert.equal(seen.init.cache,'no-store');assert.equal(seen.init.credentials,'include');assert.match(seen.init.headers.authorization,/^Bearer /);
  assert.equal((await readAuthoritativeAcquisitionOptions({config,assetId,fetcher:async()=>new Response(JSON.stringify({ok:true,data:{...options,entity_id:randomUUID()}}),{status:200})})).ok,false);
 });
+test('acquisition client accepts source version zero and retains it in the command and receipt',async()=>{
+ const zeroOptions={...options,source:{...options.source,source_document_version:0}},zeroReceipt={...receipt,source_document_version:0};let payload;const result=await createAuthoritativeAssetAcquisition({...command,options:zeroOptions,fetcher:async(_url,init)=>{payload=JSON.parse(init.body);return new Response(JSON.stringify({ok:true,data:zeroReceipt}),{status:201});}});assert.equal(result.ok,true);assert.equal(payload.expectedSourceVersion,0);
+});
 test('acquisition retry recovers original Draft using stable payload-bound identity and never client amounts',async()=>{
  const requests=[];const fetcher=async(url,init)=>{requests.push({url,init});if(requests.length===1)throw new Error('response lost');return new Response(JSON.stringify({ok:true,data:{...receipt,idempotent:true}}),{status:200});};
  assert.equal((await createAuthoritativeAssetAcquisition({...command,fetcher})).ok,false);const replay=await createAuthoritativeAssetAcquisition({...command,fetcher});assert.equal(replay.ok,true);assert.equal(replay.data.journal_entry_id,receipt.journal_entry_id);assert.equal(requests[0].init.headers['idempotency-key'],requests[1].init.headers['idempotency-key']);

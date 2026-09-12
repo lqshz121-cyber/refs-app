@@ -92,12 +92,27 @@ Platform references: [Blueprint creation and Auto Sync](https://render.com/docs/
    `no-store` and the exact SHA. Only after migrations and API readiness pass,
    complete an independently approved production IAM ceremony to grant the
    dedicated actor exactly `OUTBOX.DISPATCH` for the approved scopes and finite
-   expiry; verify the effective grant against the migrated catalog. This production
-   IAM ceremony is not implemented by this topology change. **STOP** if no reviewed
-   production-capable ceremony is available; leave workers and Web uncreated.
-   Do not use `workflow-role-grant` or `workflow:grant` as a production workaround:
-   the current implementation requires `REFS_DEPLOYMENT_ENV=staging`. Never relabel
-   production as staging or use direct SQL/self-grant to bypass this missing gate.
+   expiry; verify the effective grant against the migrated catalog. The reviewed
+   production-capable ceremony is `npm run workflow:grant:production` from
+   `server`. For each tenant/entity scope, set `NODE_ENV=production`,
+   `REFS_DEPLOYMENT_ENV=production`,
+   `REFS_WORKFLOW_ROLE_CONFIRM=PRODUCTION_WORKFLOW_ROLE_ONLY`, the exact
+   `REFS_EXPECTED_INSTALLATION_ID` and `REFS_EXPECTED_DATABASE_NAME`; the four
+   isolated URLs `DATABASE_URL`, `MIGRATION_DATABASE_URL`,
+   `CONTEXT_ISSUER_DATABASE_URL`, and `GRANT_SYNC_DATABASE_URL`; the exact scope
+   `REFS_STAGE1_TENANT_ID` and `REFS_STAGE1_ENTITY_ID`; and the finite command
+   inputs `REFS_WORKFLOW_ROLE`, `REFS_WORKFLOW_GRANT_EXPECTED_VERSION`,
+   `REFS_WORKFLOW_GRANT_IDEMPOTENCY_KEY`, and
+   `REFS_WORKFLOW_GRANT_VALID_UNTIL`. Use
+   `REFS_WORKFLOW_ROLE=OUTBOX_DISPATCHER_SERVICE` with the approved
+   `OUTBOX_DISPATCH_ACTOR_ID` for this dispatcher. A human workflow-role ceremony
+   instead requires `REFS_AUTHENTICATED_ACCESS_TOKEN`, `OIDC_ISSUER`,
+   `OIDC_AUDIENCE`, and `OIDC_JWKS_URI`; service-role ceremonies reject those
+   human credentials. The command asserts deployment identity before authorization
+   and again inside the guarded grant transaction.
+   Do not use the staging-only `workflow:grant`, direct SQL, or self-grant for
+   production. **STOP** on any identity, authorization, version, or result mismatch;
+   leave workers and Web uncreated.
    Apply the same production IAM gate to integrations and cleanup actors before
    creating their workers. Run the dispatch preflight before enabling the
    worker: create the dispatcher only after API readiness passes, then require its
@@ -114,7 +129,10 @@ Platform references: [Blueprint creation and Auto Sync](https://render.com/docs/
    same SHA, validate the API first, then individually create cleanup and
    integrations-dispatch workers, requiring each worker's health before continuing.
    After acceptance, change the Web client to the integrations API as one atomic
-   origin switch. Browser reads and commands must never split across both APIs.
+   origin switch. In that same static release set `REFS_PUBLIC_CASH_TRANSFER_UI_MODE=ENABLED`
+   and `REFS_PUBLIC_ACCOUNTING_API_ATTACHMENT_MODE=REQUIRED`; the runtime-config
+   build fails if Cash Transfer is enabled against `DISABLED`. Browser reads and
+   commands must never split across both APIs.
 8. Run authenticated read-only acceptance before any controlled business command.
    A production E2E is separate evidence and must use approved identities, exact
    role bundles, scope, idempotency, source evidence, and journal/GL/report readback.

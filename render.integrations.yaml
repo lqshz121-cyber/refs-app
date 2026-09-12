@@ -3,7 +3,9 @@ services:
   # OIDC issuer as Stage 1, but is released independently so missing provider,
   # storage, or scanner configuration cannot take the read-only API down.
   # After same-SHA smoke and authenticated acceptance, switch the static site's
-  # single REFS_PUBLIC_ACCOUNTING_API_BASE_URL to this service. Do not split
+  # single REFS_PUBLIC_ACCOUNTING_API_BASE_URL to this service. In that same static
+  # release set REFS_PUBLIC_CASH_TRANSFER_UI_MODE=ENABLED and
+  # REFS_PUBLIC_ACCOUNTING_API_ATTACHMENT_MODE=REQUIRED. Do not split
   # browser reads and commands between the two API services.
   - type: web
     name: refs-accounting-api-integrations-staging

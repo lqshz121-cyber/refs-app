@@ -2,6 +2,8 @@ import {createPublicKey,verify} from 'node:crypto';
 import {AccountingApiError} from './accounting-http.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ACTOR_ID=/^[^\u0000-\u001f\u007f]{1,200}$/;
+const CREDENTIAL_SHAPED_ACTOR=/(?:bearer\s+|(?:access[_ -]?token|api[_ -]?key|authorization|secret|password)\s*[:=]|-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----|eyJ[A-Za-z0-9_-]{12,}|(?:^|[^A-Za-z0-9_-])(?:sk|rk|pk)-(?:proj-)?[A-Za-z0-9_-]{16,}(?:$|[^A-Za-z0-9_-]))/i;
 export const REFS_TENANT_CLAIM='https://refs-app.onrender.com/claims/tenant_id';
 const decodeJson=part=>{try{return JSON.parse(Buffer.from(part,'base64url').toString('utf8'));}catch{throw new AccountingApiError(401,'INVALID_ACCESS_TOKEN','Access token is malformed');}};
 const authHeader=headers=>{if(typeof headers?.get==='function')return headers.get('authorization');const key=Object.keys(headers||{}).find(value=>value.toLowerCase()==='authorization');return key?headers[key]:null;};
@@ -50,7 +52,7 @@ export class OidcJwtAuthenticator{
     if(claims.nbf!==undefined&&(!Number.isInteger(claims.nbf)||claims.nbf>now+skew))deny('Access token is not active');
     const tenantId=claims[this.tenantClaim],actorId=claims[this.subjectClaim];
     if(!UUID.test(tenantId||''))deny('Tenant identity claim is invalid');
-    if(typeof actorId!=='string'||actorId.length<1||actorId.length>200)deny('Subject identity claim is invalid');
+    if(typeof actorId!=='string'||actorId!==actorId.trim()||!ACTOR_ID.test(actorId)||CREDENTIAL_SHAPED_ACTOR.test(actorId))deny('Subject identity claim is invalid');
     return {trusted:true,tenantId,actorId,tokenId:typeof claims.jti==='string'?claims.jti:null};
   }
 }

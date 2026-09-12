@@ -73,7 +73,7 @@ jobs:
       - name: Install kernel dependencies exactly
         working-directory: server
         run: npm ci
-      - name: Run fresh zero-skip PostgreSQL gate
+      - name: Run fresh zero-skip PostgreSQL kernel and accounting settings gates
         working-directory: server
         env:
           POSTGRES_IMAGE: postgres:${{ matrix.postgres }}-alpine

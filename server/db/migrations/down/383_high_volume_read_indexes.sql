@@ -1,0 +1,7 @@
+BEGIN;
+DROP INDEX wbs_h1_payable_mapping_source_stage_page_idx;
+DROP INDEX financial_statement_snapshot_proposal_queue_idx;
+DROP INDEX ledger_line_gl_snapshot_join_idx;
+DROP INDEX bank_match_reader_latest_idx;
+DROP INDEX bank_source_read_scope_keyset_idx;
+COMMIT;

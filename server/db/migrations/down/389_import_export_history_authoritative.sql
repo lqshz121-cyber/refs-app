@@ -1,0 +1,13 @@
+BEGIN;
+LOCK TABLE import_export_history_job IN ACCESS EXCLUSIVE MODE;
+DO $$ BEGIN IF EXISTS(SELECT 1 FROM import_export_history_job) THEN RAISE EXCEPTION 'Refusing to remove retained import/export history evidence' USING ERRCODE='55000'; END IF; END $$;
+REVOKE ALL ON FUNCTION refs_import_export_history_payload(uuid,uuid,uuid),refs_read_import_export_history(uuid,uuid,text,integer,timestamptz,uuid),refs_record_posted_ledger_export_history(uuid,uuid,uuid,text,text,text),refs_project_import_batch_history(uuid,uuid,uuid) FROM refs_app;
+DROP TRIGGER import_export_history_job_append_only ON import_export_history_job;
+DROP FUNCTION refs_project_import_batch_history(uuid,uuid,uuid);
+DROP FUNCTION refs_record_posted_ledger_export_history(uuid,uuid,uuid,text,text,text);
+DROP FUNCTION refs_read_import_export_history(uuid,uuid,text,integer,timestamptz,uuid);
+DROP FUNCTION refs_import_export_history_payload(uuid,uuid,uuid);
+DROP TABLE import_export_history_job;
+UPDATE permission_catalog SET active=false,effective_to=clock_timestamp(),version=version+1 WHERE permission_code IN('DATA.EXCHANGE.HISTORY.VIEW','DATA.EXCHANGE.POSTED_LEDGER.EXPORT');
+DELETE FROM runtime_human_permission_authority WHERE permission_code IN('DATA.EXCHANGE.HISTORY.VIEW','DATA.EXCHANGE.POSTED_LEDGER.EXPORT');
+COMMIT;

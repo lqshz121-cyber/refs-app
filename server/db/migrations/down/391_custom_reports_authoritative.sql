@@ -1,0 +1,10 @@
+BEGIN;
+ALTER TABLE report_saved_view DROP CONSTRAINT report_saved_view_report_type_check;
+ALTER TABLE report_saved_view ADD CONSTRAINT report_saved_view_report_type_check CHECK(report_type IN('FINANCIAL_STATEMENTS','GENERAL_LEDGER','TRIAL_BALANCE','BALANCE_SHEET','INCOME_STATEMENT','CASH_FLOW','AP_AGING','AR_AGING','BUDGET_VS_ACTUAL','CWIP_ROLLFORWARD','PROJECT_COST','UNIT_COST_LEDGER'));
+CREATE OR REPLACE FUNCTION refs_validate_report_saved_view(p_tenant uuid,p_entity uuid,p_name text,p_report_type text,p_period uuid,p_filters jsonb,p_visibility text) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$ BEGIN IF p_name IS NULL OR p_name<>btrim(p_name) OR length(p_name) NOT BETWEEN 1 AND 160 OR p_report_type NOT IN('FINANCIAL_STATEMENTS','GENERAL_LEDGER','TRIAL_BALANCE','BALANCE_SHEET','INCOME_STATEMENT','CASH_FLOW','AP_AGING','AR_AGING','BUDGET_VS_ACTUAL','CWIP_ROLLFORWARD','PROJECT_COST','UNIT_COST_LEDGER') OR p_visibility NOT IN('PRIVATE','ENTITY_SHARED') OR jsonb_typeof(p_filters)<>'object' OR jsonb_object_length(p_filters)>30 OR NOT EXISTS(SELECT 1 FROM accounting_period WHERE tenant_id=p_tenant AND entity_id=p_entity AND period_id=p_period) THEN RAISE EXCEPTION 'Invalid report saved view' USING ERRCODE='22023'; END IF; END;$$;
+REVOKE EXECUTE ON FUNCTION refs_read_custom_report(uuid,uuid,uuid,text,text,text,integer,text) FROM refs_app;
+DROP FUNCTION refs_read_custom_report(uuid,uuid,uuid,text,text,text,integer,text);
+DROP INDEX ledger_line_custom_report_scope_idx;
+UPDATE permission_catalog SET active=false,effective_to=clock_timestamp(),version=version+1 WHERE permission_code='REPORT.CUSTOM.VIEW';
+DELETE FROM runtime_human_permission_authority WHERE permission_code='REPORT.CUSTOM.VIEW';
+COMMIT;

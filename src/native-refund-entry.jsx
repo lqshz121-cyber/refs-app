@@ -25,28 +25,30 @@ export function NativeRefundForm({id,config,kind='AR_REFUND',sourceAdjustmentId,
   const [context,setContext]=useState(null),[page,setPage]=useState(null),[query,setQuery]=useState(''),[bank,setBank]=useState(()=>recovered.current?{member_ref:recovered.current.command.body.bankMemberRef,member_type:'BANK'}:null);
   const [draft,setDraft]=useState(()=>recovered.current?.command.body||{number:'',date:'',amount:'',cashAccountCode:'',reason:''}),[file,setFile]=useState(null),[attachment,setAttachment]=useState(null);
   const [uploadAttempt,setUploadAttempt]=useState(0),[uploadClosed,setUploadClosed]=useState(false),[command,setCommand]=useState(()=>recovered.current?.command||null),[receipt,setReceipt]=useState(null);
-  const [busy,setBusy]=useState(false),[message,setMessage]=useState('Loading refund details…');
+  const [busy,setBusy]=useState(false),[message,setMessage]=useState({tone:'status',text:'Loading refund details…'});
+  const inform=text=>setMessage(text?{tone:'status',text}:null);
+  const reportError=text=>setMessage(text?{tone:'error',text}:null);
   const mounted=useRef(false),busyRef=useRef(false),heading=useRef(null),attempted=useRef(!!recovered.current);
-  const run=async action=>{if(busyRef.current)return;busyRef.current=true;setBusy(true);try{await action();}catch{if(mounted.current)setMessage('The result could not be confirmed. Retry the same request.');}finally{busyRef.current=false;if(mounted.current)setBusy(false);}};
-  const load=()=>run(async()=>{const [c,b,a]=await Promise.all([readNativeRefundContext({config,kind,sourceAdjustmentId,fetcher}),readNativeRefundBanks({config,kind,fetcher}),refreshAuthoritativeChartOfAccounts({config,fetcher})]);if(!mounted.current)return;setContext(c.ok?c.data:null);setCurrentAccounts(a.ok?a.rows:[]);if(b.ok)setPage(b.data);setMessage(!c.ok?c.message:!b.ok?b.message:!a.ok?a.message:refundContextAvailable(c.data)?'':'This document has no available balance in the selected open period.');});
+  const run=async action=>{if(busyRef.current)return;busyRef.current=true;setBusy(true);try{await action();}catch{if(mounted.current)reportError('The result could not be confirmed. Retry the same request.');}finally{busyRef.current=false;if(mounted.current)setBusy(false);}};
+  const load=()=>run(async()=>{const [c,b,a]=await Promise.all([readNativeRefundContext({config,kind,sourceAdjustmentId,fetcher}),readNativeRefundBanks({config,kind,fetcher}),refreshAuthoritativeChartOfAccounts({config,fetcher})]);if(!mounted.current)return;setContext(c.ok?c.data:null);setCurrentAccounts(a.ok?a.rows:[]);if(b.ok)setPage(b.data);if(!c.ok)reportError(c.message);else if(!b.ok)reportError(b.message);else if(!a.ok)reportError(a.message);else if(refundContextAvailable(c.data))inform('');else reportError('This document has no available balance in the selected open period.');});
   useEffect(()=>{mounted.current=true;heading.current?.focus();load();return()=>{mounted.current=false;};},[]);
   useEffect(()=>{if(!command||receipt)return;const warn=event=>{event.preventDefault();event.returnValue='';};globalThis.addEventListener?.('beforeunload',warn);return()=>globalThis.removeEventListener?.('beforeunload',warn);},[command,receipt]);
-  const search=afterRef=>run(async()=>{const result=await readNativeRefundBanks({config,kind,query:query.trim(),afterRef,fetcher});if(!mounted.current)return;if(result.ok){setPage(result.data);setBank(null);setMessage('');}else setMessage(result.message);});
+  const search=afterRef=>run(async()=>{const result=await readNativeRefundBanks({config,kind,query:query.trim(),afterRef,fetcher});if(!mounted.current)return;if(result.ok){setPage(result.data);setBank(null);inform('');}else reportError(result.message);});
   const save=()=>run(async()=>{
     let prepared=command;
     if(!prepared){
-      const valid=validateNativeRefundDraft({config,kind,sourceAdjustmentId,draft,bank,context,accounts:currentAccounts});if(!valid.ok){setMessage(valid.message);return;}
+      const valid=validateNativeRefundDraft({config,kind,sourceAdjustmentId,draft,bank,context,accounts:currentAccounts});if(!valid.ok){reportError(valid.message);return;}
       let support=attachment;
-      if(!support){setMessage('Uploading supporting document…');const attempt=uploadAttempt+(uploadClosed?1:0);setUploadAttempt(attempt);setUploadClosed(false);support=await uploadNativeRefundSupport({config,kind,file,expectedActorId:access.actor_id,uploadAttempt:attempt,fetcher});if(!mounted.current)return;if(!support.ok){setUploadClosed(support.code==='ATTACHMENT_RESERVATION_CLOSED');setMessage(support.message);return;}setAttachment(support);}
-      setMessage('Saving draft…');const result=await prepareNativeRefund({config,kind,sourceAdjustmentId,draft,bank,attachmentId:support.attachmentId,expectedActorId:access.actor_id,fetcher});if(!mounted.current)return;if(!result.ok){setMessage(result.message);return;}prepared=result.command;setCommand(prepared);
+      if(!support){inform('Uploading supporting document…');const attempt=uploadAttempt+(uploadClosed?1:0);setUploadAttempt(attempt);setUploadClosed(false);support=await uploadNativeRefundSupport({config,kind,file,expectedActorId:access.actor_id,uploadAttempt:attempt,fetcher});if(!mounted.current)return;if(!support.ok){setUploadClosed(support.code==='ATTACHMENT_RESERVATION_CLOSED');reportError(support.message);return;}setAttachment(support);}
+      inform('Saving draft…');const result=await prepareNativeRefund({config,kind,sourceAdjustmentId,draft,bank,attachmentId:support.attachmentId,expectedActorId:access.actor_id,fetcher});if(!mounted.current)return;if(!result.ok){reportError(result.message);return;}prepared=result.command;setCommand(prepared);
     }
     retainNativeRefund(recoveryScope,prepared,{uncertain:true});
     const result=await sendNativeRefund({config,command:prepared,fetcher});
     if(result.ok||!result.unconfirmed&&!attempted.current)releaseNativeRefund(recoveryScope,prepared);
     else retainNativeRefund(recoveryScope,prepared,{uncertain:true});
     if(!mounted.current)return;
-    if(result.ok){setReceipt(result.data);setMessage('Draft saved. Open it to review and continue the approval workflow.');}
-    else{if(result.unconfirmed)attempted.current=true;if(!attempted.current)setCommand(null);setMessage(result.message);}
+    if(result.ok){setReceipt(result.data);inform('Draft saved. Open it to review and continue the approval workflow.');}
+    else{if(result.unconfirmed)attempted.current=true;if(!attempted.current)setCommand(null);reportError(result.message);}
   });
   const update=(key,value)=>setDraft(current=>({...current,[key]:value}));
   const eligible=currentAccounts.filter(row=>row.active===true&&row.requires_member===true&&row.required_member_type==='BANK'&&row.period_id===config.periodId&&(!row.entity_id||row.entity_id===config.entityId));
@@ -63,7 +65,7 @@ export function NativeRefundForm({id,config,kind='AR_REFUND',sourceAdjustmentId,
     </div><label>Description<textarea required minLength={8} maxLength={2000} value={draft.reason} onChange={event=>update('reason',event.target.value)}/></label>
     <label>Supporting document<input type="file" accept=".pdf,.png,.jpg,.jpeg,.csv" onChange={event=>{setFile(event.target.files?.[0]||null);setAttachment(null);setUploadAttempt(0);setUploadClosed(false);}}/></label><p className="muted sm">PDF, PNG, JPEG or CSV, up to 50 MB. Uploaded when you save.</p></fieldset>
     {recovered.current&&command&&!receipt&&<p role="status">An earlier refund request is unconfirmed. Retry the same draft to check its result.</p>}
-    {message&&<p role="status" aria-live="polite">{message}</p>}<div className="native-document-actions">
+    {message&&<p role={message.tone==='error'?'alert':'status'} aria-live={message.tone==='error'?'assertive':'polite'}>{message.text}</p>}<div className="native-document-actions">
       {!receipt&&<button type="submit" className="btn" disabled={busy||!command&&(!file||!bank||!refundContextAvailable(context))}>{busy?'Working…':command?'Retry same draft':'Save draft'}</button>}
       {!command&&!receipt&&<button type="button" className="btn btn-ghost" disabled={busy} onClick={load}>Refresh balance</button>}
       {receipt&&<button type="button" className="btn" disabled={busy||!onOpenDraft} onClick={()=>run(()=>onOpenDraft(receipt))}>Open saved draft</button>}

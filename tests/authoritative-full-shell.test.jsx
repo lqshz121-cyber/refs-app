@@ -17,6 +17,7 @@ import { AuthoritativeUnavailableWorkspace } from '../src/authoritative-unavaila
 import { watchRetainedRoute } from '../src/authoritative-app.jsx';
 import {resolveAuthorizedScopeFallback} from '../src/authoritative-scope-selection.js';
 
+
 const allowedScopes=[
   {entity_id:'11111111-1111-4111-8111-111111111111',period_id:'22222222-2222-4222-8222-222222222222'},
   {entity_id:'11111111-1111-4111-8111-111111111111',period_id:'33333333-3333-4333-8333-333333333333'},
@@ -75,7 +76,7 @@ assert.match(navigationItemForRoute('management-reports')?.requirements.join(' '
 assert.match(navigationItemForRoute('kpi-scorecard')?.requirements.join(' '), /immutable KPI and scorecard identities/);
 assert.match(navigationItemForRoute('analytics-dashboards')?.requirements.join(' '), /immutable dashboard identity, revision, source and snapshot versions/);
 assert.ok(AUTHORITATIVE_ROUTES.includes('settings'),'the observed Settings navigation must keep Accounting settings discoverable without granting policy mutation authority');
-assert.equal(navigationItemForRoute('settings')?.availability,'API_READ','Accounting settings must expose only the immutable approved entity-period policy reader');
+assert.equal(navigationItemForRoute('settings')?.availability,'API_COMMAND','Accounting settings must expose only the controlled parent workflow over immutable approved entity-period policy evidence');
 assert.equal(navigationItemForRoute('month-end-close')?.availability,'API_COMMAND','Month-End Close must use the evidence-bound close command');
 assert.equal(navigationItemForRoute('approvals')?.availability,'API_COMMAND','Action required must expose real server-authorized Journal and AI workflows');
 assert.equal(navigationItemForRoute('closing-accounting')?.availability,'API_COMMAND','Closing Accounting must reuse the evidence-bound period-close workflow');
@@ -83,7 +84,7 @@ assert.equal(navigationItemForRoute('master-data')?.availability,'API_COMMAND','
 assert.equal(navigationItemForRoute('bank-accounts')?.availability,'API_READ','Bank Accounts must expose only reconciliation-backed account references');
 assert.equal(navigationItemForRoute('period-management')?.availability,'API_READ','Period Management must expose the immutable close-readiness reader');
 assert.equal(navigationItemForRoute('mapping')?.availability,'API_READ','Mapping Center must expose only the complete approved account-to-report mapping reader');
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['vendors', 'customers', 'account-inquiry', 'accounting-analysis-report', 'accruals', 'ai-audit', 'ai-je-workbench', 'amortization', 'audit-log', 'bank', 'bank-accounts', 'bank-batch-pipeline', 'bill-payments', 'chart-of-accounts', 'checks-payments', 'consolidation', 'construction-loan', 'fixed-assets', 'general-ledger', 'integration-hub', 'integration-transactions', 'intercompany', 'journals', 'loan-register', 'mapping', 'overview', 'payables', 'period-management', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'receipts', 'reconciliation', 'recurring-transactions', 'revenue-recognition', 'reports', 'rules', 'settings', 'source-documents', 'staging', 'mapping-exceptions', 'subsidiary-ledger', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['vendors', 'customers', 'account-inquiry', 'accounting-analysis-report', 'accruals', 'ai-audit', 'ai-je-workbench', 'amortization', 'audit-log', 'bank', 'bank-accounts', 'bank-batch-pipeline', 'bill-payments', 'chart-of-accounts', 'checks-payments', 'consolidation', 'construction-loan', 'fixed-assets', 'general-ledger', 'integration-hub', 'integration-transactions', 'intercompany', 'journals', 'loan-register', 'mapping', 'overview', 'payables', 'period-management', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'receipts', 'reconciliation', 'recurring-transactions', 'revenue-recognition', 'reports', 'rules', 'source-documents', 'staging', 'mapping-exceptions', 'subsidiary-ledger', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
 const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation','Source & Staging']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}} onTogglePanel={() => {}}/>);
 const inertToggleMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
@@ -269,6 +270,9 @@ for (const route of ['intuit-experts','products-services','custom-reports','mana
   assert.doesNotMatch(markup, /Create|Edit|Schedule|Connect|Upload|Export|Post|Refresh/, `${item.label} must expose no unsupported command`);
 }
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
+assert.match(appSource,/response\?\.status === 401\) onAuthenticationRequired\?\.\(\)/,'all bound workspace HTTP reads must route 401 through the application login boundary');
+assert.doesNotMatch(appSource,/response\?\.status === 403\) onAuthenticationRequired/,'a 403 must remain an authorization refusal and never start sign-in');
+assert.match(appSource,/setSessionExpired\(false\); setRenewalFailure\(null\); setPhase\('AUTHENTICATED'\)/,'a successful interactive login must clear stale expiry and renewal diagnostics');
 const amortizationSource = fs.readFileSync('src/authoritative-amortization-workspace.jsx', 'utf8');
 for(const file of ['src/authoritative-aging-workspace.jsx','src/authoritative-amortization-workspace.jsx','src/authoritative-lineage-drill.jsx','src/authoritative-property-rent-workspace.jsx']){
   const source=fs.readFileSync(file,'utf8');

@@ -35,7 +35,7 @@ test('runner only passes its dedicated pool deadline, closes the pool and preser
 });
 
 function migrationPool({failure=false,mismatch=false}={}){
-  const queries=[],last=MIGRATION_MANIFEST.at(-1),pending=MIGRATION_MANIFEST.slice(-2);
+  const queries=[],last=MIGRATION_MANIFEST.at(-1),pending=MIGRATION_MANIFEST.filter(item=>['373_intercompany_elimination_authoritative.sql','374_accounting_settings_authoritative.sql'].includes(item.name));
   const firstPendingSql=readFileSync(new URL('../db/migrations/'+pending[0].name,import.meta.url),'utf8').replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'').trim();
   const config=runtimeConfig(),url=new URL(config.migrationDatabaseUrl);
   const client={async query(sql,args){

@@ -25,9 +25,9 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     ]),
   ]),
   group('Accounting Settings', [
-    item('settings', 'Accounting settings', 'API_READ', [
+    item('settings', 'Accounting settings', 'API_COMMAND', [
       'Entity- and period-scoped immutable approved core-accounting policy snapshots with version, approver, hash, close gates, materiality and coverage evidence.',
-      'Expense-form, purchasing, and report-presentation policy detail and history remain unavailable; edits, threshold changes, purchase-order or message actions, readiness automation, payments, and posting are never exposed here.',
+      'A parent snapshot may be created from ten explicitly selected approved families and routed through five distinct human actors; activation is forward-only and family authoring remains separate.',
     ]),
     item('mapping', 'Mapping Center', 'API_READ', [
       'Entity- and period-scoped complete approved account-to-statement, report-row, project, property and cost-code mappings with effectivity, version, snapshot hash, population hash and approval evidence.',
@@ -98,6 +98,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('unit-transfer', 'Unit Transfer', 'API_COMMAND', [
       'One property Unit transfers through paired source and target Journals with exact source, attachment, mapping, cost-basis, period and ownership evidence.',
       'Submit, review, approve, reject and Post execute for both companies in one database transaction under separate finite authorities.',
+    ]),
+    item('cash-transfer', 'Cash Transfer', 'API_COMMAND', [
+      'One company moves cash between two distinct approved bank-to-cash-GL controls with retained verified-clean attachment and Journal evidence.',
+      'The server separately authorizes Draft, review, approval, Post and each exact posted bank-leg reconciliation link.',
     ]),
     // Both surfaces read OIDC-scoped POSTED ledger evidence. The register
     // additionally requires exact retained loan and lender source identity.

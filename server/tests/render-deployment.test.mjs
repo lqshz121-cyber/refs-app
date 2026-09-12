@@ -66,7 +66,7 @@ test('Render staging manifest declares every production startup secret and uses 
   for(const key of ['ATTACHMENT_CLEANUP_ACTOR_ID','ATTACHMENT_CLEANUP_SCOPES'])assert.ok(hasSecret(worker.body,key),`cleanup worker is missing ${key}`);
   const publicKeys=['REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE','REFS_PUBLIC_OIDC_ISSUER','REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT','REFS_PUBLIC_OIDC_TOKEN_ENDPOINT','REFS_PUBLIC_OIDC_REDIRECT_URI','REFS_PUBLIC_OIDC_CLIENT_ID','REFS_PUBLIC_OIDC_AUDIENCE'];
   for(const key of publicKeys)assert.ok(hasSecret(web.body,key),`static service is missing ${key}`);
-  assert.ok(hasFixed(web.body,'REFS_WBS_TEST_IMPORT_MODE','ENABLED'),'static runtime config must expose the staging test-import switch');
+  assert.ok(hasFixed(web.body,'REFS_PUBLIC_CASH_TRANSFER_UI_MODE','DISABLED'),'Stage 1 static client must not enable Cash Transfer against its attachment-disabled API');assert.ok(hasFixed(web.body,'REFS_PUBLIC_ACCOUNTING_API_ATTACHMENT_MODE','DISABLED'),'Stage 1 static client must declare its attachment-disabled API');assert.ok(hasFixed(web.body,'REFS_WBS_TEST_IMPORT_MODE','ENABLED'),'static runtime config must expose the staging test-import switch');
   assert.doesNotMatch(api.body,/REFS_PUBLIC_/);assert.doesNotMatch(worker.body,/REFS_PUBLIC_/);assert.doesNotMatch(web.body,/REFS_PUBLIC_RUNTIME_MODE/,'authoritative static builds must not opt into LOCAL_MOCK');
   assert.equal((manifest.match(/autoDeployTrigger: off/g)||[]).length,3,'Stage 1 coordinates API, its outbox consumer, and static client');
   assert.equal((integrations.match(/autoDeployTrigger: off/g)||[]).length,3,'signed-ingest API and both isolated workers require explicit coordinated releases');
@@ -117,10 +117,10 @@ test('Render production topology is independent, closed, and keeps every test-on
   assert.match(outbox.body,/preDeployCommand: npm run preflight:outbox-dispatch-release/);assert.match(outbox.body,/startCommand: npm run start:outbox-dispatch/);
   for(const key of DATABASE_KEYS)assert.ok(hasServiceReference(outbox.body,key,'refs-accounting-api-production'),`production dispatcher must inherit ${key} only from its producer`);
   for(const key of ['OUTBOX_DISPATCH_ACTOR_ID','OUTBOX_DISPATCH_SCOPES','OUTBOX_PUBLISH_URL','OUTBOX_PUBLISH_TOKEN'])assert.ok(hasSecret(outbox.body,key),`production dispatcher is missing ${key}`);
-  const webKeys=['REFS_DEPLOYMENT_ENV','REFS_WBS_TEST_IMPORT_MODE','REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE','REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE','REFS_PUBLIC_OIDC_ISSUER','REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT','REFS_PUBLIC_OIDC_TOKEN_ENDPOINT','REFS_PUBLIC_OIDC_REDIRECT_URI','REFS_PUBLIC_OIDC_CLIENT_ID','REFS_PUBLIC_OIDC_AUDIENCE','REFS_PUBLIC_OIDC_SCOPE'];
+  const webKeys=['REFS_DEPLOYMENT_ENV','REFS_WBS_TEST_IMPORT_MODE','REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE','REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_CASH_TRANSFER_UI_MODE','REFS_PUBLIC_ACCOUNTING_API_ATTACHMENT_MODE','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE','REFS_PUBLIC_OIDC_ISSUER','REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT','REFS_PUBLIC_OIDC_TOKEN_ENDPOINT','REFS_PUBLIC_OIDC_REDIRECT_URI','REFS_PUBLIC_OIDC_CLIENT_ID','REFS_PUBLIC_OIDC_AUDIENCE','REFS_PUBLIC_OIDC_SCOPE'];
   exactEnv(web.body,webKeys,'production Web');assert.match(web.body,/runtime: static/);assert.match(web.body,/pullRequestPreviewsEnabled: false/);
-  for(const [key,value] of [['REFS_DEPLOYMENT_ENV','production'],['REFS_WBS_TEST_IMPORT_MODE','DISABLED'],['REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE','DISABLED']])assert.ok(hasFixed(web.body,key,value),`production Web is missing ${key}=${value}`);
-  for(const key of webKeys.filter(key=>key.startsWith('REFS_PUBLIC_')&&key!=='REFS_PUBLIC_OIDC_SCOPE'))assert.ok(hasSecret(web.body,key),`production Web must receive ${key} independently`);
+  for(const [key,value] of [['REFS_DEPLOYMENT_ENV','production'],['REFS_PUBLIC_CASH_TRANSFER_UI_MODE','DISABLED'],['REFS_PUBLIC_ACCOUNTING_API_ATTACHMENT_MODE','DISABLED'],['REFS_WBS_TEST_IMPORT_MODE','DISABLED'],['REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE','DISABLED']])assert.ok(hasFixed(web.body,key,value),`production Web is missing ${key}=${value}`);
+  for(const key of webKeys.filter(key=>key.startsWith('REFS_PUBLIC_')&&!['REFS_PUBLIC_OIDC_SCOPE','REFS_PUBLIC_CASH_TRANSFER_UI_MODE','REFS_PUBLIC_ACCOUNTING_API_ATTACHMENT_MODE'].includes(key)))assert.ok(hasSecret(web.body,key),`production Web must receive ${key} independently`);
   for(const asset of ['/refs-runtime-lock.js','/refs-runtime-config.js','/refs-build.js','/index.html','/'])assert.match(web.body,new RegExp(`path: ${asset.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\r?\\n\\s+name: Cache-Control\\r?\\n\\s+value: no-store`));
   assert.doesNotMatch(manifest,/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i,'production manifest must not commit tenant/entity/user facts');
 });
@@ -148,7 +148,7 @@ test('Render production integrations isolate signed ingest, cleanup, and dispatc
 test('production topology runbook reuses the independent consumer and forbids automatic database rollback',async()=>{
   const runbook=await readFile(resolve(root,'server','PRODUCTION-RENDER-TOPOLOGY.md'),'utf8');
   const consumer=await readFile(resolve(root,'render.outbox-consumer.production.yaml'),'utf8');
-  for(const token of ['render.production.yaml','render.integrations.production.yaml','render.outbox-consumer.production.yaml','sync:false','OUTBOX.DISPATCH','/health/live','/health/ready','/refs-build.js','exact same SHA','authenticated read-only acceptance','backup/PITR','same approved production accounting database endpoint','never split across both APIs'])assert.match(runbook,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i'),`production runbook is missing ${token}`);
+  for(const token of ['render.production.yaml','render.integrations.production.yaml','render.outbox-consumer.production.yaml','sync:false','OUTBOX.DISPATCH','/health/live','/health/ready','/refs-build.js','exact same SHA','authenticated read-only acceptance','backup/PITR','same approved production accounting database endpoint','never split across both APIs','REFS_PUBLIC_CASH_TRANSFER_UI_MODE=ENABLED','REFS_PUBLIC_ACCOUNTING_API_ATTACHMENT_MODE=REQUIRED'])assert.match(runbook,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i'),`production runbook is missing ${token}`);
   assert.doesNotMatch(runbook,/use `db:(?:down|reset)`/i);assert.match(runbook,/never use automatic down\/reset migrations/i);
   assert.match(consumer,/name: refs-outbox-consumer-production/);assert.match(consumer,/name: refs-outbox-consumer-postgres-production/);assert.doesNotMatch(consumer,/staging/i);
   for(const key of ['OUTBOX_CONSUMER_DATABASE_URL','OUTBOX_CONSUMER_TOKEN','OUTBOX_CONSUMER_TENANT_ID','OUTBOX_CONSUMER_ENTITY_ID'])assert.ok(hasSecret(serviceSection(consumer,'refs-outbox-consumer-production').body,key),`production consumer is missing ${key}`);
@@ -163,13 +163,15 @@ test('production rollout separates initial deployment, frozen service SHA, and B
   assert.ok(runbook.indexOf('create the dispatcher only after API readiness passes')<runbook.indexOf('6. Set every static public coordinate'));
 });
 
-test('production IAM grants follow migration and fail closed without a production ceremony',async()=>{
+test('production IAM grants follow migration through the guarded production ceremony',async()=>{
   const runbook=await readFile(resolve(root,'server','PRODUCTION-RENDER-TOPOLOGY.md'),'utf8');
+  const packageJson=JSON.parse(await readFile(resolve(root,'server','package.json'),'utf8'));
   const preparation=runbook.slice(runbook.indexOf('4. Review'),runbook.indexOf('5. Create/deploy'));
   assert.match(preparation,/without granting permissions yet/);
   const migration=runbook.indexOf('Run migrations through its');
   const ceremony=runbook.indexOf('complete an independently approved production IAM ceremony');
   const worker=runbook.indexOf('create the dispatcher only after API readiness passes');
   assert.ok(migration>=0&&migration<ceremony&&ceremony<worker,'migration, production IAM, then worker creation must remain ordered');
-  for(const token of ['Only after migrations and API readiness pass','not implemented by this topology change','**STOP**','leave workers and Web uncreated','Do not use `workflow-role-grant` or `workflow:grant`','REFS_DEPLOYMENT_ENV=staging','direct SQL/self-grant','same production IAM gate to integrations and cleanup actors'])assert.ok(runbook.includes(token),`production IAM gate is missing ${token}`);
+  assert.equal(packageJson.scripts['workflow:grant:production'],'node tools/production-workflow-role-grant.mjs');
+  for(const token of ['Only after migrations and API readiness pass','npm run workflow:grant:production','REFS_DEPLOYMENT_ENV=production','PRODUCTION_WORKFLOW_ROLE_ONLY','REFS_EXPECTED_INSTALLATION_ID','REFS_EXPECTED_DATABASE_NAME','DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL','REFS_STAGE1_TENANT_ID','REFS_STAGE1_ENTITY_ID','REFS_WORKFLOW_GRANT_EXPECTED_VERSION','REFS_WORKFLOW_GRANT_IDEMPOTENCY_KEY','REFS_WORKFLOW_GRANT_VALID_UNTIL','REFS_AUTHENTICATED_ACCESS_TOKEN','OIDC_ISSUER','OIDC_AUDIENCE','OIDC_JWKS_URI','OUTBOX_DISPATCHER_SERVICE','OUTBOX_DISPATCH_ACTOR_ID','inside the guarded grant transaction','staging-only `workflow:grant`','direct SQL','**STOP**','leave workers and Web uncreated','same production IAM gate to integrations and cleanup actors'])assert.ok(runbook.includes(token),`production IAM gate is missing ${token}`);
 });

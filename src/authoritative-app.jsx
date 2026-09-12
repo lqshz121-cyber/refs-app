@@ -63,6 +63,7 @@ import {AuthoritativeAuditLogWorkspace} from './authoritative-audit-log-workspac
 import {AuthoritativeAccountingSettingsWorkspace} from './authoritative-accounting-settings-workspace.jsx';
 import {AuthoritativeReportMappingsWorkspace} from './authoritative-report-mappings-workspace.jsx';
 import {AuthoritativeUnitTransferWorkspace} from './authoritative-unit-transfer-workspace.jsx';
+import {AuthoritativeCashTransferWorkspace} from './authoritative-cash-transfer-workspace.jsx';
 import {createAuthoritativeReadGuard} from './authoritative-read-guard.js';
 import {canResumeFixedAssetAcquisitionJournal,resolveFixedAssetAcquisitionJournalScope} from './fixed-asset-acquisition-workflow.js';
 import {resolveAuthorizedScopeFallback} from './authoritative-scope-selection.js';
@@ -71,10 +72,28 @@ import {bootstrapAuthoritativeIdentity} from './authoritative-identity-bootstrap
 export const authoritativeRuntimeConfigured = (environment = globalThis) =>
   Boolean(accountingApiConfig(environment) && oidcRuntimeConfig(environment));
 
-export const bindAuthoritativeFetcher = (environment, fetcher) =>
+export const bindAuthoritativeFetcher = (environment, fetcher, onAuthenticationRequired) =>
   typeof fetcher === 'function'
-    ? (url, options) => Reflect.apply(fetcher, environment, [url, options])
+    ? async (url, options) => {
+      const response = await Reflect.apply(fetcher, environment, [url, options]);
+      if (response?.status === 401) onAuthenticationRequired?.();
+      return response;
+    }
     : fetcher;
+
+export const bindAuthoritativeAccessToken = (config, onAuthenticationRequired) => !config ? config : {
+  ...config,
+  getAccessToken: async () => {
+    try {
+      const token = await config.getAccessToken();
+      if (typeof token !== 'string' || !token.trim()) onAuthenticationRequired?.();
+      return token;
+    } catch (error) {
+      onAuthenticationRequired?.();
+      throw error;
+    }
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Route retention.
@@ -151,7 +170,9 @@ const RENEWAL_MAX_SLEEP_MS = 300000;
 
 export function AuthoritativeApp({ environment = globalThis, fetcher = globalThis.fetch }) {
   const configured = authoritativeRuntimeConfigured(environment);
-  const boundFetcher = useMemo(() => bindAuthoritativeFetcher(environment, fetcher), [environment, fetcher]);
+  const authenticationFailureRef = useRef(null);
+  const authenticationHandlingRef = useRef(false);
+  const boundFetcher = useMemo(() => bindAuthoritativeFetcher(environment, fetcher, () => authenticationFailureRef.current?.()), [environment, fetcher]);
   const [phase, setPhase] = useState(configured ? 'CHECKING_RELEASE' : 'CONFIGURATION_REQUIRED');
   const [route, setRouteState] = useState(() => readRetainedRoute(environment));
   const [data, setData] = useState({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] });
@@ -193,6 +214,15 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const accountingReadGeneration = accountingReadGuard.current.capture();
   useEffect(() => () => accountingReadGuard.current.invalidate(), []);
   const [accessState,setAccessState]=useState({status:'LOADING'});
+  const requireAuthentication = useCallback(() => {
+    if (authenticationHandlingRef.current) return;
+    authenticationHandlingRef.current = true;
+    accountingReadGuard.current.invalidate();
+    setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] });
+    setError({code:'AUTHENTICATION_REQUIRED',message:'The accounting API did not accept the current session. Sign in again to continue.'});
+    setRenewalFailure(null); setSessionExpired(false); setPhase('LOGIN_REQUIRED');
+  }, []);
+  authenticationFailureRef.current = requireAuthentication;
   // A direct selection of Reports is an explicit catalog entry, not a
   // continuation of the last report drill. React preserves a mounted route
   // when a user selects its already-active navigation item, so keep a small
@@ -237,7 +267,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   }, [navOpen]);
   const oidcClient = useMemo(() => configured ? new BrowserOidcClient({ environment, fetcher:boundFetcher }) : null, [configured, environment, boundFetcher]);
   const baseConfig = useMemo(() => configured ? accountingApiConfig(environment) : null, [configured, environment, phase]);
-  const config = useMemo(() => baseConfig&&selectedScope?{...baseConfig,entityId:selectedScope.entity_id,periodId:selectedScope.period_id}:baseConfig, [baseConfig, selectedScope]);
+  const authenticatedBaseConfig = useMemo(() => bindAuthoritativeAccessToken(baseConfig, requireAuthentication), [baseConfig, requireAuthentication]);
+  const config = useMemo(() => authenticatedBaseConfig&&selectedScope?{...authenticatedBaseConfig,entityId:selectedScope.entity_id,periodId:selectedScope.period_id}:authenticatedBaseConfig, [authenticatedBaseConfig, selectedScope]);
 
   // This public, credential-free call is deliberately ahead of OIDC and every
   // accounting reader. A green readiness response alone is not evidence that
@@ -501,7 +532,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       // is re-applied here: an authenticated reload returns to the same page.
       setRouteState(readRetainedRoute(environment));
       retainRoute(environment, readRetainedRoute(environment));
-      setPhase('AUTHENTICATED');
+      authenticationHandlingRef.current = false;
+      setSessionExpired(false); setRenewalFailure(null); setPhase('AUTHENTICATED');
     };
     const restoreOrCompleteIdentity = async () => {
       const bootstrap = await bootstrapAuthoritativeIdentity(oidcClient, () => active);
@@ -562,7 +594,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     try { await oidcClient.startLogin(); }
     catch { setError({ code:'OIDC_CONFIGURATION_REQUIRED', message:'The configured OIDC provider could not start a secure PKCE login.' }); setPhase('IDENTITY_FAILED'); }
   };
-  const logout = () => { accountingReadGuard.current.invalidate(); oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setDocumentDetail(null); setAdjustmentDetail(null); setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}}); setError(null); setRenewalFailure(null); setSessionExpired(false); setPhase('LOGIN_REQUIRED'); };
+  const logout = () => { authenticationHandlingRef.current=false; accountingReadGuard.current.invalidate(); oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setDocumentDetail(null); setAdjustmentDetail(null); setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}}); setError(null); setRenewalFailure(null); setSessionExpired(false); setPhase('LOGIN_REQUIRED'); };
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeChartOfAccounts({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeRows(result.ok?result.rows:[]);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeScope({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeMetadata(result.ok?result.row:null);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};setAccessState({status:'LOADING'});refreshCurrentActorAccess({config,fetcher:boundFetcher}).then(result=>{if(current)setAccessState(result.ok?{status:'READY',row:result.row}:{status:'ERROR',code:result.code,message:result.message});});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
@@ -731,6 +763,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'project-cost-cwip' && <AuthoritativeReportsWorkspace key={`project-cost-cwip-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="PROJECT" workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Project Cost & CWIP" workspaceDescription="Project profitability, CWIP rollforward, construction-loan, prepaid, and budget evidence are read from existing OIDC-authenticated accounting APIs. Cost-code, vendor, and project transaction registers remain unavailable until their own server read contracts exist."/>}
         {phase === 'READY' && route === 'unit-cost-ledger' && <AuthoritativeReportsWorkspace key={`unit-cost-ledger-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="UNIT" workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Unit / Lot profitability" workspaceDescription="Unit and lot profitability reads only exact Unit dimensions retained on same-entity, same-period POSTED ledger lines. Select a canonical Unit reference to load its report, then drill back through the retained evidence. Unit transfer, pricing, and browser-side allocation workflows remain unavailable."/>}
         {phase === 'READY' && route === 'unit-transfer' && <AuthoritativeUnitTransferWorkspace key={`unit-transfer-${workspaceRefreshVersion}`} config={displayConfig} scopes={scopeCatalog} fetcher={boundFetcher}/>}
+        {phase === 'READY' && route === 'cash-transfer' && <AuthoritativeCashTransferWorkspace key={`cash-transfer-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'property-ops-pickup' && <AuthoritativePropertyRentWorkspace key={`property-ops-pickup-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} propertyPnlTitle="Property operating P&amp;L" onBack={()=>setRoute('overview')}/>}
         {phase === 'READY' && route === 'construction-loan' && <AuthoritativeReportsWorkspace key={`construction-loan-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'CASH_AND_CAPITAL',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Construction Loan" workspaceDescription="Construction-loan rollforward evidence is read from the existing OIDC-authenticated accounting API and requires approved mappings plus POSTED ledger evidence. The Loan Register separately adds exact retained loan and lender identity; commitment and draw-management workflows remain unavailable until server contracts exist."/>}
         {phase === 'READY' && route === 'fixed-assets' && <AuthoritativeFixedAssetsWorkspace key={`assets-${displayConfig?.entityId}-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onOpenJournalWorkflow={openAssetJournalWorkflow} accessState={accessState} onRetryAccess={()=>setWorkspaceRefreshVersion(value=>value+1)} onBack={()=>setRoute('overview')}/>}
@@ -747,7 +780,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'mapping' && <AuthoritativeReportMappingsWorkspace key={`report-mappings-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'master-data' && <AuthoritativeMasterDataWorkspace key={`master-data-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'bank-accounts' && <AuthoritativeBankAccountsWorkspace key={`bank-accounts-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onOpenTransactions={openBankTransactionsForAccount} onOpenReconciliation={openReconciliationForAccount}/>}
-        {phase === 'READY' && !['vendors','customers','overview','approvals','payables','receivables','bill-payments','bank-batch-pipeline','bank','reconciliation','rules','checks-payments','recurring-transactions','revenue-recognition','wbs-payable-review','staging','mapping-exceptions','receipts','integration-transactions','ai-audit','ai-je-workbench','accounting-analysis-report','wbs-autorec-evidence','integration-hub','reports','project-cost-cwip','unit-cost-ledger','unit-transfer','property-ops-pickup','construction-loan','loan-register','amortization','fixed-assets','intercompany','consolidation','journals','source-documents','chart-of-accounts','account-inquiry','subsidiary-ledger','general-ledger','accruals','closing-accounting','month-end-close','period-management','audit-log','settings','mapping','master-data','bank-accounts'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
+        {phase === 'READY' && !['vendors','customers','overview','approvals','payables','receivables','bill-payments','bank-batch-pipeline','bank','reconciliation','rules','checks-payments','recurring-transactions','revenue-recognition','wbs-payable-review','staging','mapping-exceptions','receipts','integration-transactions','ai-audit','ai-je-workbench','accounting-analysis-report','wbs-autorec-evidence','integration-hub','reports','project-cost-cwip','unit-cost-ledger','unit-transfer','cash-transfer','property-ops-pickup','construction-loan','loan-register','amortization','fixed-assets','intercompany','consolidation','journals','source-documents','chart-of-accounts','account-inquiry','subsidiary-ledger','general-ledger','accruals','closing-accounting','month-end-close','period-management','audit-log','settings','mapping','master-data','bank-accounts'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
       </main>
     </div>
   </div>;

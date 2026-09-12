@@ -4,6 +4,9 @@ const body={periodId,journalNumber:'DEP-2026-07-001',journalDate:'2026-07-31',ex
 const receipt={schema_version:'FIXED_ASSET_DEPRECIATION_DRAFT_V1',journal_entry_id:randomUUID(),status:'DRAFT',revision:0,idempotent:false,binding_id:randomUUID(),asset_id:assetId,period_id:periodId,expected_amount:'200.0000',register_evidence_hash:hash,schedule_snapshot_hash:hash,source_document_id:randomUUID(),source_document_version:1,source_payload_hash:hash,source_link_id:randomUUID(),acquisition_binding_id:randomUUID(),acquisition_journal_entry_id:randomUUID()};
 const request={method:'POST',url:`/api/v1/entities/${entityId}/fixed-assets/register/${assetId}/depreciations`,headers:{'idempotency-key':'asset-depreciation-http-001'},body};
 const setup=(action=async()=>receipt)=>{const calls=[];return {calls,api:createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async principal=>({createFixedAssetDepreciation:async args=>{calls.push({principal,args});return action(args);}})})};};
+test('depreciation HTTP accepts a receipt chained to an initial version-zero acquisition source',async()=>{
+ const {api}=setup(async()=>({...receipt,source_document_version:0}));assert.equal((await api(request)).status,201);
+});
 test('depreciation HTTP passes only authenticated scope and retained hashes to the native Draft command',async()=>{
  const {api,calls}=setup(async()=>({...receipt,idempotent:calls.length>1}));const first=await api({...request,url:request.url.replace(assetId,assetId.toUpperCase())}),replay=await api(request);
  assert.equal(first.status,201);assert.equal(replay.status,200);assert.equal(first.headers.etag,'"0"');assert.deepEqual(calls[0].args,{...body,tenantId,entityId,assetId,idempotencyKey:request.headers['idempotency-key']});assert.equal(calls[0].principal.actorId,'maker');assert.equal(replay.body.data.journal_entry_id,first.body.data.journal_entry_id);

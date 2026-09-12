@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { safeOutboxPayload } from '../runtime/outbox-wire-contract.mjs';
+import { safeAiEvidenceTree } from '../runtime/ai-secret-safety.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA = /^sha256:[0-9a-f]{64}$/;
@@ -14,7 +15,10 @@ export function validateEvent(event, { tenantId, entityId }, headers) {
   if (!SHA.test(event.payload_hash) || !event.payload || typeof event.payload !== 'object' || Array.isArray(event.payload) || !Number.isSafeInteger(event.attempt_count) || event.attempt_count < 1) throw failure('OUTBOX_EVENT_INVALID');
   if (typeof event.created_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(event.created_at) || !Number.isFinite(Date.parse(event.created_at)) || new Date(event.created_at).toISOString() !== event.created_at) throw failure('OUTBOX_EVENT_INVALID');
   if (headers['idempotency-key'] !== event.outbox_event_id || headers['x-refs-payload-hash'] !== event.payload_hash) throw failure('OUTBOX_HEADER_MISMATCH');
-  if (!safeOutboxPayload(event)) throw failure('OUTBOX_SECRET_DENIED');
+  // The producer seals this same bounded evidence grammar before dispatch.
+  // Enforce it again at the consumer boundary so a direct caller cannot
+  // turn the durable webhook store into an oversized payload archive.
+  if (!safeOutboxPayload(event) || !safeAiEvidenceTree(event.payload)) throw failure('OUTBOX_SECRET_DENIED');
   return event;
 }
 export function readConfig(env) {

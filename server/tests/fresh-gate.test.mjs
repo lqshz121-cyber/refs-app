@@ -12,6 +12,9 @@ test('fresh PostgreSQL gate owns a unique test-only compose project and cleanup 
   assert.match(source,/\['compose','-p',project,'-f','compose\.yaml','up','-d','--wait'\]/);
   assert.match(source,/waitForPostgresReadiness\(\{probe:\(\)=>probePostgres\(testEnv\.MIGRATION_DATABASE_URL\)\}\)/);
   assert.match(source,/applicationName:'refs-fresh-gate-readiness'/);
+  assert.match(source,/docker',\['info','--format','\{\{\.ServerVersion\}\}'\]/);
+  assert.match(source,/Fresh PostgreSQL gate requires a running Docker Linux daemon before it can create its isolated database/);
+  assert.match(source,/if\(dockerAvailable\)await run\('docker',\['compose','-p',project,'-f','compose\.yaml','down','-v','--remove-orphans'\]/);
   assert.match(source,/\['compose','-p',project,'-f','compose\.yaml','down','-v','--remove-orphans'\]/);
   assert.doesNotMatch(source,/docker\s+(volume|system)\s+(prune|rm)/i);
 });
@@ -23,6 +26,8 @@ test('fresh PostgreSQL gate requires all isolated runtime identities and the req
   assert.match(source,/REFS_PG_TEST_TIMEOUT_MS must be an integer between 1000 and 900000 milliseconds/);
   assert.match(source,/postgresTestArgs\.push\(`--test-timeout=\$\{postgresTestTimeoutMs\}`\)/);
   assert.match(source,/postgresTestArgs\.push\('tests\/postgres-kernel\.test\.mjs'\)/);
+  assert.match(source,/\['tests\/postgres-kernel\.test\.mjs','tests\/accounting-settings-workflow-postgres\.test\.mjs'\]/);
+  assert.match(source,/for\(const testFile[^]*await runPostgresTestFile\(testFile\)/);
   assert.match(source,/process\.execPath,postgresTestArgs/);
   assert.match(source,/shell:process\.platform==='win32'&&command==='docker'/);
   assert.match(source,/verifyFreshPostgresTap\(tap,\{expectedPatternPassCount\}\)/);

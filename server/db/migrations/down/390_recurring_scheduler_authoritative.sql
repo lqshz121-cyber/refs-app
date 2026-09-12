@@ -1,0 +1,26 @@
+BEGIN;
+LOCK TABLE recurring_schedule,recurring_schedule_history,recurring_schedule_run,recurring_schedule_exception IN ACCESS EXCLUSIVE MODE;
+DO $$ BEGIN
+ IF EXISTS(SELECT 1 FROM recurring_schedule) OR EXISTS(SELECT 1 FROM recurring_schedule_run) OR EXISTS(SELECT 1 FROM recurring_schedule_exception) THEN RAISE EXCEPTION '390 recurring scheduler rollback denied while authoritative evidence exists' USING ERRCODE='55000'; END IF;
+END $$;
+DROP FUNCTION IF EXISTS refs_read_recurring_schedule(uuid,uuid,uuid);
+DROP FUNCTION IF EXISTS refs_run_due_recurring_schedules(uuid,uuid,date,integer,text,text);
+DROP FUNCTION IF EXISTS refs_transition_recurring_schedule(uuid,uuid,uuid,text,bigint,text,text,text);
+DROP FUNCTION IF EXISTS refs_create_recurring_schedule(uuid,uuid,text,text,text,text,date,date,jsonb,text,text,text);
+DROP FUNCTION IF EXISTS refs_validate_recurring_schedule_lines(uuid,uuid,jsonb);
+DROP FUNCTION IF EXISTS refs_recurring_schedule_payload(uuid,uuid,uuid);
+DROP FUNCTION IF EXISTS refs_recurring_schedule_run_hash(uuid,uuid,date,integer);
+DROP FUNCTION IF EXISTS refs_recurring_schedule_transition_hash(uuid,uuid,uuid,text,bigint,text);
+DROP FUNCTION IF EXISTS refs_recurring_schedule_create_hash(uuid,uuid,text,text,text,text,date,date,jsonb,text);
+DROP FUNCTION IF EXISTS refs_recurring_schedule_next_due(date,text);
+DROP FUNCTION IF EXISTS refs_guard_recurring_schedule_run();
+DROP FUNCTION IF EXISTS refs_guard_recurring_schedule();
+DROP TABLE recurring_schedule_run_gate;
+DROP TABLE recurring_schedule_gate;
+DROP TABLE recurring_schedule_exception;
+DROP TABLE recurring_schedule_run;
+DROP TABLE recurring_schedule_history;
+DROP TABLE recurring_schedule;
+DELETE FROM runtime_human_permission_authority WHERE permission_code LIKE 'RECURRING.SCHEDULE.%';
+UPDATE permission_catalog SET active=false,effective_to=clock_timestamp(),version=version+1 WHERE permission_code LIKE 'RECURRING.SCHEDULE.%' AND active;
+COMMIT;

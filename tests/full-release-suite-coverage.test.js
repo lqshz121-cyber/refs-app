@@ -115,6 +115,39 @@ test('root full test cannot omit authoritative Insurance, Property, dark-mode, a
   ])assert.match(full,new RegExp(`npm run ${script.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}(?: &&|$)`),`root test omits ${script}`);
 });
 
+test('root and server release suites include the accounting settings workflow gates',()=>{
+  assert.match(packageJson.scripts?.test||'',/npm run test:accounting-settings-workflow(?: &&|$)/);
+  const rootWorkflow=packageJson.scripts?.['test:accounting-settings-workflow']||'';
+  assert.match(rootWorkflow,/accounting-settings-workflow-api-client\.test\.js/);
+  assert.match(rootWorkflow,/authoritative-accounting-settings-workspace\.test\.jsx/);
+  assert.match(serverPackageJson.scripts?.posttest||'',/npm run test:accounting-settings-workflow(?: &&|$)/);
+  const serverWorkflow=serverPackageJson.scripts?.['test:accounting-settings-workflow']||'';
+  for(const source of [
+    'accounting-settings-workflow-contract.test.mjs',
+    'accounting-settings-workflow-http.test.mjs',
+    'accounting-settings-workflow-kernel-wiring.test.mjs',
+    'accounting-settings-workflow-migration-contract.test.mjs',
+    'accounting-settings-workflow-openapi.test.mjs',
+  ])assert.match(serverWorkflow,new RegExp(source.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+});
+
+test('root release suite includes the authoritative Cash Transfer stack',()=>{
+  assert.match(packageJson.scripts?.pretest||'',/npm run test:cash-transfer(?: &&|$)/);
+  const cash=packageJson.scripts?.['test:cash-transfer']||'';
+  for(const source of [
+    'cash-transfer-contract.test.mjs',
+    'cash-transfer-migration-contract.test.mjs',
+    'cash-transfer-read-surfaces-contract.test.mjs',
+    'cash-transfer-public-create-contract.test.mjs',
+    'cash-transfer-attachment-candidates-pagination-contract.test.mjs',
+    'cash-transfer-kernel-wiring.test.mjs',
+    'cash-transfer-http.test.mjs',
+    'cash-transfer-openapi-contract.test.mjs',
+    'cash-transfer-api-client.test.js',
+    'authoritative-cash-transfer-workspace.test.jsx',
+  ])assert.match(cash,new RegExp(source.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+});
+
 test('Insurance and Property suites exercise both workspace and authoritative API client contracts',()=>{
   assert.match(packageJson.scripts?.['test:authoritative-amortization']||'',/authoritative-amortization-workspace\.test/);
   assert.match(packageJson.scripts?.['test:authoritative-amortization']||'',/insurance-amortization-authoritative-client\.test/);

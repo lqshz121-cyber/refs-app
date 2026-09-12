@@ -19,7 +19,7 @@ function simulatedPool(failures,{phase='ISSUE'}={}){
 test('context issuance retries statement and commit conflicts with one principal and token identity',async()=>{
   for(const [readOnly,code,phase] of [[false,'40001','COMMIT'],[true,'40P01','ISSUE']]){
     const {pool,state}=simulatedPool([code],{phase});let principals=0;
-    const issuer=new PostgresContextIssuer(pool,{principalProvider:async()=>{principals++;return {trusted:true,actorId:'fixture-actor'};}});
+    const issuer=new PostgresContextIssuer(pool,{principalProvider:async()=>{principals++;return {trusted:true,tenantId:'fixture-tenant',actorId:'fixture-actor'};}});
     const result=await issuer.issue({tenantId:'fixture-tenant',readOnly});
     assert.equal(result.trusted,true);assert.equal(result.expiresAt,'2026-09-08T10:00:00Z');
     assert.equal(principals,1);assert.equal(state.attempts,2);assert.equal(state.released,2);assert.equal(state.rollbacks,1);
@@ -29,15 +29,29 @@ test('context issuance retries statement and commit conflicts with one principal
 
 test('context issuance stops after the expanded bounded serialization retry limit',async()=>{
   const {pool,state}=simulatedPool(Array(8).fill('40001'));
-  const issuer=new PostgresContextIssuer(pool,{principalProvider:async()=>({trusted:true,actorId:'fixture-actor'})});
+  const issuer=new PostgresContextIssuer(pool,{principalProvider:async()=>({trusted:true,tenantId:'fixture-tenant',actorId:'fixture-actor'})});
   await assert.rejects(issuer.issue({tenantId:'fixture-tenant'}),error=>error.code==='40001');
   assert.equal(state.attempts,8);assert.equal(state.released,8);assert.equal(state.rollbacks,8);assert.equal(new Set(state.hashes).size,1);
 });
 
 test('context issuance does not retry authorization denials or accept an untrusted principal',async()=>{
   const {pool,state}=simulatedPool(['42501']);
-  const issuer=new PostgresContextIssuer(pool,{principalProvider:async()=>({trusted:true,actorId:'fixture-actor'})});
+  const issuer=new PostgresContextIssuer(pool,{principalProvider:async()=>({trusted:true,tenantId:'fixture-tenant',actorId:'fixture-actor'})});
   await assert.rejects(issuer.issue({tenantId:'fixture-tenant'}),error=>error.code==='42501');assert.equal(state.attempts,1);
-  const denied=new PostgresContextIssuer(pool,{principalProvider:async()=>({trusted:false,actorId:'fixture-actor'})});
+  const denied=new PostgresContextIssuer(pool,{principalProvider:async()=>({trusted:false,tenantId:'fixture-tenant',actorId:'fixture-actor'})});
   await assert.rejects(denied.issue({tenantId:'fixture-tenant'}),error=>error.code==='AUTHENTICATED_PRINCIPAL_REQUIRED');assert.equal(state.attempts,1);
+});
+
+test('context issuance binds an authenticated tenant before a database capability is requested',async()=>{
+  const {pool,state}=simulatedPool([]);
+  const issuer=new PostgresContextIssuer(pool,{principalProvider:async()=>({trusted:true,tenantId:'tenant-a',actorId:'fixture-actor'})});
+  await assert.rejects(issuer.issue({tenantId:'tenant-b'}),error=>error.code==='TENANT_CONTEXT_MISMATCH');
+  assert.equal(state.attempts,0);
+});
+
+test('context issuance rejects a trusted-looking principal that has no tenant claim',async()=>{
+  const {pool,state}=simulatedPool([]);
+  const issuer=new PostgresContextIssuer(pool,{principalProvider:async()=>({trusted:true,actorId:'fixture-actor'})});
+  await assert.rejects(issuer.issue({tenantId:'fixture-tenant'}),error=>error.code==='AUTHENTICATED_PRINCIPAL_REQUIRED');
+  assert.equal(state.attempts,0);
 });

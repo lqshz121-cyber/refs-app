@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {payloadHash,serializeOutboxEvent} from '../runtime/outbox-wire-contract.mjs';
 import {secretPayloads} from './helpers/outbox-secret-cases.mjs';
-import {HttpOutboxPublisher,OutboxDispatchService,validateClaimedOutboxEvent} from '../runtime/outbox-dispatcher.mjs';
+import {HttpOutboxPublisher,OutboxDispatchService,validateClaimedOutboxEvent,validateOutboxCompletion} from '../runtime/outbox-dispatcher.mjs';
 import {OutboxDispatchWorker,outboxDispatchHealthResponse} from '../runtime/outbox-dispatch-worker.mjs';
 import {outboxDispatchConfig} from '../runtime/start-outbox-dispatch-worker.mjs';
 import {OutboxDispatchPreflight,validateOutboxDispatchScopes} from '../runtime/outbox-dispatch-preflight.mjs';
@@ -33,6 +33,18 @@ test('claimed event contract is closed, exact-scope, and never accepts a publish
   assert.throws(()=>validateClaimedOutboxEvent(row({payload:{access_token:'Bearer abcdefghijklmnop'}}),{tenantId}),error=>error.code==='OUTBOX_EVENT_SECRET_DENIED');
   assert.throws(()=>validateClaimedOutboxEvent(row({tenant_id:entityId}),{tenantId}),error=>error.code==='OUTBOX_EVENT_SCOPE_INVALID');
   assert.throws(()=>validateClaimedOutboxEvent(row({status:'PUBLISHED',published_at:new Date()}),{tenantId}),error=>error.code==='OUTBOX_EVENT_STATE_INVALID');
+});
+
+test('completion receipt is closed, binds the claimed event and preserves the retry state machine',()=>{
+  assert.deepEqual(validateOutboxCompletion(completion('PENDING'),{eventId,attemptCount:1}),completion('PENDING'));
+  for(const invalid of [
+    {...completion(),outbox_event_id:aggregateId},
+    {...completion(),attempt_count:2},
+    {...completion('PUBLISHED'),retry_scheduled:true},
+    {...completion('FAILED'),retry_scheduled:true},
+    {...completion(),available_at:'2026-02-30T00:00:00.000Z'},
+    {...completion(),extra:true},
+  ])assert.throws(()=>validateOutboxCompletion(invalid,{eventId,attemptCount:1}),error=>error.code==='OUTBOX_COMPLETION_CONTRACT_INVALID');
 });
 
 test('HTTP publisher sends one idempotent closed envelope and requires an exact no-store receipt',async()=>{
@@ -96,6 +108,12 @@ test('malformed claimed payload is terminally sealed and never reaches the publi
 test('service publishes, then seals the exact claim without exposing payload in results',async()=>{
   const calls=[],kernel={claimOutboxV3:async args=>{calls.push(['claim',args]);return [row()];},completeOutboxV2:async args=>{calls.push(['complete',args]);return completion();}},service=new OutboxDispatchService({kernelFactory:async()=>kernel,publisher:{publish:async()=>({accepted:true})}}),result=await service.runOnce({trusted:true,actorId:'outbox-service'},{tenantId,scopes:[{entityId,grantSetVersion:4}],limit:10});
   assert.equal(result[0].status,'PUBLISHED');assert.equal(calls[0][1].leaseSeconds,300);assert.deepEqual(calls[1][1],{tenantId,eventId,success:true,maxAttempts:8,retryBaseSeconds:5});assert.equal(JSON.stringify(result).includes('journal_entry_id'),false);
+});
+
+test('service rejects an invalid completion receipt instead of reporting a false delivery result',async()=>{
+  const kernel={claimOutboxV3:async()=>[row()],completeOutboxV2:async()=>({...completion(),retry_scheduled:true})};
+  const service=new OutboxDispatchService({kernelFactory:async()=>kernel,publisher:{publish:async()=>({accepted:true})}});
+  await assert.rejects(service.runOnce({trusted:true,actorId:'outbox-service'},{tenantId,scopes:[{entityId,grantSetVersion:4}]}),error=>error.code==='OUTBOX_COMPLETION_CONTRACT_INVALID');
 });
 
 test('retryable transport failure schedules retry while terminal receipt failure dead-letters',async()=>{

@@ -39,6 +39,28 @@ test('additional formal roles retain one native operation and reject mislabeled 
   }
 });
 
+test('accounting settings roles can read evidence and retain exactly one lifecycle authority',()=>{
+  const stages={
+    ACCOUNTING_SETTINGS_WORKFLOW_MAKER:['DRAFT','ACCOUNTING.SETTINGS.WORKFLOW.CREATE'],
+    ACCOUNTING_SETTINGS_WORKFLOW_SUBMITTER:['SUBMIT','ACCOUNTING.SETTINGS.WORKFLOW.SUBMIT'],
+    ACCOUNTING_SETTINGS_WORKFLOW_REVIEWER:['REVIEW','ACCOUNTING.SETTINGS.WORKFLOW.REVIEW'],
+    ACCOUNTING_SETTINGS_WORKFLOW_APPROVER:['APPROVE','ACCOUNTING.SETTINGS.WORKFLOW.APPROVE'],
+    ACCOUNTING_SETTINGS_WORKFLOW_ACTIVATOR:['POST','ACCOUNTING.SETTINGS.WORKFLOW.ACTIVATE'],
+  };
+  for(const [name,[authorityClass,permission]] of Object.entries(stages)){
+    const definition=AUTHORITATIVE_WORKFLOW_ROLES[name];
+    assert.equal(definition.authorityClass,authorityClass,name);
+    assert.equal(definition.permissions.includes('ACCOUNTING.SETTINGS.WORKFLOW.VIEW'),true,name);
+    assert.equal(definition.permissions.includes(permission),true,name);
+    assert.deepEqual(definition.permissions.filter(value=>value.startsWith('ACCOUNTING.SETTINGS.WORKFLOW.')&&value!=='ACCOUNTING.SETTINGS.WORKFLOW.VIEW'),[permission],name);
+    assert.equal(assertWorkflowRoleSafety(definition),definition,name);
+  }
+  const viewer=AUTHORITATIVE_WORKFLOW_ROLES.ACCOUNTING_SETTINGS_WORKFLOW_VIEWER;
+  assert.equal(viewer.authorityClass,'READ');
+  assert.equal(viewer.permissions.includes('ACCOUNTING.SETTINGS.WORKFLOW.VIEW'),true);
+  assert.equal(viewer.permissions.some(value=>value.startsWith('ACCOUNTING.SETTINGS.WORKFLOW.')&&value!=='ACCOUNTING.SETTINGS.WORKFLOW.VIEW'),false);
+});
+
 test('formal credit entry roles satisfy the actual browser access predicate',async()=>{
   const {nativeCreditAdjustmentAccess}=await import('../../src/native-credit-adjustment-entry.js');
   for(const [name,kind] of [['AP_VENDOR_CREDIT_ENTRY_MAKER','AP_VENDOR_CREDIT'],['AR_CREDIT_MEMO_ENTRY_MAKER','AR_CREDIT_MEMO']]){
@@ -137,6 +159,14 @@ test('production ceremony requires exact deployment identity and retains four UR
   let authCalls=0,writes=0;
   await assert.rejects(grantProductionWorkflowRole({query:async(sql,args)=>{assert.match(sql,/refs_assert_deployment_identity/);assert.deepEqual(args,[config.installationId,'production',config.expectedDatabase]);throw Object.assign(new Error('denied'),{code:'42501'});},connect:async()=>{writes++;} },config,{authenticator:{authenticate:async()=>{authCalls++;}}}),{code:'42501'});
   assert.equal(authCalls,0);assert.equal(writes,0);
+});
+
+test('production outbox service ceremony rejects every human authentication credential',()=>{
+  const urls=runtimeConfig({});
+  const serviceEnv={...base,REFS_DEPLOYMENT_ENV:'production',REFS_WORKFLOW_ROLE_CONFIRM:'PRODUCTION_WORKFLOW_ROLE_ONLY',REFS_EXPECTED_INSTALLATION_ID:'33333333-3333-4333-8333-333333333333',REFS_EXPECTED_DATABASE_NAME:'refs_kernel_test',DATABASE_URL:urls.databaseUrl,MIGRATION_DATABASE_URL:urls.migrationDatabaseUrl,CONTEXT_ISSUER_DATABASE_URL:urls.contextIssuerDatabaseUrl,GRANT_SYNC_DATABASE_URL:urls.grantSyncDatabaseUrl,REFS_WORKFLOW_ROLE:'OUTBOX_DISPATCHER_SERVICE',OUTBOX_DISPATCH_ACTOR_ID:'service|refs-outbox-dispatch',REFS_AUTHENTICATED_ACCESS_TOKEN:undefined,OIDC_ISSUER:undefined,OIDC_AUDIENCE:undefined,OIDC_JWKS_URI:undefined};
+  const config=productionWorkflowRoleGrantConfig(serviceEnv);
+  assert.equal(config.role,'OUTBOX_DISPATCHER_SERVICE');assert.equal(config.serviceActorId,'service|refs-outbox-dispatch');assert.equal(config.principalKind,'SERVICE');
+  for(const key of ['REFS_AUTHENTICATED_ACCESS_TOKEN','OIDC_ISSUER','OIDC_AUDIENCE','OIDC_JWKS_URI'])assert.throws(()=>productionWorkflowRoleGrantConfig({...serviceEnv,[key]:'human-credential'}),error=>error.code==='WORKFLOW_ROLE_CONFIG_INVALID'&&error.message==='OUTBOX_DISPATCHER_SERVICE cannot use human authentication credentials',key);
 });
 
 test('workflow roles are frozen single-authority exact replacements and exclude service permissions',()=>{

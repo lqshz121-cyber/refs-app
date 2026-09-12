@@ -9,6 +9,7 @@ export function productionWorkflowRoleGrantConfig(env=process.env){
   const expectedDatabase=String(env.REFS_EXPECTED_DATABASE_NAME||'');
   if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(installationId)||!expectedDatabase||expectedDatabase!==databaseName(databases.grantSyncDatabaseUrl))throw new KernelError('DEPLOYMENT_IDENTITY_CONFIG_INVALID','Exact expected installation and database required');
   const role=workflowRolePolicyConfig(env);
+  if(role.role==='OUTBOX_DISPATCHER_SERVICE'&&['REFS_AUTHENTICATED_ACCESS_TOKEN','OIDC_ISSUER','OIDC_AUDIENCE','OIDC_JWKS_URI'].some(key=>String(env[key]??'').trim()))throw new KernelError('WORKFLOW_ROLE_CONFIG_INVALID','OUTBOX_DISPATCHER_SERVICE cannot use human authentication credentials');
   return Object.freeze({...role,installationId,expectedDatabase,grantSyncDatabaseUrl:databases.grantSyncDatabaseUrl});
 }
 

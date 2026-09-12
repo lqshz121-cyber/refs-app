@@ -22,7 +22,7 @@ export function AuthoritativeAssetAcquisition({config,assetId,fetcher=globalThis
   finally{pending.current=false;if(token===generation.current)setSaving(false);}
  };
  const options=state.phase==='READY'?state.data:null;
- const blocking=options?(options.acquisition_posted?'This asset acquisition has already been posted.':options.disposal_recorded?'This asset has a disposal record.':!options.original_evidence?'The original invoice evidence must be retained before recording this acquisition.':options.period.status!=='OPEN'?'The source accounting period is not open.':options.source.source_document_version<1?'Refresh the source document before recording this acquisition.':attachmentMessages[options.attachment_status]||null):null;
+ const blocking=options?(options.acquisition_posted?'This asset acquisition has already been posted.':options.disposal_recorded?'This asset has a disposal record.':!options.original_evidence?'The original invoice evidence must be retained before recording this acquisition.':options.period.status!=='OPEN'?'The source accounting period is not open.':options.source.source_document_version<0?'Refresh the source document before recording this acquisition.':attachmentMessages[options.attachment_status]||null):null;
  return <section aria-label="Asset acquisition">
   <button type="button" className="btn" ref={launch} onClick={()=>{if(saved)setOpen(true);else void load();}} disabled={open}>Record acquisition</button>
   {open?<div className="report-workbench"><div className="report-workbench-head"><h3 ref={heading} tabIndex={-1}>Record acquisition</h3><button type="button" className="btn" onClick={close} disabled={saving}>Close acquisition</button></div>

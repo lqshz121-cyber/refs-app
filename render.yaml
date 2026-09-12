@@ -233,6 +233,14 @@ services:
       # never enter the static build; the browser obtains a PKCE access token.
       - key: REFS_PUBLIC_ACCOUNTING_API_BASE_URL
         sync: false
+      # Cash Transfer requires verified-clean attachments. Keep this disabled while
+      # this static client targets the Stage 1 API (REFS_ATTACHMENT_MODE=DISABLED).
+      # Enable only with REQUIRED after switching the one public API origin to the
+      # accepted integrations API in the same static release.
+      - key: REFS_PUBLIC_CASH_TRANSFER_UI_MODE
+        value: DISABLED
+      - key: REFS_PUBLIC_ACCOUNTING_API_ATTACHMENT_MODE
+        value: DISABLED
       - key: REFS_WBS_TEST_IMPORT_MODE
         value: ENABLED
       - key: REFS_DEPLOYMENT_ENV

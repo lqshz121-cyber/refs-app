@@ -16,9 +16,12 @@ test('acquisition HTTP passes authenticated scope to native command and returns 
  assert.deepEqual(calls[0].args,{...body,tenantId,entityId,assetId,idempotencyKey:request.headers['idempotency-key']});assert.equal(calls[0].principal.actorId,'maker');
  assert.equal(calls[1].args.assetId,assetId);assert.equal(first.body.data.status,'DRAFT');assert.equal(replay.body.data.journal_entry_id,first.body.data.journal_entry_id);
 });
+test('acquisition HTTP accepts the source document initial version zero',async()=>{
+ const zeroBody={...body,expectedSourceVersion:0},zeroReceipt={...receipt,source_document_version:0};const {api,calls}=setup(async()=>zeroReceipt);const response=await api({...request,body:zeroBody});assert.equal(response.status,201);assert.equal(calls[0].args.expectedSourceVersion,0);assert.equal(response.body.data.source_document_version,0);
+});
 test('acquisition HTTP rejects injected authority, amounts, stale-format versions and malformed commands before persistence',async()=>{
  const {api,calls}=setup();
- const invalidBodies=[...['tenantId','entityId','actorId','requestHash','lines','amount'].map(key=>({...body,[key]:'injected'})),...['1',0,-1,1.5,Number.MAX_SAFE_INTEGER+1].map(expectedSourceVersion=>({...body,expectedSourceVersion})),{...body,journalDate:'2026-02-30'},{...body,journalNumber:' padded '},{...body,attachmentIds:[]},{...body,attachmentIds:[body.attachmentIds[0],body.attachmentIds[0].toUpperCase()]},{...body,reason:'short'}];
+ const invalidBodies=[...['tenantId','entityId','actorId','requestHash','lines','amount'].map(key=>({...body,[key]:'injected'})),...['1',-1,1.5,Number.MAX_SAFE_INTEGER+1].map(expectedSourceVersion=>({...body,expectedSourceVersion})),{...body,journalDate:'2026-02-30'},{...body,journalNumber:' padded '},{...body,attachmentIds:[]},{...body,attachmentIds:[body.attachmentIds[0],body.attachmentIds[0].toUpperCase()]},{...body,reason:'short'}];
  for(const invalid of invalidBodies)assert.equal((await api({...request,body:invalid})).status,400,JSON.stringify(invalid));
  assert.equal((await api({...request,headers:{}})).status,400);
  assert.equal((await api({...request,headers:{...request.headers,'if-match':'"1"'}})).status,400);

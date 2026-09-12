@@ -4,13 +4,15 @@ import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTE
 
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the formal navigation must retain the full product taxonomy');
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'every formal route needs a stable unique identity');
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['vendors','customers','account-inquiry','accounting-analysis-report','accruals','ai-audit','ai-je-workbench','amortization','audit-log','bank','bank-accounts','bank-batch-pipeline','bill-payments','chart-of-accounts','checks-payments','consolidation','construction-loan','fixed-assets','general-ledger','integration-hub','integration-transactions','intercompany','journals','loan-register','mapping','overview','payables','period-management','project-cost-cwip','property-ops-pickup','receivables','receipts','reconciliation','recurring-transactions','revenue-recognition','reports','rules','settings','source-documents','staging','mapping-exceptions','subsidiary-ledger','unit-cost-ledger','wbs-autorec-evidence','wbs-payable-review'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['vendors','customers','account-inquiry','accounting-analysis-report','accruals','ai-audit','ai-je-workbench','amortization','audit-log','bank','bank-accounts','bank-batch-pipeline','bill-payments','chart-of-accounts','checks-payments','consolidation','construction-loan','fixed-assets','general-ledger','integration-hub','integration-transactions','intercompany','journals','loan-register','mapping','overview','payables','period-management','project-cost-cwip','property-ops-pickup','receivables','receipts','reconciliation','recurring-transactions','revenue-recognition','reports','rules','source-documents','staging','mapping-exceptions','subsidiary-ledger','unit-cost-ledger','wbs-autorec-evidence','wbs-payable-review'].sort());
 for (const group of AUTHORITATIVE_NAVIGATION) {
   assert.ok(group.items.length > 0, `${group.label} may not be empty`);
   for (const item of group.items) assert.ok(AUTHORITATIVE_ROUTES.includes(item.route));
 }
 assert.equal(navigationItemForRoute('project-cost-cwip').availability, 'API_READ');
 assert.equal(navigationItemForRoute('unit-cost-ledger').availability, 'API_READ');
+assert.equal(navigationItemForRoute('cash-transfer').availability, 'API_COMMAND');
+assert.match(navigationItemForRoute('cash-transfer').requirements.join(' '), /bank-to-cash-GL controls/);
 assert.equal(navigationItemForRoute('property-ops-pickup').availability, 'API_READ');
 assert.equal(navigationItemForRoute('construction-loan').availability, 'API_READ');
 assert.equal(navigationItemForRoute('loan-register').availability, 'API_READ');
@@ -30,7 +32,7 @@ assert.equal(navigationItemForRoute('accounting-analysis-report').availability, 
 assert.equal(navigationItemForRoute('audit-log').availability, 'API_READ');
 assert.equal(navigationItemForRoute('mapping').availability, 'API_READ');
 assert.equal(navigationItemForRoute('period-management').availability, 'API_READ');
-assert.equal(navigationItemForRoute('settings').availability, 'API_READ');
+assert.equal(navigationItemForRoute('settings').availability, 'API_COMMAND');
 assert.equal(navigationItemForRoute('receipts').availability, 'API_READ');
 assert.equal(navigationItemForRoute('integration-transactions').availability, 'API_READ');
 assert.equal(navigationItemForRoute('rules').availability, 'API_READ');
