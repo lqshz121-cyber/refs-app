@@ -93,7 +93,7 @@ covers the statement totals, but not line-level drill, dimensions or the registe
 
 | Module | Recorded reason | Verdict | Exact blocker |
 | --- | --- | --- | --- |
-| `src/app.jsx` | Legacy `LOCAL_MOCK` root; last to go | **Correct, and out of scope for this phase** (owned by another agent) | Additionally blocked by the line-level journal read gap above |
+| `src/app.jsx` | Legacy `LOCAL_MOCK` root; last to go | **Correct, and out of scope for this phase** (owned by another agent) | The list read remains summary-only. Exact Journal detail is now available, but the legacy root still requires dedicated authoritative reads for every business workspace before it can be removed. |
 | `src/module-sourcedocs.jsx` | No source-document read | **Correct** | No `GET .../source-documents`; no attachment read either — `POST /attachments/reservations` and `POST /attachments/{attachmentId}/finalize` are the only attachment paths and both are writes |
 | `src/module-unitcost.jsx` | Blocked on the same source-document read | **Correct, and understated** | Blocked twice: the source-document read, *and* the line-level journal read — unit cost is accumulated from `unit_code` and `account_code` on ledger lines |
 | `src/modules-core.jsx` | Reads `PM_ROWS, CLOSINGS, LOAN_TXNS, IC_TXNS, UNIT_OWNERS, SOURCE_DOCS` | **Correct on the blockage, wrong on the inventory** | `LOAN_TXNS` and `IC_TXNS` were imported and never used. Removed. Real blockers: no property-management pickup read, no unit-ownership read, no closing-statement read, no source-document read |

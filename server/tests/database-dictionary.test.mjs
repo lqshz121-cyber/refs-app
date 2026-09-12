@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
-import {readDatabaseDictionary,renderDatabaseDictionaryMarkdown} from '../runtime/database-dictionary.mjs';
+import {readDatabaseDictionary,renderDatabaseDictionaryMarkdown,safeDatabaseDictionaryText} from '../runtime/database-dictionary.mjs';
 import {databaseDictionaryOptions,exportDatabaseDictionary,safeDatabaseDictionaryErrorCode} from '../runtime/export-database-dictionary.mjs';
 
 function pool({mismatch=false}={}){
@@ -48,6 +48,23 @@ test('database dictionary fails closed when migration history differs',async()=>
   await assert.rejects(readDatabaseDictionary({pool:target}),{code:'DATABASE_DICTIONARY_MIGRATION_MISMATCH'});
   assert.ok(target.queries.some(({sql})=>sql==='ROLLBACK'));
   assert.equal(target.queries.at(-1).sql,'RELEASE');
+});
+
+test('database dictionary redacts connection URLs, bearer credentials, private keys, and assignment-style credentials in every text field',()=>{
+  const samples=[
+    'postgresql://reader:very-secret@db.example/refs',
+    'postgres://reader:very-secret@db.example/refs',
+    'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.signature',
+    '-----BEGIN PRIVATE KEY-----\nvery-secret-key',
+    'password=very-secret',
+    'api_key: very-secret',
+    'token=very-secret'
+  ];
+  for(const value of samples){
+    const safe=safeDatabaseDictionaryText(value);
+    assert.doesNotMatch(safe,/very-secret|eyJhbGci|BEGIN PRIVATE KEY|postgres(?:ql)?:\/\//i);
+    assert.match(safe,/\[REDACTED\]/);
+  }
 });
 
 test('dictionary CLI requires a distinct dedicated reader and emits only safe evidence',async()=>{

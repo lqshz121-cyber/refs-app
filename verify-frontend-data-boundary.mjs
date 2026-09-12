@@ -67,11 +67,11 @@ const SEED_ALLOWLIST = {
       'tasks, bank transactions, FY2026 opening balances) that every legacy workspace reads. ' +
       'The production root has already stopped mounting it. This entry remains countable ' +
       'only while later roadmap phases migrate or delete the frozen prototype modules. ' +
-      'The blocking API gap underneath every other entry lives here: ' +
-      'GET /entities/{entityId}/journal-entries returns JournalEntryReadRow, which carries ' +
-      'ledger_line_count but no ledger lines - no account_code, no debit/credit, no ' +
-      'property/project/loan/unit dimension and no source_doc_id. Every legacy workspace ' +
-      'reads ctx.jes line by line, so none of them can be rebuilt on that read as specified. ' +
+      'The list endpoint is intentionally summary-only. Exact line evidence is now available ' +
+      'through GET /entities/{entityId}/journal-entries/{journalEntryId}, which carries ' +
+      'account_code, debit/credit, dimensions, source-document IDs and Posted ledger linkage. ' +
+      'Migration work must use that exact detail read after selecting a Journal Entry; it must ' +
+      'not treat the paginated list response as line-level accounting evidence. ' +
       'BANK_TXNS is imported but unused here; drop it from the import and from this list.',
   },
   'src/module-sourcedocs.jsx': {
@@ -91,10 +91,11 @@ const SEED_ALLOWLIST = {
     reason:
       'Unit Cost Ledger. Blocked twice over. (1) Same missing source-document read as ' +
       'module-sourcedocs.jsx: it resolves a journal source_doc_id to a document number. ' +
-      '(2) Unit cost is accumulated from ledger lines by account_code and unit_code, and ' +
-      'GET /entities/{entityId}/journal-entries returns no lines and no dimensions, so even ' +
-      'the cost columns have no authoritative source. A line-level journal read is required ' +
-      'before this page can move.',
+      '(2) Unit cost needs a bounded, queryable unit-cost/ledger projection. The exact Journal ' +
+      'detail read now exposes account_code and dimensions for one known Journal Entry, but a ' +
+      'paginated Journal list cannot safely enumerate every unit line, aggregate it, or supply ' +
+      'the required source trace. A dedicated authoritative read is required before this page ' +
+      'can move.',
   },
   'src/modules-core.jsx': {
     symbols: ['PM_ROWS', 'CLOSINGS', 'UNIT_OWNERS', 'SOURCE_DOCS'],

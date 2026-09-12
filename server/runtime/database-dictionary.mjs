@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {KernelError} from './db.mjs';
 import {MIGRATION_MANIFEST} from './migration-manifest.mjs';
 
-const unsafeValue=/(?:postgres(?:ql)?:\/\/|-----BEGIN(?: [A-Z ]+)? PRIVATE KEY-----|(?:password|secret|token|api[_-]?key)\s*[=:]\s*[^\s,;]+)/ig;
+const unsafeValue=/(?:postgres(?:ql)?:\/\/[^\s,;]+|(?:bearer\s+)[a-z0-9._~+\/-]+=*|-----BEGIN(?: [A-Z ]+)? PRIVATE KEY-----[\s\S]*?(?:-----END(?: [A-Z ]+)? PRIVATE KEY-----|$)|(?:password|secret|token|api[_-]?key)\s*[=:]\s*[^\s,;]+)/ig;
 
 function stable(value){
   if(Array.isArray(value))return value.map(stable);
@@ -17,12 +17,12 @@ function rows(result,code){
   return result.rows;
 }
 
-function safeText(value){
+export function safeDatabaseDictionaryText(value){
   if(value===null||value===undefined)return null;
   return String(value).replace(unsafeValue,'[REDACTED]').slice(0,4000);
 }
 
-function safeRows(value){return value.map(row=>Object.fromEntries(Object.entries(row).map(([key,item])=>[key,safeText(item)])));}
+function safeRows(value){return value.map(row=>Object.fromEntries(Object.entries(row).map(([key,item])=>[key,safeDatabaseDictionaryText(item)])));}
 
 function exactAppliedMigrations(applied){
   const expected=MIGRATION_MANIFEST.map(({name,up})=>({migration_name:name,checksum:up}));
@@ -72,7 +72,7 @@ export async function readDatabaseDictionary({pool,schema='public',clock=()=>new
       client.query('SELECT tablename AS table_name, policyname AS policy_name, permissive, roles, cmd FROM pg_policies WHERE schemaname=$1 ORDER BY tablename,policyname',[schema])
     ]);
     const catalog={relations:safeRows(rows(relations,'DATABASE_DICTIONARY_RELATIONS_INVALID')),columns:safeRows(rows(columns,'DATABASE_DICTIONARY_COLUMNS_INVALID')),constraints:safeRows(rows(constraints,'DATABASE_DICTIONARY_CONSTRAINTS_INVALID')),indexes:safeRows(rows(indexes,'DATABASE_DICTIONARY_INDEXES_INVALID')),functions:safeRows(rows(functions,'DATABASE_DICTIONARY_FUNCTIONS_INVALID')),triggers:safeRows(rows(triggers,'DATABASE_DICTIONARY_TRIGGERS_INVALID')),policies:safeRows(rows(policies,'DATABASE_DICTIONARY_POLICIES_INVALID'))};
-    const dictionary={schema_version:'REFS_DATABASE_DICTIONARY_V1',generated_at:clock().toISOString(),database:{name:safeText(identity?.database_name),server_version_num:safeText(identity?.server_version_num),schema},migration_manifest:{count:MIGRATION_MANIFEST.length,sha256:migrationManifestHash(),applied_count:applied.length,applied},catalog};
+    const dictionary={schema_version:'REFS_DATABASE_DICTIONARY_V1',generated_at:clock().toISOString(),database:{name:safeDatabaseDictionaryText(identity?.database_name),server_version_num:safeDatabaseDictionaryText(identity?.server_version_num),schema},migration_manifest:{count:MIGRATION_MANIFEST.length,sha256:migrationManifestHash(),applied_count:applied.length,applied},catalog};
     dictionary.catalog_sha256=digest({schema_version:dictionary.schema_version,database:dictionary.database,migration_manifest:dictionary.migration_manifest,catalog});
     await client.query('COMMIT');
     return dictionary;
