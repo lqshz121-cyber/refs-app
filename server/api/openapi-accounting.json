@@ -28776,6 +28776,16 @@
             "$ref": "#/components/parameters/IfMatch"
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecurringScheduleTransition"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "$ref": "#/components/responses/RecurringScheduleEnvelope"
@@ -28812,6 +28822,16 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecurringScheduleRunDue"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "$ref": "#/components/responses/RecurringScheduleRunBatchEnvelope"
@@ -65544,6 +65564,48 @@
             "type": "string",
             "minLength": 8,
             "maxLength": 2000
+          }
+        }
+      },
+      "RecurringScheduleTransition": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "reason"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "SUBMIT",
+              "APPROVE",
+              "PAUSE",
+              "RESUME"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 2000
+          }
+        }
+      },
+      "RecurringScheduleRunDue": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "asOfDate"
+        ],
+        "properties": {
+          "asOfDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
           }
         }
       },

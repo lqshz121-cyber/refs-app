@@ -610,9 +610,14 @@ test('import/export history, recurring schedules, and custom reports are closed 
   const schedule=contract.paths['/entities/{entityId}/recurring-schedules'];
   assert.equal(schedule.post.operationId,'createRecurringSchedule');
   assert.deepEqual(schedule.post.parameters.map(parameter=>parameter.$ref),['#/components/parameters/EntityId','#/components/parameters/IdempotencyKey']);
-  assert.equal(contract.paths['/entities/{entityId}/recurring-schedules/{scheduleId}/transitions'].post.parameters.at(-1).$ref,'#/components/parameters/IfMatch');
+  const transition=contract.paths['/entities/{entityId}/recurring-schedules/{scheduleId}/transitions'].post;
+  assert.equal(transition.parameters.at(-1).$ref,'#/components/parameters/IfMatch');
+  assert.equal(transition.requestBody.content['application/json'].schema.$ref,'#/components/schemas/RecurringScheduleTransition');
+  assert.deepEqual(contract.components.schemas.RecurringScheduleTransition.properties.action.enum,['SUBMIT','APPROVE','PAUSE','RESUME']);
   const run=contract.paths['/entities/{entityId}/recurring-schedules/run-due'].post;
   assert.equal(run.operationId,'runDueRecurringSchedules');
+  assert.equal(run.requestBody.content['application/json'].schema.$ref,'#/components/schemas/RecurringScheduleRunDue');
+  assert.deepEqual(contract.components.schemas.RecurringScheduleRunDue.required,['asOfDate']);
   assert.equal(run.responses['201'],undefined);
   assert.equal(contract.components.schemas.RecurringScheduleRunBatch.properties.action_flags.properties.can_post.const,false);
   const report=contract.paths['/entities/{entityId}/reports/custom'].get;
