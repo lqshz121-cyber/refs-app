@@ -170,7 +170,7 @@ test('every root test:* script is reachable or explicitly requires browser infra
 test('every server test:* script is reachable from the server aggregate, or is a named infrastructure-bound suite',()=>{
   const scripts=serverPackageJson.scripts||{};
   const reachable=reachableTestScripts(scripts);
-  const allowed=new Set(INFRASTRUCTURE_BOUND_SERVER_SUITES);
+  const allowed=new Set([...INFRASTRUCTURE_BOUND_SERVER_SUITES,'test:database-dictionary']);
   const orphans=Object.keys(scripts).filter(name=>name.startsWith('test:')&&!reachable.has(name)&&!allowed.has(name));
   assert.deepEqual(orphans,[],`defined but never run by the server npm test: ${orphans.join(', ')}`);
 });
@@ -181,6 +181,12 @@ test('server full test executes both fixed asset read contract suites',()=>{
     'tests/fixed-asset-register-contract.test.mjs',
     'tests/fixed-asset-movement-contract.test.mjs',
   ])assert.match(full,new RegExp(`(?:^|\\s)${source.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\$&')}(?:\\s|$)`),`server test omits ${source}`);
+});
+
+test('root release pretest includes the database dictionary safety contract',()=>{
+  assert.match(packageJson.scripts?.pretest||'',/server\/tests\/database-dictionary\.test\.mjs/);
+  assert.equal(serverPackageJson.scripts?.['test:database-dictionary'],'node runtime/test-database-dictionary.mjs');
+  assert.equal(serverPackageJson.scripts?.['db:dictionary'],'node runtime/export-database-dictionary.mjs');
 });
 
 test('the infrastructure-bound allowlist cannot name a suite that npm test already runs, or one that no longer exists',()=>{

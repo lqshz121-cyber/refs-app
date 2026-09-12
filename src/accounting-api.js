@@ -11,6 +11,7 @@ import {validForecastWorkflow,validForecastCreate} from '../server/runtime/forec
 import {validRecurringSchedule,validRecurringScheduleCreate,validRecurringScheduleRunBatch} from '../server/runtime/recurring-scheduler-contract.mjs';
 import {validCustomReport,validCustomReportRequest} from '../server/runtime/custom-report-contract.mjs';
 import {validImportExportHistorySelection,validImportExportHistoryPage} from '../server/runtime/import-export-history-contract.mjs';
+import {validSourceParseResult} from '../server/runtime/source-parse-contract.mjs';
 
 export async function readAuthoritativeDisposalOptions({config,assetId,disposalDate,fetcher=globalThis.fetch}={}){
  if(!config||![config.tenantId,config.entityId,config.periodId,assetId].every(id=>UUID.test(id||''))||!validDate(disposalDate)||typeof fetcher!=='function')return {ok:false,code:'FIXED_ASSET_SCOPE_INVALID',message:'Select a company, accounting period, asset and disposal date.'};
@@ -2647,6 +2648,13 @@ export async function createAuthoritativeBusinessDocument({config,kind,document,
 
 export async function createAuthoritativeSettlement({config,kind,businessDocumentId,accountingDate,amount,idempotencyKey,fetcher=globalThis.fetch}={}){
   return {ok:false,code:'SETTLEMENT_ROUTE_RETIRED',message:'This legacy settlement API is retired. Use the evidence-bound native payment or native receipt entry.'};
+}
+
+export async function parseAuthoritativeSourceDocument({config,sourceDocumentId,sourceVersion,expectedPayloadHash,parserProfile,periodId,reason,idempotencyKey,fetcher=globalThis.fetch}={}){
+  const profiles=new Set(['STANDARD_V1','BANK_V1','PAYABLE_V1','COST_V1','LOAN_V1','PM_CHARGE_V1','CLOSING_V1']);
+  if(!config||![config.tenantId,config.entityId,sourceDocumentId,periodId].every(id=>UUID.test(id||''))||typeof sourceVersion!=='string'||sourceVersion.trim()!==sourceVersion||sourceVersion.length<1||sourceVersion.length>128||!SHA256.test(expectedPayloadHash||'')||!profiles.has(parserProfile)||typeof reason!=='string'||reason.trim()!==reason||reason.length<8||reason.length>2000||/[ -]/.test(reason)||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>200||typeof fetcher!=='function')return {ok:false,code:'SOURCE_PARSE_COMMAND_INVALID',message:'Source parsing requires an exact source, period, hash, parser profile, reason, and idempotency key.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/source-documents/${sourceDocumentId}/parse`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify({sourceVersion,expectedPayloadHash,parserProfile,periodId,reason})});if(!response.ok)return await failure(response,'SOURCE_PARSE');const envelope=await response.json(),data=envelope?.data;if(envelope?.ok!==true||!validSourceParseResult(data)||data.tenant_id!==config.tenantId||data.entity_id!==config.entityId||data.source_document_id!==sourceDocumentId||data.period_id!==periodId||data.source_version!==sourceVersion||data.source_payload_hash!==expectedPayloadHash||data.parser_profile!==parserProfile||data.idempotent!==(response.status===200))return {ok:false,code:'SOURCE_PARSE_PROTOCOL',message:'The source parse receipt could not be verified.'};return {ok:true,data};}catch{return unreachable('The source document could not be parsed. Retry with the same command key.');}
 }
 
 export async function refreshAuthoritativeCustomReport({config,request,fetcher=globalThis.fetch}={}){

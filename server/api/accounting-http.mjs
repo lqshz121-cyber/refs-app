@@ -12,6 +12,7 @@ import {validCustomReport,validCustomReportRequest} from '../runtime/custom-repo
 import {validReportSavedView,validReportSavedViewInput,validReportSavedViewPage} from '../runtime/report-saved-view-contract.mjs';
 import {validWebhookSubscription,validWebhookDeliveryHistory} from '../runtime/webhook-subscription-contract.mjs';
 import {validImportExportHistorySelection,validImportExportHistoryPage,validImportExportHistoryRow} from '../runtime/import-export-history-contract.mjs';
+import {validSourceParseResult} from '../runtime/source-parse-contract.mjs';
 import {validCounterpartyRegisterSelection,validCounterpartyRegisterPage} from '../runtime/counterparty-register.mjs';
 import {validPaymentBankCandidates} from '../runtime/payment-bank-candidates.mjs';
 import {validBusinessRecordKind,validBusinessRecord} from '../runtime/business-record-detail.mjs';
@@ -1045,6 +1046,16 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.listSourceDocuments({tenantId:principal.tenantId,entityId});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='POST'&&parts.length===7&&parts[4]==='source-documents'&&parts[6]==='parse'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['sourceVersion','expectedPayloadHash','parserProfile','periodId','reason']);
+        const sourceDocumentId=requireUuid(parts[5],'sourceDocumentId'),periodId=requireUuid(payload.periodId,'periodId'),sourceVersion=requireSourceVersion(payload.sourceVersion,'sourceVersion'),expectedPayloadHash=requireSha256(payload.expectedPayloadHash,'expectedPayloadHash'),parserProfile=payload.parserProfile,reason=requireReviewReason(payload.reason),idempotencyKey=requireIdempotency(headers);
+        if(!['STANDARD_V1','BANK_V1','PAYABLE_V1','COST_V1','LOAN_V1','PM_CHARGE_V1','CLOSING_V1'].includes(parserProfile))throw new AccountingApiError(400,'INVALID_PARSER_PROFILE','parserProfile is not an approved source parser profile');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.parseSourceDocument!=='function')throw new AccountingApiError(503,'SOURCE_PARSE_UNAVAILABLE','Source parsing is unavailable');
+        try{result=await kernel.parseSourceDocument({tenantId:principal.tenantId,entityId,sourceDocumentId,periodId,sourceVersion,expectedPayloadHash,parserProfile,reason,idempotencyKey});}
+        catch(error){if(error?.code==='23505')throw new AccountingApiError(409,'SOURCE_PARSE_IDEMPOTENCY_CONFLICT','Source parse idempotency key conflicts with a prior request');throw error;}
+        if(!validSourceParseResult(result)||result.tenant_id!==principal.tenantId||result.entity_id!==entityId||result.source_document_id!==sourceDocumentId||result.period_id!==periodId||result.source_version!==sourceVersion||result.source_payload_hash!==expectedPayloadHash||result.parser_profile!==parserProfile)throw new AccountingApiError(502,'SOURCE_PARSE_RESPONSE_INVALID','Source parse returned invalid or cross-scope evidence');
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='source-documents'&&parts[5]==='controlled-test-ai-eligible'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');

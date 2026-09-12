@@ -2477,6 +2477,14 @@ export class PostgresAccountingKernel{
     }):row.lines})));
   }
 
+  async parseSourceDocument({tenantId,entityId,sourceDocumentId,periodId,sourceVersion,expectedPayloadHash,parserProfile,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,sourceDocumentId,periodId,sourceVersion,expectedPayloadHash,parserProfile,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_parse_source_document_hash($1,$2,$3,$4,$5,$6,$7,$8) AS request_hash',args),'SOURCE_PARSE_HASH_MISSING','Source parse request hash unavailable').request_hash;
+      return requireRow(await client.query('SELECT refs_parse_source_document($1,$2,$3,$4,$5,$6,$7,$8,$9) AS result',[...args,idempotencyKey]),'SOURCE_PARSE_FAILED','Source parse receipt was not produced').result;
+    });
+  }
+
   async getWbsProviderSignedSourceEvidence({tenantId,entityId,sourceDocumentId}){
     return this.inSession(async client=>{
       await client.query('SELECT refs_assert_scope($1,$2,$3)',[tenantId,entityId,'GL.JE.VIEW']);

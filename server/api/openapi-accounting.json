@@ -18702,6 +18702,48 @@
         }
       }
     },
+    "/entities/{entityId}/source-documents/{sourceDocumentId}/parse": {
+      "post": {
+        "operationId": "parseSourceDocument",
+        "summary": "Parse one retained source document into immutable evidence",
+        "description": "Requires OIDC authentication and GL.SOURCE.PARSE for the path entity. This command is idempotent and only records parser evidence; it never mutates source rows, creates a Draft, posts a Journal, returns raw payloads, storage references, or credentials.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/SourceDocumentId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceDocumentParseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SourceDocumentParseOk"
+          },
+          "201": {
+            "$ref": "#/components/responses/SourceDocumentParseCreated"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/entities/{entityId}/source-documents/{sourceDocumentId}": {
       "get": {
         "operationId": "getSourceDocumentDetail",
@@ -65772,6 +65814,160 @@
             "pattern": "^[A-Za-z0-9._:-]{1,80}$"
           }
         }
+      },
+      "SourceDocumentParseRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceVersion",
+          "expectedPayloadHash",
+          "parserProfile",
+          "periodId",
+          "reason"
+        ],
+        "properties": {
+          "sourceVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "expectedPayloadHash": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "parserProfile": {
+            "type": "string",
+            "enum": [
+              "STANDARD_V1",
+              "BANK_V1",
+              "PAYABLE_V1",
+              "COST_V1",
+              "LOAN_V1",
+              "PM_CHARGE_V1",
+              "CLOSING_V1"
+            ]
+          },
+          "periodId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 2000
+          }
+        }
+      },
+      "SourceDocumentParseResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "parse_run_id",
+          "tenant_id",
+          "entity_id",
+          "source_document_id",
+          "period_id",
+          "source_version",
+          "source_payload_hash",
+          "parser_profile",
+          "status",
+          "row_count",
+          "missing_fields",
+          "parse_hash",
+          "reason",
+          "created_at",
+          "idempotent",
+          "action_flags"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": "SOURCE_DOCUMENT_PARSE_RUN_V1"
+          },
+          "parse_run_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "tenant_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "entity_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "source_document_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "period_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "source_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "source_payload_hash": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "parser_profile": {
+            "type": "string",
+            "enum": [
+              "STANDARD_V1",
+              "BANK_V1",
+              "PAYABLE_V1",
+              "COST_V1",
+              "LOAN_V1",
+              "PM_CHARGE_V1",
+              "CLOSING_V1"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SUCCEEDED",
+              "INCOMPLETE"
+            ]
+          },
+          "row_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "missing_fields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,63}$"
+            },
+            "uniqueItems": true
+          },
+          "parse_hash": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 2000
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Instant"
+          },
+          "idempotent": {
+            "type": "boolean"
+          },
+          "action_flags": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "can_import",
+              "can_post"
+            ],
+            "properties": {
+              "can_import": {
+                "const": false
+              },
+              "can_post": {
+                "const": false
+              }
+            }
+          }
+        }
       }
     },
     "parameters": {
@@ -68936,6 +69132,40 @@
                   "$ref": "#/components/schemas/CustomReport"
                 }
               }
+            }
+          }
+        }
+      },
+      "SourceDocumentParseOk": {
+        "description": "Source parse evidence",
+        "headers": {
+          "Cache-Control": {
+            "schema": {
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SourceDocumentParseEnvelope"
+            }
+          }
+        }
+      },
+      "SourceDocumentParseCreated": {
+        "description": "Source parse evidence",
+        "headers": {
+          "Cache-Control": {
+            "schema": {
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SourceDocumentParseEnvelope"
             }
           }
         }
