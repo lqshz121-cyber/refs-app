@@ -14,9 +14,9 @@ export const oidcRuntimeConfig=(environment=globalThis)=>{
 
 const random=environment=>{const bytes=new Uint8Array(32);environment.crypto?.getRandomValues?.(bytes);if(!bytes.some(Boolean))throw new Error('OIDC browser cryptography is unavailable');return base64url(bytes);};
 const digest=async(environment,value)=>base64url(new Uint8Array(await environment.crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))));
-const save=(environment,value)=>environment.sessionStorage?.setItem(STORAGE_KEY,JSON.stringify(value));
-const load=environment=>json(environment.sessionStorage?.getItem(STORAGE_KEY)||'');
-const clear=environment=>environment.sessionStorage?.removeItem(STORAGE_KEY);
+const save=(environment,value)=>{try{environment?.sessionStorage?.setItem(STORAGE_KEY,JSON.stringify(value));return true;}catch{return false;}};
+const load=environment=>{try{return json(environment?.sessionStorage?.getItem(STORAGE_KEY)||'');}catch{return null;}};
+const clear=environment=>{try{environment?.sessionStorage?.removeItem(STORAGE_KEY);return true;}catch{return false;}};
 const hasStoredRecord=environment=>{
   try{return environment?.sessionStorage?.getItem(STORAGE_KEY)!==null;}catch{return false;}
 };
@@ -148,7 +148,7 @@ export class BrowserOidcClient {
   async startLogin({prompt=null}={}){
     if(!this.configured())throw new Error('OIDC browser configuration is unavailable');
     const state=random(this.environment),verifier=random(this.environment),challenge=await digest(this.environment,verifier);
-    save(this.environment,{kind:'pending',state,verifier,createdAt:this.now()});
+    if(!save(this.environment,{kind:'pending',state,verifier,createdAt:this.now()}))throw new Error('OIDC session storage is unavailable');
     const query=new URLSearchParams({response_type:'code',client_id:this.config.clientId,redirect_uri:this.config.redirectUri,scope:this.config.scope,state,code_challenge:challenge,code_challenge_method:'S256'});if(this.config.audience)query.set('audience',this.config.audience);if(prompt==='none')query.set('prompt','none');
     this.environment.location.assign(`${this.config.authorizationEndpoint}${this.config.authorizationEndpoint.includes('?')?'&':'?'}${query}`);
   }
@@ -175,7 +175,8 @@ export class BrowserOidcClient {
     let response,body;try{response=await this.fetch(this.config.tokenEndpoint,{method:'POST',headers:{accept:'application/json','content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:this.config.redirectUri,client_id:this.config.clientId,code_verifier:pending.verifier}).toString(),cache:'no-store',redirect:'error'});body=await response.json();}catch{clear(this.environment);return {ok:false,code:'OIDC_TOKEN_UNAVAILABLE'};}
     const accepted=response?.ok?acceptToken(body,this.config,this.now()):null;
     if(!accepted){clear(this.environment);return {ok:false,code:'OIDC_TOKEN_INVALID'};}
-    save(this.environment,accepted);this.environment.history?.replaceState?.({},'',this.config.redirectUri);return {ok:true};
+    if(!save(this.environment,accepted))return {ok:false,code:'OIDC_SESSION_STORAGE_UNAVAILABLE'};
+    this.environment.history?.replaceState?.({},'',this.config.redirectUri);return {ok:true};
   }
 
   // Attempt one prompt=none renewal. Resolves to {ok:true,expiresAt} or to a

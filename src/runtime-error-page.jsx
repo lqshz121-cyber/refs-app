@@ -211,6 +211,12 @@ const STATES = {
       'configuration and must be republished.',
     offer: null,
   },
+  OIDC_SESSION_STORAGE_UNAVAILABLE: {
+    title: 'This browser cannot retain the sign-in session',
+    happened: 'REFS could not save the short-lived, tab-only PKCE record required to verify sign-in. No accounting session was created.',
+    next: 'Allow session storage for this site, then start sign-in again in this tab.',
+    offer: SIGN_IN,
+  },
   OIDC_LOGIN_REQUIRED: {
     title: 'Sign in to continue',
     happened: 'No identity session is held in this browser tab.',

@@ -592,7 +592,13 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const startLogin = async () => {
     setError(null);
     try { await oidcClient.startLogin(); }
-    catch { setError({ code:'OIDC_CONFIGURATION_REQUIRED', message:'The configured OIDC provider could not start a secure PKCE login.' }); setPhase('IDENTITY_FAILED'); }
+    catch (error) {
+      const storageUnavailable=error instanceof Error && error.message==='OIDC session storage is unavailable';
+      setError(storageUnavailable
+        ? { code:'OIDC_SESSION_STORAGE_UNAVAILABLE', message:'This browser cannot retain the short-lived sign-in record required to finish login.' }
+        : { code:'OIDC_CONFIGURATION_REQUIRED', message:'The configured OIDC provider could not start a secure PKCE login.' });
+      setPhase('IDENTITY_FAILED');
+    }
   };
   const logout = () => { authenticationHandlingRef.current=false; accountingReadGuard.current.invalidate(); oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setDocumentDetail(null); setAdjustmentDetail(null); setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}}); setError(null); setRenewalFailure(null); setSessionExpired(false); setPhase('LOGIN_REQUIRED'); };
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeChartOfAccounts({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeRows(result.ok?result.rows:[]);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);

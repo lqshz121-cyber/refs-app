@@ -46,7 +46,15 @@ assert.equal(oidcRuntimeConfig({__REFS_OIDC__:{...base.__REFS_OIDC__,scope:'prof
    const restoredEnvironment={...base,sessionStorage:storage(),location:{search:'',assign(url){this.assigned=url;}},history:{replaceState(){}}};
   const restoredClient=new BrowserOidcClient({environment:restoredEnvironment,now:()=>1_000_000,fetcher:async()=>{throw new Error('the authorization redirect has not returned yet');}});
   await restoredClient.startLogin({prompt:'none'});assert.match(restoredEnvironment.location.assigned,/prompt=none/,'startup restoration must be explicit prompt=none PKCE');assert.match(restoredEnvironment.location.assigned,/code_challenge_method=S256/);assert.equal(JSON.parse(restoredEnvironment.sessionStorage.getItem('refs_oidc_pkce_v1')).kind,'pending');
-  const rejected=new BrowserOidcClient({environment:{...base,sessionStorage:storage(),location:{search:'?code=x&state=wrong'},history:{replaceState(){}}},now:()=>1_000_000,fetcher:async()=>{throw new Error('must not call');}});assert.equal((await rejected.completeRedirect()).code,'OIDC_STATE_INVALID');
+  const rejected=new BrowserOidcClient({environment:{...base,sessionStorage:storage(),location:{search:'?code=x&state=wrong'},history:{replaceState(){}}},now:()=>1_000_000,fetcher:async()=>{throw new Error('must not call');}});assert.equal((await rejected.completeRedirect()).code,'OIDC_STATE_INVALID');  const deniedStorage={getItem(){throw new Error('storage denied');},setItem(){throw new Error('storage denied');},removeItem(){throw new Error('storage denied');}};
+  const storageDeniedEnvironment={...base,sessionStorage:deniedStorage,location:{search:'',assign(){throw new Error('navigation must not start without PKCE state');}},history:{replaceState(){throw new Error('history must not change');}}};
+  const storageDeniedClient=new BrowserOidcClient({environment:storageDeniedEnvironment,now:()=>1_000_000,fetcher:async()=>{throw new Error('token request must not run');}});
+  await assert.rejects(()=>storageDeniedClient.startLogin(),/OIDC session storage is unavailable/,'login must stop before navigation when the PKCE state cannot be retained');
+  const callbackStorage=storage(),callbackEnvironment={...base,sessionStorage:callbackStorage,location:{search:'',assign(){}},history:{replaceState(){throw new Error('history must not change when a session cannot be retained');}}};
+  const callbackClient=new BrowserOidcClient({environment:callbackEnvironment,now:()=>1_000_000,fetcher:async()=>({ok:true,json:async()=>({access_token:token({iss:'https://issuer.example',aud:'refs-accounting',exp:2000}),token_type:'Bearer',expires_in:600})})});
+  await callbackClient.startLogin();const callbackPending=JSON.parse(callbackStorage.getItem('refs_oidc_pkce_v1'));callbackEnvironment.location.search='?code=callback-code&state='+encodeURIComponent(callbackPending.state);
+  callbackStorage.setItem=()=>{throw new Error('storage denied');};
+  assert.deepEqual(await callbackClient.completeRedirect(),{ok:false,code:'OIDC_SESSION_STORAGE_UNAVAILABLE'},'a verified token cannot complete login unless the browser retains the tab-only session');
   console.log('oidc-client: all assertions passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 
