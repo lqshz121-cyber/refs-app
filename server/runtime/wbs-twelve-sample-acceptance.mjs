@@ -4,6 +4,7 @@ const HASH=/^sha256:[0-9a-f]{64}$/;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SAMPLE_COUNT=12;
 const text=value=>typeof value==='string'?value.trim():'';
+const instant=value=>{if(typeof value!=='string'||!/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{3})Z$/.test(value))return false;const m=value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{3})Z$/),[,year,month,day,hour,minute,second]=m;const d=new Date(Date.UTC(Number(year),Number(month)-1,Number(day),Number(hour),Number(minute),Number(second)));return d.getUTCFullYear()===Number(year)&&d.getUTCMonth()===Number(month)-1&&d.getUTCDate()===Number(day)&&Number(hour)<24&&Number(minute)<60&&Number(second)<60;};
 const fail=code=>{const error=new Error(code);error.code=code;throw error;};
 const digest=value=>`sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
 
@@ -26,7 +27,7 @@ function sampleIdentity(sample){
 
 export function verifyWbsTwelveSampleAcceptance(manifest){
   required(manifest,['schema_version','release_sha','verified_at'],'WBS_TWELVE_SAMPLE_MANIFEST_INVALID');
-  if(manifest.schema_version!=='WBS_TWELVE_SAMPLE_ACCEPTANCE_V1'||!/^[-0-9A-Za-z._/]{7,128}$/.test(text(manifest.release_sha))||!Array.isArray(manifest.samples)||manifest.samples.length!==SAMPLE_COUNT)fail('WBS_TWELVE_SAMPLE_MANIFEST_INVALID');
+  if(manifest.schema_version!=='WBS_TWELVE_SAMPLE_ACCEPTANCE_V1'||!/^[-0-9A-Za-z._/]{7,128}$/.test(text(manifest.release_sha))||!instant(text(manifest.verified_at))||!Array.isArray(manifest.samples)||manifest.samples.length!==SAMPLE_COUNT)fail('WBS_TWELVE_SAMPLE_MANIFEST_INVALID');
   const samples=manifest.samples.map(sampleIdentity);
   const allKeys=['sample_id','package_hash','snapshot_id','bank_source_record_id','business_source_record_id','bank_staging_item_id','business_staging_item_id','bank_review_event_id','business_review_event_id','bank_source_document_id','business_source_document_id','bank_raw_event_id','business_raw_event_id','bank_journal_entry_id','business_journal_entry_id','bank_audit_event_id','business_audit_event_id','report_id','control_total_hash'];
   for(const key of allKeys)unique(samples.map(sample=>sample[key]),'WBS_TWELVE_SAMPLE_DUPLICATE_EVIDENCE');
