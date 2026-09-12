@@ -36,9 +36,9 @@ assert.match(lock,/configurable:false/,'the runtime mode slot must not be redefi
 assert.match(lock,/RUNTIME_MODE_REJECTED/,'the runtime lock must reject an unenumerated mode explicitly');
 
 // --- deployment adapter ---------------------------------------------------
-assert.match(config,/window\.__REFS_OIDC__=/,'runtime config must explicitly configure or clear OIDC');
-assert.match(config,/window\.__REFS_ACCOUNTING_API__=/,'runtime config must explicitly configure or clear the accounting API');
-const declaredModes=[...config.matchAll(/window\.__REFS_RUNTIME_MODE__='([A-Z_]+)'/g)].map(match=>match[1]);
+assert.match(config,/window\.__REFS_OIDC__\s*=/,'runtime config must explicitly configure or clear OIDC');
+assert.match(config,/window\.__REFS_ACCOUNTING_API__\s*=/,'runtime config must explicitly configure or clear the accounting API');
+const declaredModes=[...config.matchAll(/window\.__REFS_RUNTIME_MODE__\s*=\s*'([A-Z_]+)'/g)].map(match=>match[1]);
 assert.equal(declaredModes.length,1,'runtime config must declare exactly one explicit runtime mode');
 const [declaredMode]=declaredModes;
 
@@ -58,8 +58,8 @@ assert.equal(/authoritative:true/.test(build),stampedChannel===AUTHORITATIVE_CHA
 
 if(mock){
   assert.equal(declaredMode,DEMONSTRATION_MODE,'the Pages demonstration must be explicitly marked LOCAL_MOCK');
-  assert.match(config,/window\.__REFS_OIDC__=null/,'the Pages demonstration must not carry an OIDC provider');
-  assert.match(config,/window\.__REFS_ACCOUNTING_API__=null/,'the Pages demonstration must not carry an authoritative API');
+  assert.match(config,/window\.__REFS_OIDC__\s*=\s*null/,'the Pages demonstration must not carry an OIDC provider');
+  assert.match(config,/window\.__REFS_ACCOUNTING_API__\s*=\s*null/,'the Pages demonstration must not carry an authoritative API');
 }else{
   assert.equal(declaredMode,'REQUIRES_AUTHORITATIVE_API','an unconfigured or authoritative deployment must remain fail closed');
   // A configured authoritative deployment must reach its API over HTTPS only.
@@ -68,7 +68,7 @@ if(mock){
   for(const url of [...apiBases,...issuers]){
     assert.ok(/^https:\/\//.test(url),`authoritative deployment endpoints must be HTTPS: ${url}`);
   }
-  if(!/window\.__REFS_ACCOUNTING_API__=null/.test(config)){
+  if(!/window\.__REFS_ACCOUNTING_API__\s*=\s*null/.test(config)){
     assert.ok(apiBases.length===1,'a configured authoritative adapter must declare exactly one API base URL');
   }
 }
