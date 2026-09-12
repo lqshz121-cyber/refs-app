@@ -2,15 +2,15 @@
 import {readAuthoritativeJournalEntryDetail,readAuthoritativeSourceDocumentDetail,refreshAuthoritativeFinancialStatements,refreshAuthoritativeGeneralLedger} from './accounting-api.js';
 import {adaptProviderTraceForUi} from './provider-trace-adapter.js';
 import {StateBlock} from './ui.jsx';
+import {exactLineageIdSet,journalLineMatchesLedger} from './domain/accounting-lineage.ts';
 
 const MONEY4=/^-?(?:0|[1-9][0-9]{0,15})\.\d{4}$/;
 const money=value=>typeof value==='string'&&MONEY4.test(value)?value:'Not returned';
 const ids=value=>Array.isArray(value)?value:[];
 const includesAll=(haystack,needles)=>needles.every(value=>haystack.includes(value));
 const LEDGER_PAGE_SIZE=200,LEDGER_RESULT_CAP=10000;
+export {exactLineageIdSet,journalLineMatchesLedger};
 const journalContext=(config,journal)=>({entityId:config.entityId,periodId:config.periodId,journalId:journal.journal_entry_id,journalRevision:journal.revision,journalCurrency:journal.currency});
-export const exactLineageIdSet=(left,right)=>Array.isArray(left)&&Array.isArray(right)&&left.length===right.length&&[...left].sort().every((value,index)=>value===[...right].sort()[index]);
-export const journalLineMatchesLedger=(journal,line,row)=>Boolean(journal&&line&&row&&journal.journal_entry_id===row.journal_entry_id&&line.journal_line_id===row.journal_line_id&&line.ledger_line_id===row.ledger_line_id&&line.account_code===row.account_code&&journal.currency===row.currency&&MONEY4.test(line.debit_amount)&&line.debit_amount===row.debit_amount&&MONEY4.test(line.credit_amount)&&line.credit_amount===row.credit_amount&&exactLineageIdSet(line.source_document_ids,row.source_document_ids));
 export const reportRowContainsLedger=(report,row)=>Boolean(report&&row&&report.period_id===row.period_id&&report.account_code===row.account_code&&(report.currency==null||report.currency===row.currency)&&ids(report.journal_entry_ids).includes(row.journal_entry_id)&&ids(report.journal_line_ids).includes(row.journal_line_id)&&ids(report.ledger_line_ids).includes(row.ledger_line_id)&&includesAll(ids(report.source_document_ids),ids(row.source_document_ids)));
 export const createLineageRequestGuard=()=>{let version=0;return {start:()=>++version,isCurrent:token=>token===version,invalidate:()=>++version};};
 export async function readExactAuthoritativeLedgerLine({config,accountCode=null,ledgerLineId,fetcher=globalThis.fetch,readPage=refreshAuthoritativeGeneralLedger}={}){
