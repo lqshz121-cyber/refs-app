@@ -10,7 +10,7 @@ const manifest=()=>({schema_version:'WBS_TWELVE_SAMPLE_ACCEPTANCE_V1',release_sh
 
 test('twelve sample acceptance requires unique signed, manually reviewed, posted and readback evidence',()=>{
   const result=verifyWbsTwelveSampleAcceptance(manifest());
-  assert.equal(result.status,'WBS_TWELVE_SAMPLE_ACCEPTANCE_VERIFIED');assert.equal(result.sample_count,12);assert.match(result.manifest_hash,/^sha256:[a-f0-9]{64}$/);assert.equal(result.verified_samples.length,12);
+  assert.equal(result.status,'WBS_TWELVE_SAMPLE_ACCEPTANCE_VERIFIED');assert.equal(result.sample_count,12);assert.match(result.manifest_hash,/^sha256:[a-f0-9]{64}$/);assert.equal(result.verified_samples.length,12);assert.equal(result.requires_authenticated_api_e2e,true);
 });
 
 test('twelve sample acceptance rejects incomplete counts, duplicate evidence, and missing online readback',()=>{
