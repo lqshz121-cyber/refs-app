@@ -5670,6 +5670,34 @@
         }
       }
     },
+    "/entities/{entityId}/ap/expenses": {
+      "get": {
+        "operationId":"listExpenses",
+        "summary":"List saved direct-bank Expenses in one accounting period",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"name":"afterId","in":"query","required":false,"schema":{"$ref":"#/components/schemas/Uuid"}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":100,"default":50}}],
+        "responses":{"200":{"description":"Scoped Expense page","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"object"}}}}}},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"500":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      },
+      "post": {
+        "operationId": "createNativeExpense",
+        "summary": "Create a supported direct-bank Expense Draft journal",
+        "description": "Requires AP.EXPENSE.CREATE in the selected company. Validates an active Vendor, BANK member and controlled cash account, an active non-member EXPENSE account, open period and clean attachments. Creates the Expense record, normal Manual Draft journal, attachment links, audit, outbox and idempotency receipt atomically. Standard journal approvals and posting remain mandatory; posting checks the Expense against its journal before status writeback. No query parameters or If-Match header.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["periodId","number","vendorRef","bankMemberRef","cashAccountCode","expenseAccountCode","date","currency","amount","reason","attachmentIds"],"properties":{"periodId":{"$ref":"#/components/schemas/Uuid"},"number":{"type":"string","minLength":1,"maxLength":128},"vendorRef":{"type":"string","minLength":1,"maxLength":128},"bankMemberRef":{"type":"string","minLength":1,"maxLength":128},"cashAccountCode":{"type":"string","minLength":1,"maxLength":64},"expenseAccountCode":{"type":"string","minLength":1,"maxLength":64},"date":{"type":"string","format":"date"},"currency":{"type":"string","pattern":"^[A-Z]{3}$"},"amount":{"type":"string","pattern":"^(0|[1-9][0-9]{0,15})(\\.[0-9]{1,4})?$"},"reason":{"type":"string","minLength":8,"maxLength":2000},"attachmentIds":{"type":"array","minItems":1,"maxItems":25,"uniqueItems":true,"items":{"$ref":"#/components/schemas/Uuid"}}}}}}},
+        "responses": {
+          "200":{"description":"Original Expense result replayed","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"object","additionalProperties":false,"required":["expense_id","journal_entry_id","status","revision","idempotent"],"properties":{"expense_id":{"$ref":"#/components/schemas/Uuid"},"journal_entry_id":{"$ref":"#/components/schemas/Uuid"},"status":{"const":"DRAFT"},"revision":{"const":0},"idempotent":{"type":"boolean"}}}}}}}},
+          "201":{"description":"Expense and Manual Draft journal created","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"object","additionalProperties":false,"required":["expense_id","journal_entry_id","status","revision","idempotent"],"properties":{"expense_id":{"$ref":"#/components/schemas/Uuid"},"journal_entry_id":{"$ref":"#/components/schemas/Uuid"},"status":{"const":"DRAFT"},"revision":{"const":0},"idempotent":{"type":"boolean"}}}}}}}},
+          "400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"500":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
+    "/entities/{entityId}/ap/expenses/{expenseId}": {
+      "get": {
+        "operationId":"readExpense",
+        "summary":"Read one saved direct-bank Expense",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"expenseId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "responses":{"200":{"description":"Scoped Expense detail","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"object"}}}}}},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"500":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/ar/sales-receipts": {
       "get": {
         "operationId": "listSalesReceipts",
@@ -20309,6 +20337,45 @@
         "responses": {
           "200": {
             "$ref": "#/components/responses/FinancialStatementSnapshotReadOk"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/reports/financial-statement-snapshot/export": {
+      "get": {
+        "operationId": "exportFinancialStatementSnapshot",
+        "summary": "Export the latest approved financial statement snapshot",
+        "description": "Returns a deterministic CSV generated from one immutable, entity-and-period-scoped approved statement snapshot. The operation is read-only, exposes no provider payloads, and cannot create, adjust, post, approve, or persist a report.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "periodId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "csv"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/FinancialStatementSnapshotExportOk"
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -68361,6 +68428,42 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/FinancialStatementReadEnvelope"
+            }
+          }
+        }
+      },
+      "FinancialStatementSnapshotExportOk": {
+        "description": "Deterministic CSV export of one approved immutable statement snapshot",
+        "headers": {
+          "Cache-Control": {
+            "schema": {
+              "const": "no-store"
+            }
+          },
+          "ETag": {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\\"sha256:[a-f0-9]{64}\\\"$"
+            }
+          },
+          "X-Report-Snapshot-Hash": {
+            "schema": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "X-Report-Export-Hash": {
+            "schema": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        "content": {
+          "text/csv": {
+            "schema": {
+              "type": "string",
+              "format": "binary"
             }
           }
         }

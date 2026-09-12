@@ -2176,6 +2176,18 @@ export class PostgresAccountingKernel{
     ),'SALES_RECEIPT_UNAVAILABLE','Sales receipt page is unavailable').result);
   }
 
+  async readExpense({tenantId,entityId,expenseId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_expense($1,$2,$3) AS result',[tenantId,entityId,expenseId]
+    ),'EXPENSE_UNAVAILABLE','Expense is unavailable').result);
+  }
+
+  async listExpenses({tenantId,entityId,periodId,afterId=null,limit=50}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_list_expenses($1,$2,$3,$4,$5) AS result',[tenantId,entityId,periodId,afterId,limit]
+    ),'EXPENSE_UNAVAILABLE','Expense page is unavailable').result);
+  }
+
   async readBusinessRecord({tenantId,entityId,recordId,recordKind}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_business_record($1,$2,$3,$4) AS result',[tenantId,entityId,recordId,recordKind]
@@ -3204,6 +3216,14 @@ export class PostgresAccountingKernel{
       [args.tenantId,args.entityId,args.periodId,args.number,args.customerRef,args.bankMemberRef,args.cashAccountCode,
         args.categoryAccountCode,args.date,args.currency,args.amount,args.reason,args.attachmentIds,args.idempotencyKey]
     ),'NATIVE_SALES_RECEIPT_FAILED','Sales receipt Draft creation did not return a result').result);
+  }
+
+  async createNativeExpense(args){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_create_native_expense($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) AS result',
+      [args.tenantId,args.entityId,args.periodId,args.number,args.vendorRef,args.bankMemberRef,args.cashAccountCode,
+        args.expenseAccountCode,args.date,args.currency,args.amount,args.reason,args.attachmentIds,args.idempotencyKey]
+    ),'NATIVE_EXPENSE_FAILED','Expense Draft creation did not return a result').result);
   }
 
   async createNativeRefund(args){

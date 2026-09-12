@@ -7154,6 +7154,39 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   assert.equal((await counts()).sales,2);
 });
 
+pgTest('native expense creates, preserves evidence, posts through normal approval, and rejects journal drift atomically',async()=>{
+  const ids=await seed({status:'DRAFT'});
+  const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;
+  const permissions={'expense-maker':['AP.EXPENSE.CREATE'],'expense-submit':['GL.JE.SUBMIT'],'expense-review':['GL.JE.REVIEW'],'expense-approve':['GL.JE.APPROVE'],'expense-post':['GL.JE.POST']};
+  const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})});
+  const root=`/api/v1/entities/${ids.entityId}`,url=`${root}/ap/expenses`;
+  const body={periodId:ids.periodId,number:'NATIVE-EXPENSE-1',vendorRef:'VENDOR-1',bankMemberRef:'BANK-1',cashAccountCode:'111000',expenseAccountCode:'610000',date:'2026-07-18',currency:'USD',amount:'1.2345',reason:'Verified direct vendor expense evidence',attachmentIds:[attachmentId]};
+  const send=(actor,path,payload,key,revision)=>api({method:'POST',url:path,body:payload,headers:{'x-test-actor':actor,'idempotency-key':key,...(revision==null?{}:{'if-match':String.fromCharCode(34)+revision+String.fromCharCode(34)})}});
+  assert.equal((await send('expense-reader',url,body,'expense-denied-001')).status,403);
+  for(const [index,patch] of [{vendorRef:'MISSING-VENDOR'},{vendorRef:'BANK-1'},{bankMemberRef:'VENDOR-1'},{cashAccountCode:'610000'},{expenseAccountCode:'111000'},{attachmentIds:[ids.journalId]}].entries())assert.equal((await send('expense-maker',url,{...body,...patch},`expense-invalid-${index}`)).status,422,JSON.stringify(patch));
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM expense WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);
+  const created=await Promise.all([send('expense-maker',url,body,'expense-concurrent-001'),send('expense-maker',url,body,'expense-concurrent-001')]);
+  assert.deepEqual(created.map(row=>row.status).sort(),[200,201],JSON.stringify(created));
+  const expense=created[0].body.data;assert.equal(created[1].body.data.expense_id,expense.expense_id);assert.equal(expense.status,'DRAFT');
+  assert.equal((await send('expense-maker',url,{...body,amount:'2.0000'},'expense-concurrent-001')).status,409);
+  assert.deepEqual((await adminPool.query('SELECT vendor_name,status,amount FROM expense WHERE expense_id=$1',[expense.expense_id])).rows[0],{vendor_name:'Vendor',status:'DRAFT',amount:'1.2345'});
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM source_link WHERE journal_entry_id=$1 AND attachment_id=$2',[expense.journal_entry_id,attachmentId])).rows[0].n,1);
+  const advance=async(journalId,key)=>{for(const [action,actor] of [['submit','expense-submit'],['review','expense-review'],['approve','expense-approve']]){const revision=(await adminPool.query('SELECT revision FROM journal_entry WHERE journal_entry_id=$1',[journalId])).rows[0].revision;const result=await send(actor,`${root}/journal-entries/${journalId}/transitions/${action}`,{},`${key}-${action}`,revision);assert.equal(result.status,201,JSON.stringify(result.body));}};
+  await advance(expense.journal_entry_id,'expense-good');
+  const revision=(await adminPool.query('SELECT revision FROM journal_entry WHERE journal_entry_id=$1',[expense.journal_entry_id])).rows[0].revision;
+  const posted=await send('expense-post',`${root}/journal-entries/${expense.journal_entry_id}/post`,{periodId:ids.periodId},'expense-good-post',revision);assert.equal(posted.status,201,JSON.stringify(posted.body));
+  assert.deepEqual((await adminPool.query('SELECT status,amount,version FROM expense WHERE expense_id=$1',[expense.expense_id])).rows[0],{status:'POSTED',amount:'1.2345',version:'1'});
+  assert.deepEqual((await adminPool.query('SELECT account_code,member_ref,debit_amount,credit_amount FROM ledger_line WHERE journal_entry_id=$1 ORDER BY account_code',[expense.journal_entry_id])).rows,[{account_code:'111000',member_ref:'BANK-1',debit_amount:'0.0000',credit_amount:'1.2345'},{account_code:'610000',member_ref:'VENDOR-1',debit_amount:'1.2345',credit_amount:'0.0000'}]);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type='EXPENSE_POSTED'",[expense.expense_id])).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type='EXPENSE_POSTED'",[expense.expense_id])).rows[0].n,1);
+  const drift=await send('expense-maker',url,{...body,number:'NATIVE-EXPENSE-DRIFT'},'expense-drift-001');assert.equal(drift.status,201,JSON.stringify(drift.body));
+  const driftExpense=drift.body.data;await advance(driftExpense.journal_entry_id,'expense-drift');
+  await adminPool.query('UPDATE journal_line SET credit_amount=2 WHERE journal_entry_id=$1 AND line_no=2',[driftExpense.journal_entry_id]);
+  const driftRevision=(await adminPool.query('SELECT revision FROM journal_entry WHERE journal_entry_id=$1',[driftExpense.journal_entry_id])).rows[0].revision;
+  assert.equal((await send('expense-post',`${root}/journal-entries/${driftExpense.journal_entry_id}/post`,{periodId:ids.periodId},'expense-drift-post',driftRevision)).status,422);
+  assert.equal((await adminPool.query('SELECT status FROM expense WHERE expense_id=$1',[driftExpense.expense_id])).rows[0].status,'DRAFT');
+});
+
 pgTest('sales receipt detail and keyset pages are scoped and remain bounded over 100001 synthetic records',async()=>{
   await migrateUp(adminPool);
   const options={status:'DRAFT',extraAccounts:[{accountCode:'400000',accountName:'Cash sale category'}],extraMembers:[{memberRef:'CUSTOMER-SALE',memberType:'CUSTOMER',displayName:'Cash customer'}]};

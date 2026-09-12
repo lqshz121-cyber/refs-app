@@ -398,4 +398,6 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"390_recurring_scheduler_authoritative.sql","up":"ac8460198a5cbc949e34ba92270995a66f024ab351c2980063a2a24d923c6b14","down":"cf31d1a74d72038fb30a4dd12441513739261e5888fd29d2d944f6494794ac12"}),
   Object.freeze({"name":"391_custom_reports_authoritative.sql","up":"a7367c6e96024f3f3d4efef1530cc734767f7edb0358e1882042ca0c8ca588e0","down":"0b39eb713c498a28aa93ea381def20023d9396874a86cd24e21d77eccee4a0ff"}),
   Object.freeze({"name":"392_source_document_parse_authoritative.sql","up":"f12267906c3c5ec7bd968e84125a15d68e508d1c27c250a1cc7bd63d087dc254","down":"e258117f53cec74e01f97b259eb1809f642e09277fcb57eaa8950cead162325f"}),
+  Object.freeze({"name":"393_native_expense_authoritative.sql","up":"a992e420686dfb14bd7253f515767cd75c65f5e22756e00d56248fcf0fdce27f","down":"75320399b48dfeda214d844f4346e5f58ca7e92dbe839aac8aa0b7f8eaabb192"}),
+  Object.freeze({"name":"394_native_expense_reads.sql","up":"9a494d17d861cb0c6665b5e10c28469cf56825da6d2380e244740f2dcb690505","down":"33a8896aa6fe04aca0f99e298b14f79914cbd0e19edb798aa410e271f91170db"}),
 ]);

@@ -13,12 +13,14 @@ import {validReportSavedView,validReportSavedViewInput,validReportSavedViewPage}
 import {validWebhookSubscription,validWebhookDeliveryHistory} from '../runtime/webhook-subscription-contract.mjs';
 import {validImportExportHistorySelection,validImportExportHistoryPage,validImportExportHistoryRow} from '../runtime/import-export-history-contract.mjs';
 import {validSourceParseResult} from '../runtime/source-parse-contract.mjs';
+import {buildFinancialStatementCsv} from '../runtime/financial-statement-export.mjs';
 import {validCounterpartyRegisterSelection,validCounterpartyRegisterPage} from '../runtime/counterparty-register.mjs';
 import {validPaymentBankCandidates} from '../runtime/payment-bank-candidates.mjs';
 import {validBusinessRecordKind,validBusinessRecord} from '../runtime/business-record-detail.mjs';
 import {validSalesReceiptSelection,validSalesReceiptDetail,validSalesReceiptPage} from '../runtime/sales-receipt-reads.mjs';
 import {validSalesReceiptOptionSelection,validSalesReceiptOptions} from '../runtime/sales-receipt-options.mjs';
 import {validSalesReceiptBankCandidates} from '../runtime/sales-receipt-bank-candidates.mjs';
+import {validExpenseSelection,validExpenseDetail,validExpensePage} from '../runtime/expense-reads.mjs';
 import {validCreditHistorySelection,validCreditHistory} from '../runtime/credit-allocation-history.mjs';
 import {validSettlementHistorySelection,validSettlementHistory} from '../runtime/settlement-history.mjs';
 import {validBillPaymentRegisterSelection,validBillPaymentRegister} from '../runtime/bill-payment-register.mjs';
@@ -1171,6 +1173,20 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!(detail?validSalesReceiptDetail:validSalesReceiptPage)(result,{entityId,...selection}))throw new AccountingApiError(500,'SALES_RECEIPT_INVALID','Sales receipt response did not match the requested scope');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&[6,7].includes(parts.length)&&parts[4]==='ap'&&parts[5]==='expenses'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Expense reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        const detail=parts.length===7;
+        requireExactQuery(parsedUrl.searchParams,detail?[]:['periodId','afterId','limit']);
+        const selection=detail?{expenseId:requireUuid(parts[6],'expenseId').toLowerCase()}:{periodId:requireUuid(parsedUrl.searchParams.get('periodId'),'periodId').toLowerCase(),afterId:parsedUrl.searchParams.has('afterId')?requireUuid(parsedUrl.searchParams.get('afterId'),'afterId').toLowerCase():null,limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):50};
+        if(!detail&&(!validExpenseSelection(selection)||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit'))))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Invalid expense page selection');
+        const kernel=await kernelFactory(principal),methodName=detail?'readExpense':'listExpenses';
+        if(!kernel||typeof kernel[methodName]!=='function')throw new AccountingApiError(503,'EXPENSE_UNAVAILABLE','Expense read is unavailable');
+        try{result=await kernel[methodName]({tenantId:principal.tenantId,entityId,...selection});}
+        catch(error){if(error?.code==='22023')throw new AccountingApiError(400,'EXPENSE_SELECTION_INVALID','The expense selection or cursor is invalid. Refresh from the first page.');throw error;}
+        if(!(detail?validExpenseDetail:validExpensePage)(result,{entityId,...selection}))throw new AccountingApiError(500,'EXPENSE_INVALID','Expense response did not match the requested scope');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===6&&parts[4]==='business-records'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Record reads do not accept command headers');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
@@ -1606,6 +1622,19 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.getFinancialStatementSnapshot({tenantId:principal.tenantId,entityId,periodId});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===7&&parts[4]==='reports'&&parts[5]==='financial-statement-snapshot'&&parts[6]==='export'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Report exports are read-only and do not accept Idempotency-Key');
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Report exports do not accept If-Match');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Report exports do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId','format']);
+        const periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId').toLowerCase(),format=parsedUrl.searchParams.get('format');
+        if(format!=='csv')throw new AccountingApiError(400,'INVALID_EXPORT_FORMAT','Only the authoritative CSV report export is supported');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.getFinancialStatementSnapshot!=='function')throw new AccountingApiError(503,'REPORT_EXPORT_UNAVAILABLE','Financial statement export is unavailable');
+        result=await kernel.getFinancialStatementSnapshot({tenantId:principal.tenantId,entityId,periodId});
+        const artifact=buildFinancialStatementCsv({rows:result,entityId,periodId});
+        if(!artifact)throw new AccountingApiError(502,'REPORT_EXPORT_RESPONSE_INVALID','The authoritative financial statement snapshot could not be safely exported');
+        return {status:200,headers:{'content-type':artifact.content_type,'content-disposition':`attachment; filename="${artifact.filename}"`,'cache-control':'no-store','etag':`"${artifact.content_hash}"`,'x-report-snapshot-hash':artifact.snapshot_hash,'x-report-export-hash':artifact.content_hash},rawBody:artifact.content};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='reports'&&parts[5]==='financial-statement-snapshot-proposals'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
@@ -3130,6 +3159,21 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.createNativeSalesReceipt!=='function')throw new AccountingApiError(503,'NATIVE_SALES_RECEIPT_UNAVAILABLE','Sales receipt creation is unavailable');
         result=await kernel.createNativeSalesReceipt(args);
         if(!exactKeys(result,['sales_receipt_id','journal_entry_id','status','revision','idempotent'].sort())||!UUID.test(result.sales_receipt_id||'')||!UUID.test(result.journal_entry_id||'')||result.status!=='DRAFT'||result.revision!==0||typeof result.idempotent!=='boolean')throw new AccountingApiError(500,'NATIVE_SALES_RECEIPT_INVALID','Sales receipt creation returned an unconfirmed receipt');
+      }else if(parts.length===6&&parts[4]==='ap'&&parts[5]==='expenses'){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','A new expense uses an idempotency key');
+        allowOnly(payload,['periodId','number','vendorRef','bankMemberRef','cashAccountCode','expenseAccountCode','date','currency','amount','reason','attachmentIds']);
+        if(typeof payload.amount!=='string')throw new AccountingApiError(400,'INVALID_AMOUNT','Expense amount must be decimal text');
+        const amount=requireDecimalAmount(payload.amount,'amount');
+        if(amount.startsWith('-')||!/[1-9]/.test(amount))throw new AccountingApiError(400,'INVALID_AMOUNT','Expense amount must be positive');
+        if([payload.number,payload.vendorRef,payload.bankMemberRef].some(value=>!boundedText(value,128)||value!==value.trim()||/[\u0000-\u001f\u007f]/.test(value)))throw new AccountingApiError(400,'INVALID_EXPENSE_INPUT','Number, vendor and bank must be valid company references');
+        if(typeof payload.currency!=='string'||!/^[A-Z]{3}$/.test(payload.currency))throw new AccountingApiError(400,'INVALID_CURRENCY','Currency must be a three-letter uppercase code');
+        const args={tenantId:principal.tenantId,entityId,periodId:requireUuid(payload.periodId,'periodId'),number:payload.number,vendorRef:payload.vendorRef,bankMemberRef:payload.bankMemberRef,
+          cashAccountCode:requireAccountCode(payload.cashAccountCode),expenseAccountCode:requireAccountCode(payload.expenseAccountCode),date:requireIsoDate(payload.date,'date'),currency:payload.currency,
+          amount,reason:requireReviewReason(payload.reason),attachmentIds:requireAttachmentIds(requireAttachmentIds(payload.attachmentIds).map(id=>id.toLowerCase())),idempotencyKey};
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.createNativeExpense!=='function')throw new AccountingApiError(503,'NATIVE_EXPENSE_UNAVAILABLE','Expense creation is unavailable');
+        result=await kernel.createNativeExpense(args);
+        if(!exactKeys(result,['expense_id','journal_entry_id','status','revision','idempotent'].sort())||!UUID.test(result.expense_id||'')||!UUID.test(result.journal_entry_id||'')||result.status!=='DRAFT'||result.revision!==0||typeof result.idempotent!=='boolean')throw new AccountingApiError(500,'NATIVE_EXPENSE_INVALID','Expense creation returned an unconfirmed receipt');
       }else if(parts.length===6&&parts[4]==='ar'&&parts[5]==='refunds'){
         throw new AccountingApiError(410,'ROUTE_RETIRED','Legacy AR refund creation is retired; use the evidence-bound native-refund route.');
       }else if(parts.length===8&&parts[4]==='ap'&&parts[5]==='payments'&&parts[7]==='reversals'){
@@ -3175,7 +3219,7 @@ export function createAccountingHttpServer({authenticate,kernelFactory,readKerne
       }
       for await(const chunk of req){size+=chunk.length;if(size>maxBodyBytes)throw new AccountingApiError(413,'BODY_TOO_LARGE','Request body exceeds limit');chunks.push(chunk);}
       let body=null;if(chunks.length){try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new AccountingApiError(400,'INVALID_JSON','Request body is not valid JSON');}}
-      const response=await dispatch({method:req.method,url:req.url,headers:req.headers,body});res.writeHead(response.status,{...response.headers,...cors});res.end(JSON.stringify(response.body));
+      const response=await dispatch({method:req.method,url:req.url,headers:req.headers,body});res.writeHead(response.status,{...response.headers,...cors});res.end(response.rawBody===undefined?JSON.stringify(response.body):response.rawBody);
     }catch(error){const problem=problemFor(error);res.writeHead(problem.status,problem.headers);res.end(JSON.stringify(problem.body));}
   });
 }

@@ -786,6 +786,20 @@ const statementProposalRow=value=>{
   return Object.freeze({...value,...Object.fromEntries(moneyFields.map(field=>[field,String(value[field])])),...Object.fromEntries(idFields.map(field=>[field,Object.freeze([...value[field]])]))});
 };
 
+export async function exportAuthoritativeFinancialStatementSnapshot({config,fetcher=globalThis.fetch,cryptoApi=globalThis.crypto}={}){
+ if(!config||typeof fetcher!=='function'||!UUID.test(config.entityId||'')||!UUID.test(config.periodId||'')||!cryptoApi?.subtle)return {ok:false,code:'STATEMENT_EXPORT_SCOPE_INVALID',message:'Report export requires one authoritative company and period.'};
+ const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+ try{
+  const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/reports/financial-statement-snapshot/export?periodId=${config.periodId}&format=csv`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'text/csv',...authorization}});
+  if(!response.ok)return await failure(response,'STATEMENT_EXPORT');
+  const contentType=response.headers?.get?.('content-type');if(contentType!=='text/csv; charset=utf-8')return {ok:false,code:'STATEMENT_EXPORT_PROTOCOL',message:'The accounting API returned an unexpected report export type.'};
+  const content=await response.text(),expectedHash=response.headers?.get?.('x-report-export-hash'),snapshotHash=response.headers?.get?.('x-report-snapshot-hash');
+  if(!SHA256.test(expectedHash||'')||!SHA256.test(snapshotHash||''))return {ok:false,code:'STATEMENT_EXPORT_PROTOCOL',message:'The report export did not include verifiable snapshot hashes.'};
+  const digest=`sha256:${hex(new Uint8Array(await cryptoApi.subtle.digest('SHA-256',new TextEncoder().encode(content))))}`;if(digest!==expectedHash)return {ok:false,code:'STATEMENT_EXPORT_PROTOCOL',message:'The report export hash did not match its downloaded content.'};
+  const disposition=response.headers?.get?.('content-disposition')||'',match=disposition.match(/filename="([A-Za-z0-9._-]{1,240})"/);if(!match)return {ok:false,code:'STATEMENT_EXPORT_PROTOCOL',message:'The report export did not include a safe filename.'};
+  return {ok:true,data:Object.freeze({content,filename:match[1],contentHash:expectedHash,snapshotHash})};
+ }catch{return unreachable('The report export could not be downloaded or verified; no file was retained.');}
+}
 export async function refreshAuthoritativeFinancialStatementSnapshotProposalQueue({config,limit=20,offset=0,fetcher=globalThis.fetch}={}){
   if(!config||typeof fetcher!=='function'||!UUID.test(config.entityId||'')||!UUID.test(config.periodId||'')||!Number.isSafeInteger(limit)||limit<1||limit>100||!Number.isSafeInteger(offset)||offset<0)return {ok:false,code:'STATEMENT_SNAPSHOT_PROPOSAL_QUEUE_SCOPE_INVALID',message:'Statement snapshot proposals require one authoritative entity, period, and valid page.'};
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
