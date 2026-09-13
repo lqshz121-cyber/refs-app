@@ -5530,7 +5530,14 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   await assert.rejects(matcher.createBankPaymentMatch({...matchArgs,idempotencyKey:'signed-bank-match-rejected-001'}),error=>error.code==='23514');
   await adminPool.query('DELETE FROM reconciliation WHERE reconciliation_id=$1',[signedAccountId]);
   // Bank-match evidence now exists, so the native settlement guard must stay in place. Validate the historical 323 function replacement transactionally instead of attempting a destructive chain rollback.
-  await probeMigrationRoundTrip(adminPool,'323_bank_match_serialization.sql','refs_create_bank_payment_match(uuid,uuid,uuid,uuid,bigint,bigint,text,text,text)');
+  await probeMigrationRoundTrip(
+    adminPool,
+    '323_bank_match_serialization.sql',
+    'refs_create_bank_payment_match(uuid,uuid,uuid,uuid,bigint,bigint,text,text,text)',
+    // Migration 324 owns the payment-candidate reader and is intentionally
+    // retained when 323 restores its pre-serialization implementation.
+    {expectedAfterDown:'refs_create_bank_payment_match(uuid,uuid,uuid,uuid,bigint,bigint,text,text,text)'}
+  );
   assert.equal((await matcher.createBankPaymentMatch(matchArgs)).bank_match_id,created.bank_match_id);
   await assert.rejects(otherMatcher.createBankPaymentMatch(matchArgs),error=>error.code==='42501');
   const evidence=(await adminPool.query('SELECT payment_occurrence_id,journal_entry_id,journal_line_id,ledger_line_id FROM bank_match WHERE bank_match_id=$1',[created.bank_match_id])).rows[0];
