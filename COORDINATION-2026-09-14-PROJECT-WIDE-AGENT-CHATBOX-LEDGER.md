@@ -109,3 +109,10 @@ These are release acceptance requirements, not completed evidence.
 - Fresh PostgreSQL 16 `ap-partial-payment-reversal-close` returned `REFS_POSTGRES_FIXTURE_SUITE_V1`, pass=true, 1/1, zero skip: a posted partial AP payment reversal restored the bill balance atomically.
 - Fresh PostgreSQL 16 `ar-credit-memo-allocation-close` returned `REFS_POSTGRES_FIXTURE_SUITE_V1`, pass=true, 1/1, zero skip: a posted AR credit memo applied partially then fully updated invoice balances atomically.
 - Each fixture ran in an owned isolated Docker project and removed its container, network, and volume. These are controlled local data paths, not production AP/AR balances, customer/vendor source evidence, or deployed readback.
+
+## 2026-09-14 cash-transfer local closure receipt — `9b015863`
+
+- Static Cash Transfer contracts passed 37/37 across public DTO, lifecycle, HTTP, OpenAPI, read surface, candidate pagination, attachment evidence, bank-leg evidence, canonical idempotency hash, CAS, SoD, tenant scope, and rollback protections.
+- Fresh PostgreSQL 16 `cash-transfer-close` returned `REFS_POSTGRES_FIXTURE_SUITE_V1`, pass=true, 1/1, zero skip. It exercised a two-bank Draft, separated approvals, and one retained posted ledger journal; its owned container, network, and volume were removed.
+- This is controlled local evidence only. Production bank controls, source transactions, approvals, deployed API/build SHA parity, and authenticated production readback remain unresolved.
+
