@@ -73,3 +73,9 @@ These are release acceptance requirements, not completed evidence.
 - Commit `06b0c9c0` validates the WBS twelve-sample `company_code` as a bounded canonical scope identifier before acceptance evidence is summarized. It prevents blank, mixed-format, and untrusted company scope values from entering the local verifier.
 - Local verification passed: `node --test tests/wbs-twelve-sample-acceptance.test.mjs tests/wbs-live-acceptance.test.mjs` (17/17); `npm.cmd run test:wbs-live-pilot` (live-pilot 21/21, twelve-sample 3/3, controlled test-import/bank chain 26/26). These are local contract results only.
 - The WBS twelve-sample production requirement remains open: it still requires twelve independently reviewable provider-signed packages, control totals, human review records, and authenticated same-release readback. No WBS write or provider assertion was made.
+
+## 2026-09-14 bank-reconciliation local closure receipt — `396d6496`
+
+- Local reconciliation contracts passed: `npm.cmd --prefix server run test:reconciliation` returned 4/4 pass.
+- Fresh PostgreSQL 16 passed `node runtime/test-postgres-fresh.mjs --pattern "reconciliation lifecycle is scoped, idempotent, separated by role, snapshotted, and reopen-gated|reconciliation adjustment Draft binds one unresolved bank source through Posted clearance, review, and immutable sign-off|Stage 2 test-data chain traces one reconciled bank payment through its posted JE, GL, TB and report rows"`: 3/3 pass, zero skip, and the owned container/network/volume were removed.
+- This covers local state, actor-bound idempotency, separated review/sign-off/reopen, immutable snapshot behavior, and Bank→Posted JE→GL/TB/report lineage. It does not prove a production bank statement, production reconciliation sign-off, deployed API SHA parity, or external provider evidence.
