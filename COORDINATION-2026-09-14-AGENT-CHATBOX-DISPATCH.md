@@ -4,7 +4,7 @@
 
 - Repository: `https://github.com/lqshz121-cyber/refs-app.git`
 - Integration checkout: this checkout only
-- Branch / SHA: `codex/374-postgres-syntax-verify` / `2b9e5d94dec5a17a8f15282fbf6012a39e8015ad` (local, not yet pushed)
+- Branch / SHA: `codex/374-postgres-syntax-verify` / `d183c9287cb49f2177de4b147f699ac381e54ade` (local, not yet pushed)
 - PR: #582 (draft)
 - Rule: no candidate is merged, deployed, or represented as production evidence until independently reviewed on the authoritative checkout and its applicable gates are green.
 
@@ -23,6 +23,7 @@
 | Attachment storage/scanning | Codex local containers | On `832511b3`, `npm.cmd --prefix server run test:attachments:containers` passed 5/5: MinIO object versioning, version-aware cleanup/retry, exact PostgreSQL audit/version binding, and ClamAV clean/EICAR detection. The isolated Docker project removed its containers, network, and volumes. | This is real local container evidence only. It does not prove the configured production S3 bucket, scanner endpoint, IAM, retention policy, or deployed runtime. | Same-release provider lifecycle receipt from the configured object store/scanner plus authenticated attachment readback. |
 | Core PostgreSQL business closures | Codex local PostgreSQL 16 fixtures | On `c1a11a9d`, independent fresh fixtures passed with zero skips and cleanup: `controlled-ap-close` (AP Bill → four-role Post → GL/TB/AP Aging), `signed-wbs-payable-post` (provider-signed payable → Review/Draft → four-role Post → same-JE reports), and `bank-reconcile-close` (reconciled bank payment → Posted JE → GL/TB/report). | These are isolated test-data containers, not a production provider or live deployment. The backup/restore run remains uncredited because its external process exit code was not captured. | Current-SHA CI plus same-release authenticated read-only production chains, provider artifacts, and an independently retained backup/restore receipt. |
 | Real-estate and intercompany PostgreSQL closures | Codex local PostgreSQL 16 fixtures | On `9b6778b7`, independent fresh fixtures passed with zero skips and cleanup: `cwip-rollforward-close` (CWIP immutable mapping snapshot → posted ledger), `construction-loan-rollforward-close` (credit-normal construction-loan liability mapping → posted ledger), and `intercompany-reconciliation-close` (two authorized scopes, reciprocal mappings, posted evidence, no elimination creation). | These prove local controlled data and enforcement paths only; they do not establish production mapping approval, real project balances, or consolidated production statements. | Current-SHA CI plus same-release authenticated report/source readback for project, loan, intercompany, and consolidation populations. |
+| Extended financial-statement PostgreSQL closures | Codex local PostgreSQL 16 fixtures | On d183c928, fresh zero-skip fixtures passed with complete Docker cleanup: consolidation-close (approved immutable two-member scope + explicit elimination evidence; no elimination JE), cash-flow-close (POSTED cash only through one exact approved mapping snapshot), and prepaid-rollforward-close (debit-normal asset through one immutable mapping snapshot with posted-ledger evidence). | These are controlled local data paths. They do not prove production approval populations, deployed report data, or live consolidation outputs. | Current-SHA CI plus authenticated, read-only report and source-evidence parity for each population. |
 | Render | Existing paid services; no new spend | User has logged in; deployment and paid-resource changes remain outside current authorization. | Keep as a verification lane only after code gates are green. Prepare exact health/read-only acceptance plan before any action that changes services. | Read-only production identity/health evidence and release-SHA parity. |
 
 ## Dispatch protocol
@@ -35,7 +36,7 @@
 
 ## Immediate sequence
 
-1. Restore GitHub connectivity, push `2b9e5d94`, and record the resulting current-SHA CI URLs and outcomes.
+1. Restore GitHub connectivity, push `d183c928`, and record the resulting current-SHA CI URLs and outcomes.
 2. Re-run the fresh PostgreSQL 15/16/18 gates and preserve their zero-skip receipts.
 3. Review and selectively port the Chatbox UI candidate only after its exact diff is independently validated on this checkout.
 4. Continue the next accounting vertical from the requirement ledger, beginning with a verifiable WBS raw-to-draft trace and accounting controls, not a mock UI-only surface.
