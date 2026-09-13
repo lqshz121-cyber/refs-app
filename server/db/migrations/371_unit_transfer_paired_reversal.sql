@@ -217,7 +217,7 @@ BEGIN
  fn:=pg_get_functiondef('refs_guard_unit_transfer_journal_transition()'::regprocedure);
  patched:=replace(fn,'public.refs_guard_unit_transfer_journal_transition()','public.refs_guard_unit_transfer_journal_transition_370()');
  IF patched=fn THEN RAISE EXCEPTION 'Unable to retain 370 Unit Transfer Journal guard' USING ERRCODE='55000'; END IF;
- EXECUTE patched||';';
+ BEGIN BEGIN EXECUTE patched||';'; EXCEPTION WHEN syntax_error THEN RAISE EXCEPTION 'Unit Transfer migration journal guard extension definition is invalid' USING ERRCODE='42601'; END; EXCEPTION WHEN syntax_error THEN RAISE EXCEPTION 'Unit Transfer migration journal guard backup definition is invalid' USING ERRCODE='42601'; END;
  patched:=replace(fn,'DECLARE pair unit_transfer_pair;gate integer;','DECLARE pair unit_transfer_pair;reversal_pair unit_transfer_reversal_pair;gate integer;');
  patched:=replace(patched,$needle$ SELECT * INTO pair FROM unit_transfer_pair WHERE tenant_id=NEW.tenant_id$needle$,$replacement$ SELECT * INTO reversal_pair FROM unit_transfer_reversal_pair r WHERE r.tenant_id=NEW.tenant_id AND(r.source_entity_id=NEW.entity_id AND r.source_reversal_journal_entry_id=NEW.journal_entry_id OR r.target_entity_id=NEW.entity_id AND r.target_reversal_journal_entry_id=NEW.journal_entry_id) FOR UPDATE;
  IF FOUND THEN
