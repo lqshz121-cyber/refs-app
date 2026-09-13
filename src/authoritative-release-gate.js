@@ -2,14 +2,14 @@
 // inspect without an OIDC token.  Confirm it before starting identity or
 // requesting accounting rows so a partially promoted Render deployment cannot
 // be mistaken for an accounting-data protocol failure.
-const GIT_SHA = /^[0-9a-f]{7,64}$/i;
+const GIT_SHA = /^[0-9a-f]{40}$/i;
 
 const releaseStamp = value => typeof value === 'string' && GIT_SHA.test(value.trim()) ? value.trim().toLowerCase() : null;
 
 export const releaseStampsMatch = (clientRelease, apiRelease) => {
   const client = releaseStamp(clientRelease);
   const api = releaseStamp(apiRelease);
-  return Boolean(client && api && (client === api || client.startsWith(api) || api.startsWith(client)));
+  return Boolean(client && api && client === api);
 };
 
 const failure = (code, message) => ({ ok:false, code, message });
