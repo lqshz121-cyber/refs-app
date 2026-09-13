@@ -27,6 +27,7 @@ export const FIXTURES=Object.freeze([
   Object.freeze({id:'native-expense-close',pattern:'native expense creates, preserves evidence, posts through normal approval, and rejects journal drift atomically'}),
   Object.freeze({id:'unit-transfer-close',pattern:'Unit Transfer creates a dual-entity Draft, applies separated approvals, posts both ledgers, and transfers the unit atomically'}),
   Object.freeze({id:'cash-transfer-close',pattern:'Cash Transfer creates a two-bank Draft, applies separated approvals, and posts one retained ledger journal'}),
+  Object.freeze({id:'ap-partial-payment-reversal-close',pattern:'AP payment partial occurrence posts and reversal restores bill balance atomically'}),
   // PostgreSQL test modules own process-level pools. Keep each report closure in
   // its own process so a slow report teardown cannot hide another passing closure.
   Object.freeze({id:'dimension-profitability-close',pattern:'dimension profitability reads only exact POSTED ledger dimensions and never fills a missing property, project, unit, or lot'}),
