@@ -52,3 +52,17 @@
 - Production object-store/scanner/IAM lifecycle and retained backup/restore evidence.
 
 These are release acceptance requirements, not completed evidence.
+
+## 2026-09-14 integration update — `596f72b3450501242558990909181c5daf5b74d8`
+
+- The authoritative integration tip is now `596f72b3450501242558990909181c5daf5b74d8` on `codex/374-postgres-syntax-verify`; it supersedes the `96b4a480` tip recorded in the original table.
+- Commit `596f72b3` serializes `pgTest` database sections because the suite intentionally shares one migrated database, repairs syntax in the unshipped 407/408 rollback migrations, and updates only their manifest checksums. Applied migration 305 was not modified.
+- Fresh PostgreSQL 16 passed `node runtime/test-postgres-fresh.mjs --pattern "concurrent up and down runners serialize on the same advisory lock"`: 1/1 pass, zero skip, owned container/network/volume removed. The test preserves the migration-305 immutable boundary and restores the full manifest after the competing down/up runs.
+- Static 407/408 migration contracts passed 2/2. Fresh PostgreSQL 16 issuer-context tests passed 2/2, zero skip, with owned resources removed.
+- This is local integration evidence only. Current-SHA remote CI, a staged Render SHA/read-only inspection, provider-signed WBS sample evidence, and all production acceptance receipts remain unresolved.
+
+### Updated dispatch order
+
+1. Do not dispatch a new Chatbox candidate or a broad test run while a fresh PostgreSQL gate is active.
+2. Claude receives only root-level, dated, read/reason/write task files whose source SHA is `596f72b3450501242558990909181c5daf5b74d8` or newer; reports remain non-integration evidence until reviewed here.
+3. Before any release review, regenerate the local evidence bundle from a clean checkout at the final candidate SHA. No push, deployment, financial posting, role change, or paid-resource change is authorized by this ledger.
