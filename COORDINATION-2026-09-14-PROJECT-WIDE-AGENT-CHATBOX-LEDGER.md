@@ -97,3 +97,9 @@ These are release acceptance requirements, not completed evidence.
   - `intercompany-reconciliation-close`: two authorized entity scopes, reciprocal exact mappings and posted evidence without creating an elimination.
   - `consolidation-close`: approved immutable two-member scope, explicit elimination evidence, and no elimination journal creation.
 - These prove controlled local report paths and guardrails only. They do not prove production mapping approvals, live source populations, deployed report data, or any production consolidation/close result.
+
+## 2026-09-14 attachment and recovery local closure receipt — `1e53cb79`
+
+- `npm.cmd --prefix server run test:attachments:containers` passed 5/5 in an owned local Docker project: MinIO versioning, version-aware cleanup/retry, exact PostgreSQL audit/object-version binding, and ClamAV clean/EICAR behavior. Its containers, network, and volumes were removed.
+- `npm.cmd --prefix server run test:backup:restore` emitted `REFS_BACKUP_RESTORE_DRILL_V1`, pass=true: an isolated PostgreSQL 16 project applied 417 migrations, persisted tenant `BKDRILL`, executed `pg_dump`/`pg_restore`, verified migration count and restored tenant, then removed its container/network/volume.
+- These are local container receipts only. Production bucket/scanner/IAM/retention, backup retention, cross-region recovery, RPO/RTO, deployed secrets, and production restore verification remain unresolved.
