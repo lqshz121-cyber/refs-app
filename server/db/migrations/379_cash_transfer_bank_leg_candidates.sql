@@ -1,4 +1,5 @@
 BEGIN;
+REVOKE ALL ON cash_transfer, cash_transfer_bank_account_control, bank_source FROM refs_app;
 DO $$
 BEGIN
  IF NOT EXISTS(SELECT 1 FROM pg_class WHERE oid='cash_transfer'::regclass AND relrowsecurity)
