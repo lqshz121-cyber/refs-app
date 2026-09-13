@@ -1602,11 +1602,10 @@ pgTest('provider-signed Payable admission atomically reaches Review Draft four-r
   const acceptanceWbsOnly=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'acceptance-wbs-only',['WBS.AUTOREC.VIEW'])});
   await assert.rejects(acceptanceWbsOnly.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}),error=>error.code==='42501');
 
-  await migrateDownThrough(adminPool,'329_wbs_payable_acceptance_evidence_read.sql');
-  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_wbs_payable_acceptance_evidence(uuid,uuid,uuid)') fn")).rows[0].fn,null);
-  await assert.rejects(acceptanceReader.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}),error=>error.code==='42883');
-  await migrateUp(adminPool);
-  assert.ok((await adminPool.query("SELECT to_regprocedure('refs_read_wbs_payable_acceptance_evidence(uuid,uuid,uuid)') fn")).rows[0].fn);
+  // Verify the historical read migration in a transaction.  The surrounding
+  // scenario has now posted retained AP evidence, so walking every newer down
+  // migration would correctly stop at the native-settlement evidence guard.
+  await probeMigrationRoundTrip(adminPool,'329_wbs_payable_acceptance_evidence_read.sql','refs_read_wbs_payable_acceptance_evidence(uuid,uuid,uuid)');
   assert.deepEqual(await acceptanceReader.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}),acceptance);
 
   const postedState=(await adminPool.query(`SELECT d.status document_status,d.open_balance::text,d.draft_journal_entry_id,d.posted_journal_entry_id,j.status::text journal_status,s.status::text staging_status,s.version::text staging_version,
@@ -5493,9 +5492,9 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   await assert.rejects(matcher.readPaymentBankCandidates({...ids,bankSourceId,afterId:randomUUID()}),error=>error.code==='22023');
   const deniedCandidates=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'candidate-viewer',['BANK.VIEW'])});
   await assert.rejects(deniedCandidates.readPaymentBankCandidates({...ids,bankSourceId}),error=>error.code==='42501');
-  await migrateDownThrough(adminPool,'324_payment_bank_candidates.sql');
-  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_payment_bank_candidates(uuid,uuid,uuid,uuid,integer)') IS NULL missing")).rows[0].missing,true);
-  await migrateUp(adminPool);
+  // This historical reader is probed in a transaction so retained settlement
+  // evidence remains protected by all later migration down guards.
+  await probeMigrationRoundTrip(adminPool,'324_payment_bank_candidates.sql','refs_read_payment_bank_candidates(uuid,uuid,uuid,uuid,integer)');
   assert.deepEqual((await matcher.readPaymentBankCandidates({...ids,bankSourceId,limit:1})),paymentPage.body.data);
   const matchArgs={...ids,bankSourceId,paymentOccurrenceId:exact.payment.payment_occurrence_id,expectedBankVersion:0,expectedOccurrenceVersion:1,reason:'Reviewed exact posted AP payment',idempotencyKey:'bank-match-exact-001'};
   const matchingBarrier=await adminPool.connect();let matching;
