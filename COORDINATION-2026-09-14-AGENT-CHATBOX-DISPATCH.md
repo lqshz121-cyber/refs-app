@@ -4,7 +4,7 @@
 
 - Repository: `https://github.com/lqshz121-cyber/refs-app.git`
 - Integration checkout: this checkout only
-- Branch / SHA: `codex/374-postgres-syntax-verify` / `8a425a3d3a5f449d0f676f774c7407e7ad3ee8d5` (local, not yet pushed)
+- Branch / SHA: `codex/374-postgres-syntax-verify` / `2b9e5d94dec5a17a8f15282fbf6012a39e8015ad` (local, not yet pushed)
 - PR: #582 (draft)
 - Rule: no candidate is merged, deployed, or represented as production evidence until independently reviewed on the authoritative checkout and its applicable gates are green.
 
@@ -18,7 +18,7 @@
 | Outbox consumer | Codex CI | Historical run `34771337891` passed for PostgreSQL 15/16/18 on an earlier SHA. | Do not use historical success as current-SHA evidence; rerun through CI after push. | GitHub completed-success checks for the current SHA. |
 | Immutable settlement migration review | Claude | `CLAUDE-TO-CODEX-2026-09-14-MIGRATION-305-STATIC-REVIEW.md` confirms applied migration bytes must remain unchanged and a forward migration plus manifest/down/test is required. | Use as design review only: Claude mount is stale and dirty. No patch may be lifted from it. Any future settlement correction is an additive migration on this checkout. | Review incorporated; additive migration fresh/upgraded/down retained-row tests pass. |
 | Claude routing | Claude | Mount is at branch `claude/wbs-accounting-correctness-20260807`, SHA `98dcb137...`, with unusable shell/toolchain and many uncommitted historical files. | Route Claude only read/write document and static-review tasks. Give exact root-level task files and inline source excerpts when the task needs newer files. | A dated `CLAUDE-TO-CODEX-*` report that identifies evidence and limits. |
-| Chatbox authoritative UI | Chatbox candidate checkout | Candidate branch `codex/qb-expenses-20260911`, base `1b4ce41e...`, four uncommitted files: `index.html`, `src/authoritative-topbar.jsx`, `tests/authoritative-full-shell.test.jsx`, `tests/navigation-a11y.test.js`. | After PR #582 CI finishes, inspect the exact diff, reapply only needed semantic/a11y improvements onto a clean authoritative branch, then run build and target tests. Do not merge the foreign worktree or copy broad UI changes. | Review notes, clean patch, build and named tests passing; visual/runtime evidence if changed UI is user-facing. |
+| Chatbox authoritative UI | Chatbox candidate checkout | Candidate branch `codex/qb-expenses-20260911`, base `1b4ce41e...`, four uncommitted files: `index.html`, `src/authoritative-topbar.jsx`, `tests/authoritative-full-shell.test.jsx`, `tests/navigation-a11y.test.js`. | The scoped semantic/a11y topbar improvement was independently ported as `2b9e5d94` and passed the authoritative shell, navigation a11y, build, and 64/64 visual gate. The evidence-manifest tool changes were rejected because they relax the clean-checkout publication boundary. Do not merge the foreign worktree or copy other broad UI/tool changes. | Review notes, clean patch, build and named tests passing; visual/runtime evidence if changed UI is user-facing. |
 | WBS / QBO evidence | User-authorized read-only systems | QBO/WBS are read-only; no live-write authority. | Maintain source evidence and immutable trace. Do not infer formal ledger entries from displayed reports. | Dated raw/normalized/staging trace with control totals and review approval. |
 | Render | Existing paid services; no new spend | User has logged in; deployment and paid-resource changes remain outside current authorization. | Keep as a verification lane only after code gates are green. Prepare exact health/read-only acceptance plan before any action that changes services. | Read-only production identity/health evidence and release-SHA parity. |
 
@@ -32,7 +32,7 @@
 
 ## Immediate sequence
 
-1. Restore GitHub connectivity, push `8a425a3d`, and record the resulting current-SHA CI URLs and outcomes.
+1. Restore GitHub connectivity, push `2b9e5d94`, and record the resulting current-SHA CI URLs and outcomes.
 2. Re-run the fresh PostgreSQL 15/16/18 gates and preserve their zero-skip receipts.
 3. Review and selectively port the Chatbox UI candidate only after its exact diff is independently validated on this checkout.
 4. Continue the next accounting vertical from the requirement ledger, beginning with a verifiable WBS raw-to-draft trace and accounting controls, not a mock UI-only surface.
