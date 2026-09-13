@@ -16,6 +16,7 @@ test('twelve sample acceptance requires unique signed, manually reviewed, posted
 test('twelve sample acceptance rejects incomplete counts, duplicate evidence, and missing online readback',()=>{
   const tooFew=manifest();tooFew.samples.pop();assert.throws(()=>verifyWbsTwelveSampleAcceptance(tooFew),{code:'WBS_TWELVE_SAMPLE_MANIFEST_INVALID'});
   const impossible=manifest();impossible.verified_at='2026-02-30T00:00:00.000Z';assert.throws(()=>verifyWbsTwelveSampleAcceptance(impossible),{code:'WBS_TWELVE_SAMPLE_MANIFEST_INVALID'});
+  const malformedCompany=manifest();malformedCompany.samples[0].company_code=' untrusted company ';assert.throws(()=>verifyWbsTwelveSampleAcceptance(malformedCompany),{code:'WBS_TWELVE_SAMPLE_INVALID'});
   const repeated=manifest();repeated.samples[11].package_hash=repeated.samples[0].package_hash;assert.throws(()=>verifyWbsTwelveSampleAcceptance(repeated),{code:'WBS_TWELVE_SAMPLE_DUPLICATE_EVIDENCE'});
   const replayed=manifest();replayed.samples[11].bank_source_record_id=replayed.samples[0].bank_source_record_id;assert.throws(()=>verifyWbsTwelveSampleAcceptance(replayed),{code:'WBS_TWELVE_SAMPLE_DUPLICATE_EVIDENCE'});
   const unverified=manifest();unverified.samples[0].authoritative_api_readback_verified=false;assert.throws(()=>verifyWbsTwelveSampleAcceptance(unverified),{code:'WBS_TWELVE_SAMPLE_INCOMPLETE'});
