@@ -105,7 +105,7 @@ CREATE TRIGGER unit_transfer_ic_open_item_protect BEFORE INSERT OR UPDATE OR DEL
 DO $unit_transfer_post_patch$DECLARE fn text;patched text;BEGIN
  fn:=pg_get_functiondef('refs_post_unit_transfer_pair(uuid,uuid,uuid,bigint,bigint,bigint,text,text)'::regprocedure);
  patched:=replace(fn,'public.refs_post_unit_transfer_pair(','public.refs_post_unit_transfer_pair_370(');
- IF patched=fn THEN RAISE EXCEPTION 'Unable to retain 370 Unit Transfer Post function' USING ERRCODE='55000';END IF;BEGIN BEGIN BEGIN EXECUTE patched||';'; EXCEPTION WHEN syntax_error THEN RAISE EXCEPTION 'Unit Transfer migration Post extension definition is invalid' USING ERRCODE='42601'; END; EXCEPTION WHEN syntax_error THEN RAISE EXCEPTION 'Unit Transfer migration Post backup definition is invalid' USING ERRCODE='42601'; END; EXCEPTION WHEN syntax_error THEN RAISE EXCEPTION 'Unit Transfer migration post backup definition is invalid' USING ERRCODE='42601'; END;
+ IF patched=fn THEN RAISE EXCEPTION 'Unable to retain 370 Unit Transfer Post function' USING ERRCODE='55000';END IF;BEGIN EXECUTE patched; EXCEPTION WHEN syntax_error THEN RAISE EXCEPTION 'Unit Transfer migration post backup definition is invalid' USING ERRCODE='42601'; END;
  patched:=replace(fn,$needle$ INSERT INTO unit_transfer_internal_gate VALUES(pg_backend_pid(),txid_current(),p_tenant,p_pair,'UNIT',pair.unit_control_id,'TRANSFERRED');$needle$,$replacement$
  INSERT INTO unit_transfer_internal_gate VALUES(pg_backend_pid(),txid_current(),p_tenant,p_pair,'IC_OPEN_ITEM',pair.source_journal_entry_id,'OPEN');
  INSERT INTO unit_transfer_ic_open_item(tenant_id,unit_transfer_pair_id,entity_id,counterparty_entity_id,journal_entry_id,ledger_line_id,direction,currency,account_code,counterparty_member_ref,original_amount,remaining_amount,status,settlement_authority_ref,evidence_hash)
@@ -117,7 +117,7 @@ DO $unit_transfer_post_patch$DECLARE fn text;patched text;BEGIN
  FROM ledger_line ll JOIN journal_line jl ON jl.tenant_id=ll.tenant_id AND jl.entity_id=ll.entity_id AND jl.journal_line_id=ll.journal_line_id WHERE ll.tenant_id=p_tenant AND ll.entity_id=pair.target_entity_id AND ll.journal_entry_id=pair.target_journal_entry_id AND ll.posting_batch_id=(target_result->>'posting_batch_id')::uuid AND ll.account_code=pair.target_due_to_account_code AND ll.credit_amount=pair.transfer_price AND ll.debit_amount=0 AND jl.dimensions->>'counterparty_entity_id'=pair.source_entity_id::text;
  IF (SELECT count(*) FROM unit_transfer_ic_open_item i WHERE i.tenant_id=p_tenant AND i.unit_transfer_pair_id=p_pair AND i.status='OPEN')<>2 THEN RAISE EXCEPTION 'Unit Transfer paired Post did not produce exact reciprocal IC open items' USING ERRCODE='23514';END IF;
  INSERT INTO unit_transfer_internal_gate VALUES(pg_backend_pid(),txid_current(),p_tenant,p_pair,'UNIT',pair.unit_control_id,'TRANSFERRED');$replacement$);
- IF patched=fn THEN RAISE EXCEPTION 'Unable to extend Unit Transfer Post with IC open items' USING ERRCODE='55000';END IF;BEGIN EXECUTE patched||';'; EXCEPTION WHEN syntax_error THEN RAISE EXCEPTION 'Unit Transfer migration post extension definition is invalid' USING ERRCODE='42601'; END;
+ IF patched=fn THEN RAISE EXCEPTION 'Unable to extend Unit Transfer Post with IC open items' USING ERRCODE='55000';END IF;BEGIN EXECUTE patched; EXCEPTION WHEN syntax_error THEN RAISE EXCEPTION 'Unit Transfer migration post extension definition is invalid' USING ERRCODE='42601'; END;
 END;
 $unit_transfer_post_patch$;
 REVOKE ALL ON FUNCTION refs_post_unit_transfer_pair_370(uuid,uuid,uuid,bigint,bigint,bigint,text,text) FROM PUBLIC,refs_app;
@@ -217,7 +217,7 @@ BEGIN
  fn:=pg_get_functiondef('refs_guard_unit_transfer_journal_transition()'::regprocedure);
  patched:=replace(fn,'public.refs_guard_unit_transfer_journal_transition()','public.refs_guard_unit_transfer_journal_transition_370()');
  IF patched=fn THEN RAISE EXCEPTION 'Unable to retain 370 Unit Transfer Journal guard' USING ERRCODE='55000'; END IF;
- BEGIN BEGIN EXECUTE patched||';'; EXCEPTION WHEN syntax_error THEN RAISE EXCEPTION 'Unit Transfer migration journal guard extension definition is invalid' USING ERRCODE='42601'; END; EXCEPTION WHEN syntax_error THEN RAISE EXCEPTION 'Unit Transfer migration journal guard backup definition is invalid' USING ERRCODE='42601'; END;
+ BEGIN BEGIN EXECUTE patched; EXCEPTION WHEN syntax_error THEN RAISE EXCEPTION 'Unit Transfer migration journal guard extension definition is invalid' USING ERRCODE='42601'; END; EXCEPTION WHEN syntax_error THEN RAISE EXCEPTION 'Unit Transfer migration journal guard backup definition is invalid' USING ERRCODE='42601'; END;
  patched:=replace(fn,'DECLARE pair unit_transfer_pair;gate integer;','DECLARE pair unit_transfer_pair;reversal_pair unit_transfer_reversal_pair;gate integer;');
  patched:=replace(patched,$needle$ SELECT * INTO pair FROM unit_transfer_pair WHERE tenant_id=NEW.tenant_id$needle$,$replacement$ SELECT * INTO reversal_pair FROM unit_transfer_reversal_pair r WHERE r.tenant_id=NEW.tenant_id AND(r.source_entity_id=NEW.entity_id AND r.source_reversal_journal_entry_id=NEW.journal_entry_id OR r.target_entity_id=NEW.entity_id AND r.target_reversal_journal_entry_id=NEW.journal_entry_id) FOR UPDATE;
  IF FOUND THEN
@@ -234,7 +234,7 @@ BEGIN
  END IF;
  SELECT * INTO pair FROM unit_transfer_pair WHERE tenant_id=NEW.tenant_id$replacement$);
  IF patched=fn OR patched NOT LIKE '%unit_transfer_reversal_pair%' THEN RAISE EXCEPTION 'Unable to extend Unit Transfer Journal guard' USING ERRCODE='55000'; END IF;
- EXECUTE patched||';';
+ EXECUTE patched;
 END;
 $unit_transfer_journal_guard_patch$;
 REVOKE ALL ON FUNCTION refs_guard_unit_transfer_journal_transition_370() FROM PUBLIC,refs_app;
@@ -368,11 +368,11 @@ BEGIN
  fn:=pg_get_functiondef('refs_read_unit_transfer_pair(uuid,uuid,uuid)'::regprocedure);
  patched:=replace(fn,'public.refs_read_unit_transfer_pair(','public.refs_read_unit_transfer_pair_370(');
  IF patched=fn THEN RAISE EXCEPTION 'Unable to retain 370 Unit Transfer read function' USING ERRCODE='55000'; END IF;
- BEGIN EXECUTE patched||';'; EXCEPTION WHEN syntax_error THEN RAISE EXCEPTION 'Unit Transfer migration read backup definition is invalid' USING ERRCODE='42601'; END;
+ BEGIN EXECUTE patched; EXCEPTION WHEN syntax_error THEN RAISE EXCEPTION 'Unit Transfer migration read backup definition is invalid' USING ERRCODE='42601'; END;
  patched:=replace(fn,$needle$'elimination_basis',elimination,'created_by'$needle$,$replacement$'elimination_basis',elimination,'reversal_history',COALESCE((SELECT jsonb_agg(refs_read_unit_transfer_reversal_pair(p_tenant,p_entity,p.unit_transfer_pair_id,r.unit_transfer_reversal_pair_id) ORDER BY r.created_at,r.unit_transfer_reversal_pair_id) FROM unit_transfer_reversal_pair r WHERE r.tenant_id=p_tenant AND r.original_unit_transfer_pair_id=p.unit_transfer_pair_id),'[]'::jsonb),'active_reversal',(SELECT refs_read_unit_transfer_reversal_pair(p_tenant,p_entity,p.unit_transfer_pair_id,r.unit_transfer_reversal_pair_id) FROM unit_transfer_reversal_pair r WHERE r.tenant_id=p_tenant AND r.original_unit_transfer_pair_id=p.unit_transfer_pair_id AND r.status NOT IN('POSTED_PAIR','CANCELLED_PAIR') ORDER BY r.created_at DESC,r.unit_transfer_reversal_pair_id DESC LIMIT 1),'created_by'$replacement$);
  patched:=replace(patched,$needle$'can_post',p.status='APPROVED_PAIR'$needle$,$replacement$'can_reverse',refs_unit_transfer_can_reverse(p_tenant,p,u),'can_post',p.status='APPROVED_PAIR'$replacement$);
  IF patched=fn THEN RAISE EXCEPTION 'Unable to extend Unit Transfer read with paired reversal' USING ERRCODE='55000'; END IF;
- BEGIN EXECUTE patched||';'; EXCEPTION WHEN syntax_error THEN RAISE EXCEPTION 'Unit Transfer migration read extension definition is invalid' USING ERRCODE='42601'; END;
+ BEGIN EXECUTE patched; EXCEPTION WHEN syntax_error THEN RAISE EXCEPTION 'Unit Transfer migration read extension definition is invalid' USING ERRCODE='42601'; END;
 END;
 $unit_transfer_read_patch$;
 REVOKE ALL ON FUNCTION refs_read_unit_transfer_pair_370(uuid,uuid,uuid) FROM PUBLIC,refs_app;
