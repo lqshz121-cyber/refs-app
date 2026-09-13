@@ -66,3 +66,10 @@ These are release acceptance requirements, not completed evidence.
 1. Do not dispatch a new Chatbox candidate or a broad test run while a fresh PostgreSQL gate is active.
 2. Claude receives only root-level, dated, read/reason/write task files whose source SHA is `596f72b3450501242558990909181c5daf5b74d8` or newer; reports remain non-integration evidence until reviewed here.
 3. Before any release review, regenerate the local evidence bundle from a clean checkout at the final candidate SHA. No push, deployment, financial posting, role change, or paid-resource change is authorized by this ledger.
+
+## 2026-09-14 WBS local-control update — `06b0c9c0`
+
+- The authoritative integration tip is `06b0c9c0` on `codex/374-postgres-syntax-verify`.
+- Commit `06b0c9c0` validates the WBS twelve-sample `company_code` as a bounded canonical scope identifier before acceptance evidence is summarized. It prevents blank, mixed-format, and untrusted company scope values from entering the local verifier.
+- Local verification passed: `node --test tests/wbs-twelve-sample-acceptance.test.mjs tests/wbs-live-acceptance.test.mjs` (17/17); `npm.cmd run test:wbs-live-pilot` (live-pilot 21/21, twelve-sample 3/3, controlled test-import/bank chain 26/26). These are local contract results only.
+- The WBS twelve-sample production requirement remains open: it still requires twelve independently reviewable provider-signed packages, control totals, human review records, and authenticated same-release readback. No WBS write or provider assertion was made.
