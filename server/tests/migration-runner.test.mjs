@@ -96,7 +96,7 @@ test('checksum mismatch remains fail closed; log failures and arbitrary metadata
   assert.equal(logs.at(-1).elapsed_ms,25);
   await observeMigration(MIGRATION_MANIFEST[0].name,'up',async()=>{}, {onEvent:()=>{throw Error('logger unavailable');}});
   assert.equal(safeMigrationErrorCode({code:'Bearer sensitive'}),'MIGRATION_RUN_FAILED');
-  assert.equal(safeMigrationErrorPosition({position:'42'}),42);assert.equal(safeMigrationErrorPosition({position:42}),42);assert.equal(safeMigrationErrorPosition({position:'0'}),undefined);assert.equal(safeMigrationErrorPosition({position:'password=secret'}),undefined);
+  assert.equal(safeMigrationErrorPosition({position:'42'}),42);assert.equal(safeMigrationErrorPosition({internalPosition:'43'}),43);assert.equal(safeMigrationErrorPosition({position:42}),42);assert.equal(safeMigrationErrorPosition({position:'0'}),undefined);assert.equal(safeMigrationErrorPosition({position:'password=secret'}),undefined);
   assert.equal(safeMigrationErrorWhere({where:'PL/pgSQL function inline_code_block line 17 at EXECUTE'}),'PL/pgSQL function inline_code_block line 17 at EXECUTE');
   assert.equal(safeMigrationErrorWhere({where:'PL/pgSQL function inline_code_block line 17 at EXECUTE; SELECT secret'}),undefined);
   const bad=[];

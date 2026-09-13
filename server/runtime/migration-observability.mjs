@@ -10,7 +10,7 @@ export function safeMigrationErrorCode(error){
 }
 
 export function safeMigrationErrorPosition(error){
-  const position=error?.position;
+  const position=error?.position??error?.internalPosition;
   return (typeof position==='string'&&/^[1-9]\d{0,8}$/.test(position))||(Number.isSafeInteger(position)&&position>0&&position<=999999999)?Number(position):undefined;
 }
 
