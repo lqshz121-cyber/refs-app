@@ -5,7 +5,7 @@
 - Repository: `C:\Users\lqshz\Documents\Codex\2026-09-06\task-continuation-019fbdb6-9\work\refs-accounting-settings-authoritative`
 - Remote: `https://github.com/lqshz121-cyber/refs-app.git`
 - Production branch: `main`
-- Current pushed SHA: `5500ceac1891b4dfb707df90b8d5decff24a8f45`
+- Current pushed SHA: `18be517d2908aa58ee00a909498535d154b348fa`
 
 Do not use the obsolete `work\refs-app` checkout at SHA `98dcb137`.
 
