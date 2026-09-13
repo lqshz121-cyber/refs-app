@@ -1,5 +1,6 @@
 BEGIN;
 ALTER TABLE recurring_schedule_exception DROP CONSTRAINT IF EXISTS recurring_schedule_exception_tenant_entity_run_fkey;
+ALTER TABLE recurring_schedule_run DROP CONSTRAINT IF EXISTS recurring_schedule_run_tenant_entity_uq;
 ALTER TABLE recurring_schedule_exception DROP CONSTRAINT IF EXISTS recurring_schedule_exception_tenant_entity_fkey;
 ALTER TABLE recurring_schedule DROP CONSTRAINT IF EXISTS recurring_schedule_tenant_entity_fkey;
 ALTER TABLE recurring_schedule ADD CONSTRAINT recurring_schedule_entity_id_fkey FOREIGN KEY(entity_id) REFERENCES entity(entity_id);
