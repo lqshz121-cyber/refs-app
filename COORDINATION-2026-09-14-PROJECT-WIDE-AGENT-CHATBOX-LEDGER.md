@@ -86,3 +86,14 @@ These are release acceptance requirements, not completed evidence.
 - `npm.cmd --prefix server run test:unit-transfer` passed 31/31: evidence-bound paired Drafts, three-revision CAS, dual-entity approval and post flow, controlled reversals, tenant/role isolation, private gates, audit/outbox, reciprocal intercompany open items, and rollback protections.
 - `node runtime/run-postgres-fixture-suite.mjs --fixture unit-transfer-close` returned `REFS_POSTGRES_FIXTURE_SUITE_V1`, pass=true, 1/1, zero skip, using PostgreSQL 16 and removing its owned container/network/volume. It proves the controlled local chain from dual-entity Draft through separated approvals and atomic post to ownership transfer readback.
 - This remains isolated local fixture evidence. Production source ownership, approved mappings, intercompany settlement, deployed API SHA parity, and authenticated production readback remain required for release acceptance.
+
+## 2026-09-14 real-estate report local closures — `a3fd31fa`
+
+- Fresh PostgreSQL 16 fixture-suite receipts all returned `REFS_POSTGRES_FIXTURE_SUITE_V1`, pass=true, 1/1, zero skip, with owned container/network/volume cleanup for each independent run:
+  - `cash-flow-close`: POSTED cash only through one exact approved mapping snapshot.
+  - `cwip-rollforward-close`: immutable CWIP mapping and posted-ledger evidence.
+  - `construction-loan-rollforward-close`: credit-normal construction-loan mapping and posted-ledger evidence.
+  - `prepaid-rollforward-close`: debit-normal asset mapping and posted-ledger evidence.
+  - `intercompany-reconciliation-close`: two authorized entity scopes, reciprocal exact mappings and posted evidence without creating an elimination.
+  - `consolidation-close`: approved immutable two-member scope, explicit elimination evidence, and no elimination journal creation.
+- These prove controlled local report paths and guardrails only. They do not prove production mapping approvals, live source populations, deployed report data, or any production consolidation/close result.
