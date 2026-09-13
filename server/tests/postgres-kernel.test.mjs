@@ -7268,15 +7268,22 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
 });
 
 pgTest('native expense creates, preserves evidence, posts through normal approval, and rejects journal drift atomically',async()=>{
-  const ids=await seed({status:'DRAFT'});
+  const ids=await seed({status:'DRAFT',extraAccounts:[{accountCode:'610000',accountName:'Expense'}]});
   const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;
-  const permissions={'expense-maker':['AP.EXPENSE.CREATE'],'expense-submit':['GL.JE.SUBMIT'],'expense-review':['GL.JE.REVIEW'],'expense-approve':['GL.JE.APPROVE'],'expense-post':['GL.JE.POST']};
-  const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})});
+  const roles={
+    'expense-maker':await formalWorkflowRoleKernel(ids,'expense-maker','AP_EXPENSE_MAKER'),
+    'expense-reader':await formalWorkflowRoleKernel(ids,'expense-reader','AI_CONTROLLER_REVIEWER'),
+    'expense-submit':await formalWorkflowRoleKernel(ids,'expense-submit','JE_SUBMITTER'),
+    'expense-review':await formalWorkflowRoleKernel(ids,'expense-review','JE_REVIEWER'),
+    'expense-approve':await formalWorkflowRoleKernel(ids,'expense-approve','JE_APPROVER'),
+    'expense-post':await formalWorkflowRoleKernel(ids,'expense-post','JE_POSTER')
+  };
+  const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),kernelFactory:async principal=>{const kernel=roles[principal.actorId];if(!kernel)throw new Error(`Unknown expense test actor ${principal.actorId}`);return kernel;}});
   const root=`/api/v1/entities/${ids.entityId}`,url=`${root}/ap/expenses`;
   const body={periodId:ids.periodId,number:'NATIVE-EXPENSE-1',vendorRef:'VENDOR-1',bankMemberRef:'BANK-1',cashAccountCode:'111000',expenseAccountCode:'610000',date:'2026-07-18',currency:'USD',amount:'1.2345',reason:'Verified direct vendor expense evidence',attachmentIds:[attachmentId]};
   const send=(actor,path,payload,key,revision)=>api({method:'POST',url:path,body:payload,headers:{'x-test-actor':actor,'idempotency-key':key,...(revision==null?{}:{'if-match':String.fromCharCode(34)+revision+String.fromCharCode(34)})}});
   assert.equal((await send('expense-reader',url,body,'expense-denied-001')).status,403);
-  for(const [index,patch] of [{vendorRef:'MISSING-VENDOR'},{vendorRef:'BANK-1'},{bankMemberRef:'VENDOR-1'},{cashAccountCode:'610000'},{expenseAccountCode:'111000'},{currency:'CAD'},{attachmentIds:[ids.journalId]}].entries())assert.equal((await send('expense-maker',url,{...body,...patch},`expense-invalid-${index}`)).status,422,JSON.stringify(patch));
+  for(const [index,patch] of [{vendorRef:'MISSING-VENDOR'},{vendorRef:'BANK-1'},{bankMemberRef:'VENDOR-1'},{cashAccountCode:'610000'},{expenseAccountCode:'111000'},{currency:'CAD'},{attachmentIds:[]}].entries()){const status=(await send('expense-maker',url,{...body,...patch},`expense-invalid-${index}`)).status;assert.equal(status,index===6?400:422,JSON.stringify(patch));}
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM expense WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);
   const created=await Promise.all([send('expense-maker',url,body,'expense-concurrent-001'),send('expense-maker',url,body,'expense-concurrent-001')]);
   assert.deepEqual(created.map(row=>row.status).sort(),[200,201],JSON.stringify(created));
@@ -7284,11 +7291,10 @@ pgTest('native expense creates, preserves evidence, posts through normal approva
   assert.equal((await send('expense-maker',url,{...body,amount:'2.0000'},'expense-concurrent-001')).status,409);
   assert.deepEqual((await adminPool.query('SELECT vendor_name,status,amount FROM expense WHERE expense_id=$1',[expense.expense_id])).rows[0],{vendor_name:'Vendor',status:'DRAFT',amount:'1.2345'});
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM source_link WHERE journal_entry_id=$1 AND attachment_id=$2',[expense.journal_entry_id,attachmentId])).rows[0].n,1);
-  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'expense-reader',['AP.VIEW'])});
-  const optionsReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'expense-options-maker',['AP.EXPENSE.CREATE'])});
-  const options=await optionsReader.readNativeExpenseCreateOptions(ids);
+  const reader=roles['expense-reader'];
+  const options=await roles['expense-maker'].readNativeExpenseCreateOptions(ids);
   assert.deepEqual(options.vendors,[{vendor_ref:'VENDOR-1',vendor_name:'Vendor'}]);
-  assert.deepEqual(options.bank_cash_accounts,[{bank_member_ref:'BANK-1',bank_name:'Bank',cash_account_code:'111000',cash_account_name:'Cash',currency:'USD'}]);
+  assert.deepEqual(options.bank_cash_accounts,[{bank_member_ref:'BANK-1',bank_name:'Operating Cash',cash_account_code:'111000',cash_account_name:'Cash',currency:'USD'}]);
   assert.deepEqual(options.expense_accounts,[{expense_account_code:'610000',expense_account_name:'Expense'}]);
   assert.ok(options.attachments.some(row=>row.attachment_id===attachmentId));
   await assert.rejects(reader.readNativeExpenseCreateOptions(ids),error=>error.code==='42501');

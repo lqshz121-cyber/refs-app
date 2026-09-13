@@ -98,10 +98,10 @@ test('counterparty maker and approver remain separate in runtime policy before g
 });
 
 test('native document entry roles allow support upload and exactly one Draft kind without scanner or later workflow authority',()=>{
-  for(const [name,createPermission,other] of [['AP_BILL_ENTRY_MAKER','AP.BILL.CREATE','AR.INVOICE.CREATE'],['AR_INVOICE_ENTRY_MAKER','AR.INVOICE.CREATE','AP.BILL.CREATE']]){
+  for(const [name,createPermission,other,requiresAttachmentCreate] of [['AP_BILL_ENTRY_MAKER','AP.BILL.CREATE','AR.INVOICE.CREATE',true],['AP_EXPENSE_MAKER','AP.EXPENSE.CREATE','AR.INVOICE.CREATE',false],['AR_INVOICE_ENTRY_MAKER','AR.INVOICE.CREATE','AP.BILL.CREATE',true]]){
     const definition=AUTHORITATIVE_WORKFLOW_ROLES[name];
     assert.equal(definition.principalKind,'HUMAN');assert.equal(definition.authorityClass,'DRAFT');
-    assert.ok(definition.permissions.includes(createPermission));assert.ok(definition.permissions.includes('ATTACHMENT.CREATE'));
+    assert.ok(definition.permissions.includes(createPermission));assert.equal(definition.permissions.includes('ATTACHMENT.CREATE'),requiresAttachmentCreate);
     for(const forbidden of [other,'ATTACHMENT.FINALIZE','ATTACHMENT.CLEANUP','GL.JE.SUBMIT','GL.JE.REVIEW','GL.JE.APPROVE','GL.JE.POST','GL.PERIOD.REOPEN'])assert.equal(definition.permissions.includes(forbidden),false);
     assert.equal(assertWorkflowRoleSafety(definition),definition);
   }

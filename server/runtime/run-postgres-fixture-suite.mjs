@@ -24,6 +24,7 @@ export const FIXTURES=Object.freeze([
   Object.freeze({id:'ai-exception-lineage',pattern:'operator exception row links append-only to the later exact signed Payable source without becoming Review authority'}),
   Object.freeze({id:'ai-amortization-human-close',pattern:'AI amortization creates a human Draft then standard Posted JE with immutable source and ledger lineage'}),
   Object.freeze({id:'fixed-asset-depreciation-close',pattern:'native fixed asset depreciation retains evidence, races one Post, and refreshes register GL and report'}),
+  Object.freeze({id:'native-expense-close',pattern:'native expense creates, preserves evidence, posts through normal approval, and rejects journal drift atomically'}),
   // PostgreSQL test modules own process-level pools. Keep each report closure in
   // its own process so a slow report teardown cannot hide another passing closure.
   Object.freeze({id:'dimension-profitability-close',pattern:'dimension profitability reads only exact POSTED ledger dimensions and never fills a missing property, project, unit, or lot'}),
