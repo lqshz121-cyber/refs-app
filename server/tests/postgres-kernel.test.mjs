@@ -437,7 +437,7 @@ async function migrateDownThrough(pool,targetMigration){
 
 // Exercise one migration's SQL and restoration without rolling back unrelated
 // newer features that deliberately retain their own immutable evidence.
-async function probeMigrationRoundTrip(pool,name,signature){
+async function probeMigrationRoundTrip(pool,name,signature,{expectedAfterDown=null}={}){
   const entry=MIGRATION_MANIFEST.find(item=>item.name===name);assert.ok(entry);
   const read=async direction=>{
     const sql=await readFile(new URL(`../db/migrations/${direction==='down'?'down/':''}${name}`,import.meta.url),'utf8');
@@ -450,15 +450,14 @@ async function probeMigrationRoundTrip(pool,name,signature){
     const prior=(await client.query('SELECT to_regprocedure($1) fn',[signature])).rows[0].fn;
     assert.ok(prior);
     await client.query(down);
-    // A historical migration can replace a function introduced by an earlier
-    // migration. Its down SQL must restore that prior function, rather than
-    // assuming the signature did not exist before this migration.
-    assert.equal((await client.query('SELECT to_regprocedure($1) fn',[signature])).rows[0].fn,prior);
+    // A down migration may restore a prior definition, or remove a function
+    // introduced by this migration. The caller states that historical contract
+    // explicitly so a test never substitutes a different rollback semantic.
+    assert.equal((await client.query('SELECT to_regprocedure($1) fn',[signature])).rows[0].fn,expectedAfterDown);
     await client.query(up);
     assert.equal((await client.query('SELECT to_regprocedure($1) fn',[signature])).rows[0].fn,prior);
   }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 }
-
 // Deliberate legacy-corruption fixture, never a supported master-data mutation.
 async function injectCounterpartyIdentityDrift(sql,args){
   await assert.rejects(adminPool.query(sql,args),error=>error.code==='23514');
@@ -1604,7 +1603,7 @@ pgTest('provider-signed Payable admission atomically reaches Review Draft four-r
   // Verify the historical read migration in a transaction.  The surrounding
   // scenario has now posted retained AP evidence, so walking every newer down
   // migration would correctly stop at the native-settlement evidence guard.
-  await probeMigrationRoundTrip(adminPool,'329_wbs_payable_acceptance_evidence_read.sql','refs_read_wbs_payable_acceptance_evidence(uuid,uuid,uuid)');
+  await probeMigrationRoundTrip(adminPool,'329_wbs_payable_acceptance_evidence_read.sql','refs_read_wbs_payable_acceptance_evidence(uuid,uuid,uuid)',{expectedAfterDown:null});
   assert.deepEqual(await acceptanceReader.getWbsPayableAcceptanceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}),acceptance);
 
   const postedState=(await adminPool.query(`SELECT d.status document_status,d.open_balance::text,d.draft_journal_entry_id,d.posted_journal_entry_id,j.status::text journal_status,s.status::text staging_status,s.version::text staging_version,

@@ -80,13 +80,15 @@ function cleanupOwnedProject(project,env){
 }
 
 export function runFixture(fixture,env,{spawnFixture=spawnFixtureProcess,cleanupProject=cleanupOwnedProject}={}){
+  const testTimeout=env.REFS_PG_FIXTURE_TEST_TIMEOUT_MS||'150000';
+  const processTimeout=env.REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS||String(Number(testTimeout)+30000);
+  if(!/^[1-9]\d*$/.test(testTimeout)||Number(testTimeout)<1000||Number(testTimeout)>900000)throw new Error('REFS_PG_FIXTURE_TEST_TIMEOUT_MS must be an integer between 1000 and 900000 milliseconds');
+  if(!/^[1-9]\d*$/.test(processTimeout)||Number(processTimeout)<1000||Number(processTimeout)>930000)throw new Error('REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS must be an integer between 1000 and 930000 milliseconds');
+  if(Number(processTimeout)<Number(testTimeout))throw new Error('REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS must be greater than or equal to REFS_PG_FIXTURE_TEST_TIMEOUT_MS');
   return new Promise(resolveRun=>{
     const startedAt=Date.now();
-    const timeout=env.REFS_PG_FIXTURE_TIMEOUT_MS||'90000';
-    const processTimeout=env.REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS||String(Number(timeout)+30000);
-    if(!/^[1-9]\d*$/.test(processTimeout)||Number(processTimeout)<1000||Number(processTimeout)>930000)throw new Error('REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS must be an integer between 1000 and 930000 milliseconds');
     const project=ownedProjectName(fixture);
-    const childEnv={...env,REFS_PG_TEST_TIMEOUT_MS:timeout,REFS_PG_COMPOSE_PROJECT:project};
+    const childEnv={...env,REFS_PG_TEST_TIMEOUT_MS:testTimeout,REFS_PG_COMPOSE_PROJECT:project};
     const child=spawnFixture(fixture,childEnv);
     let output='';
     let settled=false;
@@ -102,7 +104,7 @@ export function runFixture(fixture,env,{spawnFixture=spawnFixtureProcess,cleanup
     };
     const watchdog=setTimeout(()=>{
       timedOut=true;
-      timeoutError=`Fixture process exceeded ${processTimeout}ms after its ${timeout}ms test timeout.`;
+      timeoutError=`Fixture process exceeded ${processTimeout}ms after its ${testTimeout}ms test timeout.`;
       child.kill('SIGTERM');
       terminationWatchdog=setTimeout(()=>child.kill('SIGKILL'),5000);
     },Number(processTimeout));

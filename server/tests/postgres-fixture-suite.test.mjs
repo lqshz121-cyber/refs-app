@@ -53,6 +53,17 @@ test('PostgreSQL fixture suite accepts only a child-verified pattern receipt wit
   assert.equal(fixtureResult({id:'fixture',exitCode:1,output,durationMs:1}).exitCode,1);
 });
 
+test('PostgreSQL fixture suite separates per-test and process timeout budgets',async()=>{
+  const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>true;
+  const resultPromise=runFixture({id:'budget',pattern:'budget fixture'},
+    {REFS_PG_FIXTURE_TEST_TIMEOUT_MS:'150000',REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS:'180000'},
+    {spawnFixture:(_fixture,env)=>{assert.equal(env.REFS_PG_TEST_TIMEOUT_MS,'150000');queueMicrotask(()=>child.emit('exit',1,null));return child;},cleanupProject:async()=>{}});
+  assert.equal((await resultPromise).exitCode,1);
+  for(const env of [
+    {REFS_PG_FIXTURE_TEST_TIMEOUT_MS:'bad'},
+    {REFS_PG_FIXTURE_TEST_TIMEOUT_MS:'2000',REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS:'1000'}
+  ])assert.throws(()=>runFixture({id:'invalid-budget',pattern:'invalid'},env,{spawnFixture:()=>{throw Error('must not spawn');}}),/REFS_PG_FIXTURE/);
+});
 test('PostgreSQL fixture suite waits for child exit and owned Docker cleanup after timeout',async()=>{
   const child=new EventEmitter(),signals=[],cleanups=[];
   child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=signal=>{signals.push(signal);return true;};
@@ -60,7 +71,7 @@ test('PostgreSQL fixture suite waits for child exit and owned Docker cleanup aft
   const cleanupBlocked=new Promise(resolve=>{releaseCleanup=resolve;});
   let settled=false;
   const resultPromise=runFixture({id:'timeout-behavior',pattern:'behavior-only fixture'},
-    {REFS_PG_FIXTURE_TIMEOUT_MS:'1000',REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS:'1000'},
+    {REFS_PG_FIXTURE_TEST_TIMEOUT_MS:'1000',REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS:'1000'},
     {spawnFixture:(_fixture,env)=>{assert.match(env.REFS_PG_COMPOSE_PROJECT,/^refs_kernel_gate_fixture_/);return child;},cleanupProject:async project=>{cleanups.push(project);await cleanupBlocked;}});
   resultPromise.then(()=>{settled=true;});
   await delay(1050);
