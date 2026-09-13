@@ -27,9 +27,9 @@ BEGIN
  SELECT * INTO t FROM cash_transfer WHERE tenant_id=p_tenant AND entity_id=p_entity AND cash_transfer_id=p_transfer FOR SHARE;
  IF NOT FOUND OR t.status<>'POSTED' THEN RAISE EXCEPTION 'Cash Transfer bank-leg candidates require one posted retained transfer' USING ERRCODE='P0002'; END IF;
  SELECT c.bank_member_ref INTO bank_ref FROM cash_transfer_bank_account_control c
-  WHERE c.tenant_id=p_tenant AND c.entity_id=p_entity AND c.cash_transfer_bank_account_control_id=CASE p_leg WHEN 'SOURCE' THEN t.from_bank_account_control_id ELSE t.to_bank_account_control_id END
+  WHERE c.tenant_id=p_tenant AND c.entity_id=p_entity AND c.cash_transfer_bank_account_control_id=(CASE p_leg WHEN 'SOURCE' THEN t.from_bank_account_control_id ELSE t.to_bank_account_control_id END)
   FOR SHARE;
- IF bank_ref IS NULL OR bank_ref IS DISTINCT FROM CASE p_leg WHEN 'SOURCE' THEN t.from_bank_member_ref ELSE t.to_bank_member_ref END THEN
+ IF bank_ref IS NULL OR bank_ref IS DISTINCT FROM (CASE p_leg WHEN 'SOURCE' THEN t.from_bank_member_ref ELSE t.to_bank_member_ref END) THEN
   RAISE EXCEPTION 'Cash Transfer controlled bank evidence is unavailable' USING ERRCODE='55000';
  END IF;
  expected_amount:=CASE p_leg WHEN 'SOURCE' THEN -t.amount ELSE t.amount END;
