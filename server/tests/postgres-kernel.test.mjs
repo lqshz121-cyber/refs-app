@@ -4720,9 +4720,7 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   assert.equal(await issuedContexts(),reservedContexts+1);
   // Remove the fixture reservation before the existing independent full-apply assertions.
   await adminPool.query('DELETE FROM business_allocation WHERE payment_occurrence_id=$1',[reservation.payment_occurrence_id]);
-  await migrateDownThrough(adminPool,'313_credit_allocation_capacity.sql');
-  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_assert_credit_allocation_capacity(uuid,uuid,uuid,uuid,numeric)') fn")).rows[0].fn,null);
-  await migrateUp(adminPool);
+  await probeMigrationRoundTrip(adminPool,'313_credit_allocation_capacity.sql','refs_assert_credit_allocation_capacity(uuid,uuid,uuid,uuid,numeric)',{expectedAfterDown:null});
   await assert.rejects(applier.applyApVendorCredit({...guardedArgs,amount:'1.23456'}),error=>error.code==='22023');
   const first=await applier.applyApVendorCredit({...ids,businessAdjustmentId:credit.business_adjustment_id,businessDocumentId:billId,amount:40,reason:'Partial apply',idempotencyKey:'vendor-credit-apply-40'});
   assert.equal(first.status,'ACTIVE');
@@ -4748,8 +4746,7 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   await assert.rejects(reader.readBusinessRecord({...recordArgs,entityId:randomUUID()}),error=>error.code==='42501');
   await assert.rejects(reader.readBusinessRecord({...recordArgs,recordKind:'AP_BILL'}),error=>error.code==='P0002');
   await assert.rejects(reader.readBusinessRecord({...recordArgs,recordId:randomUUID()}),error=>error.code==='P0002');
-  await migrateDownThrough(adminPool,'316_business_record_detail.sql');
-  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_business_record(uuid,uuid,uuid,text)') fn")).rows[0].fn,null);await migrateUp(adminPool);
+  await probeMigrationRoundTrip(adminPool,'316_business_record_detail.sql','refs_read_business_record(uuid,uuid,uuid,text)',{expectedAfterDown:null});
   assert.deepEqual(await reader.readBusinessRecord(recordArgs),exactCreditRecord);
   const creditHistoryArgs={tenantId:ids.tenantId,entityId:ids.entityId,subjectId:credit.business_adjustment_id,subjectKind:'AP_VENDOR_CREDIT',limit:1};
   const historyPage=await reader.readCreditAllocationHistory(creditHistoryArgs);
@@ -4767,9 +4764,7 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   await assert.rejects(reader.readCreditAllocationHistory({...creditHistoryArgs,entityId:randomUUID()}),error=>error.code==='42501');
   await assert.rejects(reader.readCreditAllocationHistory({...creditHistoryArgs,subjectId:randomUUID()}),error=>error.code==='P0002');
   await assert.rejects(reader.readCreditAllocationHistory({...creditHistoryArgs,afterId:randomUUID()}),error=>error.code==='22023');
-  await migrateDownThrough(adminPool,'315_credit_allocation_history.sql');
-  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_credit_allocation_history(uuid,uuid,uuid,text,uuid,integer)') fn")).rows[0].fn,null);
-  await migrateUp(adminPool);
+  await probeMigrationRoundTrip(adminPool,'315_credit_allocation_history.sql','refs_read_credit_allocation_history(uuid,uuid,uuid,text,uuid,integer)',{expectedAfterDown:null});
   assert.deepEqual(await reader.readCreditAllocationHistory(creditHistoryArgs),historyPage);
 
   const fullUsage=await applier.readCreditUsageContext(usageArgs);
@@ -4855,9 +4850,7 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   assert.equal(await issuedContexts(),reservedContexts+1);
   // Remove the fixture reservation before the existing independent full-apply assertions.
   await adminPool.query('DELETE FROM business_allocation WHERE payment_occurrence_id=$1',[reservation.payment_occurrence_id]);
-  await migrateDownThrough(adminPool,'313_credit_allocation_capacity.sql');
-  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_assert_credit_allocation_capacity(uuid,uuid,uuid,uuid,numeric)') fn")).rows[0].fn,null);
-  await migrateUp(adminPool);
+  await probeMigrationRoundTrip(adminPool,'313_credit_allocation_capacity.sql','refs_assert_credit_allocation_capacity(uuid,uuid,uuid,uuid,numeric)',{expectedAfterDown:null});
   await assert.rejects(applier.applyArCreditMemo({...guardedArgs,amount:'1.23456'}),error=>error.code==='22023');
   const first=await applier.applyArCreditMemo({...ids,businessAdjustmentId:memo.business_adjustment_id,businessDocumentId:invoiceId,amount:40,reason:'Partial apply',idempotencyKey:'ar-credit-apply-40'});
   assert.equal(first.status,'ACTIVE');
@@ -4880,8 +4873,7 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   await assert.rejects(agingReader.readBusinessRecord({...recordArgs,entityId:randomUUID()}),error=>error.code==='42501');
   await assert.rejects(agingReader.readBusinessRecord({...recordArgs,recordKind:'AR_INVOICE'}),error=>error.code==='P0002');
   await assert.rejects(agingReader.readBusinessRecord({...recordArgs,recordId:randomUUID()}),error=>error.code==='P0002');
-  await migrateDownThrough(adminPool,'316_business_record_detail.sql');
-  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_business_record(uuid,uuid,uuid,text)') fn")).rows[0].fn,null);await migrateUp(adminPool);
+  await probeMigrationRoundTrip(adminPool,'316_business_record_detail.sql','refs_read_business_record(uuid,uuid,uuid,text)',{expectedAfterDown:null});
   assert.deepEqual(await agingReader.readBusinessRecord(recordArgs),exactCreditRecord);
   const creditHistoryArgs={tenantId:ids.tenantId,entityId:ids.entityId,subjectId:memo.business_adjustment_id,subjectKind:'AR_CREDIT_MEMO',limit:1};
   const historyPage=await agingReader.readCreditAllocationHistory(creditHistoryArgs);
@@ -4899,9 +4891,7 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   await assert.rejects(agingReader.readCreditAllocationHistory({...creditHistoryArgs,entityId:randomUUID()}),error=>error.code==='42501');
   await assert.rejects(agingReader.readCreditAllocationHistory({...creditHistoryArgs,subjectId:randomUUID()}),error=>error.code==='P0002');
   await assert.rejects(agingReader.readCreditAllocationHistory({...creditHistoryArgs,afterId:randomUUID()}),error=>error.code==='22023');
-  await migrateDownThrough(adminPool,'315_credit_allocation_history.sql');
-  assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_credit_allocation_history(uuid,uuid,uuid,text,uuid,integer)') fn")).rows[0].fn,null);
-  await migrateUp(adminPool);
+  await probeMigrationRoundTrip(adminPool,'315_credit_allocation_history.sql','refs_read_credit_allocation_history(uuid,uuid,uuid,text,uuid,integer)',{expectedAfterDown:null});
   assert.deepEqual(await agingReader.readCreditAllocationHistory(creditHistoryArgs),historyPage);
 
   const fullUsage=await applier.readCreditUsageContext(usageArgs);
