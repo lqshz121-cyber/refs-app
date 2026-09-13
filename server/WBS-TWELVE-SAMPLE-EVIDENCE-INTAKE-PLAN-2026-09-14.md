@@ -7,8 +7,8 @@ The repository contains a strict verifier and passing local contract tests. It d
 ## Required evidence for each of 12 distinct samples
 
 - Provider-signed immutable WBS snapshot package and its SHA-256.
-- A distinct snapshot, bank source record, business source record, raw event, staging item, review event, source document, Posted journal, audit event, report identifier, and control-total hash.
-- Human review completed before Draft/Posted progression.
+- A distinct snapshot, bank source record, business source record, raw event, staging item, review event, source document, Posted journal, audit event, report identifier, and control-total hash. Evidence identifiers cannot be reused across a sample's bank/business sides or across categories in another sample.
+- Human review completed before Draft/Posted progression, with valid UTC `bank_reviewed_at`, `business_reviewed_at`, `bank_posted_at`, and `business_posted_at` values proving each review is no later than its respective posting.
 - Authenticated HTTPS API readback with subject, read timestamp, response hash, and 2xx status.
 - Evidence references must be immutable (`object://`, `s3://`, `gs://`, `az://`, or HTTPS) and include the signing key ID, algorithm, verification ID, and verification time.
 
