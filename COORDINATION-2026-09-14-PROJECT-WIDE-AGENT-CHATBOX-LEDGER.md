@@ -103,3 +103,9 @@ These are release acceptance requirements, not completed evidence.
 - `npm.cmd --prefix server run test:attachments:containers` passed 5/5 in an owned local Docker project: MinIO versioning, version-aware cleanup/retry, exact PostgreSQL audit/object-version binding, and ClamAV clean/EICAR behavior. Its containers, network, and volumes were removed.
 - `npm.cmd --prefix server run test:backup:restore` emitted `REFS_BACKUP_RESTORE_DRILL_V1`, pass=true: an isolated PostgreSQL 16 project applied 417 migrations, persisted tenant `BKDRILL`, executed `pg_dump`/`pg_restore`, verified migration count and restored tenant, then removed its container/network/volume.
 - These are local container receipts only. Production bucket/scanner/IAM/retention, backup retention, cross-region recovery, RPO/RTO, deployed secrets, and production restore verification remain unresolved.
+
+## 2026-09-14 AP/AR allocation local closure receipt — `bf05ed3f`
+
+- Fresh PostgreSQL 16 `ap-partial-payment-reversal-close` returned `REFS_POSTGRES_FIXTURE_SUITE_V1`, pass=true, 1/1, zero skip: a posted partial AP payment reversal restored the bill balance atomically.
+- Fresh PostgreSQL 16 `ar-credit-memo-allocation-close` returned `REFS_POSTGRES_FIXTURE_SUITE_V1`, pass=true, 1/1, zero skip: a posted AR credit memo applied partially then fully updated invoice balances atomically.
+- Each fixture ran in an owned isolated Docker project and removed its container, network, and volume. These are controlled local data paths, not production AP/AR balances, customer/vendor source evidence, or deployed readback.
