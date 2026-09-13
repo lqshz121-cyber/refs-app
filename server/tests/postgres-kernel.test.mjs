@@ -447,11 +447,15 @@ async function probeMigrationRoundTrip(pool,name,signature){
   const down=await read('down'),up=await read('up'),client=await pool.connect();
   try{
     await client.query('BEGIN');
-    assert.ok((await client.query('SELECT to_regprocedure($1) fn',[signature])).rows[0].fn);
+    const prior=(await client.query('SELECT to_regprocedure($1) fn',[signature])).rows[0].fn;
+    assert.ok(prior);
     await client.query(down);
-    assert.equal((await client.query('SELECT to_regprocedure($1) fn',[signature])).rows[0].fn,null);
+    // A historical migration can replace a function introduced by an earlier
+    // migration. Its down SQL must restore that prior function, rather than
+    // assuming the signature did not exist before this migration.
+    assert.equal((await client.query('SELECT to_regprocedure($1) fn',[signature])).rows[0].fn,prior);
     await client.query(up);
-    assert.ok((await client.query('SELECT to_regprocedure($1) fn',[signature])).rows[0].fn);
+    assert.equal((await client.query('SELECT to_regprocedure($1) fn',[signature])).rows[0].fn,prior);
   }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 }
 
