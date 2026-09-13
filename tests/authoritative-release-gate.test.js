@@ -23,11 +23,19 @@ async function run() {
   assert.equal(Object.hasOwn(called.options.headers, 'cache-control'), false, 'release attestation must not trigger a cross-origin preflight with a non-safelisted cache header');
 
   const mismatch = await verifyAuthoritativeApiRelease({ environment, config, fetcher:async () => ready('02d4e95f97232f6f5669b7efcd1ed0a5f9153ff0') });
-  assert.equal(mismatch.code, 'ACCOUNTING_API_RELEASE_MISMATCH');
+  assert.deepEqual(mismatch, {
+    ok:false,
+    code:'ACCOUNTING_API_RELEASE_MISMATCH',
+    message:`The client release ${client} and API release 02d4e95f97232f6f5669b7efcd1ed0a5f9153ff0 are different.`,
+  }, 'a ready API with a different release blocks before OIDC or accounting reads');
   const unstamped = await verifyAuthoritativeApiRelease({ environment, config, fetcher:async () => ready(null) });
   assert.equal(unstamped.code, 'ACCOUNTING_API_RELEASE_UNSTAMPED');
   const unavailable = await verifyAuthoritativeApiRelease({ environment, config, fetcher:async () => { throw new Error('offline'); } });
-  assert.equal(unavailable.code, 'ACCOUNTING_API_UNREACHABLE');
+  assert.deepEqual(unavailable, {
+    ok:false,
+    code:'ACCOUNTING_API_UNREACHABLE',
+    message:'The accounting API readiness endpoint produced no HTTP response.',
+  }, 'a readiness transport failure stays distinct from a release mismatch');
 
   console.log('authoritative release gate tests passed');
 }
