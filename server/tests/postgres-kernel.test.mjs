@@ -615,7 +615,7 @@ async function trustedSession(ids,actorId='poster',permissions=['GL.JE.POST']){
       SET authority_class=EXCLUDED.authority_class,valid_until=EXCLUDED.valid_until,revoked_at=NULL`,[ids.tenantId,actorId,ids.entityId,permission,fixtureAuthority,validUntil]);
     }
   }
-  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})});
+  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId,tenantId:ids.tenantId})});
   return issuer.issue({tenantId:ids.tenantId});
 }
 
@@ -1225,7 +1225,7 @@ async function formalWorkflowRoleKernel(ids,actorId,roleName,{idempotencyKey=`fo
   assert.equal(definition.principalKind,'HUMAN',`${roleName} must be a human workflow role`);
   const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
   await sync.reconcile({tenantId:ids.tenantId,entityId:ids.entityId,actorId,permissions:definition.permissions,authorityClass:definition.authorityClass,validUntil:new Date(Date.now()+60*60*1000).toISOString(),expectedVersion:0,idempotencyKey});
-  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})});
+  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId,tenantId:ids.tenantId})});
   return new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})});
 }
 
@@ -2549,7 +2549,7 @@ pgTest('additional formal role catalog matches database authority and scopes eve
     const native=(await adminPool.query('SELECT h.authority_class,p.active FROM runtime_human_permission_authority h JOIN permission_catalog p USING(permission_code) WHERE h.permission_code=$1',[permission])).rows[0];
     assert.deepEqual(native,{authority_class:authorityClass,active:true},name);
     const actorId=`formal-catalog-${name}`,kernel=await formalWorkflowRoleKernel(ids,actorId,name);
-    const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})});
+    const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId,tenantId:ids.tenantId})});
     const context=await issuer.issue({tenantId:ids.tenantId});
     await kernel.inSession(async client=>{
       assert.equal((await client.query('SELECT refs_entity_has_permission($1,$2) allowed',[ids.entityId,permission])).rows[0].allowed,true,name);
@@ -2579,7 +2579,7 @@ pgTest('credit entry formal roles upload and create exact Draft credits without 
   for(const roleName of ['AP_VENDOR_CREDIT_ENTRY_MAKER','AR_CREDIT_MEMO_ENTRY_MAKER']){
     const role=AUTHORITATIVE_WORKFLOW_ROLES[roleName],actorId=`credit-entry-${roleName}`;
     await sync.reconcile({...scope,actorId,permissions:[...role.permissions],authorityClass:role.authorityClass,idempotencyKey:`credit-role-${roleName}`});
-    const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})});
+    const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId,tenantId:ids.tenantId})});
     const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})});
     const reserved=await kernel.reserveAttachment({...ids,name:'credit.pdf',mediaType:'application/pdf',sizeBytes:42,contentHash:hash(roleName),storageRef:`object://attachments/${randomUUID()}`,storageVersion:'pending:credit',idempotencyKey:`credit-upload-${roleName}`});
     assert.equal(reserved.status,'PENDING');
@@ -2611,7 +2611,7 @@ pgTest('attachment entry authority supports exact formal maker roles and denies 
     assert.equal(result.version,1);assert.equal(result.authority_class,role.authorityClass);
     assert.equal((await sync.reconcile(args)).idempotent,true);
     await assert.rejects(sync.reconcile({...args,permissions:['ATTACHMENT.CREATE'],authorityClass:'ATTACHMENT_UPLOADER'}),e=>e.code==='23505');
-    const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})});
+    const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId,tenantId:ids.tenantId})});
     const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})});
     const uploaded=await kernel.reserveAttachment({tenantId:ids.tenantId,entityId:ids.entityId,name:'entry.pdf',mediaType:'application/pdf',sizeBytes:42,contentHash:hash(roleName),storageRef:`object://attachments/${randomUUID()}`,storageVersion:'pending:entry-proof',idempotencyKey:`entry-upload-${roleName}`});
     assert.equal(uploaded.status,'PENDING');
@@ -7905,7 +7905,7 @@ async function exerciseFixedAssetLedger(assessmentAfterDisposal=false,impairment
     const actorId='owned-asset-browser-reader',token='owned-asset-browser-'+randomUUID();
     const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
     await sync.reconcile({tenantId:ids.tenantId,entityId:ids.entityId,actorId,permissions:['FIXED_ASSET.REGISTER.VIEW','GL.JE.VIEW','GL.REPORT.VIEW'],authorityClass:'VIEWER',validUntil:new Date(Date.now()+3600000).toISOString(),expectedVersion:0,idempotencyKey:'owned-asset-browser-read-grant'});
-    const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})}),kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})});
+    const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId,tenantId:ids.tenantId})}),kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})});
     const api=createAccountingApi({authenticate:async request=>request.headers?.authorization==='Bearer '+token?{trusted:true,tenantId:ids.tenantId,actorId}:null,kernelFactory:async()=>kernel});
     const {runFixedAssetBrowserProof}=await import('./helpers/fixed-asset-browser-proof.mjs');await runFixedAssetBrowserProof({api,token,ids,assetTag:row.asset_tag});
    }
