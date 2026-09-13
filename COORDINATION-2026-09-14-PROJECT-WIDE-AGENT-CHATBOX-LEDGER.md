@@ -116,3 +116,10 @@ These are release acceptance requirements, not completed evidence.
 - Fresh PostgreSQL 16 `cash-transfer-close` returned `REFS_POSTGRES_FIXTURE_SUITE_V1`, pass=true, 1/1, zero skip. It exercised a two-bank Draft, separated approvals, and one retained posted ledger journal; its owned container, network, and volume were removed.
 - This is controlled local evidence only. Production bank controls, source transactions, approvals, deployed API/build SHA parity, and authenticated production readback remain unresolved.
 
+
+## 2026-09-14 native-expense local closure receipt — `575d70d1`
+
+- Native expense static contracts passed 17/17 across classified-source evidence, policy identity, scoped reads, OpenAPI, options, canonical decimal handling, Draft receipt verification, bank-control selection, and rollback safeguards.
+- Fresh PostgreSQL 16 `native-expense-close` returned `REFS_POSTGRES_FIXTURE_SUITE_V1`, pass=true, 1/1, zero skip. It created and retained native expense evidence, posted through normal separated approval, and rejected journal drift atomically; owned Docker resources were removed.
+- This is controlled local evidence only. Production bank source, actual expense approvals, deployed SHA parity, and authenticated live readback remain unresolved.
+
