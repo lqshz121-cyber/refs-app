@@ -194,6 +194,10 @@ assert.doesNotMatch(topbarMarkup, /Search or jump|Help is unavailable|Notificati
 assert.match(topbarMarkup, /Period/);
 assert.match(topbarMarkup, /Authoritative/);
 assert.match(topbarMarkup, /Authenticated/);
+assert.match(topbarMarkup, /class="authoritative-top-scope-control"[\s\S]*class="authoritative-top-label">Entity/,
+  'the authoritative topbar must label the company selector so the left scope control is self-explanatory');
+assert.match(topbarMarkup, /class="authoritative-top-action-group" role="group"[\s\S]*aria-label="Presentation actions"/,
+  'refresh and theme controls must share a named presentation action group on the topbar right side');
 const accessRow={tenant_id:'55555555-5555-4555-8555-555555555555',entity_id:'11111111-1111-4111-8111-111111111111',actor_id:'auth0|current-user',grant_set_version:7,permissions:['AP.VIEW','WBS.PAYABLE.REVIEW'],configured_permissions:['AP.VIEW','GL.REPORT.VIEW','WBS.PAYABLE.REVIEW'],session_refresh_required:true};
 const accessMarkup=renderToStaticMarkup(<AuthoritativeAccessStatus state={{status:'READY',row:accessRow}}/>);
 assert.match(accessMarkup,/Access<\/b> Some actions unavailable/);
