@@ -53,6 +53,7 @@ Chatbox inspected QBO without any writes. Expenses was empty; reports and chart-
 
 - Local commit: `e1d8561b0d8031b3dda38a28559d98cf5a6eae80`; working tree clean; no push, deployment, or production/accounting write.
 - Fresh PostgreSQL 16: `node runtime/test-postgres-fresh.mjs --pattern 'Unit Transfer creates a dual-entity Draft'` passed 1/1, zero skip, using an owned container that was removed after the test.
+- Fixture-suite receipt: `node runtime/run-postgres-fixture-suite.mjs --fixture unit-transfer-close` returned `REFS_POSTGRES_FIXTURE_SUITE_V1`, pass=true, 1/1, zero skip, and removed its owned container, network, and volume.
 - Focused migration and Unit Transfer contracts passed 45/45; broader runtime, migration, fixture, role and Unit Transfer contracts passed 149/149.
 - Repair set is append-only migrations 405–410: cross-entity cost currency, dual-entity outbox identity, transition enum cast, controlled post lineage, and safe pair-read JSON construction.
 - Remaining acceptance: current-SHA GitHub PostgreSQL 15/16/18 and business-closure CI, then same-release authenticated read-only production parity.
