@@ -22,7 +22,7 @@ before(async()=>{
   try{
     adminPool=await createPool({databaseUrl:config.migrationDatabaseUrl,applicationName:'refs-accounting-settings-pg-admin',max:8});
     await adminPool.query('SELECT 1');
-    await migrateUp(adminPool);
+    await migrateUp(adminPool,{onEvent:event=>{if(event.event==='migration_failed')console.error(JSON.stringify(event));}});
     runtimePool=await createPool({databaseUrl:config.databaseUrl,applicationName:'refs-accounting-settings-pg-runtime',max:8});
     issuerPool=await createPool({databaseUrl:config.contextIssuerDatabaseUrl,applicationName:'refs-accounting-settings-pg-issuer',max:4});
     grantSyncPool=await createPool({databaseUrl:config.grantSyncDatabaseUrl,applicationName:'refs-accounting-settings-pg-grant-sync',max:4});

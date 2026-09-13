@@ -61,7 +61,7 @@ before(async()=>{
   try{
     adminPool=await createPool({databaseUrl:config.migrationDatabaseUrl,applicationName:'refs-pg-integration-admin',max:8});
     await adminPool.query('SELECT 1');
-    await migrateUp(adminPool);
+    await migrateUp(adminPool,{onEvent:event=>{if(event.event==='migration_failed')console.error(JSON.stringify(event));}});
     runtimePool=await createPool({databaseUrl:config.databaseUrl,applicationName:'refs-pg-integration-runtime',max:8});
     await runtimePool.query('SELECT 1');
     issuerPool=await createPool({databaseUrl:config.contextIssuerDatabaseUrl,applicationName:'refs-pg-integration-issuer',max:4});

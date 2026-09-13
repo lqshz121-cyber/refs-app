@@ -9,6 +9,11 @@ export function safeMigrationErrorCode(error){
   return typeof code==='string'&&(safeCodes.has(code)||/^[0-9A-Z]{5}$/.test(code))?code:'MIGRATION_RUN_FAILED';
 }
 
+export function safeMigrationErrorPosition(error){
+  const position=error?.position;
+  return typeof position==='string'&&/^[1-9]\d{0,8}$/.test(position)?Number(position):undefined;
+}
+
 export function emitMigrationEvent(onEvent,event){
   // Diagnostics must not turn a committed migration into an apparent rollback.
   try{onEvent?.(Object.freeze(event));}catch{}
@@ -24,7 +29,8 @@ export async function observeMigration(name,direction,work,{onEvent,clock=()=>pe
     emitMigrationEvent(onEvent,{event:result==='skipped'?'migration_skipped':'migration_completed',migration_name,direction,elapsed_ms:elapsed()});
     return result;
   }catch(error){
-    emitMigrationEvent(onEvent,{event:'migration_failed',migration_name,direction,elapsed_ms:elapsed(),code:safeMigrationErrorCode(error)});
+    const position=safeMigrationErrorPosition(error);
+    emitMigrationEvent(onEvent,{event:'migration_failed',migration_name,direction,elapsed_ms:elapsed(),code:safeMigrationErrorCode(error),...(position===undefined?{}:{position})});
     throw error;
   }
 }
