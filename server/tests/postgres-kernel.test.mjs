@@ -7611,7 +7611,7 @@ async function reviewedFixedAssetFixture(sourceVendor=null,{salvageValue='1000.0
   const definition=AUTHORITATIVE_WORKFLOW_ROLES.FIXED_ASSET_REGISTER_REVIEWER;
   const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
   await sync.reconcile({tenantId:ids.tenantId,entityId:ids.entityId,actorId:'asset-proposer',permissions:definition.permissions,authorityClass:definition.authorityClass,validUntil:new Date(Date.now()+3600000).toISOString(),expectedVersion:1,idempotencyKey:'asset-proposer-replace-review-role'});
-  const selfIssuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:'asset-proposer'})});
+  const selfIssuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:'asset-proposer',tenantId:ids.tenantId})});
   const selfReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>selfIssuer.issue({tenantId:ids.tenantId})});
   // Context issuance is audited separately; rejected commands add no business evidence.
   const beforeSelf=await counts();
