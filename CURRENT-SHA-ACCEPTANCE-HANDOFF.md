@@ -3,7 +3,7 @@
 ## Release identity
 
 - Branch: `codex/374-postgres-syntax-verify`
-- Head: `82cf2c0a` (local-only; not pushed)
+- Implementation commit: `e1d8561b`; this local-only handoff must be paired with `git rev-parse HEAD` captured at the time of release review.
 - Unit Transfer implementation: `e1d8561b`
 - Unit Transfer fixture receipt: `82cf2c0a`
 

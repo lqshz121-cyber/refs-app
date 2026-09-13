@@ -4,7 +4,7 @@
 
 - Repository: `https://github.com/lqshz121-cyber/refs-app.git`
 - Integration checkout: this checkout only
-- Branch / SHA: `codex/374-postgres-syntax-verify` / `e1d8561b0d8031b3dda38a28559d98cf5a6eae80` (local, not yet pushed)
+- Branch: `codex/374-postgres-syntax-verify` (local, not yet pushed); implementation commit: `e1d8561b0d8031b3dda38a28559d98cf5a6eae80`. Capture `git rev-parse HEAD` at release review because local evidence documents may add commits after the implementation.
 - PR: #582 (draft)
 - Rule: no candidate is merged, deployed, or represented as production evidence until independently reviewed on the authoritative checkout and its applicable gates are green.
 
@@ -40,7 +40,7 @@
 
 ## Immediate sequence
 
-1. Restore GitHub connectivity, push `e1d8561b`, and record the resulting current-SHA CI URLs and outcomes.
+1. When GitHub connectivity is restored and an explicit push request is authorized, push the reviewed branch tip and record the remote SHA plus current-SHA CI URLs and outcomes.
 2. Re-run the fresh PostgreSQL 15/16/18 gates and preserve their zero-skip receipts.
 3. Review and selectively port the Chatbox UI candidate only after its exact diff is independently validated on this checkout.
 4. Continue the next accounting vertical from the requirement ledger, beginning with a verifiable WBS raw-to-draft trace and accounting controls, not a mock UI-only surface.
