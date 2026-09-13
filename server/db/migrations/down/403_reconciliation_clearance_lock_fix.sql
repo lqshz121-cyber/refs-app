@@ -107,7 +107,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION refs_reconciliation_transition_hash(
+CREATE OR REPLACE FUNCTION refs_reconciliation_transition_hash(
   p_tenant uuid,p_entity uuid,p_reconciliation uuid,p_action text,p_expected_version bigint,p_reason text
 ) RETURNS text
 LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
