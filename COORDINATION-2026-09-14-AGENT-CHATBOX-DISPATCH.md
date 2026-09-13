@@ -34,3 +34,7 @@
 2. Close the migration integrity PR loop from its terminal GitHub evidence.
 3. Review and selectively port the Chatbox UI candidate.
 4. Continue the next accounting vertical from the requirement ledger, beginning with a verifiable WBS raw-to-draft trace and accounting controls, not a mock UI-only surface.
+
+## Runtime observation (read-only, 2026-09-14)
+
+Chatbox inspected QBO without any writes. Expenses was empty; reports and chart-of-accounts navigation were available; Bank Transactions showed `Unable to get transactions for 10 accounts`; Reconcile showed onboarding (`Connect now` / `Get started`). These observations are reference UX/data-availability evidence only. They do not prove a live accounting workflow and must not be used as a source of formal ledger entries or as release acceptance.
