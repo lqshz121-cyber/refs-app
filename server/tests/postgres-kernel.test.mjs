@@ -1272,6 +1272,28 @@ async function seedUnitTransferFixture(){
   const targetAttachmentHash=(await adminPool.query('SELECT refs_unit_transfer_attachment_ids_snapshot($1,$2,$3::uuid[]) value',[tenantId,targetEntityId,[targetAttachmentId]])).rows[0].value;
   return {tenantId,entityId:sourceEntityId,periodId:sourcePeriodId,sourceEntityId,targetEntityId,sourcePeriodId,targetPeriodId,sourceDocumentId,sourceLineId,payloadHash,sourceLineHash,sourceAttachmentHash,targetAttachmentId,targetAttachmentHash,sourceMappingId,sourceMappingHash:sourceHash,targetMappingId,targetMappingHash:targetHash,propertyRef,unitRef};
 }
+pgTest('Cash Transfer creates a two-bank Draft, applies separated approvals, and posts one retained ledger journal',async()=>{
+  const ids=await seed({status:'DRAFT'});
+  await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type) VALUES($1,$2,'112000','Reserve cash',true,'BANK')",[ids.tenantId,ids.entityId]);
+  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'BANK-2','BANK','Reserve Cash')",[ids.tenantId,ids.entityId]);
+  const controlMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cash-transfer-control-maker',['CASH.TRANSFER.CONFIGURE'])});
+  const controlApprover=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cash-transfer-control-approver',['CASH.TRANSFER.CONFIGURE.APPROVE'])});
+  const destinationControl=await controlMaker.createCashTransferBankAccountControl({tenantId:ids.tenantId,entityId:ids.entityId,bankMemberRef:'BANK-2',cashAccountCode:'112000',currency:'USD',effectiveFrom:'2026-01-01',idempotencyKey:'cash-transfer-control-create-002'});
+  await controlApprover.approveCashTransferBankAccountControl({tenantId:ids.tenantId,entityId:ids.entityId,controlId:destinationControl.cash_transfer_bank_account_control_id,expectedVersion:destinationControl.revision,idempotencyKey:'cash-transfer-control-approve-002'});
+  const roles={};for(const role of ['CASH_TRANSFER_MAKER','CASH_TRANSFER_SUBMITTER','CASH_TRANSFER_REVIEWER','CASH_TRANSFER_APPROVER','CASH_TRANSFER_POSTER'])roles[role]=await formalWorkflowRoleKernel(ids,'cash-transfer-'+role.toLowerCase(),role);
+  const transfer=await roles.CASH_TRANSFER_MAKER.createCashTransfer({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,date:'2026-07-15',number:'CASH-XFER-001',currency:'USD',sourceCashAccountCode:'111000',sourceBankMemberRef:'BANK-1',destinationCashAccountCode:'112000',destinationBankMemberRef:'BANK-2',amount:'125.0000',attachmentIds:[ids.attachmentId],reason:'Move approved operating cash to the separately controlled reserve account.',idempotencyKey:'cash-transfer-create-001'});
+  assert.equal(transfer.status,'DRAFT');
+  await roles.CASH_TRANSFER_SUBMITTER.transitionCashTransfer({tenantId:ids.tenantId,entityId:ids.entityId,cashTransferId:transfer.cash_transfer_id,action:'SUBMIT',expectedRevision:0,expectedJournalRevision:0,reason:'Submit this controlled two-bank transfer for independent review.',idempotencyKey:'cash-transfer-submit-001'});
+  await roles.CASH_TRANSFER_REVIEWER.transitionCashTransfer({tenantId:ids.tenantId,entityId:ids.entityId,cashTransferId:transfer.cash_transfer_id,action:'REVIEW',expectedRevision:1,expectedJournalRevision:1,reason:'Review exact approved bank controls and retained attachment evidence.',idempotencyKey:'cash-transfer-review-001'});
+  await roles.CASH_TRANSFER_APPROVER.transitionCashTransfer({tenantId:ids.tenantId,entityId:ids.entityId,cashTransferId:transfer.cash_transfer_id,action:'APPROVE',expectedRevision:2,expectedJournalRevision:2,reason:'Approve the independently reviewed transfer for controlled posting.',idempotencyKey:'cash-transfer-approve-001'});
+  const posted=await roles.CASH_TRANSFER_POSTER.postCashTransfer({tenantId:ids.tenantId,entityId:ids.entityId,cashTransferId:transfer.cash_transfer_id,expectedRevision:3,expectedJournalRevision:3,idempotencyKey:'cash-transfer-post-001'});
+  assert.equal(posted.status,'POSTED');
+  const detail=await roles.CASH_TRANSFER_POSTER.readCashTransferDetail({tenantId:ids.tenantId,entityId:ids.entityId,cashTransferId:transfer.cash_transfer_id});
+  assert.equal(detail.status,'POSTED');assert.equal(detail.journal.status,'POSTED');assert.equal(detail.journal.ledger_lines.length,2);assert.deepEqual(detail.journal.lines.map(line=>[line.account_code,line.debit_amount,line.credit_amount,line.member_ref]),[['112000','125.0000','0.0000','BANK-2'],['111000','0.0000','125.0000','BANK-1']]);
+  const counts=(await adminPool.query("SELECT (SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1 AND journal_entry_id=$2) ledger_lines,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND object_id=$3 AND event_type='CASH_TRANSFER_POSTED') post_audits,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND aggregate_id=$3 AND event_type='CASH_TRANSFER_POSTED') post_outbox",[ids.tenantId,transfer.journal_entry_id,transfer.cash_transfer_id])).rows[0];
+  assert.deepEqual(counts,{ledger_lines:2,post_audits:1,post_outbox:1});
+  await assert.rejects(roles.CASH_TRANSFER_MAKER.postCashTransfer({tenantId:ids.tenantId,entityId:ids.entityId,cashTransferId:transfer.cash_transfer_id,expectedRevision:4,expectedJournalRevision:4,idempotencyKey:'cash-transfer-maker-post-denied'}),error=>error.code==='42501');
+});
 pgTest('Unit Transfer creates a dual-entity Draft, applies separated approvals, posts both ledgers, and transfers the unit atomically',async()=>{
   const ids=await seedUnitTransferFixture();
   const scope={tenantId:ids.tenantId,entityIds:[ids.sourceEntityId,ids.targetEntityId]};

@@ -415,4 +415,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"408_unit_transfer_journal_gate_enum_fix.sql","up":"8ad409b6489d5a3e0ee47fbf36c67e7c97dc21648700ba969a92b3347ebd032c","down":"91ed9788d87dd77b1beb7c5acefe06f4e4227598997ef183c10c54834a1f2d6d"}),
   Object.freeze({"name":"409_unit_transfer_post_lineage_guard_fix.sql","up":"9d12e393046bee6a075e4bcac548f78d7d9f5fb5ed44185b143819395536dbdc","down":"68a790d4cbd3ec533f0918c4e4dd3e56c777c4071c5e7f8fd8aa43111da71345"}),
   Object.freeze({"name":"410_unit_transfer_pair_read_arity_fix.sql","up":"ed66d0771d1fb3a9e6d3f97e93c3b4e386ef464d22e0c02cefafb631aa2d9e9c","down":"0058be9704b0a91f913eba4c44395275dd3e1e6aa740ebd0606d800e423738ec"}),
+  Object.freeze({"name":"411_cash_transfer_journal_status_enum_fix.sql","up":"4cdba2b92ac01ccfd517e2605fbdf0883f6358f30682cb00d8e4c4933170de8c","down":"21326f3275b81ecd3118bbf9a2b7ed7d382b8cdfa4083395797be543e04bc339"}),
 ]);
