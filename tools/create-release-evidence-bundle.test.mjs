@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const script = resolve('tools/create-release-evidence-bundle.mjs');
@@ -9,13 +9,15 @@ assert.match(source, /RELEASE_RECEIPT_MAX_BUFFER\s*=\s*64\s*\*\s*1024\s*\*\s*102
   'executed PostgreSQL receipt output must not be truncated at Node\'s 1 MiB default');
 assert.match(source, /runToReceipt[\s\S]*stdio:\s*\['ignore', stdoutFd, stderrFd\]/,
   'long-running receipt commands must stream to files instead of retaining TAP output in memory');
-const result = spawnSync(process.execPath, [script], { encoding: 'utf8' });
+const testOutput = resolve('outputs/release-evidence-bundle-test');
+rmSync(testOutput, { recursive: true, force: true });
+const result = spawnSync(process.execPath, [script, '--out-dir', testOutput], { encoding: 'utf8' });
 
 assert.equal(result.status, 0, `bundle generator failed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
 assert.match(result.stdout, /release-evidence-bundle: wrote/);
 
-const manifestPath = resolve('outputs/release-evidence-bundle/manifest.json');
-const readmePath = resolve('outputs/release-evidence-bundle/README.md');
+const manifestPath = resolve(testOutput, 'manifest.json');
+const readmePath = resolve(testOutput, 'README.md');
 assert.equal(existsSync(manifestPath), true, 'bundle manifest must be written');
 assert.equal(existsSync(readmePath), true, 'bundle README must be written');
 
@@ -98,3 +100,4 @@ assert.match(readme, /dedicated-reader live database dictionary export/);
 assert.match(readme, /No commands were executed by this bundle invocation/);
 
 console.log('release-evidence-bundle: manifest, command matrix and release boundary verified');
+rmSync(testOutput, { recursive: true, force: true });

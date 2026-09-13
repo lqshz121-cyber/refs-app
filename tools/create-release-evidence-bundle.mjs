@@ -3,7 +3,16 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { dirname, resolve, relative } from 'node:path';
 
-const outRoot = resolve('outputs/release-evidence-bundle');
+const argValue = name => {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : null;
+};
+const outputArgument = argValue('--out-dir');
+if (outputArgument !== null && (!outputArgument || outputArgument.startsWith('-'))) {
+  console.error('RELEASE_EVIDENCE_OUTPUT_DIRECTORY_INVALID: --out-dir requires a directory path');
+  process.exit(2);
+}
+const outRoot = resolve(outputArgument || 'outputs/release-evidence-bundle');
 const strictClean = process.argv.includes('--strict-clean');
 const executeLocal = process.argv.includes('--execute-local');
 const requestedPostgresVersions = [15, 16, 18].filter(version => process.argv.includes(`--execute-pg${version}`));
