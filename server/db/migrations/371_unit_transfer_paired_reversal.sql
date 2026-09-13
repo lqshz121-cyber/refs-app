@@ -105,7 +105,7 @@ CREATE TRIGGER unit_transfer_ic_open_item_protect BEFORE INSERT OR UPDATE OR DEL
 DO $unit_transfer_post_patch$DECLARE fn text;patched text;BEGIN
  fn:=pg_get_functiondef('refs_post_unit_transfer_pair(uuid,uuid,uuid,bigint,bigint,bigint,text,text)'::regprocedure);
  patched:=replace(fn,'public.refs_post_unit_transfer_pair(','public.refs_post_unit_transfer_pair_370(');
- IF patched=fn THEN RAISE EXCEPTION 'Unable to retain 370 Unit Transfer Post function' USING ERRCODE='55000';END IF;EXECUTE patched;
+ IF patched=fn THEN RAISE EXCEPTION 'Unable to retain 370 Unit Transfer Post function' USING ERRCODE='55000';END IF;EXECUTE patched||';';
  patched:=replace(fn,$needle$ INSERT INTO unit_transfer_internal_gate VALUES(pg_backend_pid(),txid_current(),p_tenant,p_pair,'UNIT',pair.unit_control_id,'TRANSFERRED');$needle$,$replacement$
  INSERT INTO unit_transfer_internal_gate VALUES(pg_backend_pid(),txid_current(),p_tenant,p_pair,'IC_OPEN_ITEM',pair.source_journal_entry_id,'OPEN');
  INSERT INTO unit_transfer_ic_open_item(tenant_id,unit_transfer_pair_id,entity_id,counterparty_entity_id,journal_entry_id,ledger_line_id,direction,currency,account_code,counterparty_member_ref,original_amount,remaining_amount,status,settlement_authority_ref,evidence_hash)
@@ -117,7 +117,7 @@ DO $unit_transfer_post_patch$DECLARE fn text;patched text;BEGIN
  FROM ledger_line ll JOIN journal_line jl ON jl.tenant_id=ll.tenant_id AND jl.entity_id=ll.entity_id AND jl.journal_line_id=ll.journal_line_id WHERE ll.tenant_id=p_tenant AND ll.entity_id=pair.target_entity_id AND ll.journal_entry_id=pair.target_journal_entry_id AND ll.posting_batch_id=(target_result->>'posting_batch_id')::uuid AND ll.account_code=pair.target_due_to_account_code AND ll.credit_amount=pair.transfer_price AND ll.debit_amount=0 AND jl.dimensions->>'counterparty_entity_id'=pair.source_entity_id::text;
  IF (SELECT count(*) FROM unit_transfer_ic_open_item i WHERE i.tenant_id=p_tenant AND i.unit_transfer_pair_id=p_pair AND i.status='OPEN')<>2 THEN RAISE EXCEPTION 'Unit Transfer paired Post did not produce exact reciprocal IC open items' USING ERRCODE='23514';END IF;
  INSERT INTO unit_transfer_internal_gate VALUES(pg_backend_pid(),txid_current(),p_tenant,p_pair,'UNIT',pair.unit_control_id,'TRANSFERRED');$replacement$);
- IF patched=fn THEN RAISE EXCEPTION 'Unable to extend Unit Transfer Post with IC open items' USING ERRCODE='55000';END IF;EXECUTE patched;
+ IF patched=fn THEN RAISE EXCEPTION 'Unable to extend Unit Transfer Post with IC open items' USING ERRCODE='55000';END IF;EXECUTE patched||';';
 END;
 $unit_transfer_post_patch$;
 REVOKE ALL ON FUNCTION refs_post_unit_transfer_pair_370(uuid,uuid,uuid,bigint,bigint,bigint,text,text) FROM PUBLIC,refs_app;
@@ -213,7 +213,7 @@ END;$$;
 -- embedding a stale copy of an applied migration.
 DO $unit_transfer_journal_guard_patch$DECLARE fn text;BEGIN
  fn:=pg_get_functiondef('refs_guard_unit_transfer_journal_transition()'::regprocedure);
- EXECUTE replace(fn,'public.refs_guard_unit_transfer_journal_transition()','public.refs_guard_unit_transfer_journal_transition_370()');
+ EXECUTE replace(fn,'public.refs_guard_unit_transfer_journal_transition()','public.refs_guard_unit_transfer_journal_transition_370()')||';';
  fn:=replace(fn,'DECLARE pair unit_transfer_pair;gate integer;','DECLARE pair unit_transfer_pair;reversal_pair unit_transfer_reversal_pair;gate integer;');
  fn:=replace(fn,$needle$ IF TG_OP='DELETE' THEN
   IF EXISTS(SELECT 1 FROM unit_transfer_pair p WHERE p.tenant_id=OLD.tenant_id AND(p.source_entity_id=OLD.entity_id AND p.source_journal_entry_id=OLD.journal_entry_id OR p.target_entity_id=OLD.entity_id AND p.target_journal_entry_id=OLD.journal_entry_id)) THEN RAISE EXCEPTION 'Unit Transfer Journals are retained evidence and cannot be deleted' USING ERRCODE='55000';END IF;
@@ -238,7 +238,7 @@ DO $unit_transfer_journal_guard_patch$DECLARE fn text;BEGIN
  END IF;
  SELECT * INTO pair FROM unit_transfer_pair$replacement$);
  IF fn NOT LIKE '%unit_transfer_reversal_pair%' THEN RAISE EXCEPTION 'Unable to extend Unit Transfer Journal guard' USING ERRCODE='55000';END IF;
- EXECUTE fn;
+ EXECUTE fn||';';
 END;
 $unit_transfer_journal_guard_patch$;
 REVOKE ALL ON FUNCTION refs_guard_unit_transfer_journal_transition_370() FROM PUBLIC,refs_app;
@@ -263,7 +263,7 @@ BEGIN IF TG_OP='DELETE' THEN RAISE EXCEPTION 'Unit Transfer reversal evidence is
  RETURN NEW;END;$$;
 CREATE TRIGGER unit_transfer_reversal_pair_protect BEFORE UPDATE OR DELETE ON unit_transfer_reversal_pair FOR EACH ROW EXECUTE FUNCTION refs_protect_unit_transfer_reversal_pair();
 
-DO $unit_transfer_unit_protect_patch$DECLARE fn text;BEGIN fn:=pg_get_functiondef('refs_protect_unit_transfer_unit()'::regprocedure);EXECUTE replace(fn,'public.refs_protect_unit_transfer_unit()','public.refs_protect_unit_transfer_unit_370()');END;
+DO $unit_transfer_unit_protect_patch$DECLARE fn text;BEGIN fn:=pg_get_functiondef('refs_protect_unit_transfer_unit()'::regprocedure);EXECUTE replace(fn,'public.refs_protect_unit_transfer_unit()','public.refs_protect_unit_transfer_unit_370()')||';';END;
 $unit_transfer_unit_protect_patch$;
 REVOKE ALL ON FUNCTION refs_protect_unit_transfer_unit_370() FROM PUBLIC,refs_app;
 CREATE OR REPLACE FUNCTION refs_protect_unit_transfer_unit() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
@@ -367,8 +367,19 @@ BEGIN IF actor IS NULL OR p_pair.status<>'POSTED_PAIR' OR p_unit.last_transfer_p
 END;$$;
 
 DO $unit_transfer_read_patch$DECLARE fn text;patched text;BEGIN
- fn:=pg_get_functiondef('refs_read_unit_transfer_pair(uuid,uuid,uuid)'::regprocedure);patched:=replace(fn,'public.refs_read_unit_transfer_pair(','public.refs_read_unit_transfer_pair_370(');IF patched=fn THEN RAISE EXCEPTION 'Unable to retain 370 Unit Transfer read function' USING ERRCODE='55000';END IF;EXECUTE patched;
- patched:=replace(fn,$needle$'elimination_basis',elimination,'created_by'$needle$,$replacement$'elimination_basis',elimination,'reversal_history',COALESCE((SELECT jsonb_agg(refs_read_unit_transfer_reversal_pair(p_tenant,p_entity,p.unit_transfer_pair_id,r.unit_transfer_reversal_pair_id) ORDER BY r.created_at,r.unit_transfer_reversal_pair_id) FROM unit_transfer_reversal_pair r WHERE r.tenant_id=p_tenant AND r.original_unit_transfer_pair_id=p.unit_transfer_pair_id),'[]'::jsonb),'active_reversal',(SELECT refs_read_unit_transfer_reversal_pair(p_tenant,p_entity,p.unit_transfer_pair_id,r.unit_transfer_reversal_pair_id) FROM unit_transfer_reversal_pair r WHERE r.tenant_id=p_tenant AND r.original_unit_transfer_pair_id=p.unit_transfer_pair_id AND r.status NOT IN('POSTED_PAIR','CANCELLED_PAIR') ORDER BY r.created_at DESC,r.unit_transfer_reversal_pair_id DESC LIMIT 1),'created_by'$replacement$);
+ fn:=pg_get_functiondef('refs_read_unit_transfer_pair(uuid,uuid,uuid)'::regprocedure);patched:=replace(fn,'public.refs_read_unit_transfer_pair(','public.refs_read_unit_transfer_pair_370(');IF patched=fn THEN RAISE EXCEPTION 'Unable to retain 370 Unit Transfer read function' USING ERRCODE='55000';END IF;EXECUTE patched||';';
+ patched:=replace(fn,$needle,elimination,'created_by'$needle$,$replacement$'elimination_basis',elimination,'reversal_history',COALESCE((SELECT jsonb_agg(refs_read_unit_transfer_reversal_pair(p_tenant,p_entity,p.unit_transfer_pair_id,r.unit_transfer_reversal_pair_id) ORDER BY r.created_at,r.unit_transfer_reversal_pair_id) FROM unit_transfer_reversal_pair r WHERE r.tenant_id=p_tenant AND r.original_unit_transfer_pair_id=p.unit_transfer_pair_id),'[]'::jsonb),'active_reversal',(SELECT refs_read_unit_transfer_reversal_pair(p_tenant,p_entity,p.unit_transfer_pair_id,r.unit_transfer_reversal_pair_id) FROM unit_transfer_reversal_pair r WHERE r.tenant_id=p_tenant AND r.original_unit_transfer_pair_id=p.unit_transfer_pair_id AND r.status NOT IN('POSTED_PAIR','CANCELLED_PAIR') ORDER BY r.created_at DESC,r.unit_transfer_reversal_pair_id DESC LIMIT 1),'created_by'$replacement$);
+ patched:=replace(patched,$needle$'can_post',p.status='APPROVED_PAIR'$needle$,$replacement$'can_reverse',refs_unit_transfer_can_reverse(p_tenant,p,u),'can_post',p.status='APPROVED_PAIR'$replacement$);
+ IF patched=fn THEN RAISE EXCEPTION 'Unable to extend Unit Transfer read with paired reversal' USING ERRCODE='55000';END IF;EXECUTE patched||';';
+END;
+$unit_transfer_read_patch$;
+REVOKE ALL ON FUNCTION refs_read_unit_transfer_pair_370(uuid,uuid,uuid) FROM PUBLIC,refs_app;
+
+REVOKE ALL ON FUNCTION refs_guard_unit_transfer_create_against_reversal(),refs_protect_unit_transfer_ic_open_item(),refs_unit_transfer_reversal_target_cost_snapshot(uuid,unit_transfer_pair,text,date),refs_unit_transfer_reversal_source_net(uuid,unit_transfer_pair,text,date),refs_unit_transfer_ic_has_later_activity(uuid,unit_transfer_ic_open_item,unit_transfer_ic_open_item),refs_create_unit_transfer_reversal_pair_hash(uuid,uuid,uuid,bigint,bigint,bigint,date,text,text,text),refs_create_unit_transfer_reversal_pair(uuid,uuid,uuid,bigint,bigint,bigint,date,text,text,text,text,text),refs_guard_unit_transfer_reversal_line(),refs_guard_unit_transfer_reversal_source_link(),refs_protect_unit_transfer_reversal_pair(),refs_unit_transfer_reversal_transition_hash(uuid,uuid,uuid,uuid,text,bigint,bigint,bigint,text),refs_transition_unit_transfer_reversal_pair(uuid,uuid,uuid,uuid,text,bigint,bigint,bigint,text,text,text),refs_unit_transfer_reversal_cancel_hash(uuid,uuid,uuid,uuid,bigint,bigint,bigint,text),refs_cancel_unit_transfer_reversal_pair(uuid,uuid,uuid,uuid,bigint,bigint,bigint,text,text,text),refs_unit_transfer_reversal_post_hash(uuid,uuid,uuid,uuid,bigint,bigint,bigint),refs_post_unit_transfer_reversal_journal(uuid,uuid,uuid,uuid,uuid,uuid,bigint,text,text,text),refs_post_unit_transfer_reversal_pair(uuid,uuid,uuid,uuid,bigint,bigint,bigint,text,text),refs_read_unit_transfer_reversal_pair(uuid,uuid,uuid,uuid),refs_unit_transfer_can_reverse(uuid,unit_transfer_pair,unit_transfer_unit_control) FROM PUBLIC,refs_app;
+GRANT EXECUTE ON FUNCTION refs_create_unit_transfer_reversal_pair_hash(uuid,uuid,uuid,bigint,bigint,bigint,date,text,text,text),refs_create_unit_transfer_reversal_pair(uuid,uuid,uuid,bigint,bigint,bigint,date,text,text,text,text,text),refs_unit_transfer_reversal_transition_hash(uuid,uuid,uuid,uuid,text,bigint,bigint,bigint,text),refs_transition_unit_transfer_reversal_pair(uuid,uuid,uuid,uuid,text,bigint,bigint,bigint,text,text,text),refs_unit_transfer_reversal_cancel_hash(uuid,uuid,uuid,uuid,bigint,bigint,bigint,text),refs_cancel_unit_transfer_reversal_pair(uuid,uuid,uuid,uuid,bigint,bigint,bigint,text,text,text),refs_unit_transfer_reversal_post_hash(uuid,uuid,uuid,uuid,bigint,bigint,bigint),refs_post_unit_transfer_reversal_pair(uuid,uuid,uuid,uuid,bigint,bigint,bigint,text,text),refs_read_unit_transfer_reversal_pair(uuid,uuid,uuid,uuid) TO refs_app;
+
+COMMIT;
+elimination_basis',elimination,'created_by'$needle$,$replacement$'elimination_basis',elimination,'reversal_history',COALESCE((SELECT jsonb_agg(refs_read_unit_transfer_reversal_pair(p_tenant,p_entity,p.unit_transfer_pair_id,r.unit_transfer_reversal_pair_id) ORDER BY r.created_at,r.unit_transfer_reversal_pair_id) FROM unit_transfer_reversal_pair r WHERE r.tenant_id=p_tenant AND r.original_unit_transfer_pair_id=p.unit_transfer_pair_id),'[]'::jsonb),'active_reversal',(SELECT refs_read_unit_transfer_reversal_pair(p_tenant,p_entity,p.unit_transfer_pair_id,r.unit_transfer_reversal_pair_id) FROM unit_transfer_reversal_pair r WHERE r.tenant_id=p_tenant AND r.original_unit_transfer_pair_id=p.unit_transfer_pair_id AND r.status NOT IN('POSTED_PAIR','CANCELLED_PAIR') ORDER BY r.created_at DESC,r.unit_transfer_reversal_pair_id DESC LIMIT 1),'created_by'$replacement$);
  patched:=replace(patched,$needle$'can_post',p.status='APPROVED_PAIR'$needle$,$replacement$'can_reverse',refs_unit_transfer_can_reverse(p_tenant,p,u),'can_post',p.status='APPROVED_PAIR'$replacement$);
  IF patched=fn THEN RAISE EXCEPTION 'Unable to extend Unit Transfer read with paired reversal' USING ERRCODE='55000';END IF;EXECUTE patched;
 END;
