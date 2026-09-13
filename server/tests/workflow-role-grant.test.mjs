@@ -71,6 +71,25 @@ test('formal credit entry roles satisfy the actual browser access predicate',asy
   }
 });
 
+test('Unit Transfer role bundles preserve dual-entity workflow segregation',()=>{
+  const roles={
+    UNIT_TRANSFER_MAKER:['DRAFT','REAL_ESTATE.UNIT_TRANSFER.CREATE','GL.JE.CREATE'],
+    UNIT_TRANSFER_SUBMITTER:['SUBMIT','REAL_ESTATE.UNIT_TRANSFER.SUBMIT','GL.JE.SUBMIT'],
+    UNIT_TRANSFER_REVIEWER:['REVIEW','REAL_ESTATE.UNIT_TRANSFER.REVIEW','GL.JE.REVIEW'],
+    UNIT_TRANSFER_APPROVER:['APPROVE','REAL_ESTATE.UNIT_TRANSFER.APPROVE','GL.JE.APPROVE'],
+    UNIT_TRANSFER_POSTER:['POST','REAL_ESTATE.UNIT_TRANSFER.POST','GL.JE.POST']
+  };
+  for(const [name,[authority,permission,journalPermission]] of Object.entries(roles)){
+    const role=AUTHORITATIVE_WORKFLOW_ROLES[name];
+    assert.equal(role.authorityClass,authority,name);
+    assert.equal(role.permissions.includes('REAL_ESTATE.UNIT_TRANSFER.VIEW'),true,name);
+    assert.equal(role.permissions.includes(permission),true,name);
+    assert.equal(role.permissions.includes(journalPermission),true,name);
+    assert.equal(assertWorkflowRoleSafety(role),role,name);
+  }
+  const maker=AUTHORITATIVE_WORKFLOW_ROLES.UNIT_TRANSFER_MAKER;
+  for(const forbidden of ['REAL_ESTATE.UNIT_TRANSFER.SUBMIT','REAL_ESTATE.UNIT_TRANSFER.REVIEW','REAL_ESTATE.UNIT_TRANSFER.APPROVE','REAL_ESTATE.UNIT_TRANSFER.POST','GL.JE.POST'])assert.equal(maker.permissions.includes(forbidden),false);
+});
 test('sales receipt entry has native Draft and upload without later accounting authority',()=>{
   const role=AUTHORITATIVE_WORKFLOW_ROLES.AR_SALES_RECEIPT_ENTRY_MAKER;
   assert.equal(role.authorityClass,'DRAFT');

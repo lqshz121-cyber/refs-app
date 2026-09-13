@@ -409,4 +409,10 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"402_reconciliation_adjustment_attachment_candidates.sql","up":"6796782c33859fb982e60ca3b49c5caf0ce4e41fd553ccec068867e0c5f839b7","down":"8313af575fe7e7a7c77f220f68c01338182c076299c62e615883a3ace77dd9c6"}),
   Object.freeze({"name":"403_reconciliation_clearance_lock_fix.sql","up":"0ab494a31f914218fbe611923432c528e9d3b35948596f0448a6f787673e68dd","down":"bd22b62b23850699d687d242112d16730c4848a2c93d92ad9d14b9b80356b207"}),
   Object.freeze({"name":"404_native_expense_account_classification_fix.sql","up":"3039ed2cdf6c9b7702889bc4f8acda582799428aca9f9050577179444d27b0a6","down":"d1a189410dc5177efee7ed5ad195ba028c10dc4ee953220bebdaeafbdc429506"}),
+  Object.freeze({"name":"405_unit_transfer_cross_entity_currency_fix.sql","up":"1af78f31adc32669c146c73c132b1998855a83bd2542e5e6f765b2ec98735a5c","down":"6046fbb755f946c30545eac5998d889d043ff6a1c62e8c3da70b6daa6222009e"}),
+  Object.freeze({"name":"406_unit_transfer_dual_entity_outbox.sql","up":"963e1d8096e7a4b9f4cdf6504e8c332141e1fe7d14f697d3636b31dd409e6224","down":"c68a007a4bb9fade82fa1001ae288ea0bdbcab81a5a4dc8726b2bcfcf162fbf6"}),
+  Object.freeze({"name":"407_unit_transfer_transition_status_outbox_fix.sql","up":"62bd3423aa4c792748d49ac9886cfa36dee195bc66739351e244338a98478de5","down":"23e15399302172f5227e11dbdd9c36d31da0929af05a57923ca88fe280b0f0f2"}),
+  Object.freeze({"name":"408_unit_transfer_journal_gate_enum_fix.sql","up":"8ad409b6489d5a3e0ee47fbf36c67e7c97dc21648700ba969a92b3347ebd032c","down":"91ed9788d87dd77b1beb7c5acefe06f4e4227598997ef183c10c54834a1f2d6d"}),
+  Object.freeze({"name":"409_unit_transfer_post_lineage_guard_fix.sql","up":"9d12e393046bee6a075e4bcac548f78d7d9f5fb5ed44185b143819395536dbdc","down":"68a790d4cbd3ec533f0918c4e4dd3e56c777c4071c5e7f8fd8aa43111da71345"}),
+  Object.freeze({"name":"410_unit_transfer_pair_read_arity_fix.sql","up":"ed66d0771d1fb3a9e6d3f97e93c3b4e386ef464d22e0c02cefafb631aa2d9e9c","down":"0058be9704b0a91f913eba4c44395275dd3e1e6aa740ebd0606d800e423738ec"}),
 ]);

@@ -1024,7 +1024,7 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>{
       const args=[tenantId,entityId,pairId,action,expectedPairRevision,expectedSourceRevision,expectedTargetRevision,reason];
       const requestHash=requireRow(await client.query('SELECT refs_unit_transfer_transition_hash($1,$2,$3,$4,$5::bigint,$6::bigint,$7::bigint,$8) AS request_hash',args),'UNIT_TRANSFER_TRANSITION_HASH_MISSING','Unit Transfer transition hash unavailable').request_hash;
-      return requireRow(await client.query('SELECT refs_transition_unit_transfer_pair($1,$2,$3,$4,$5::bigint,$6::bigint,$7::bigint,$8,$9,$10) AS result',[...args,idempotencyKey,requestHash]),'UNIT_TRANSFER_TRANSITION_FAILED','Unit Transfer transition unavailable').result;
+      return requireRow(await client.query('SELECT refs_transition_unit_transfer_pair($1,$2,$3,$4::text,$5::bigint,$6::bigint,$7::bigint,$8::text,$9::text,$10::text) AS result',[...args,idempotencyKey,requestHash]),'UNIT_TRANSFER_TRANSITION_FAILED','Unit Transfer transition unavailable').result;
     });
   }
 
