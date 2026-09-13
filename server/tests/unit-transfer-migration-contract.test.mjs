@@ -154,16 +154,19 @@ test('Unit Transfer reversal binds both originals only inside one-shot gates and
 });
 
 test('Unit Transfer paired Post creates guarded reciprocal IC open items without unsafe history backfill',()=>{
- const writer=reversalUp.slice(reversalUp.indexOf('-- Extend future paired Posts only.'),reversalUp.indexOf('REVOKE ALL ON FUNCTION refs_post_unit_transfer_pair_370'));
+ const writerStart=reversalUp.indexOf('CREATE FUNCTION refs_post_unit_transfer_pair(p_tenant uuid,p_entity uuid,p_pair uuid');
+ const writer=reversalUp.slice(writerStart,reversalUp.indexOf('CREATE FUNCTION refs_unit_transfer_reversal_target_cost_snapshot',writerStart));
  assert.ok(writer.length>1000);
- assert.match(reversalUp,/pg_get_functiondef\('refs_post_unit_transfer_pair\(uuid,uuid,uuid,bigint,bigint,bigint,text,text\)'::regprocedure\)/i);
+ assert.match(reversalUp,/CREATE FUNCTION refs_post_unit_transfer_pair_370\(p_tenant uuid,p_entity uuid,p_pair uuid/i);
+ assert.match(writer,/CREATE FUNCTION refs_post_unit_transfer_pair\(p_tenant uuid,p_entity uuid,p_pair uuid/i);
+ assert.doesNotMatch(reversalUp,/pg_get_functiondef|EXECUTE patched/i);
  assert.match(writer,/INSERT INTO unit_transfer_ic_open_item[\s\S]+'DUE_FROM'[\s\S]+FROM ledger_line ll JOIN journal_line jl[\s\S]+source_result->>'posting_batch_id'/i);
  assert.match(writer,/INSERT INTO unit_transfer_ic_open_item[\s\S]+'DUE_TO'[\s\S]+FROM ledger_line ll JOIN journal_line jl[\s\S]+target_result->>'posting_batch_id'/i);
  assert.match(reversalUp,/CREATE TRIGGER unit_transfer_ic_open_item_protect/i);
  assert.match(reversalUp,/status='SETTLED',remaining_amount=0,version=version\+1/i);
  assert.match(reversalUp,/refs_unit_transfer_ic_has_later_activity/i);
  assert.match(reversalUp,/may represent settlement/i);
- assert.doesNotMatch(writer,/FROM unit_transfer_pair[\s\S]+status='POSTED_PAIR'/i);
+ assert.doesNotMatch(writer,/INSERT INTO unit_transfer_ic_open_item[\s\S]+FROM unit_transfer_pair[\s\S]+status='POSTED_PAIR'/i);
  assert.match(reversalUp,/IF idem[.]status='SUCCEEDED' THEN RETURN idem[.]response_body\|\|jsonb_build_object\('idempotent',true\)/i);
  assert.match(reversalDown,/refs_post_unit_transfer_pair_370/i);
 });
