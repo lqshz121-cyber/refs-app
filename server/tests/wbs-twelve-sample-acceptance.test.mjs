@@ -25,6 +25,7 @@ test('twelve sample acceptance rejects incomplete counts, duplicate evidence, an
   const lateReview=manifest();lateReview.samples[0].bank_reviewed_at='2026-09-13T00:02:00.000Z';assert.throws(()=>verifyWbsTwelveSampleAcceptance(lateReview),{code:'WBS_TWELVE_SAMPLE_REVIEW_ORDER_INVALID'});
   const crossCategoryReuse=manifest();crossCategoryReuse.samples[1].business_audit_event_id=crossCategoryReuse.samples[0].bank_source_record_id;assert.throws(()=>verifyWbsTwelveSampleAcceptance(crossCategoryReuse),{code:'WBS_TWELVE_SAMPLE_DUPLICATE_EVIDENCE'});
   const overlong=manifest();overlong.samples[0].signed_package_evidence.verification_id='v'.repeat(257);assert.throws(()=>verifyWbsTwelveSampleAcceptance(overlong),{code:'WBS_TWELVE_SAMPLE_SIGNED_PACKAGE_EVIDENCE_INVALID'});
+  const overlongSubject=manifest();overlongSubject.samples[0].authoritative_api_readback_evidence.authenticated_subject='u'.repeat(513);assert.throws(()=>verifyWbsTwelveSampleAcceptance(overlongSubject),{code:'WBS_TWELVE_SAMPLE_API_READBACK_EVIDENCE_INVALID'});
 });
 
 test('twelve sample command requires one explicit local manifest path',()=>{

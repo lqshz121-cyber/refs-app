@@ -20,13 +20,15 @@ const httpsUrl=value=>{try{const url=new URL(text(value));return url.protocol===
 const immutableRef=value=>/^(?:object|s3|gs|az|https):\/\/[^\s]{1,2048}$/.test(text(value));
 const evidenceReference=(value,code)=>{
   if(!value||typeof value!=='object'||Array.isArray(value))fail(code);
-  if(!immutableRef(value.reference)||!HASH.test(text(value.content_hash))||!text(value.verification_id)||text(value.verification_id).length>256||!text(value.key_id)||text(value.key_id).length>256||!['Ed25519','ES256','RS256'].includes(value.algorithm)||!instant(text(value.verified_at)))fail(code);
-  return Object.freeze({reference:text(value.reference),content_hash:text(value.content_hash),verification_id:text(value.verification_id),key_id:text(value.key_id),algorithm:value.algorithm,verified_at:text(value.verified_at)});
+  const verificationId=text(value.verification_id),keyId=text(value.key_id);
+  if(!immutableRef(value.reference)||!HASH.test(text(value.content_hash))||!verificationId||verificationId.length>256||!keyId||keyId.length>256||!['Ed25519','ES256','RS256'].includes(value.algorithm)||!instant(text(value.verified_at)))fail(code);
+  return Object.freeze({reference:text(value.reference),content_hash:text(value.content_hash),verification_id:verificationId,key_id:keyId,algorithm:value.algorithm,verified_at:text(value.verified_at)});
 };
 const apiReadback=(value,code)=>{
   if(!value||typeof value!=='object'||Array.isArray(value))fail(code);
-  if(!httpsUrl(value.endpoint)||!HASH.test(text(value.response_hash))||!text(value.authenticated_subject)||text(value.authenticated_subject).length>512||!instant(text(value.read_at))||!/^2\d\d$/.test(String(value.http_status)))fail(code);
-  return Object.freeze({endpoint:httpsUrl(value.endpoint),response_hash:text(value.response_hash),authenticated_subject:text(value.authenticated_subject),read_at:text(value.read_at),http_status:Number(value.http_status)});
+  const authenticatedSubject=text(value.authenticated_subject);
+  if(!httpsUrl(value.endpoint)||!HASH.test(text(value.response_hash))||!authenticatedSubject||authenticatedSubject.length>512||!instant(text(value.read_at))||!/^2\d\d$/.test(String(value.http_status)))fail(code);
+  return Object.freeze({endpoint:httpsUrl(value.endpoint),response_hash:text(value.response_hash),authenticated_subject:authenticatedSubject,read_at:text(value.read_at),http_status:Number(value.http_status)});
 };
 function sampleIdentity(sample){
   required(sample,['sample_id','company_code','package_hash','snapshot_id','bank_source_record_id','business_source_record_id','bank_staging_item_id','business_staging_item_id','bank_review_event_id','business_review_event_id','bank_source_document_id','business_source_document_id','bank_raw_event_id','business_raw_event_id','bank_journal_entry_id','business_journal_entry_id','bank_audit_event_id','business_audit_event_id','report_id','control_total_hash','bank_reviewed_at','business_reviewed_at','bank_posted_at','business_posted_at'],'WBS_TWELVE_SAMPLE_INVALID');
