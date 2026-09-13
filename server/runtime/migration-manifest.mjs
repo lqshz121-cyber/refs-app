@@ -407,6 +407,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"400_sales_receipt_reconciliation_evidence.sql","up":"8beefd5aecccbfb883dd4448356288834aa9a36960b61d29b71642511a3be12a","down":"5c3faf968342c7f89881745bbbfc6f3d7c80df1c88beae76d0bd014fd5e77cf9"}),
   Object.freeze({"name":"401_native_settlement_bank_account_control.sql","up":"085ee05d2cccbc30e4901558d293503fc0ed4b6f132d78626fb84a8cf24d0e59","down":"cd70caeb294aae9cefc4ac553642a115d884053aad86a60e3c726b69c388c749"}),
   Object.freeze({"name":"402_reconciliation_adjustment_attachment_candidates.sql","up":"6796782c33859fb982e60ca3b49c5caf0ce4e41fd553ccec068867e0c5f839b7","down":"8313af575fe7e7a7c77f220f68c01338182c076299c62e615883a3ace77dd9c6"}),
-  Object.freeze({"name":"403_reconciliation_clearance_lock_fix.sql","up":"ac978ef8d423fbdfc20d155cfaf12f13147106b156d586e3d1562e66c9619dbc","down":"2151e83f1a6b8b8f116ab48b5aeb9859e0b37e0116bab5637439561f99cb35d0"}),
-  Object.freeze({"name":"404_reconciliation_clearance_lock_forward_fix.sql","up":"0ab494a31f914218fbe611923432c528e9d3b35948596f0448a6f787673e68dd","down":"928b425362b2567b46eb8893884a125bc4b0c418c2ad3681029a0a9678eaed1f"}),
+  Object.freeze({"name":"403_reconciliation_clearance_lock_fix.sql","up":"0ab494a31f914218fbe611923432c528e9d3b35948596f0448a6f787673e68dd","down":"bd22b62b23850699d687d242112d16730c4848a2c93d92ad9d14b9b80356b207"}),
 ]);

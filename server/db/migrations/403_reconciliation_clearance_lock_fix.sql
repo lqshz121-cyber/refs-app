@@ -3,7 +3,7 @@ BEGIN;
 -- PostgreSQL rejects locking the nullable side of the payment-evidence joins.
 -- The clearance decision needs only the active bank_match row locked; bank_source
 -- and reconciliation are already locked earlier in this command.
-CREATE FUNCTION refs_set_reconciliation_clearance(
+CREATE OR REPLACE FUNCTION refs_set_reconciliation_clearance(
   p_tenant uuid,p_entity uuid,p_reconciliation uuid,p_bank_source uuid,p_expected_reconciliation_version bigint,
   p_expected_bank_version bigint,p_clear boolean,p_reason text,p_idempotency_key text,p_request_hash text
 ) RETURNS jsonb
@@ -110,7 +110,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION refs_reconciliation_transition_hash(
+CREATE OR REPLACE FUNCTION refs_reconciliation_transition_hash(
   p_tenant uuid,p_entity uuid,p_reconciliation uuid,p_action text,p_expected_version bigint,p_reason text
 ) RETURNS text
 LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
