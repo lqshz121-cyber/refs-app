@@ -1,6 +1,6 @@
 BEGIN;
 
-CREATE FUNCTION refs_set_reconciliation_clearance(
+CREATE OR REPLACE FUNCTION refs_set_reconciliation_clearance(
   p_tenant uuid,p_entity uuid,p_reconciliation uuid,p_bank_source uuid,p_expected_reconciliation_version bigint,
   p_expected_bank_version bigint,p_clear boolean,p_reason text,p_idempotency_key text,p_request_hash text
 ) RETURNS jsonb
