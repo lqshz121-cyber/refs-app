@@ -1,6 +1,6 @@
 BEGIN;
 
-CREATE OR REPLACE refs_transition_unit_transfer_pair(p_tenant uuid,p_entity uuid,p_pair uuid,p_action text,p_expected_pair_revision bigint,p_expected_source_revision bigint,p_expected_target_revision bigint,p_reason text,p_idempotency_key text,p_request_hash text) RETURNS jsonb
+CREATE OR REPLACE FUNCTION refs_transition_unit_transfer_pair(p_tenant uuid,p_entity uuid,p_pair uuid,p_action text,p_expected_pair_revision bigint,p_expected_source_revision bigint,p_expected_target_revision bigint,p_reason text,p_idempotency_key text,p_request_hash text) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE actor text:=refs_current_actor();pair unit_transfer_pair;idem idempotency_receipt;action text:=upper(p_action);target_status text;source_hash text;target_hash text;source_result jsonb;target_result jsonb;payload jsonb;
 BEGIN

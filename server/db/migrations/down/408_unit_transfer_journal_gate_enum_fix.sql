@@ -1,6 +1,7 @@
 BEGIN;
 
-CREATE OR REPLACE FUNCTION refs_guard_unit_transfer_journal_transition() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS`nDECLARE pair unit_transfer_pair;gate integer;current_carrying numeric(20,4);current_cost_ids uuid[];current_cost_hash text;current_cost_layers jsonb;current_cost_snapshot jsonb;source_period accounting_period;target_period accounting_period;source_map mapping_snapshot;target_map mapping_snapshot;
+CREATE OR REPLACE FUNCTION refs_guard_unit_transfer_journal_transition() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE pair unit_transfer_pair;gate integer;current_carrying numeric(20,4);current_cost_ids uuid[];current_cost_hash text;current_cost_layers jsonb;current_cost_snapshot jsonb;source_period accounting_period;target_period accounting_period;source_map mapping_snapshot;target_map mapping_snapshot;
 BEGIN
  IF TG_OP='INSERT' THEN
   IF(NEW.reversal_of_id IS NOT NULL OR NEW.reclass_of_id IS NOT NULL) AND EXISTS(SELECT 1 FROM unit_transfer_pair p WHERE p.tenant_id=NEW.tenant_id AND(p.source_journal_entry_id IN(NEW.reversal_of_id,NEW.reclass_of_id) OR p.target_journal_entry_id IN(NEW.reversal_of_id,NEW.reclass_of_id))) THEN RAISE EXCEPTION 'Unit Transfer journals require a dedicated paired reversal' USING ERRCODE='0A000';END IF;
@@ -30,6 +31,6 @@ BEGIN
   IF pair.attachment_ids IS DISTINCT FROM ARRAY(SELECT sl.attachment_id FROM source_link sl WHERE sl.tenant_id=pair.tenant_id AND sl.entity_id=pair.source_entity_id AND sl.journal_entry_id=pair.source_journal_entry_id AND sl.link_type='JE_ATTACHMENT' ORDER BY sl.attachment_id) OR pair.target_attachment_ids IS DISTINCT FROM ARRAY(SELECT sl.attachment_id FROM source_link sl WHERE sl.tenant_id=pair.tenant_id AND sl.entity_id=pair.target_entity_id AND sl.journal_entry_id=pair.target_journal_entry_id AND sl.link_type='JE_ATTACHMENT' ORDER BY sl.attachment_id) THEN RAISE EXCEPTION 'Unit Transfer Journal attachments changed before Post' USING ERRCODE='40001';END IF;
  END IF;
  RETURN NEW;
-END;;
+END;$$;
 
 COMMIT;

@@ -321,11 +321,23 @@ after(async()=>{
   if(adminPool)await adminPool.end();
 });
 
+// This suite shares one migrated database and deliberately includes migration
+// round trips.  Node may schedule top-level tests concurrently, so serialize
+// their database sections to prevent one test from truncating or migrating
+// while another test owns transactional locks.
+let pgTestTail=Promise.resolve();
+
 function pgTest(name,fn){
   test(name,async t=>{
-    if(unavailable){t.skip(unavailable);return;}
-    const cleanupClient=await adminPool.connect();try{await cleanupClient.query("SET statement_timeout='120s'");await cleanupClient.query('TRUNCATE tenant CASCADE');}finally{cleanupClient.release();}
-    await fn(t);
+    let release;
+    const previous=pgTestTail;
+    pgTestTail=new Promise(resolve=>{release=resolve;});
+    await previous;
+    try{
+      if(unavailable){t.skip(unavailable);return;}
+      const cleanupClient=await adminPool.connect();try{await cleanupClient.query("SET statement_timeout='120s'");await cleanupClient.query('TRUNCATE tenant CASCADE');}finally{cleanupClient.release();}
+      await fn(t);
+    }finally{release();}
   });
 }
 
@@ -2395,7 +2407,10 @@ pgTest('authenticated HTTP records only sandbox WBS snapshot observations in its
 });
 
 pgTest('concurrent up and down runners serialize on the same advisory lock',async()=>{
-  await Promise.all([migrateDown(adminPool,{all:true}),migrateUp(adminPool)]);
+  const downToImmutableBoundary=async()=>{
+    await assert.rejects(migrateDown(adminPool,{all:true}),error=>error.code==='P0001'&&/migration 305 is retained as immutable historical evidence/.test(error.message));
+  };
+  await Promise.all([downToImmutableBoundary(),migrateUp(adminPool)]);
   await migrateUp(adminPool);
   const applied=await adminPool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name');
   assert.deepEqual(applied.rows.map(row=>row.migration_name),MIGRATION_MANIFEST.map(migration=>migration.name));
