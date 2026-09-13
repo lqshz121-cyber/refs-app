@@ -2548,8 +2548,8 @@ pgTest('formal IAM grant sync reconciles and revokes desired state with version,
 pgTest('outbox dispatcher reclaims expired leases and separates retry, dead-letter, and publish completion',async()=>{
   const ids=await seed(),firstId=randomUUID(),secondId=randomUUID(),payloadText='{"schema_version":"OUTBOX_TEST_EVENT_V1","value":"retained","amount":12.0000,"precise":9007199254740993.1200}';
   const payloadHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[payloadText])).rows[0].hash;
-  for(const eventId of [firstId,secondId])await adminPool.query(`INSERT INTO outbox_event(outbox_event_id,tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash)
-    VALUES($1,$2,$3,'OUTBOX_TEST',$1,'OUTBOX_TEST_EVENT',$4::jsonb,$5)`,[eventId,ids.tenantId,ids.entityId,payloadText,payloadHash]);
+  for(const eventId of [firstId,secondId])await adminPool.query(`INSERT INTO outbox_event(outbox_event_id,tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash,available_at,created_at)
+    VALUES($1,$2,$3,'OUTBOX_TEST',$1,'OUTBOX_TEST_EVENT',$4::jsonb,$5,clock_timestamp()-interval '2 hours',clock_timestamp()-interval '2 hours')`,[eventId,ids.tenantId,ids.entityId,payloadText,payloadHash]);
   const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
   for(const [actor,key] of [['outbox-worker-one','outbox-service-one-0001'],['outbox-worker-two','outbox-service-two-0001']])await sync.reconcile({tenantId:ids.tenantId,actorId:actor,entityId:ids.entityId,permissions:['OUTBOX.DISPATCH'],authorityClass:'SERVICE',validUntil:null,expectedVersion:0,idempotencyKey:key});
   const first=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'outbox-worker-one',['OUTBOX.DISPATCH'])});
