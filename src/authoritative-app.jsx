@@ -173,7 +173,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const authenticationFailureRef = useRef(null);
   const authenticationHandlingRef = useRef(false);
   const boundFetcher = useMemo(() => bindAuthoritativeFetcher(environment, fetcher, () => authenticationFailureRef.current?.()), [environment, fetcher]);
-  const [phase, setPhase] = useState(configured ? 'CHECKING_RELEASE' : 'CONFIGURATION_REQUIRED');
+  const [phase, setPhase] = useState(configured ? 'CHECKING_IDENTITY' : 'CONFIGURATION_REQUIRED');
   const [route, setRouteState] = useState(() => readRetainedRoute(environment));
   const [data, setData] = useState({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] });
   const [documentDetail, setDocumentDetail] = useState(null);
@@ -270,15 +270,16 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const authenticatedBaseConfig = useMemo(() => bindAuthoritativeAccessToken(baseConfig, requireAuthentication), [baseConfig, requireAuthentication]);
   const config = useMemo(() => authenticatedBaseConfig&&selectedScope?{...authenticatedBaseConfig,entityId:selectedScope.entity_id,periodId:selectedScope.period_id}:authenticatedBaseConfig, [authenticatedBaseConfig, selectedScope]);
 
-  // This public, credential-free call is deliberately ahead of OIDC and every
-  // accounting reader. A green readiness response alone is not evidence that
-  // the independent API Render service was promoted with this static build.
+  // Verify the public release identity only after OIDC has completed.  This
+  // keeps an API rollout fault from trapping a user before they can establish
+  // a valid session.  No accounting reader or command starts until the stamps
+  // match, so this changes entry usability without weakening the data boundary.
   useEffect(() => {
     if (!configured || !config || phase !== 'CHECKING_RELEASE' || typeof environment?.document === 'undefined') return undefined;
     let active = true;
     void verifyAuthoritativeApiRelease({ environment, config, fetcher:boundFetcher }).then(result => {
       if (!active) return;
-      if (result.ok) { setError(null); setPhase('CHECKING_IDENTITY'); return; }
+      if (result.ok) { setError(null); setPhase('AUTHENTICATED'); return; }
       setError(result); setPhase('LOAD_FAILED');
     });
     return () => { active = false; };
@@ -533,7 +534,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       setRouteState(readRetainedRoute(environment));
       retainRoute(environment, readRetainedRoute(environment));
       authenticationHandlingRef.current = false;
-      setSessionExpired(false); setRenewalFailure(null); setPhase('AUTHENTICATED');
+      setSessionExpired(false); setRenewalFailure(null); setPhase('CHECKING_RELEASE');
     };
     const restoreOrCompleteIdentity = async () => {
       const bootstrap = await bootstrapAuthoritativeIdentity(oidcClient, () => active);

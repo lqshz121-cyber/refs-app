@@ -45,6 +45,7 @@ export function verifyUiEvidence(environment = process.env) {
   if (!requireEnv(environment, ['REFS_STAGING_WEB_ORIGIN', 'REFS_STAGING_API_BASE_URL', 'REFS_UI_E2E_MANIFEST'])) return false;
   const manifest = jsonFile(resolve(environment.REFS_UI_E2E_MANIFEST), 'REFS_UI_E2E_MANIFEST');
   if (!manifest) return false;
+  if (String(manifest.mode || '').trim().toUpperCase() === 'LOCAL_SIMULATION') return fail('RELEASE_UI_SIMULATION_EVIDENCE_REJECTED', 'local simulation evidence cannot satisfy the external release gate');
   if (manifest.webOrigin !== environment.REFS_STAGING_WEB_ORIGIN || manifest.apiBaseUrl !== environment.REFS_STAGING_API_BASE_URL) return fail('RELEASE_UI_ORIGIN_MISMATCH', 'manifest origin does not match configured staging endpoints');
   const oidc = manifest.oidc || {};
   if (manifest.authenticated !== true || !oidc.issuer || !oidc.audience || !oidc.subject || oidc.token_refresh_verified !== true) return fail('RELEASE_UI_OIDC_EVIDENCE_INCOMPLETE', 'authenticated OIDC session and token refresh evidence are required');
@@ -64,6 +65,7 @@ export function verifyS3ScannerEvidence(environment = process.env) {
   if (!String(environment.VIRUS_SCANNER_CA_PEM || environment.VIRUS_SCANNER_CA_FILE || '').trim()) return fail('RELEASE_GATE_CONFIG_MISSING', 'VIRUS_SCANNER_CA_PEM or VIRUS_SCANNER_CA_FILE');
   const receipt = jsonFile(resolve(environment.REFS_S3_SCANNER_LIFECYCLE_RECEIPT), 'REFS_S3_SCANNER_LIFECYCLE_RECEIPT');
   if (!receipt) return false;
+  if (String(receipt.mode || '').trim().toUpperCase() === 'LOCAL_SIMULATION') return fail('RELEASE_S3_SIMULATION_EVIDENCE_REJECTED', 'local simulation evidence cannot satisfy the external release gate');
   const required = ['upload', 'scan_clean', 'head_versioned', 'delete', 'delete_verified'];
   if (!required.every(step => receipt.steps?.includes(step)) || receipt.ok !== true) return fail('RELEASE_S3_SCANNER_LIFECYCLE_INCOMPLETE', required.join(','));
   if (receipt.endpoint !== environment.S3_ENDPOINT || receipt.bucket !== environment.S3_BUCKET || receipt.region !== environment.S3_REGION) return fail('RELEASE_S3_SCANNER_SCOPE_MISMATCH', 'receipt S3 endpoint, bucket, or region does not match configured release environment');
@@ -94,6 +96,7 @@ export function verifyWbsReceiptEvidence(environment = process.env) {
   if (!pin) return fail('RELEASE_WBS_PROVIDER_TRUST_INVALID', 'expected one pinned Ed25519 provider issuer and key');
   const receipt = jsonFile(resolve(environment.REFS_WBS_SIGNED_RECEIPT_FILE), 'REFS_WBS_SIGNED_RECEIPT_FILE');
   if (!receipt) return false;
+  if (String(receipt.mode || '').trim().toUpperCase() === 'LOCAL_SIMULATION') return fail('RELEASE_WBS_SIMULATION_EVIDENCE_REJECTED', 'local simulation evidence cannot satisfy the external release gate');
   const required = ['issuer', 'kid', 'algorithm', 'response_sha256', 'request_sha256', 'package_hash', 'nonce', 'signed_at', 'expires_at', 'tenant_id', 'entity_id', 'company_code', 'immutable_version'];
   if (!required.every(field => String(receipt[field] || '').trim()) || receipt.nonempty !== true) return fail('RELEASE_WBS_RECEIPT_INCOMPLETE', required.join(','));
   if (receipt.algorithm !== 'Ed25519' || ![receipt.request_sha256, receipt.response_sha256, receipt.package_hash].every(value => /^sha256:[0-9a-f]{64}$/.test(String(value)))) return fail('RELEASE_WBS_RECEIPT_INCOMPLETE', 'canonical SHA-256 receipt hashes are required');
