@@ -21,7 +21,7 @@ CREATE TABLE webhook_subscription(
  -- names are refused before any future dispatcher can resolve them.
  endpoint_host text NOT NULL CHECK(endpoint_host=btrim(endpoint_host) AND endpoint_host~'^[A-Za-z][A-Za-z0-9.-]{1,253}$' AND endpoint_host LIKE '%.%' AND endpoint_host !~* '^[0-9a-f:.]+$' AND endpoint_host !~* '(^|[.])localhost([.]|$)' AND endpoint_host !~* '(^|[.])(local|internal|test)([.]|$)'),
  endpoint_path text NOT NULL CHECK(endpoint_path=btrim(endpoint_path) AND endpoint_path~'^/[A-Za-z0-9._~!$&''()*+,;=:@/%-]{0,1023}$'),
- event_types text[] NOT NULL CHECK(cardinality(event_types) BETWEEN 1 AND 64 AND event_types=ARRAY(SELECT DISTINCT e FROM unnest(event_types) e ORDER BY e)),
+ event_types text[] NOT NULL CHECK(cardinality(event_types) BETWEEN 1 AND 64),
  signing_key_reference text NOT NULL CHECK(signing_key_reference=btrim(signing_key_reference) AND length(signing_key_reference) BETWEEN 8 AND 300 AND signing_key_reference !~ '[[:cntrl:]]'),
  signing_key_fingerprint text NOT NULL CHECK(signing_key_fingerprint~'^sha256:[0-9a-f]{64}$'),
  status text NOT NULL DEFAULT 'DRAFT' CHECK(status IN('DRAFT','PENDING_APPROVAL','ACTIVE','SUSPENDED')),
@@ -58,6 +58,10 @@ CREATE TABLE webhook_subscription_gate(backend_pid integer NOT NULL,transaction_
 CREATE FUNCTION refs_guard_webhook_subscription() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,pg_temp AS $$
 BEGIN
  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'Webhook subscription is retained evidence' USING ERRCODE='55000';END IF;
+ IF NEW.event_types<>ARRAY(SELECT DISTINCT event_type FROM unnest(NEW.event_types) AS event_type ORDER BY event_type)
+    OR EXISTS(SELECT 1 FROM unnest(NEW.event_types) AS event_type WHERE event_type !~ '^[A-Za-z][A-Za-z0-9_.:-]{0,127}$') THEN
+  RAISE EXCEPTION 'Webhook event types must be unique, ordered, and valid' USING ERRCODE='23514';
+ END IF;
  IF TG_OP='INSERT' THEN IF NEW.status<>'DRAFT' OR NEW.revision<>0 OR NEW.created_by IS DISTINCT FROM refs_current_actor() THEN RAISE EXCEPTION 'Webhook subscription must start as authenticated actor Draft' USING ERRCODE='42501';END IF;RETURN NEW;END IF;
  IF NOT EXISTS(SELECT 1 FROM webhook_subscription_gate g WHERE g.backend_pid=pg_backend_pid() AND g.transaction_id=txid_current() AND g.tenant_id=OLD.tenant_id AND g.webhook_subscription_id=OLD.webhook_subscription_id AND g.operation=NEW.status) OR NEW.revision<>OLD.revision+1 OR (to_jsonb(NEW)-ARRAY['status','revision','submitted_by','submitted_at','approved_by','approved_at','suspended_by','suspended_at']::text[]) IS DISTINCT FROM(to_jsonb(OLD)-ARRAY['status','revision','submitted_by','submitted_at','approved_by','approved_at','suspended_by','suspended_at']::text[]) THEN RAISE EXCEPTION 'Webhook subscription mutation requires an authoritative command' USING ERRCODE='42501';END IF;RETURN NEW;
 END;$$;
