@@ -244,7 +244,7 @@ BEGIN
  RETURN NEW;
 END;$$;
 
-CREATE FUNCTION refs_guard_unit_transfer_journal_transition() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+CREATE OR REPLACE FUNCTION refs_guard_unit_transfer_journal_transition() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE pair unit_transfer_pair;reversal_pair unit_transfer_reversal_pair;gate integer;current_carrying numeric(20,4);current_cost_ids uuid[];current_cost_hash text;current_cost_layers jsonb;current_cost_snapshot jsonb;source_period accounting_period;target_period accounting_period;source_map mapping_snapshot;target_map mapping_snapshot;
 BEGIN
  IF TG_OP='INSERT' THEN
