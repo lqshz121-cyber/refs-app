@@ -259,14 +259,15 @@ END;$$;
 -- Keep the proven 370 journal guard unchanged.  A narrow guard covers only the
 -- paired-reversal journals introduced by this migration.
 CREATE FUNCTION refs_guard_unit_transfer_paired_reversal_journal_transition() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
-DECLARE r unit_transfer_reversal_pair;gate integer;
+DECLARE r unit_transfer_reversal_pair;gate integer;expected_original_journal_id uuid;
 BEGIN
  IF TG_OP<>'UPDATE' THEN RETURN CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END; END IF;
  SELECT * INTO r FROM unit_transfer_reversal_pair WHERE tenant_id=NEW.tenant_id AND ((source_entity_id=NEW.entity_id AND source_reversal_journal_entry_id=NEW.journal_entry_id) OR (target_entity_id=NEW.entity_id AND target_reversal_journal_entry_id=NEW.journal_entry_id)) FOR UPDATE;
  IF NOT FOUND THEN RETURN NEW; END IF;
  IF NEW.reversal_of_id IS DISTINCT FROM OLD.reversal_of_id THEN
   DELETE FROM unit_transfer_internal_gate WHERE backend_pid=pg_backend_pid() AND transaction_id=txid_current() AND tenant_id=NEW.tenant_id AND unit_transfer_pair_id=r.unit_transfer_reversal_pair_id AND resource_kind='HEADER' AND resource_id=NEW.journal_entry_id AND operation='BIND_REVERSAL' RETURNING 1 INTO gate;
-  IF gate IS NULL OR OLD.reversal_of_id IS NOT NULL OR NEW.reversal_of_id IS DISTINCT FROM CASE WHEN NEW.journal_entry_id=r.source_reversal_journal_entry_id THEN r.source_original_journal_entry_id ELSE r.target_original_journal_entry_id END THEN RAISE EXCEPTION 'Unit Transfer reversal header binding is unauthorized' USING ERRCODE='55000'; END IF;
+  IF NEW.journal_entry_id=r.source_reversal_journal_entry_id THEN expected_original_journal_id:=r.source_original_journal_entry_id; ELSE expected_original_journal_id:=r.target_original_journal_entry_id; END IF;
+  IF gate IS NULL OR OLD.reversal_of_id IS NOT NULL OR NEW.reversal_of_id IS DISTINCT FROM expected_original_journal_id THEN RAISE EXCEPTION 'Unit Transfer reversal header binding is unauthorized' USING ERRCODE='55000'; END IF;
  ELSIF NEW.status IS DISTINCT FROM OLD.status THEN
   DELETE FROM unit_transfer_internal_gate WHERE backend_pid=pg_backend_pid() AND transaction_id=txid_current() AND tenant_id=NEW.tenant_id AND unit_transfer_pair_id=r.unit_transfer_reversal_pair_id AND resource_kind='JOURNAL' AND resource_id=NEW.journal_entry_id AND operation=NEW.status RETURNING 1 INTO gate;
   IF gate IS NULL THEN RAISE EXCEPTION 'Unit Transfer reversal Journals must transition as one authorized pair' USING ERRCODE='0A000'; END IF;
