@@ -464,6 +464,16 @@ test('Bank match rejects malformed successful receipts before returning a match'
   assert.equal(response.status,502);assert.equal(response.body.code,'BANK_PAYMENT_MATCH_INVALID');
 });
 
+test('Bank match accepts a null optional source-document reference but rejects malformed references',async()=>{
+  const bankSourceId=randomUUID(),paymentOccurrenceId=randomUUID(),body={paymentOccurrenceId,expectedOccurrenceRevision:2,reason:'Controller reviewed exact posted payment evidence'};
+  const receipt=()=>({bank_match_id:randomUUID(),bank_source_id:bankSourceId,payment_occurrence_id:paymentOccurrenceId,source_document_id:null,journal_entry_id:randomUUID(),journal_line_id:randomUUID(),ledger_line_id:randomUUID(),status:'ACTIVE',revision:0,idempotent:false});
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>({...kernel,createBankPaymentMatch:async()=>receipt()})});
+  assert.equal((await api({method:'POST',url:`/api/v1/entities/${entityId}/bank/transactions/${bankSourceId}/matches`,body,headers:{'Idempotency-Key':'bank-match-null-source-001','If-Match':'\"3\"'}})).status,201);
+  const malformed=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>({...kernel,createBankPaymentMatch:async()=>({...receipt(),source_document_id:'not-a-uuid'})})});
+  const response=await malformed({method:'POST',url:`/api/v1/entities/${entityId}/bank/transactions/${bankSourceId}/matches`,body,headers:{'Idempotency-Key':'bank-match-bad-source-001','If-Match':'\"3\"'}});
+  assert.equal(response.status,502);assert.equal(response.body.code,'BANK_PAYMENT_MATCH_INVALID');
+});
+
 test('Bank unmatch command retains scope and requires the active match revision and canonical review reason',async()=>{
   calls.length=0;const bankSourceId=randomUUID(),bankMatchId=randomUUID();const body={reason:'Controller approved evidence-preserving unmatch'};
   const response=await command(`/api/v1/entities/${entityId}/bank/transactions/${bankSourceId}/matches/${bankMatchId}/unmatch`,body,{'If-Match':'"0"'});
