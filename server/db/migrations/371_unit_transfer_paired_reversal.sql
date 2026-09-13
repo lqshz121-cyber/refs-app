@@ -366,11 +366,17 @@ BEGIN IF actor IS NULL OR p_pair.status<>'POSTED_PAIR' OR p_unit.last_transfer_p
  snapshot:=refs_unit_transfer_reversal_target_cost_snapshot(p_tenant,p_pair,p_unit.property_ref,'9999-12-31'::date);ids:=ARRAY(SELECT value::uuid FROM jsonb_array_elements_text(snapshot->'ledger_line_ids') value ORDER BY value::uuid);SELECT array_agg(l.ledger_line_id ORDER BY l.ledger_line_id) INTO expected_ids FROM ledger_line l WHERE l.tenant_id=p_tenant AND l.entity_id=p_pair.target_entity_id AND l.journal_entry_id=p_pair.target_journal_entry_id AND l.account_code=p_pair.target_inventory_account_code AND l.dimensions->>'property_ref'=p_unit.property_ref AND l.dimensions->>'unit_ref'=p_pair.unit_ref;RETURN snapshot IS NOT NULL AND(snapshot->>'amount')::numeric=p_pair.transfer_price AND ids IS NOT DISTINCT FROM expected_ids AND refs_unit_transfer_reversal_source_net(p_tenant,p_pair,p_unit.property_ref,'9999-12-31'::date)=0;
 END;$$;
 
-DO $unit_transfer_read_patch$DECLARE fn text;patched text;BEGIN
- fn:=pg_get_functiondef('refs_read_unit_transfer_pair(uuid,uuid,uuid)'::regprocedure);patched:=replace(fn,'public.refs_read_unit_transfer_pair(','public.refs_read_unit_transfer_pair_370(');IF patched=fn THEN RAISE EXCEPTION 'Unable to retain 370 Unit Transfer read function' USING ERRCODE='55000';END IF;EXECUTE patched||';';
- patched:=replace(fn,$needle,elimination,'created_by'$needle$,$replacement$'elimination_basis',elimination,'reversal_history',COALESCE((SELECT jsonb_agg(refs_read_unit_transfer_reversal_pair(p_tenant,p_entity,p.unit_transfer_pair_id,r.unit_transfer_reversal_pair_id) ORDER BY r.created_at,r.unit_transfer_reversal_pair_id) FROM unit_transfer_reversal_pair r WHERE r.tenant_id=p_tenant AND r.original_unit_transfer_pair_id=p.unit_transfer_pair_id),'[]'::jsonb),'active_reversal',(SELECT refs_read_unit_transfer_reversal_pair(p_tenant,p_entity,p.unit_transfer_pair_id,r.unit_transfer_reversal_pair_id) FROM unit_transfer_reversal_pair r WHERE r.tenant_id=p_tenant AND r.original_unit_transfer_pair_id=p.unit_transfer_pair_id AND r.status NOT IN('POSTED_PAIR','CANCELLED_PAIR') ORDER BY r.created_at DESC,r.unit_transfer_reversal_pair_id DESC LIMIT 1),'created_by'$replacement$);
+DO $unit_transfer_read_patch$
+DECLARE fn text; patched text;
+BEGIN
+ fn:=pg_get_functiondef('refs_read_unit_transfer_pair(uuid,uuid,uuid)'::regprocedure);
+ patched:=replace(fn,'public.refs_read_unit_transfer_pair(','public.refs_read_unit_transfer_pair_370(');
+ IF patched=fn THEN RAISE EXCEPTION 'Unable to retain 370 Unit Transfer read function' USING ERRCODE='55000'; END IF;
+ EXECUTE patched||';';
+ patched:=replace(fn,$needle$'elimination_basis',elimination,'created_by'$needle$,$replacement$'elimination_basis',elimination,'reversal_history',COALESCE((SELECT jsonb_agg(refs_read_unit_transfer_reversal_pair(p_tenant,p_entity,p.unit_transfer_pair_id,r.unit_transfer_reversal_pair_id) ORDER BY r.created_at,r.unit_transfer_reversal_pair_id) FROM unit_transfer_reversal_pair r WHERE r.tenant_id=p_tenant AND r.original_unit_transfer_pair_id=p.unit_transfer_pair_id),'[]'::jsonb),'active_reversal',(SELECT refs_read_unit_transfer_reversal_pair(p_tenant,p_entity,p.unit_transfer_pair_id,r.unit_transfer_reversal_pair_id) FROM unit_transfer_reversal_pair r WHERE r.tenant_id=p_tenant AND r.original_unit_transfer_pair_id=p.unit_transfer_pair_id AND r.status NOT IN('POSTED_PAIR','CANCELLED_PAIR') ORDER BY r.created_at DESC,r.unit_transfer_reversal_pair_id DESC LIMIT 1),'created_by'$replacement$);
  patched:=replace(patched,$needle$'can_post',p.status='APPROVED_PAIR'$needle$,$replacement$'can_reverse',refs_unit_transfer_can_reverse(p_tenant,p,u),'can_post',p.status='APPROVED_PAIR'$replacement$);
- IF patched=fn THEN RAISE EXCEPTION 'Unable to extend Unit Transfer read with paired reversal' USING ERRCODE='55000';END IF;EXECUTE patched||';';
+ IF patched=fn THEN RAISE EXCEPTION 'Unable to extend Unit Transfer read with paired reversal' USING ERRCODE='55000'; END IF;
+ EXECUTE patched||';';
 END;
 $unit_transfer_read_patch$;
 REVOKE ALL ON FUNCTION refs_read_unit_transfer_pair_370(uuid,uuid,uuid) FROM PUBLIC,refs_app;
