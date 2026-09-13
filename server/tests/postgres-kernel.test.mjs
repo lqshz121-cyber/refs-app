@@ -1241,13 +1241,28 @@ pgTest('parallel authorized read contexts complete under bounded serializable re
   assert.deepEqual(contexts,{total:128,bound:128,cross_tenant:0});
 });
 
-pgTest('migration clean down and up is reversible from the fixed manifest',async()=>{
-  await migrateDown(adminPool,{all:true});
-  const missing=await adminPool.query("SELECT to_regclass('public.tenant') AS tenant_table");
-  assert.equal(missing.rows[0].tenant_table,null);
+pgTest('migration manifest retains immutable settlement history while reversible tail migrations roundtrip',async()=>{
   await migrateUp(adminPool);
-  const present=await adminPool.query("SELECT to_regprocedure('refs_post_journal(uuid,uuid,uuid,uuid,bigint,text,text,text)') AS post_fn");
-  assert.ok(present.rows[0].post_fn);
+  const before=(await adminPool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name')).rows.map(row=>row.migration_name);
+  await assert.rejects(migrateDown(adminPool,{all:true}),error=>error.code==='P0001'&&/migration 305 is retained as immutable historical evidence/.test(error.message));
+  const retained=(await adminPool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name')).rows.map(row=>row.migration_name);
+  const immutableBarrier=before.indexOf('401_native_settlement_bank_account_control.sql');
+  assert.ok(immutableBarrier>=0);
+  assert.deepEqual(retained,before.slice(0,immutableBarrier+1));
+  assert.equal(retained.at(-1),'401_native_settlement_bank_account_control.sql');
+  const protectedSchema=await adminPool.query("SELECT to_regclass('public.tenant') AS tenant_table,to_regprocedure('refs_post_journal(uuid,uuid,uuid,uuid,bigint,text,text,text)') AS post_fn");
+  assert.equal(protectedSchema.rows[0].tenant_table,'tenant');
+  assert.ok(protectedSchema.rows[0].post_fn);
+
+  await migrateUp(adminPool);
+  const restored=(await adminPool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name')).rows.map(row=>row.migration_name);
+  assert.deepEqual(restored,before);
+  const latest=restored.at(-1);
+  assert.equal(latest,'403_reconciliation_clearance_lock_fix.sql');
+  await migrateDown(adminPool);
+  assert.equal((await adminPool.query('SELECT migration_name FROM refs_schema_migration WHERE migration_name=$1',[latest])).rowCount,0);
+  await migrateUp(adminPool);
+  assert.equal((await adminPool.query('SELECT migration_name FROM refs_schema_migration WHERE migration_name=$1',[latest])).rowCount,1);
 });
 
 pgTest('authorized WBS snapshot import persists immutable observations without creating source documents or journals',async()=>{
