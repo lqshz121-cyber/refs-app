@@ -160,6 +160,7 @@ test('Unit Transfer paired Post creates guarded reciprocal IC open items without
  assert.match(reversalUp,/CREATE FUNCTION refs_post_unit_transfer_pair_370\(p_tenant uuid,p_entity uuid,p_pair uuid/i);
  assert.match(writer,/CREATE OR REPLACE FUNCTION refs_post_unit_transfer_pair\(p_tenant uuid,p_entity uuid,p_pair uuid/i);
  assert.doesNotMatch(reversalUp,/pg_get_functiondef|EXECUTE patched/i);
+ assert.match(reversalUp,/CREATE TRIGGER unit_transfer_paired_reversal_journal_guard/i);
  assert.match(writer,/INSERT INTO unit_transfer_ic_open_item[\s\S]+'DUE_FROM'[\s\S]+FROM ledger_line ll JOIN journal_line jl[\s\S]+source_result->>'posting_batch_id'/i);
  assert.match(writer,/INSERT INTO unit_transfer_ic_open_item[\s\S]+'DUE_TO'[\s\S]+FROM ledger_line ll JOIN journal_line jl[\s\S]+target_result->>'posting_batch_id'/i);
  assert.match(reversalUp,/CREATE TRIGGER unit_transfer_ic_open_item_protect/i);
