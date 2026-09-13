@@ -1187,7 +1187,7 @@ pgTest('current actor access returns only the authenticated session permissions 
   });
   await assert.rejects(()=>kernel.readCurrentActorAccess({tenantId:ids.tenantId,entityId:other.entityId}),error=>error.code==='42501');
   await assert.rejects(()=>kernel.readCurrentActorAccess({tenantId:other.tenantId,entityId:other.entityId}),error=>error.code==='42501');
-  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor})});
+  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor,tenantId:ids.tenantId})});
   const revokedKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>{
     const session=await trustedSession(ids,actor,permissions);
     await issuer.revoke({contextToken:session.contextToken,reason:'access diagnostics revoke test'});
@@ -2470,7 +2470,7 @@ pgTest('context authorization preserves exact entity and permission pairs',async
   await adminPool.query("INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency) VALUES($1,$2,'PAIR-B','WBS','PAIR-B','Pair B','USD')",[entityB,ids.tenantId]);
   await adminPool.query(`INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission,authority_class,valid_until) VALUES
     ($1,$2,$3,'GL.JE.POST','POST',now()+interval '1 hour'),($1,$2,$4,'AP.VIEW','ANALYSIS',now()+interval '1 hour')`,[ids.tenantId,actor,ids.entityId,entityB]);
-  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor})});
+  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor,tenantId:ids.tenantId})});
   const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})});
   await kernel.inSession(client=>client.query("SELECT refs_assert_scope($1,$2,'GL.JE.POST')",[ids.tenantId,ids.entityId]));
   await kernel.inSession(client=>client.query("SELECT refs_assert_scope($1,$2,'AP.VIEW')",[ids.tenantId,entityB]));
@@ -2508,7 +2508,7 @@ pgTest('account member type is enforced for BANK, VENDOR, CUSTOMER and AFFILIATE
 pgTest('context issuer rejects wrong, revoked, expired, and runtime-self-issued capabilities',async()=>{
   const ids=await seed();const actor='context-user';
   await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission,authority_class,valid_until) VALUES($1,$2,$3,'GL.JE.POST','POST',now()+interval '1 hour')",[ids.tenantId,actor,ids.entityId]);
-  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor})});
+  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor,tenantId:ids.tenantId})});
   const issued=await issuer.issue({tenantId:ids.tenantId});
   const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>issued});
   await issuer.revoke({contextToken:issued.contextToken,reason:'security test'});
@@ -2598,7 +2598,7 @@ pgTest('expired write grants do not poison valid read contexts across upgrade an
   await adminPool.query(`INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission,authority_class,valid_until)
     VALUES($1,$2,$3,'AP.VIEW','ANALYSIS',clock_timestamp()+interval '1 hour'),
           ($1,$2,$3,'GL.JE.POST','POST',clock_timestamp()-interval '1 hour')`,[ids.tenantId,actor,ids.entityId]);
-  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor})});
+  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor,tenantId:ids.tenantId})});
   const checkReadOnly=async()=>{
     const issued=await issuer.issue({tenantId:ids.tenantId});
     const client=await runtimePool.connect();
@@ -2629,7 +2629,7 @@ pgTest('production reads fall back to existing read grants while invalid write a
   await adminPool.query(`INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission,authority_class,valid_until)
     VALUES($1,$2,$3,'GL.JE.VIEW','ANALYSIS',clock_timestamp()+interval '1 hour'),
           ($1,$2,$3,'GL.JE.POST','LEGACY',NULL),($1,$2,$3,'GL.JE.APPROVE','LEGACY',NULL)`,[ids.tenantId,actor,ids.entityId]);
-  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor})});
+  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor,tenantId:ids.tenantId})});
   await assert.rejects(issuer.issue({tenantId:ids.tenantId}),error=>error.code==='42501');
   const readKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId,readOnly:true})});
   assert.deepEqual(await readKernel.getJournalWorkflowCapabilities({tenantId:ids.tenantId,entityId:ids.entityId}),{entity_id:ids.entityId,can_submit:false,can_review:false,can_approve:false,can_post:false});
@@ -2791,7 +2791,7 @@ pgTest('finite human role sync enforces exact replacement, service-only deny, ex
   const review=await sync.reconcile({tenantId:ids.tenantId,actorId:actor,entityId:ids.entityId,permissions:['AP.VIEW','GL.JE.REVIEW'],authorityClass:'REVIEW',validUntil:reviewUntil,expectedVersion:1,idempotencyKey:'finite-human-review-0001'});
   assert.equal(review.version,2);
   assert.deepEqual((await adminPool.query(`SELECT permission FROM runtime_actor_grant WHERE tenant_id=$1 AND entity_id=$2 AND actor_id=$3 AND revoked_at IS NULL ORDER BY permission`,[ids.tenantId,ids.entityId,actor])).rows.map(row=>row.permission),['AP.VIEW','GL.JE.REVIEW']);
-  const issued=await new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor})}).issue({tenantId:ids.tenantId});
+  const issued=await new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor,tenantId:ids.tenantId})}).issue({tenantId:ids.tenantId});
   assert.equal(issued.trusted,true);assert.match(issued.contextToken,/^[A-Za-z0-9_-]{43}$/);
   const issuedHash='sha256:'+createHash('sha256').update(issued.contextToken).digest('hex');
   await adminPool.query("UPDATE runtime_actor_grant SET revoked_at=clock_timestamp() WHERE tenant_id=$1 AND entity_id=$2 AND actor_id=$3 AND permission='GL.JE.REVIEW'",[ids.tenantId,ids.entityId,actor]);
@@ -2807,7 +2807,7 @@ pgTest('finite human role sync enforces exact replacement, service-only deny, ex
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_actor_grant WHERE tenant_id=$1 AND entity_id=$2 AND actor_id LIKE 'auth0|exact-authority-%' AND revoked_at IS NULL",[ids.tenantId,ids.entityId])).rows[0].n,20);
   const otherEntity=await seed({tenantId:ids.tenantId});
   await sync.reconcile({tenantId:ids.tenantId,actorId:actor,entityId:otherEntity.entityId,permissions:['AP.BILL.CREATE'],authorityClass:'DRAFT',validUntil,expectedVersion:0,idempotencyKey:'finite-cross-entity-draft-0001'});
-  assert.equal((await new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor})}).issue({tenantId:ids.tenantId})).trusted,true,'different authority classes in distinct entities do not contaminate one another');
+  assert.equal((await new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor,tenantId:ids.tenantId})}).issue({tenantId:ids.tenantId})).trusted,true,'different authority classes in distinct entities do not contaminate one another');
   const unmappedActor='unmapped-write-default-deny';
   await adminPool.query("DELETE FROM runtime_human_permission_authority WHERE permission_code='GL.JE.EDIT'");
   try{

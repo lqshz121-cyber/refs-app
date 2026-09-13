@@ -30,6 +30,12 @@
 | P2 | Claude release reviewer | Prepare an exact-SHA Render read-only acceptance checklist: build/API version, health, callback behavior, and rollback evidence | Dated report; no external mutation | Release remains blocked until a deployed candidate SHA and authenticated read-only observations exist. |
 | P2 | Codex release lane | Refresh local release-evidence bundle only after current local checks; leave its production fields unproven | Bundle manifest marked local/NOT_RUN where applicable | No push/deploy without separate authorization. |
 
+## 2026-09-14 serial validation note
+
+- A locally started aggregate server gate overlapped pre-existing PostgreSQL work and produced broad `55P03` lock timeouts. It was stopped and is not used as pass or failure evidence.
+- Fresh isolated PostgreSQL 16 subsequently passed `signed-cost-cwip-post` 1/1, showing the Cost-to-CWIP closure itself was not the lock-timeout source.
+- The aggregate output also exposed obsolete positive test principals that omitted the now-required server-side `tenantId`. The affected issuer fixtures were corrected and fresh isolated PostgreSQL 16 passed the exact entity/permission, revocation/expiry/self-issue, and read-grant fallback tests, each 1/1 with cleanup.
+
 ## Coordination protocol
 
 1. A task is routed only by a root-level `TASK-TO-CLAUDE-YYYY-MM-DD-*.md` file in the recipient's mounted checkout. The task states the authoritative path, source SHA, permitted operations, and output filename.
