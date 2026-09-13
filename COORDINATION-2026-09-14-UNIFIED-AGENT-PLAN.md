@@ -48,3 +48,14 @@
 - GitHub PostgreSQL business-closure job has failed; detailed log is unavailable until the overall workflow reaches a terminal status.
 - PostgreSQL 15/16/18 matrix jobs are still running.
 - Claude's mounted environment can read/write but cannot execute Git, Node, Docker, or test commands.
+
+## 2026-09-14 P0 execution receipt
+
+- Local commit `a62ed503f31589448986aa058ae348b900c54fcd` corrects two test-gate defects without modifying any SQL migration or manifest checksum:
+  - fixture tests now have a 150-second Node test budget and a separate bounded process watchdog;
+  - migration 329 round-trip now explicitly asserts that its own down script removes the function and its up script restores it.
+- Local evidence:
+  - `node --test tests/postgres-fixture-suite.test.mjs` — exit 0, 7/7 passed.
+  - `node runtime/run-postgres-fixture-suite.mjs --fixture ar-rent-pickup-close` — exit 0, 1/1 passed, total 149248ms.
+  - `node runtime/run-postgres-fixture-suite.mjs --fixture signed-wbs-payable-post` — exit 0, 1/1 passed, total 91381ms.
+- Remote push is pending: two attempts to `github.com:443` failed with connection timeout. Do not treat the local commit as PR-integrated or CI-verified until push succeeds and a new GitHub Actions run is green.
