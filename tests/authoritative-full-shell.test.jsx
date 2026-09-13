@@ -285,8 +285,8 @@ for(const file of ['src/authoritative-aging-workspace.jsx','src/authoritative-am
 }
 assert.match(appSource,/refreshCurrentActorAccess\(\{config,fetcher:boundFetcher\}\)/,'READY shell must read the current authenticated actor through the self-only API');
 assert.match(appSource,/AuthoritativeAccessStatus state=\{accessState\}/,'the entity and period scope bar must expose the current session access diagnostic');
-assert.match(appSource,/版本不匹配，等待 API 发布/,'a client/API release mismatch must show an explicit pre-login deployment block');
-assert.match(appSource,/error\?\.code === 'ACCOUNTING_API_RELEASE_MISMATCH'[\s\S]*?OIDC 登录和任何会计数据读取之前停止/,'the release mismatch block must remain ahead of OIDC and accounting reads');
+assert.match(appSource,/Deployment version mismatch/,'a client/API release mismatch must show an explicit pre-login deployment block');
+assert.match(appSource,/error\?\.code === 'ACCOUNTING_API_RELEASE_MISMATCH'[\s\S]*?before OIDC sign-in or any accounting-data read/,'the release mismatch block must remain ahead of OIDC and accounting reads');
 assert.doesNotMatch(fs.readFileSync('src/authoritative-access-status.jsx','utf8'),/activateAuthoritative|reconcileActorGrant|revokeActor|localStorage|sessionStorage|fetch\(/,'the access status is presentation-only and cannot grant, revoke, persist, or fetch authority');
 const firstConditionalRender=appSource.indexOf("if (!configured) return");
 for(const scopeHook of [
