@@ -41,7 +41,7 @@ function deepFamilyBody(source) {
 function strip374RuntimeParityHardening(source) {
   let normalized = source
     .replaceAll(" OR (account->>'role'='INTERCOMPANY_CLEARING' AND account->>'account_class' NOT IN ('ASSET','LIABILITY'))", '')
-    .replace(/^\s*IF[^\n]*Approved intercompany clearing report mapping violates COA class semantics[^\n]*\n/gm, '')
+    .replace(/\n\s*IF EXISTS \(\n\s*SELECT 1\n\s*FROM jsonb_array_elements\(child_row\.snapshot#>'\{settings,account_mappings\}'\) AS m[\s\S]*?^\s*END IF;\n/gm, '\n')
     .replace(/^\s*IF[^\n]*Approved vendor payment terms must be bounded JSON integers[^\n]*\n/gm, '')
     .replace(/^\s*IF[^\n]*Approved tax MONEY4 values must be JSON strings[^\n]*\n/gm, '')
     .replace(/^\s*IF[^\n]*Approved materiality MONEY4 values must be JSON strings[^\n]*\n/gm, '')
@@ -179,9 +179,9 @@ test('374 private selected bundle validator is exact ten-family validation acros
 test('374 keeps clearing-account semantics and JSON scalar types aligned with the runtime validator in all three deep readers', () => {
   assert.equal((up.match(/account->>'role'='INTERCOMPANY_CLEARING' AND account->>'account_class' NOT IN \('ASSET','LIABILITY'\)/g) || []).length, 3);
   assert.equal((up.match(/Approved intercompany clearing report mapping violates COA class semantics/g) || []).length, 3);
-  assert.equal((up.match(/account->>'account_class'='ASSET' AND m->>'normal_balance'<>'DEBIT'/g) || []).length, 3);
-  assert.equal((up.match(/account->>'account_class'='LIABILITY' AND m->>'normal_balance'<>'CREDIT'/g) || []).length, 3);
-  assert.equal((up.match(/m->>'statement'<>'BS' OR m->>'contra'<>'false'/g) || []).length, 3);
+  assert.equal((up.match(/account->>'account_class'='ASSET'\s+AND\s+m->>'normal_balance'<>'DEBIT'/g) || []).length, 3);
+  assert.equal((up.match(/account->>'account_class'='LIABILITY'\s+AND\s+m->>'normal_balance'<>'CREDIT'/g) || []).length, 3);
+  assert.equal((up.match(/m->>'statement'<>'BS'\s+OR\s+m->>'contra'<>'false'/g) || []).length, 3);
   for (const message of [
     'Approved tax MONEY4 values must be JSON strings',
     'Approved materiality MONEY4 values must be JSON strings',
