@@ -55,7 +55,7 @@ test('fresh isolated PostgreSQL consumer: durable replay, conflict, concurrency,
     const token='synthetic-consumer-test-token-123456';const server=createConsumerServer({repository:new ConsumerRepository(pool,config),config:{...config,token,release:'a'.repeat(40)}});
     await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
     try{
-      const completions=[];const service=new OutboxDispatchService({kernelFactory:async()=>({claimOutboxV3:async()=>[claimed],completeOutboxV2:async args=>{completions.push(args);return {status:args.success?'PUBLISHED':'FAILED'};}}),publisher:new HttpOutboxPublisher({endpoint:`http://127.0.0.1:${server.address().port}/outbox/events`,token,nodeEnv:'test'})});
+      const completions=[];const service=new OutboxDispatchService({kernelFactory:async()=>({claimOutboxV3:async()=>[claimed],completeOutboxV2:async args=>{completions.push(args);return {schema_version:'OUTBOX_DISPATCH_COMPLETION_V1',outbox_event_id:args.eventId,attempt_count:claimed.attempt_count,status:args.success?'PUBLISHED':'FAILED',retry_scheduled:false,available_at:claimed.available_at};}}),publisher:new HttpOutboxPublisher({endpoint:`http://127.0.0.1:${server.address().port}/outbox/events`,token,nodeEnv:'test'})});
       const result=await service.runOnce({trusted:true,actorId:'test-worker'},{tenantId,scopes:[{entityId,grantSetVersion:1}]});
       assert.equal(result[0].status,'PUBLISHED');assert.equal(completions[0].success,true,'valid numeric backlog never takes FAILED path');
       const stored=(await admin.query("SELECT payload_hash,envelope->'payload' AS parsed,(envelope->'payload')::text AS canonical FROM refs_outbox_consumer.event_ledger WHERE outbox_event_id=$1",[claimed.outbox_event_id])).rows[0];
