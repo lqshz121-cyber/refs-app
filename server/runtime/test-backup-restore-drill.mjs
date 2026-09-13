@@ -38,6 +38,7 @@ try{
   await run(process.execPath,['runtime/migrate.mjs','up'],migrationEnv);
   await run('docker',['compose','-p',project,'-f','compose.yaml','exec','-T','postgres','psql','-v','ON_ERROR_STOP=1','-U','refs_migrator','-d',database,'-c',"INSERT INTO tenant(tenant_code,name) VALUES('BKDRILL','Backup Restore Drill')"],composeEnv);
   await run('docker',['compose','-p',project,'-f','compose.yaml','exec','-T','postgres','sh','-ceu',shell],composeEnv);
+  console.log(JSON.stringify({schema:'REFS_BACKUP_RESTORE_DRILL_V1',project,sourceDatabase:database,restoredDatabase,migrationCount:MIGRATION_MANIFEST.length,seedTenant:'BKDRILL',pass:true}));
 }finally{
   await run('docker',['compose','-p',project,'-f','compose.yaml','down','-v','--remove-orphans'],composeEnv).catch(error=>{console.error(`Backup drill cleanup failed for owned project ${project}: ${error.message}`);process.exitCode=1;});
 }
