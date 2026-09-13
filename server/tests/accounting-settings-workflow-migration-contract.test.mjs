@@ -51,9 +51,9 @@ function strip374RuntimeParityHardening(source) {
       "EXISTS(SELECT 1 FROM jsonb_array_elements(child_row.snapshot#>'{settings,non_business_dates}') d WHERE jsonb_typeof(d)<>'string' OR d#>>'{}' !~ '^\\d{4}-\\d{2}-\\d{2}$')",
       () => "EXISTS(SELECT 1 FROM jsonb_array_elements_text(child_row.snapshot#>'{settings,non_business_dates}') d WHERE d !~ '^\\d{4}-\\d{2}-\\d{2}$')"
     )
-    .replace(/    IF CASE child_key[\s\S]*?Approved AI settings contain a reversed effective range[^\n]*\n/, '')
-    .replace(/    IF CASE child_key[\s\S]*?Approved AI settings contain an invalid required JSON string[^\n]*\n/, '')
-    .replace(/    IF CASE child_key[\s\S]*?Approved AI settings contain an empty or non-string evidence key[^\n]*\n/, '')
+    .replace(/    IF \(?CASE child_key[\s\S]*?Approved AI settings contain a reversed effective range[^\n]*\n/, '')
+    .replace(/    IF \(?CASE child_key[\s\S]*?Approved AI settings contain an invalid required JSON string[^\n]*\n/, '')
+    .replace(/    IF \(?CASE child_key[\s\S]*?Approved AI settings contain an empty or non-string evidence key[^\n]*\n/, '')
     .replace(/NOT \(CASE WHEN jsonb_typeof\(v->'payment_terms_days'\)[^\n]*?ELSE false END\)/g, () => "v->>'payment_terms_days' !~ '^[0-9]{1,4}$'");
   for (const [key, legacyRegex] of [
     ['ap_stale_days', "'^[0-9]+$'"],
@@ -65,7 +65,9 @@ function strip374RuntimeParityHardening(source) {
     new RegExp(`NOT \\(CASE WHEN jsonb_typeof\\(child_row\\.snapshot#>'\\{settings,${key}\\}'\\)[^\\n]*?ELSE false END\\)`, 'g'),
     () => `child_row.snapshot#>>'{settings,${key}}' !~ ${legacyRegex}`
   );
-  return normalized;
+  return normalized
+    .replace(/IF \(CASE child_key/g, 'IF CASE child_key')
+    .replace(/ELSE false END\) THEN RAISE EXCEPTION/g, 'ELSE false END THEN RAISE EXCEPTION');
 }
 
 function normalizePeriodHistoryPolicy(source) {
