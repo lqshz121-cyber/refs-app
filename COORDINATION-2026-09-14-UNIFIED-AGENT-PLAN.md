@@ -59,3 +59,6 @@
   - `node runtime/run-postgres-fixture-suite.mjs --fixture ar-rent-pickup-close` — exit 0, 1/1 passed, total 149248ms.
   - `node runtime/run-postgres-fixture-suite.mjs --fixture signed-wbs-payable-post` — exit 0, 1/1 passed, total 91381ms.
 - Remote push is pending: two attempts to `github.com:443` failed with connection timeout. Do not treat the local commit as PR-integrated or CI-verified until push succeeds and a new GitHub Actions run is green.
+## QB interface workstream receipt
+
+A separate QB-interface workstream reports local authoritative-shell scope labels, refresh/theme action grouping, and a 44px mobile period touch target implemented with focused shell, navigation accessibility, visual parity, release-harness, runtime-config, and build checks passing. Full `npm test` was preflight-blocked because that candidate worktree is not clean. QBO browser automation is unavailable (`nodeRepl.fetch request failed`), so there is no new authenticated QBO evidence. Treat this as an isolated candidate pending clean-worktree validation and review; it is not production acceptance.
