@@ -1,64 +1,42 @@
-# Refs unified agent and Chatbox coordination plan — 2026-09-14
+# Unified project dispatch — 2026-09-14
 
-## Current authority
+## Authoritative line
 
-- Repository: `lqshz121-cyber/refs-app`
-- Active review branch: `codex/374-postgres-syntax-verify`
-- Review head: `ed8c1acdef60bb1f13ec9fbd59370e853541d8ee`
-- Review PR: #582 (draft; never merge or deploy from this plan)
-- Authoritative implementation worktree: `C:\Users\lqshz\Documents\Codex\2026-09-06\task-continuation-019fbdb6-9\work\refs-accounting-settings-authoritative`
+- Integration checkout: `work/refs-accounting-settings-authoritative`
+- Branch: `codex/374-postgres-syntax-verify`
+- Current commit: `f0fcf5e4`
+- External systems: QBO, WBS, and Render remain read-only. No deployment, paid-resource change, secrets, role changes, accounting posting, or push is included in this plan.
 
-## Completed agent receipts and disposition
+## Completed local-agent inputs
 
-| Workstream | Agent receipt | Finding / artifact | Disposition |
-| --- | --- | --- | --- |
-| Attachment and Render acceptance | `claude_attachment_workflow` | Acceptance task wording distinguishes functional SHA from handoff SHA. | Retain as deployment evidence only; re-read head SHA at actual acceptance. No deployment or paid resource change. |
-| Authoritative navigation and startup usability | `claude_navigation_usability` | Commit `0143429d14ce62aba1abb369bab7f8f25677f5de`: block data reads when API release differs from UI build SHA. | Candidate change; review against the authoritative head before any cherry-pick. |
-| Settlement migration contract | `claude_settlement_contract` | P0: migration 305 history/content must remain immutable; rollback must fail closed when retained settlement records exist. | Current priority. Prove exact deployed-history compatibility and repair through a new forward migration if needed; never rewrite applied migration bytes or checksums. |
+| Source | Status | Evidence / decision |
+|---|---|---|
+| Navigation usability | Complete | Commit `0143429d`: client blocks before OIDC/data reads when API and build SHA differ. Its exact commit must be independently integrated and revalidated before release use. |
+| Attachment workflow | Complete | Render handoff metadata was corrected to distinguish functional SHA from handoff SHA. Recompute the handoff SHA at release review. |
+| Settlement contract | Complete | P0 finding: applied migration 305 must never be edited in place. Any correction must be an append-only migration with manifest, downgrade safety, and fresh/upgrade test evidence. |
+| Cash transfer | Integrated local closure | Commit `531d871b`, fresh PostgreSQL fixture 1/1, zero skips. Local evidence only. |
+| AP reversal | Integrated local closure | Commit `4b96518f`, fresh PostgreSQL fixture 1/1, zero skips. Local evidence only. |
+| AR credit allocation | Integrated local closure | Commit `9a29a0c3`, fresh PostgreSQL fixture 1/1, zero skips. Local evidence only. |
 
-## Immediate execution lanes
+## Active work assignments
 
-1. **P0 — PostgreSQL fixture closure and migration integrity**
-   - Owner: Codex primary.
-   - Evidence required: complete GitHub logs for run `34768858195`, local fixture receipt, migration history byte/hash comparison, and fresh PostgreSQL results.
-   - Rule: no overwrite of applied `305_native_settlement_command.sql`; additive migration only for production-safe remediation.
+| Owner | Task file / lane | Allowed work | Deliverable | Acceptance |
+|---|---|---|---|---|
+| Claude static reviewer | `TASK-TO-CLAUDE-2026-09-14-APPLIED-MIGRATION-INTEGRITY-STATIC-REVIEW.md` | Read/reason/write only in its mounted checkout | `CLAUDE-TO-CODEX-2026-09-14-APPLIED-MIGRATION-INTEGRITY.md` | Explicit migration-305/411 findings and limits; no invented runtime evidence |
+| Claude UI reviewer | `TASK-TO-CLAUDE-2026-09-13-AUTHORITATIVE-ENTRY-READONLY-REVIEW.md` | Read/reason/write only | `CLAUDE-REVIEW-2026-09-13-AUTHORITATIVE-ENTRY.md` | Route, callback, retry, token and UX review with exact paths |
+| Claude release reviewer | `TASK-TO-CLAUDE-2026-09-13-RENDER-PRODUCTION-ACCEPTANCE.md` | Prepare only; no external mutations | Dated review report | Exact-SHA release/rollback plan and stated evidence gaps |
+| Codex integration | Current authoritative checkout | Implement only verified additive repairs; run relevant local tests | Committed code plus command receipts | Clean tree, focused gates, no altered applied migrations |
+| Chatbox candidate work | Candidate worktrees only | Supply a narrow diff or review notes | Candidate patch / notes | Re-review on authoritative checkout; no direct merge or deployment |
+| User acceptance | Browser / Render / WBS / QBO | Read-only observation when a staged release exists | Observed behavior and screenshots/receipts as applicable | Exact release SHA plus authenticated read-only parity; local tests alone are insufficient |
 
-2. **P1 — Release identity and navigation safety**
-   - Owner: review lane after P0 is green.
-   - Input: candidate `0143429d`.
-   - Evidence required: focused test plus no pre-auth/accounting read before release identity agreement.
+## Sequencing
 
-3. **P2 — Claude mounted-checkout review**
-   - Owner: Claude read/write session.
-   - Input: root-level task `TASK-TO-CLAUDE-2026-09-14-MOUNT-ROUTING-REVIEW.md` already copied to its actual mount.
-   - Output required: `CLAUDE-TO-CODEX-2026-09-14-MOUNT-ROUTING-REVIEW.md` with visible paths and capability facts only.
+1. Resolve applied-migration integrity first; it is a release blocker.
+2. Integrate or reject the independent UI gate after reviewing its precise diff on the authoritative checkout.
+3. Run relevant local database, migration, API, and shell gates after each code change.
+4. Only after a clean branch and independently reviewed release plan: prepare a read-only Render health/version inspection. Deployment is a separate action and remains unperformed.
+5. WBS/QBO evidence remains reference-only until provider-signed source trace, human review, and authenticated readback exist.
 
-4. **Deferred external evidence lanes**
-   - WBS 12-sample evidence and Render production acceptance require authenticated, read-only source evidence or explicit deployment authorization. Prepare evidence packets only; do not access WBS/QBO, modify Render, create paid resources, or post accounting data.
+## Routing rule
 
-## Integration rules
-
-- One primary branch owns P0 fixes; candidate branches remain isolated until focused review and tests pass.
-- A green UI/unit gate does not prove production accounting readiness.
-- Every result must state exact SHA, commands, exit status, and scope limits.
-- No agent may merge PR #582, deploy, alter roles/secrets, incur paid service cost, or create/post actual accounting transactions.
-
-## Current blocking facts
-
-- GitHub PostgreSQL business-closure job has failed; detailed log is unavailable until the overall workflow reaches a terminal status.
-- PostgreSQL 15/16/18 matrix jobs are still running.
-- Claude's mounted environment can read/write but cannot execute Git, Node, Docker, or test commands.
-
-## 2026-09-14 P0 execution receipt
-
-- Local commit `a62ed503f31589448986aa058ae348b900c54fcd` corrects two test-gate defects without modifying any SQL migration or manifest checksum:
-  - fixture tests now have a 150-second Node test budget and a separate bounded process watchdog;
-  - migration 329 round-trip now explicitly asserts that its own down script removes the function and its up script restores it.
-- Local evidence:
-  - `node --test tests/postgres-fixture-suite.test.mjs` — exit 0, 7/7 passed.
-  - `node runtime/run-postgres-fixture-suite.mjs --fixture ar-rent-pickup-close` — exit 0, 1/1 passed, total 149248ms.
-  - `node runtime/run-postgres-fixture-suite.mjs --fixture signed-wbs-payable-post` — exit 0, 1/1 passed, total 91381ms.
-- Remote push is pending: two attempts to `github.com:443` failed with connection timeout. Do not treat the local commit as PR-integrated or CI-verified until push succeeds and a new GitHub Actions run is green.
-## QB interface workstream receipt
-
-A separate QB-interface workstream reports local authoritative-shell scope labels, refresh/theme action grouping, and a 44px mobile period touch target implemented with focused shell, navigation accessibility, visual parity, release-harness, runtime-config, and build checks passing. Full `npm test` was preflight-blocked because that candidate worktree is not clean. QBO browser automation is unavailable (`nodeRepl.fetch request failed`), so there is no new authenticated QBO evidence. Treat this as an isolated candidate pending clean-worktree validation and review; it is not production acceptance.
+Tasks exist only when they are written at the root of the checkout mounted by their recipient. If a recipient cannot see a task, it must create an ACK showing its absolute path and capabilities; it must not infer work from a different worktree.
