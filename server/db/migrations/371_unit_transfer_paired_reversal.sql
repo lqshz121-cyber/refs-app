@@ -266,8 +266,6 @@ BEGIN
    IF gate IS NULL THEN RAISE EXCEPTION 'Unit Transfer reversal Journals must transition as one authorized pair' USING ERRCODE='0A000';END IF;
    IF reversal_pair.source_reversal_journal_snapshot_hash<>refs_unit_transfer_journal_snapshot(reversal_pair.tenant_id,reversal_pair.source_entity_id,reversal_pair.source_reversal_journal_entry_id) OR reversal_pair.target_reversal_journal_snapshot_hash<>refs_unit_transfer_journal_snapshot(reversal_pair.tenant_id,reversal_pair.target_entity_id,reversal_pair.target_reversal_journal_entry_id) THEN RAISE EXCEPTION 'Unit Transfer reversal financial lines changed' USING ERRCODE='23514';END IF;
   END IF;
-  RETURN NEW;
- END IF;
  SELECT * INTO pair FROM unit_transfer_pair WHERE tenant_id=NEW.tenant_id AND(source_journal_entry_id IN(NEW.journal_entry_id,NEW.reversal_of_id,NEW.reclass_of_id) OR target_journal_entry_id IN(NEW.journal_entry_id,NEW.reversal_of_id,NEW.reclass_of_id)) FOR UPDATE;
  IF NOT FOUND THEN RETURN NEW;END IF;
  IF NEW.journal_entry_id NOT IN(pair.source_journal_entry_id,pair.target_journal_entry_id) THEN RAISE EXCEPTION 'Unit Transfer journals cannot use generic reversal or reclass' USING ERRCODE='0A000';END IF;
