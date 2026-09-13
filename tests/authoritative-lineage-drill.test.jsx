@@ -2,7 +2,7 @@ import React from 'react';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {AuthoritativeLineageDrill,createLineageRequestGuard,journalLineMatchesLedger,readExactAuthoritativeLedgerLine,reportRowContainsLedger} from '../src/authoritative-lineage-drill.jsx';
+import {AuthoritativeLineageDrill,createLineageRequestGuard,exactLineageIdSet,journalLineMatchesLedger,readExactAuthoritativeLedgerLine,reportRowContainsLedger} from '../src/authoritative-lineage-drill.jsx';
 
 const entityId='11111111-1111-4111-8111-111111111111',periodId='22222222-2222-4222-8222-222222222222';
 const journalId='33333333-3333-4333-8333-333333333333',journalLineId='44444444-4444-4444-8444-444444444444',ledgerLineId='55555555-5555-4555-8555-555555555555',sourceId='66666666-6666-4666-8666-666666666666';
@@ -14,6 +14,11 @@ const source={source_document_id:sourceId,source_document_revision:2,document_no
 const report={period_id:periodId,period_code:'2026-08',period_start:'2026-08-01',period_end:'2026-08-31',currency:'USD',statement_type:'INCOME_STATEMENT',statement_section:'EXPENSE',account_code:'610000',account_name:'Expense',period_debit:'25.0000',period_credit:'0.0000',display_balance:'25.0000',journal_entry_ids:[journalId],journal_line_ids:[journalLineId],ledger_line_ids:[ledgerLineId],source_document_ids:[sourceId]};
 
 async function main(){
+assert.equal(exactLineageIdSet([sourceId,'77777777-7777-4777-8777-777777777777'],['77777777-7777-4777-8777-777777777777',sourceId]),true,'source identity order must not change the closed evidence set');
+assert.equal(exactLineageIdSet([sourceId,sourceId],[sourceId]),false,'source evidence multiplicity must remain exact');
+assert.equal(exactLineageIdSet([sourceId,1],[sourceId,'1']),false,'only textual stable IDs are accepted');
+const largeIds=Array.from({length:10000},(_,index)=>'00000000-0000-4000-8000-'+String(index).padStart(12,'0'));
+assert.equal(exactLineageIdSet(largeIds,[...largeIds].reverse()),true,'large closed source sets must compare exactly without re-sorting on each row');
 assert.equal(journalLineMatchesLedger(journal,journal.lines[0],gl),true);
 assert.equal(journalLineMatchesLedger(journal,{...journal.lines[0],source_document_ids:[sourceId,'77777777-7777-4777-8777-777777777777']},gl),false,'Journal→GL must reject a source retained only by Journal');
 assert.equal(journalLineMatchesLedger(journal,journal.lines[0],{...gl,source_document_ids:[sourceId,'77777777-7777-4777-8777-777777777777']}),false,'GL→Journal must reject a source retained only by GL');

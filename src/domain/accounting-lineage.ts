@@ -31,7 +31,9 @@ export const exactLineageIdSet = (left: unknown, right: unknown): boolean => {
   if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
   if (!left.every((value): value is string => typeof value === 'string')) return false;
   if (!right.every((value): value is string => typeof value === 'string')) return false;
-  return [...left].sort().every((value, index) => value === [...right].sort()[index]);
+  const sortedLeft=[...left].sort();
+  const sortedRight=[...right].sort();
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
 };
 
 export const journalLineMatchesLedger = (
