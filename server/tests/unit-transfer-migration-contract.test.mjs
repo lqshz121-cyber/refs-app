@@ -10,6 +10,25 @@ const down=await readFile(new URL('../db/migrations/down/370_unit_transfer_autho
 const reversalUp=await readFile(new URL('../db/migrations/371_unit_transfer_paired_reversal.sql',import.meta.url),'utf8');
 const reversalDown=await readFile(new URL('../db/migrations/down/371_unit_transfer_paired_reversal.sql',import.meta.url),'utf8');
 
+test('Unit Transfer paired reversal closes every tagged DO body with its matching tag',()=>{
+ for(const tag of ['unit_transfer_post_patch','unit_transfer_journal_guard_patch','unit_transfer_unit_protect_patch','unit_transfer_read_patch']){
+  const start=reversalUp.indexOf(`DO ${tag}import assert from 'node:assert/strict';
+import test from 'node:test';
+import {readFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {UNIT_TRANSFER_CREATE_FIELDS} from '../runtime/unit-transfer-contract.mjs';
+import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
+
+const up=await readFile(new URL('../db/migrations/370_unit_transfer_authoritative.sql',import.meta.url),'utf8');
+const down=await readFile(new URL('../db/migrations/down/370_unit_transfer_authoritative.sql',import.meta.url),'utf8');
+const reversalUp=await readFile(new URL('../db/migrations/371_unit_transfer_paired_reversal.sql',import.meta.url),'utf8');
+const reversalDown=await readFile(new URL('../db/migrations/down/371_unit_transfer_paired_reversal.sql',import.meta.url),'utf8');
+
+),end=reversalUp.indexOf(`END;${tag}$;`,start);
+  assert.ok(start>=0&&end>start,`tagged ${tag} body must close after its own BEGIN`);
+ }
+});
+
 test('Unit Transfer paired reversal migration is checksum-bound in order',()=>{
  const index=MIGRATION_MANIFEST.findIndex(entry=>entry.name==='371_unit_transfer_paired_reversal.sql');
  assert.ok(index>=0);assert.equal(MIGRATION_MANIFEST[index-1]?.name,'370_unit_transfer_authoritative.sql');
