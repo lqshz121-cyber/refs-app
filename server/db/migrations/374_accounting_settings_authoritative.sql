@@ -323,7 +323,7 @@ BEGIN
  END LOOP;
  PERFORM refs_validate_accounting_settings_selected_bundle(p_tenant,p_entity,p_period,result,p_ids,false);
  RETURN result;
-END;$;
+END;$$;
 
 CREATE FUNCTION refs_accounting_settings_create_hash(p_tenant uuid,p_entity uuid,p_period uuid,p_ids jsonb,p_reason text) RETURNS text
 LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$ SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',p_tenant,'entity_id',p_entity,'period_id',p_period,'child_setting_snapshot_ids',p_ids,'reason',btrim(p_reason))) $$;

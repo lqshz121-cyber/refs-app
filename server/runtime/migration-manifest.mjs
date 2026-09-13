@@ -379,7 +379,7 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"371_unit_transfer_paired_reversal.sql","up":"26f635f64cfaa13eeb9efca16079fd83fbd72b401fd5efa5e001fa98a5bc6aec","down":"ed3b985622795eab8d45ff438177ed1f7164f6288c0e4031107625a3049fd765"}),
   Object.freeze({"name":"372_fixed_asset_post_impairment_ai_parity.sql","up":"97113df4324e1036d9af8e70c769408b28481a366f33b317c87c16b3555a5197","down":"519b95215227f06e069e22b109d83eba38c5390e312d3661f311fc30ffb66036"}),
   Object.freeze({"name":"373_intercompany_elimination_authoritative.sql","up":"ee0d5f2eac729f9a3ddc06e655dadd9238a07337fa18d5550ab636ad7421cd97","down":"64a1ad2857258ca1748a8e6e1fcc94f59b37f58f786eda998fdd244c3fc6c123"}),
-  Object.freeze({"name":"374_accounting_settings_authoritative.sql","up":"e31681d8fc7701e8e25f1e8e52a4275137175e23c05b17b21d1ecf00764ef17e","down":"8220b8e41af8227f45716bf94f1502335f4a2713a21cb17771820b7a19f02093"}),
+  Object.freeze({"name":"374_accounting_settings_authoritative.sql","up":"c184fc566216f6954f4f5925d1bf438396ef92f9f09669d9af744fcea3714e9e","down":"8220b8e41af8227f45716bf94f1502335f4a2713a21cb17771820b7a19f02093"}),
   Object.freeze({"name":"375_cash_transfer_authoritative.sql","up":"590f6c3d033248164f41446aa6b853e20b1731556bf876938ea37627ec720775","down":"3adcabd0e97b4d82d85bc32cdf520d8f433325862a8edd1d60677f55d9158390"}),
   Object.freeze({"name":"376_cash_transfer_read_surfaces.sql","up":"6b1e983cff56bcedaea14ea37d54ce7994ee1f43917febbad3cb084ed7443b34","down":"71107391a8969341bbd18a9c141d3724ec38a22ff1a1ac61ab5adaa8c7c30be1"}),
   Object.freeze({"name":"377_cash_transfer_public_create.sql","up":"d9dc04680a894ae377aabe85c18c84b46e20135250b1bd42bb7e3d67d123d0d6","down":"85d706e8f085d1708b7299f440151fbef129d8f53b82dcaaea27f6777132bbd0"}),
