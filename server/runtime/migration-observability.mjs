@@ -11,7 +11,12 @@ export function safeMigrationErrorCode(error){
 
 export function safeMigrationErrorPosition(error){
   const position=error?.position;
-  return typeof position==='string'&&/^[1-9]\d{0,8}$/.test(position)?Number(position):undefined;
+  return (typeof position==='string'&&/^[1-9]\d{0,8}$/.test(position))||(Number.isSafeInteger(position)&&position>0&&position<=999999999)?Number(position):undefined;
+}
+
+export function safeMigrationErrorWhere(error){
+  const where=error?.where;
+  return typeof where==='string'&&/^PL\/pgSQL function inline_code_block line [1-9]\d{0,4} at EXECUTE$/.test(where)?where:undefined;
 }
 
 export function emitMigrationEvent(onEvent,event){
@@ -30,7 +35,8 @@ export async function observeMigration(name,direction,work,{onEvent,clock=()=>pe
     return result;
   }catch(error){
     const position=safeMigrationErrorPosition(error);
-    emitMigrationEvent(onEvent,{event:'migration_failed',migration_name,direction,elapsed_ms:elapsed(),code:safeMigrationErrorCode(error),...(position===undefined?{}:{position})});
+    const where=safeMigrationErrorWhere(error);
+    emitMigrationEvent(onEvent,{event:'migration_failed',migration_name,direction,elapsed_ms:elapsed(),code:safeMigrationErrorCode(error),...(position===undefined?{}:{position}),...(where===undefined?{}:{where})});
     throw error;
   }
 }

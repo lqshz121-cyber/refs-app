@@ -7,7 +7,7 @@ import {migrationStatementTimeout,runMigrations} from '../runtime/migrate.mjs';
 import {runtimeConfig} from '../runtime/config.mjs';
 import {migrateUp,migrateDown} from '../runtime/migrations.mjs';
 import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
-import {observeMigration,safeMigrationErrorCode,safeMigrationErrorPosition} from '../runtime/migration-observability.mjs';
+import {observeMigration,safeMigrationErrorCode,safeMigrationErrorPosition,safeMigrationErrorWhere} from '../runtime/migration-observability.mjs';
 
 test('migration deadline is bounded and independent of the ordinary runtime deadline',()=>{
   assert.equal(migrationStatementTimeout({}),600000);
@@ -96,7 +96,9 @@ test('checksum mismatch remains fail closed; log failures and arbitrary metadata
   assert.equal(logs.at(-1).elapsed_ms,25);
   await observeMigration(MIGRATION_MANIFEST[0].name,'up',async()=>{}, {onEvent:()=>{throw Error('logger unavailable');}});
   assert.equal(safeMigrationErrorCode({code:'Bearer sensitive'}),'MIGRATION_RUN_FAILED');
-  assert.equal(safeMigrationErrorPosition({position:'42'}),42);assert.equal(safeMigrationErrorPosition({position:'0'}),undefined);assert.equal(safeMigrationErrorPosition({position:'password=secret'}),undefined);
+  assert.equal(safeMigrationErrorPosition({position:'42'}),42);assert.equal(safeMigrationErrorPosition({position:42}),42);assert.equal(safeMigrationErrorPosition({position:'0'}),undefined);assert.equal(safeMigrationErrorPosition({position:'password=secret'}),undefined);
+  assert.equal(safeMigrationErrorWhere({where:'PL/pgSQL function inline_code_block line 17 at EXECUTE'}),'PL/pgSQL function inline_code_block line 17 at EXECUTE');
+  assert.equal(safeMigrationErrorWhere({where:'PL/pgSQL function inline_code_block line 17 at EXECUTE; SELECT secret'}),undefined);
   const bad=[];
   await assert.rejects(observeMigration('password=secret','up',async()=>{throw Error('private');},{onEvent:event=>bad.push(event)}));
   assert.equal(bad.at(-1).migration_name,'unknown');assert.doesNotMatch(JSON.stringify(bad),/password|private|secret/);
