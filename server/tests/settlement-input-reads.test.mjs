@@ -3,12 +3,15 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {createAccountingApi} from '../api/accounting-http.mjs';
 import {validSettlementBankPage,validSettlementContext} from '../runtime/settlement-input-reads.mjs';
+import {validSettlementBankAccountPairPage} from '../runtime/settlement-bank-account-pairs.mjs';
 const tenantId='11111111-1111-4111-8111-111111111111',entityId='22222222-2222-4222-8222-222222222222';
 const businessDocumentId='33333333-3333-4333-8333-333333333333',periodId='44444444-4444-4444-8444-444444444444';
 const scope={entityId,businessDocumentId,periodId,settlementKind:'AP_PAYMENT'};
 const bankPath=`/api/v1/entities/${entityId}/settlements/draft-bank-members`;
+const pairPath=`/api/v1/entities/${entityId}/settlements/draft-bank-account-pairs`;
 const contextPath=`/api/v1/entities/${entityId}/business-documents/${businessDocumentId}/settlement-context`;
 const page=s=>({schema_version:'SETTLEMENT_BANK_MEMBERS_V1',entity_id:entityId,settlement_kind:s.settlementKind,query:s.query,after_ref:s.afterRef,limit:s.limit,rows:[],next_ref:null});
+const pairPage=s=>({schema_version:'SETTLEMENT_BANK_ACCOUNT_PAIRS_V1',entity_id:entityId,settlement_kind:s.settlementKind,period_id:s.periodId,settlement_date:s.settlementDate,query:s.query,after_ref:s.afterRef,limit:s.limit,rows:[],next_ref:null});
 const context=(kind='AP_PAYMENT')=>({schema_version:'SETTLEMENT_CONTEXT_V1',entity_id:entityId,settlement_kind:kind,
   payment_period:{period_id:periodId,starts_on:'2026-08-01',ends_on:'2026-08-31',status:'OPEN',revision:'0'},
   document:{business_document_id:businessDocumentId,document_kind:kind==='AP_PAYMENT'?'AP_BILL':'AR_INVOICE',document_number:'DOC-1',counterparty_ref:'PARTY-1',counterparty_name:'Counterparty',currency:'USD',accounting_date:'2026-07-15',due_date:null,status:'OPEN',revision:'1',open_balance:'100.0000'},
@@ -42,6 +45,39 @@ test('settlement input GETs derive tenant identity and preserve exact selection 
     for(const patch of [{body:{}},{headers:{'idempotency-key':'not-a-command'}},{headers:{'if-match':'"1"'}}])assert.equal((await get(api,url,patch)).status,400);
   }
   assert.equal(calls.length,count,'invalid reads do not reach kernel methods');
+});
+
+test('bank-account pair reads bind the open payment period and date without changing refund bank selection',async()=>{
+  const calls=[],api=apiFor({readSettlementBankAccountPairs:async args=>(calls.push(args),pairPage(args))});
+  const url=pairPath+`?kind=AP_PAYMENT&periodId=${periodId}&settlementDate=2026-08-10&query=Operating&afterRef=WyJCQU5LMSJd&limit=25`;
+  const response=await get(api,url);
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');
+  assert.deepEqual(calls,[{tenantId,entityId,settlementKind:'AP_PAYMENT',periodId,settlementDate:'2026-08-10',query:'Operating',afterRef:'WyJCQU5LMSJd',limit:25}]);
+  for(const suffix of ['',`?kind=AR_REFUND&periodId=${periodId}&settlementDate=2026-08-10`,`?kind=AP_PAYMENT&periodId=${periodId}`,`?kind=AP_PAYMENT&periodId=${periodId}&settlementDate=2026-02-30`,`?kind=AP_PAYMENT&periodId=bad&settlementDate=2026-08-10`,`?kind=AP_PAYMENT&periodId=${periodId}&settlementDate=2026-08-10&afterRef=`,`?kind=AP_PAYMENT&periodId=${periodId}&settlementDate=2026-08-10&limit=101`])assert.equal((await get(api,pairPath+suffix)).status,400,suffix);
+  for(const patch of [{body:{}},{headers:{'idempotency-key':'forbidden'}},{headers:{'if-match':'"1"'}}])assert.equal((await get(api,pairPath+`?kind=AP_PAYMENT&periodId=${periodId}&settlementDate=2026-08-10`,patch)).status,400);
+  assert.equal((await get(apiFor({}),pairPath+`?kind=AP_PAYMENT&periodId=${periodId}&settlementDate=2026-08-10`)).status,503);
+});
+
+test('bank-account pair pages reject scope, period, date, currency and cursor drift',async()=>{
+  const selection={entityId,settlementKind:'AP_PAYMENT',periodId,settlementDate:'2026-08-10',query:'',afterRef:null,limit:1};
+  const pair={pair_ref:'WyJCQU5LMSIsIjEwMDEwMCIsIlVTRCJd',member_ref:'BANK1',member_type:'BANK',display_name:'Operating bank',cash_account_code:'100100',cash_account_name:'Operating bank',currency:'USD'};
+  const good={...pairPage(selection),rows:[pair],next_ref:pair.pair_ref};
+  assert.equal(validSettlementBankAccountPairPage(good,selection),true);
+  for(const bad of [{...good,entity_id:tenantId},{...good,period_id:businessDocumentId},{...good,settlement_date:'2026-08-11'},{...good,next_ref:'other'},{...good,rows:[{...pair,currency:'usd'}]},{...good,rows:[{...pair,member_type:'VENDOR'}]},{...good,extra:true}])assert.equal(validSettlementBankAccountPairPage(bad,selection),false);
+  const api=apiFor({readSettlementBankAccountPairs:async()=>({...good,rows:[{...pair,currency:'usd'}]})});
+  assert.equal((await get(api,pairPath+`?kind=AP_PAYMENT&periodId=${periodId}&settlementDate=2026-08-10&limit=1`)).status,500);
+});
+
+test('reconciliation adjustment attachment candidate reads are entity-derived, read-only and bounded',async()=>{
+  const attachmentId='55555555-5555-4555-8555-555555555555';
+  const candidate={schema_version:'RECONCILIATION_ADJUSTMENT_ATTACHMENT_CANDIDATES_V1',entity_id:entityId,attachments:[{attachment_id:attachmentId,name:'statement.pdf',media_type:'application/pdf',verified_at:'2026-08-10T10:00:00.000Z'}]};
+  const calls=[],api=apiFor({readReconciliationAdjustmentAttachmentCandidates:async args=>(calls.push(args),candidate)});
+  const path=`/api/v1/entities/${entityId}/bank/reconciliation-adjustment-attachments`;
+  const response=await get(api,path+'?limit=25');
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(calls,[{tenantId,entityId,limit:25}]);
+  for(const suffix of ['?limit=0','?limit=101','?limit=01','?limit=1e1','?limit=25&limit=25','?limit=25&tenantId=spoof'])assert.equal((await get(api,path+suffix)).status,400,suffix);
+  for(const patch of [{body:{}},{headers:{'idempotency-key':'forbidden'}},{headers:{'if-match':'"1"'}}])assert.equal((await get(api,path+'?limit=25',patch)).status,400);
+  assert.equal((await get(apiFor({}),path+'?limit=25')).status,503);
 });
 
 test('bank page validation rejects scope/type/cursor drift and uses database C byte ordering',async()=>{
@@ -85,10 +121,11 @@ test('absent input readers fail closed and OpenAPI documents bounded maker-only 
   assert.equal((await get(apiFor({}),bankPath+'?kind=AP_PAYMENT')).status,503);
   assert.equal((await get(apiFor({}),contextPath+`?kind=AP_PAYMENT&periodId=${periodId}`)).status,503);
   const doc=JSON.parse(await readFile(new URL('../api/openapi-accounting.json',import.meta.url),'utf8'));
-  for(const path of ['/entities/{entityId}/settlements/draft-bank-members','/entities/{entityId}/business-documents/{businessDocumentId}/settlement-context']){
+  for(const path of ['/entities/{entityId}/settlements/draft-bank-members','/entities/{entityId}/settlements/draft-bank-account-pairs','/entities/{entityId}/business-documents/{businessDocumentId}/settlement-context']){
     const route=doc.paths[path];assert.deepEqual(Object.keys(route),['get']);
     assert.match(route.get.description,/AP\.PAYMENT\.CREATE/);assert.match(route.get.description,/AR\.RECEIPT\.CREATE/);
     assert.equal(route.get.responses['200'].headers['Cache-Control'].schema.const,'no-store');
   }
   assert.equal(doc.paths['/entities/{entityId}/settlements/draft-bank-members'].get.parameters.find(p=>p.name==='limit').schema.maximum,100);
+  assert.equal(doc.paths['/entities/{entityId}/settlements/draft-bank-account-pairs'].get.parameters.find(p=>p.name==='limit').schema.maximum,100);
 });

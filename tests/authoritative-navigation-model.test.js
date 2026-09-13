@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTES, navigationItemForRoute } from '../src/authoritative-navigation.js';
+import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_NAVIGATION_VISIBLE, AUTHORITATIVE_ROUTES, AUTHORITATIVE_VISIBLE_ROUTES, navigationItemForRoute } from '../src/authoritative-navigation.js';
 
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the formal navigation must retain the full product taxonomy');
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'every formal route needs a stable unique identity');
+assert.ok(AUTHORITATIVE_NAVIGATION_VISIBLE.length > 0, 'the runnable product navigation must retain available workspaces');
+assert.ok(AUTHORITATIVE_NAVIGATION_VISIBLE.every(group => group.items.length > 0), 'visible navigation may not retain empty groups');
+assert.ok(AUTHORITATIVE_NAVIGATION_VISIBLE.every(group => group.items.every(item => item.availability !== 'API_UNAVAILABLE')), 'the runnable navigation must not offer unavailable workspaces');
+assert.ok(AUTHORITATIVE_VISIBLE_ROUTES.every(route => ['API_READ', 'API_COMMAND'].includes(navigationItemForRoute(route)?.availability)), 'visible routes must map to implemented read or command workflows');
 assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['vendors','customers','account-inquiry','accounting-analysis-report','accruals','ai-audit','ai-je-workbench','amortization','audit-log','bank','bank-accounts','bank-batch-pipeline','bill-payments','chart-of-accounts','checks-payments','consolidation','construction-loan','fixed-assets','general-ledger','integration-hub','integration-transactions','intercompany','journals','loan-register','mapping','overview','payables','period-management','project-cost-cwip','property-ops-pickup','receivables','receipts','reconciliation','recurring-transactions','revenue-recognition','reports','rules','source-documents','staging','mapping-exceptions','subsidiary-ledger','unit-cost-ledger','wbs-autorec-evidence','wbs-payable-review'].sort());
 for (const group of AUTHORITATIVE_NAVIGATION) {
   assert.ok(group.items.length > 0, `${group.label} may not be empty`);

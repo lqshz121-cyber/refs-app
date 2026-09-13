@@ -36,6 +36,7 @@ import {validRecurringTransactionSelection,validRecurringTransactionRow,validRec
 import {createServer} from 'node:http';
 import {reportAccessFailure} from './access-failure-diagnostics.mjs';
 import {validSettlementKind,validSettlementBankSelection,validSettlementBankPage,validSettlementContext} from '../runtime/settlement-input-reads.mjs';
+import {validSettlementBankAccountPairSelection,validSettlementBankAccountPairPage} from '../runtime/settlement-bank-account-pairs.mjs';
 import {validCreditAction,validCreditUsageContext} from '../runtime/credit-usage-context.mjs';
 import {validCreditTargetSelection,validCreditTargets} from '../runtime/credit-allocation-targets.mjs';
 import {validBusinessDocumentCounterpartySelection,validBusinessDocumentCounterpartyPage} from '../runtime/business-document-counterparties.mjs';
@@ -398,6 +399,16 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         const beforeVerifiedAt=rawBeforeVerifiedAt===null?null:requireIsoTimestamp(rawBeforeVerifiedAt,'beforeVerifiedAt'),beforeAttachmentId=rawBeforeAttachmentId===null?null:requireUuid(rawBeforeAttachmentId,'beforeAttachmentId').toLowerCase(),kernel=await kernelFactory(principal);
         if(!kernel||typeof kernel.readCashTransferAttachmentCandidates!=='function')throw new AccountingApiError(503,'CASH_TRANSFER_ATTACHMENT_CANDIDATES_UNAVAILABLE','Cash Transfer attachment candidates are unavailable');
         result=await kernel.readCashTransferAttachmentCandidates({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),limit,beforeVerifiedAt,beforeAttachmentId});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='bank'&&parts[5]==='reconciliation-adjustment-attachments'){
+        if(body!==null||header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_FIELDS_FORBIDDEN','Reconciliation adjustment attachment reads do not accept command fields');
+        requireExactQuery(parsedUrl.searchParams,['limit']);
+        const limit=optionalReadLimit(parsedUrl.searchParams.get('limit'));
+        if(limit>100)throw new AccountingApiError(400,'INVALID_RECONCILIATION_ADJUSTMENT_ATTACHMENT_LIMIT','Reconciliation adjustment attachment limit must be 1..100');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readReconciliationAdjustmentAttachmentCandidates!=='function')throw new AccountingApiError(503,'RECONCILIATION_ADJUSTMENT_ATTACHMENT_CANDIDATES_UNAVAILABLE','Reconciliation adjustment attachment choices are unavailable');
+        result=await kernel.readReconciliationAdjustmentAttachmentCandidates({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),limit});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===7&&parts[4]==='cash-transfers'&&parts[6]==='bank-leg-candidates'){
@@ -1122,6 +1133,18 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!kernel||typeof kernel.readSettlementBankMembers!=='function')throw new AccountingApiError(503,'SETTLEMENT_BANK_MEMBERS_UNAVAILABLE','Bank member choices are unavailable');
         result=await kernel.readSettlementBankMembers({tenantId:principal.tenantId,entityId,...selection});
         if(!validSettlementBankPage(result,{entityId,...selection}))throw new AccountingApiError(500,'SETTLEMENT_BANK_MEMBERS_INVALID','Bank member choices did not match the requested scope');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='settlements'&&parts[5]==='draft-bank-account-pairs'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Bank-account pair reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['kind','periodId','settlementDate','query','afterRef','limit']);
+        const selection={settlementKind:parsedUrl.searchParams.get('kind'),periodId:requireUuid(parsedUrl.searchParams.get('periodId'),'periodId'),settlementDate:requireIsoDate(parsedUrl.searchParams.get('settlementDate'),'settlementDate'),query:parsedUrl.searchParams.get('query')??'',afterRef:parsedUrl.searchParams.get('afterRef'),limit:parsedUrl.searchParams.has('limit')?Number(parsedUrl.searchParams.get('limit')):50};
+        if(!validSettlementBankAccountPairSelection(selection)||parsedUrl.searchParams.has('limit')&&!/^[1-9]\d{0,2}$/.test(parsedUrl.searchParams.get('limit')))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','Settlement bank-account pair selection is invalid');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readSettlementBankAccountPairs!=='function')throw new AccountingApiError(503,'SETTLEMENT_BANK_ACCOUNT_PAIRS_UNAVAILABLE','Bank-account pair choices are unavailable');
+        result=await kernel.readSettlementBankAccountPairs({tenantId:principal.tenantId,entityId,...selection});
+        if(!validSettlementBankAccountPairPage(result,{entityId,...selection}))throw new AccountingApiError(500,'SETTLEMENT_BANK_ACCOUNT_PAIRS_INVALID','Bank-account pair choices did not match the requested scope');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===7&&parts[4]==='business-documents'&&parts[6]==='settlement-context'){

@@ -2139,6 +2139,13 @@ export class PostgresAccountingKernel{
     ),'SETTLEMENT_BANK_MEMBERS_UNAVAILABLE','Bank member choices are unavailable').result);
   }
 
+  async readSettlementBankAccountPairs({tenantId,entityId,settlementKind,periodId,settlementDate,query='',afterRef=null,limit=50}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_settlement_bank_account_pairs($1,$2,$3,$4,$5,$6,$7,$8) AS result',
+      [tenantId,entityId,settlementKind,query,afterRef,limit,periodId,settlementDate]
+    ),'SETTLEMENT_BANK_ACCOUNT_PAIRS_UNAVAILABLE','Bank-account pair choices are unavailable').result);
+  }
+
   async readSettlementContext({tenantId,entityId,settlementKind,businessDocumentId,periodId}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_settlement_context($1,$2,$3,$4,$5) AS result',
@@ -2615,6 +2622,13 @@ export class PostgresAccountingKernel{
       'SELECT * FROM refs_list_reconciliation_adjustment_evidence($1,$2,$3)',
       [tenantId,entityId,limit]
     )).rows.map(row=>row.attachment_id));
+  }
+
+  async readReconciliationAdjustmentAttachmentCandidates({tenantId,entityId,limit=25}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_reconciliation_adjustment_attachment_candidates($1,$2,$3::integer) AS result',
+      [tenantId,entityId,limit]
+    ),'RECONCILIATION_ADJUSTMENT_ATTACHMENT_CANDIDATES_UNAVAILABLE','Reconciliation adjustment attachment choices are unavailable').result);
   }
 
   async reviewWbsAutoRecBankMatch({tenantId,entityId,reviewCandidateId,candidateHash,bankMatchId,expectedMatchRevision,decision,reason,idempotencyKey}){

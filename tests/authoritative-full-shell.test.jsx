@@ -272,7 +272,7 @@ for (const route of ['intuit-experts','products-services','custom-reports','mana
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
 assert.match(appSource,/response\?\.status === 401\) onAuthenticationRequired\?\.\(\)/,'all bound workspace HTTP reads must route 401 through the application login boundary');
 assert.doesNotMatch(appSource,/response\?\.status === 403\) onAuthenticationRequired/,'a 403 must remain an authorization refusal and never start sign-in');
-assert.match(appSource,/setSessionExpired\(false\); setRenewalFailure\(null\); setPhase\('AUTHENTICATED'\)/,'a successful interactive login must clear stale expiry and renewal diagnostics');
+assert.match(appSource,/setSessionExpired\(false\); setRenewalFailure\(null\); setPhase\('CHECKING_RELEASE'\)/,'a successful interactive login must clear stale expiry and renewal diagnostics before release verification');
 const amortizationSource = fs.readFileSync('src/authoritative-amortization-workspace.jsx', 'utf8');
 for(const file of ['src/authoritative-aging-workspace.jsx','src/authoritative-amortization-workspace.jsx','src/authoritative-lineage-drill.jsx','src/authoritative-property-rent-workspace.jsx']){
   const source=fs.readFileSync(file,'utf8');

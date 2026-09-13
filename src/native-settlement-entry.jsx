@@ -20,7 +20,7 @@ export function NativeSettlementEntry({config,kind,businessDocumentId,access,acc
 export function NativeSettlementForm({id,config,kind,businessDocumentId,access,accounts=[],fetcher=globalThis.fetch,onOpenDraft,onClose}){
   const recoveryScope={config,kind,businessDocumentId,actorId:access.actor_id},recovered=useRef(recoverNativeSettlement(recoveryScope));
   const [currentAccounts,setCurrentAccounts]=useState([]);
-  const [context,setContext]=useState(null),[page,setPage]=useState(null),[query,setQuery]=useState(''),[bank,setBank]=useState(()=>recovered.current?{member_ref:recovered.current.command.body.bankMemberRef,member_type:'BANK'}:null);
+  const [context,setContext]=useState(null),[page,setPage]=useState(null),[query,setQuery]=useState(''),[bank,setBank]=useState(null);
   const [draft,setDraft]=useState(()=>recovered.current?.command.body||{number:'',date:'',amount:'',cashAccountCode:'',reason:''}),[file,setFile]=useState(null),[attachment,setAttachment]=useState(null);
   const [uploadAttempt,setUploadAttempt]=useState(0),[uploadClosed,setUploadClosed]=useState(false),[command,setCommand]=useState(()=>recovered.current?.command||null),[receipt,setReceipt]=useState(null);
   const [busy,setBusy]=useState(false),[message,setMessage]=useState({tone:'status',text:'Loading payment details…'});
@@ -28,9 +28,9 @@ export function NativeSettlementForm({id,config,kind,businessDocumentId,access,a
   const reportError=text=>setMessage(text?{tone:'error',text}:null);
   const mounted=useRef(false),busyRef=useRef(false),heading=useRef(null),attempted=useRef(recovered.current?.uncertain===true);
   const run=async action=>{if(busyRef.current)return;busyRef.current=true;setBusy(true);try{await action();}catch{if(mounted.current)reportError('The result could not be confirmed. Retry the same request.');}finally{busyRef.current=false;if(mounted.current)setBusy(false);}};
-  const load=()=>run(async()=>{const [c,b,a]=await Promise.all([readNativeSettlementContext({config,kind,businessDocumentId,fetcher}),readNativeSettlementBanks({config,kind,fetcher}),refreshAuthoritativeChartOfAccounts({config,fetcher})]);if(!mounted.current)return;setContext(c.ok?c.data:null);setCurrentAccounts(a.ok?a.rows:[]);if(b.ok)setPage(b.data);if(!c.ok)reportError(c.message);else if(!b.ok)reportError(b.message);else if(!a.ok)reportError(a.message);else if(c.data.can_create_draft)inform('');else reportError('This document has no available balance in the selected open period.');});
+  const load=()=>run(async()=>{const [c,a]=await Promise.all([readNativeSettlementContext({config,kind,businessDocumentId,fetcher}),refreshAuthoritativeChartOfAccounts({config,fetcher})]);if(!mounted.current)return;setContext(c.ok?c.data:null);setCurrentAccounts(a.ok?a.rows:[]);if(!c.ok)reportError(c.message);else if(!a.ok)reportError(a.message);else if(c.data.can_create_draft)inform('Choose a payment date, then search the approved bank and cash-account pairs.');else reportError('This document has no available balance in the selected open period.');});
   useEffect(()=>{mounted.current=true;heading.current?.focus();load();return()=>{mounted.current=false;};},[]);
-  const search=afterRef=>run(async()=>{const result=await readNativeSettlementBanks({config,kind,query:query.trim(),afterRef,fetcher});if(!mounted.current)return;if(result.ok){setPage(result.data);setBank(null);inform('');}else reportError(result.message);});
+  const search=afterRef=>run(async()=>{const result=await readNativeSettlementBanks({config,kind,settlementDate:draft.date,query:query.trim(),afterRef,fetcher});if(!mounted.current)return;if(result.ok){setPage(result.data);setBank(null);inform('');}else reportError(result.message);});
   const save=()=>run(async()=>{
     let prepared=command;
     if(!prepared){
@@ -49,19 +49,18 @@ export function NativeSettlementForm({id,config,kind,businessDocumentId,access,a
     else{if(result.unconfirmed)attempted.current=true;if(!attempted.current)setCommand(null);reportError(result.message);}
   });
   const update=(key,value)=>setDraft(current=>({...current,[key]:value}));
-  const eligible=currentAccounts.filter(row=>row.active===true&&row.requires_member===true&&row.required_member_type==='BANK'&&row.period_id===config.periodId&&(!row.entity_id||row.entity_id===config.entityId));
+  const selectBank=pair=>{setBank(pair);update('cashAccountCode',pair?.cash_account_code||'');};
   return <div id={id} className="native-document-form"><h3 ref={heading} tabIndex={-1}>{kind==='AP_PAYMENT'?'Record bill payment':'Receive invoice payment'}</h3>
     {context&&<p>{context.document.document_number} · {context.document.counterparty_name} · {context.document.currency}<br/>Open balance {context.document.open_balance} · Pending drafts {context.pending_allocation_amount} · Available {context.available_amount}</p>}
     {recovered.current&&!receipt&&<p role="status">An earlier payment or receipt is awaiting confirmation. Retry the same draft below.</p>}
     {command&&<p>Retained request: {command.body.number} · {command.body.amount} · Bank {command.body.bankMemberRef}</p>}
     <form aria-busy={busy} onSubmit={event=>{event.preventDefault();save();}}><fieldset disabled={busy||!!command||!!receipt||!context?.can_create_draft}><legend>Payment details</legend><div className="native-document-grid">
       <label>Reference number<input required maxLength={128} value={draft.number} onChange={event=>update('number',event.target.value)}/></label>
-      <label>Date<input required type="date" min={context?.payment_period.starts_on} max={context?.payment_period.ends_on} value={draft.date} onChange={event=>update('date',event.target.value)}/></label>
+      <label>Date<input required type="date" min={context?.payment_period.starts_on} max={context?.payment_period.ends_on} value={draft.date} onChange={event=>{update('date',event.target.value);setPage(null);selectBank(null);}}/></label>
       <label>Amount<input required inputMode="decimal" value={draft.amount} onChange={event=>update('amount',event.target.value)}/></label>
-      <label>Bank ledger account<select required value={draft.cashAccountCode} onChange={event=>update('cashAccountCode',event.target.value)}><option value="">Choose an account</option>{eligible.map(row=><option key={row.account_code} value={row.account_code}>{row.account_code} · {row.account_name}</option>)}</select></label>
-      <label>Find bank<input value={query} maxLength={128} onChange={event=>{setQuery(event.target.value);setPage(null);setBank(null);}} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();search(null);}}}/></label><button type="button" className="btn btn-sm" onClick={()=>search(null)}>Search banks</button>
-      <label>Bank<select required value={bank?.member_ref||''} onChange={event=>setBank(page?.rows.find(row=>row.member_ref===event.target.value)||null)}><option value="">Choose a bank</option>{page?.rows.map(row=><option key={row.member_ref} value={row.member_ref}>{row.display_name} · {row.member_ref}</option>)}</select></label>
-      <button type="button" className="btn btn-sm btn-ghost" disabled={!page?.next_ref} onClick={()=>search(page.next_ref)}>Next banks</button>
+      <label>Find bank and cash account<input value={query} maxLength={128} onChange={event=>{setQuery(event.target.value);setPage(null);selectBank(null);}} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();search(null);}}}/></label><button type="button" className="btn btn-sm" disabled={!draft.date} onClick={()=>search(null)}>Search approved pairs</button>
+      <label>Bank and cash account<select required value={bank?.pair_ref||''} onChange={event=>selectBank(page?.rows.find(row=>row.pair_ref===event.target.value)||null)}><option value="">Choose an approved pair</option>{page?.rows.map(row=><option key={row.pair_ref} value={row.pair_ref}>{row.display_name} · {row.member_ref} · {row.cash_account_code} · {row.cash_account_name} · {row.currency}</option>)}</select></label>
+      <button type="button" className="btn btn-sm btn-ghost" disabled={!page?.next_ref} onClick={()=>search(page.next_ref)}>Next pairs</button>
     </div><label>Description<textarea required minLength={8} maxLength={2000} value={draft.reason} onChange={event=>update('reason',event.target.value)}/></label>
     <label>Supporting document<input type="file" accept=".pdf,.png,.jpg,.jpeg,.csv" onChange={event=>{setFile(event.target.files?.[0]||null);setAttachment(null);setUploadAttempt(0);setUploadClosed(false);}}/></label><p className="muted sm">PDF, PNG, JPEG or CSV, up to 50 MB. Uploaded when you save.</p></fieldset>
     {message&&<p role={message.tone==='error'?'alert':'status'} aria-live={message.tone==='error'?'assertive':'polite'}>{message.text}</p>}<div className="native-document-actions">

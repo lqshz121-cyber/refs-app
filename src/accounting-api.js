@@ -700,6 +700,20 @@ export async function refreshAuthoritativeReconciliationWorksheet({config,reconc
   }catch{return unreachable('The browser could not complete the authoritative reconciliation worksheet read; no HTTP response was produced.');}
 }
 
+const reconciliationAttachmentCandidate=value=>value&&typeof value==='object'&&UUID.test(value.attachment_id||'')&&TEXT_TOKEN.test(value.name||'')&&TEXT_TOKEN.test(value.media_type||'')&&typeof value.verified_at==='string'&&Number.isFinite(Date.parse(value.verified_at))?{attachment_id:value.attachment_id.toLowerCase(),name:value.name,media_type:value.media_type,verified_at:value.verified_at}:null;
+export async function readAuthoritativeReconciliationAdjustmentAttachmentCandidates({config,limit=25,fetcher=globalThis.fetch}={}){
+  if(!config||!UUID.test(config.entityId||'')||typeof fetcher!=='function'||!Number.isSafeInteger(limit)||limit<1||limit>100)return {ok:false,code:'RECONCILIATION_ADJUSTMENT_ATTACHMENT_SCOPE_INVALID',message:'Select a company and attachment result limit from 1 to 100.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/bank/reconciliation-adjustment-attachments?limit=${limit}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response,'RECONCILIATION_ADJUSTMENT_ATTACHMENT_CANDIDATES');
+    const data=(await response.json())?.data;
+    if(!data||data.schema_version!=='RECONCILIATION_ADJUSTMENT_ATTACHMENT_CANDIDATES_V1'||data.entity_id!==config.entityId||!Array.isArray(data.attachments)||data.attachments.length>limit)return {ok:false,code:'RECONCILIATION_ADJUSTMENT_ATTACHMENT_PROTOCOL',message:'Accounting API returned an invalid reconciliation attachment list.'};
+    const attachments=data.attachments.map(reconciliationAttachmentCandidate),ids=attachments.map(row=>row?.attachment_id);
+    return attachments.some(row=>row===null)||new Set(ids).size!==ids.length?{ok:false,code:'RECONCILIATION_ADJUSTMENT_ATTACHMENT_PROTOCOL',message:'Accounting API returned invalid or duplicate reconciliation attachments.'}:{ok:true,attachments};
+  }catch{return unreachable('The browser could not load verified reconciliation attachments.');}
+}
+
 export async function setAuthoritativeReconciliationClearance({config,reconciliationId,reconciliationRevision,row,clear,reason,fetcher=globalThis.fetch}={}){
   const approvedReason=bankCommandReason(reason);
   if(!UUID.test(reconciliationId||'')||!Number.isSafeInteger(reconciliationRevision)||reconciliationRevision<0||!row||!UUID.test(row.bank_source_id||'')||!Number.isSafeInteger(row.bank_version)||row.bank_version<0||typeof clear!=='boolean'||!approvedReason||clear&&(row.match_status!=='ACTIVE'||!UUID.test(row.bank_match_id||'')))return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Clearance requires current reconciliation and bank revisions, an exact active match to clear, and a review reason.'};

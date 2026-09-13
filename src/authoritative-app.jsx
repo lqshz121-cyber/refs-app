@@ -51,7 +51,7 @@ import {
   createAuthoritativeReturnContext,
   restoreAuthoritativeReturnContext,
 } from './authoritative-list-context.js';
-import { AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTES, navigationItemForRoute } from './authoritative-navigation.js';
+import { AUTHORITATIVE_NAVIGATION_VISIBLE, AUTHORITATIVE_VISIBLE_ROUTES, navigationItemForRoute } from './authoritative-navigation.js';
 import { AuthoritativeOverview } from './authoritative-overview.jsx';
 import { AuthoritativeNavigationShell } from './authoritative-navigation-shell.jsx';
 import { AuthoritativeTopbar } from './authoritative-topbar.jsx';
@@ -108,7 +108,7 @@ export const bindAuthoritativeAccessToken = (config, onAuthenticationRequired) =
 // what survives a link or a manual reload; sessionStorage covers the case where
 // the OIDC redirect completion rewrote the URL.
 // ---------------------------------------------------------------------------
-const ROUTES = AUTHORITATIVE_ROUTES;
+const ROUTES = AUTHORITATIVE_VISIBLE_ROUTES;
 const ROUTE_KEY = 'refs_authoritative_route';
 const SHARED_ACCOUNTING_BOOTSTRAP_ROUTES = new Set(['overview', 'approvals', 'payables', 'receivables', 'journals']);
 
@@ -237,7 +237,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const [navOpen, setNavOpen] = useState(false);
   const [navPanelCollapsed, setNavPanelCollapsed] = useState(false);
   const [expandedNavigationGroups, setExpandedNavigationGroups] = useState(() => {
-    const initial = AUTHORITATIVE_NAVIGATION.find(group => group.items.some(item => item.route === readRetainedRoute(environment)))?.label;
+    const initial = AUTHORITATIVE_NAVIGATION_VISIBLE.find(group => group.items.some(item => item.route === readRetainedRoute(environment)))?.label;
     return initial ? [initial] : [];
   });
   const [navOffCanvas, setNavOffCanvas] = useState(() => readOffCanvas());
@@ -422,7 +422,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     setRouteState(next);
     setPhase(current => current === 'ACCESS_DENIED' ? 'AUTHENTICATED' : current);
     retainRoute(environment, next);
-    const group = AUTHORITATIVE_NAVIGATION.find(entry => entry.items.some(item => item.route === next));
+    const group = AUTHORITATIVE_NAVIGATION_VISIBLE.find(entry => entry.items.some(item => item.route === next));
     if (group) setExpandedNavigationGroups(current => current.includes(group.label) ? current : [...current, group.label]);
     setNavOpen(false);
   }), [environment]);
@@ -439,7 +439,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   }, [setRoute]);
 
   const selectNavigationItem = useCallback(next => {
-    const group = AUTHORITATIVE_NAVIGATION.find(entry => entry.items.some(item => item.route === next));
+    const group = AUTHORITATIVE_NAVIGATION_VISIBLE.find(entry => entry.items.some(item => item.route === next));
     if (group) setExpandedNavigationGroups(current => current.includes(group.label) ? current : [...current, group.label]);
     setRoute(next); setNavOpen(false);
   }, [setRoute]);
@@ -683,7 +683,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   }
   const counts = { bills:data.ap.bills.length, invoices:data.ar.invoices.length, adjustments:data.ap.adjustments.length + data.ar.adjustments.length, journals:data.journals.length };
   return <div className="app authoritative-app">
-    <AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route={route} expandedGroups={expandedNavigationGroups}
+    <AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION_VISIBLE} route={route} expandedGroups={expandedNavigationGroups}
       onSelectGroup={selectNavigationGroup} onSelectItem={selectNavigationItem} navOpen={navOpen}
       navDrawerRef={navDrawerRef} drawerAttributes={navDrawerAttributes(navOffCanvas, navOpen)} onClose={() => setNavOpen(false)}
       panelCollapsed={navPanelCollapsed} onTogglePanel={() => setNavPanelCollapsed(current => !current)}/>
@@ -692,7 +692,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       <div className="brand"><span className="logo">REFS</span><span className="brand-sub">Authoritative</span></div>
       {navOpen && <button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={() => setNavOpen(false)}>Close</button>}
       <nav aria-label="Authoritative accounting navigation">
-        {AUTHORITATIVE_NAVIGATION.map((group, index) => {
+        {AUTHORITATIVE_NAVIGATION_VISIBLE.map((group, index) => {
           const multiple = group.items.length > 1;
           const expanded = multiple && expandedNavigationGroup === group.label;
           const active = group.items.some(item => route === item.route);

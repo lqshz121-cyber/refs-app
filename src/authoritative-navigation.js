@@ -199,4 +199,9 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
 
 export const AUTHORITATIVE_ROUTES = Object.freeze(AUTHORITATIVE_NAVIGATION.flatMap(entry => entry.items.map(item => item.route)));
 export const AUTHORITATIVE_API_ROUTES = Object.freeze(AUTHORITATIVE_NAVIGATION.flatMap(entry => entry.items.filter(item => item.availability === 'API_READ').map(item => item.route)));
+const VISIBLE_AVAILABILITY = new Set(['API_READ', 'API_COMMAND']);
+export const AUTHORITATIVE_NAVIGATION_VISIBLE = Object.freeze(AUTHORITATIVE_NAVIGATION
+  .map(group => Object.freeze({ ...group, items: Object.freeze(group.items.filter(item => VISIBLE_AVAILABILITY.has(item.availability))) }))
+  .filter(group => group.items.length > 0));
+export const AUTHORITATIVE_VISIBLE_ROUTES = Object.freeze(AUTHORITATIVE_NAVIGATION_VISIBLE.flatMap(entry => entry.items.map(item => item.route)));
 export const navigationItemForRoute = route => AUTHORITATIVE_NAVIGATION.flatMap(entry => entry.items).find(item => item.route === route) || null;

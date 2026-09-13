@@ -1,6 +1,7 @@
 import {accountingApiConfig,authoritativeBearerHeaders,refreshCurrentActorAccess,refreshAuthoritativeChartOfAccounts} from './accounting-api.js';
 import {uploadVerifiedAttachment,validateAttachmentFile} from './attachment-api.js';
 import {validSettlementKind,validSettlementBankKind,validSettlementBankPage,validSettlementContext} from './native-settlement-contract.js';
+import {validSettlementBankAccountPairKind,validSettlementBankAccountPairPage} from './native-settlement-bank-pair-contract.js';
 
 const fail=(code,message)=>({ok:false,code,message});
 const uuid=value=>typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -21,18 +22,18 @@ export function readNativeSettlementContext({config,kind,businessDocumentId,fetc
   if(!configured(config)||!validSettlementKind(kind)||!uuid(businessDocumentId))return Promise.resolve(fail('SETTLEMENT_INVALID','Select a company and document.'));
   return read(config,`/business-documents/${businessDocumentId}/settlement-context?${new URLSearchParams({kind,periodId:config.periodId})}`,value=>validSettlementContext(value,{entityId:config.entityId,periodId:config.periodId,settlementKind:kind,businessDocumentId}),fetcher);
 }
-export function readNativeSettlementBanks({config,kind,query='',afterRef=null,limit=50,fetcher=globalThis.fetch}={}){
-  if(!configured(config)||!validSettlementBankKind(kind)||!text(query,128,0)||afterRef!==null&&!text(afterRef,128)||!Number.isInteger(limit)||limit<1||limit>100)return Promise.resolve(fail('BANK_SEARCH_INVALID','Enter a valid bank search.'));
-  const params=new URLSearchParams({kind,query,limit:String(limit)});if(afterRef!==null)params.set('afterRef',afterRef);
-  return read(config,`/settlements/draft-bank-members?${params}`,value=>validSettlementBankPage(value,{entityId:config.entityId,settlementKind:kind,query,afterRef,limit}),fetcher);
+export function readNativeSettlementBanks({config,kind,settlementDate,query='',afterRef=null,limit=50,fetcher=globalThis.fetch}={}){
+  if(!configured(config)||!validSettlementBankAccountPairKind(kind)||typeof settlementDate!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(settlementDate)||!text(query,128,0)||afterRef!==null&&!text(afterRef,512)||!Number.isInteger(limit)||limit<1||limit>100)return Promise.resolve(fail('BANK_SEARCH_INVALID','Choose a valid payment date and bank search.'));
+  const params=new URLSearchParams({kind,periodId:config.periodId,settlementDate,query,limit:String(limit)});if(afterRef!==null)params.set('afterRef',afterRef);
+  return read(config,'/settlements/draft-bank-account-pairs?'+params.toString(),value=>validSettlementBankAccountPairPage(value,{entityId:config.entityId,settlementKind:kind,periodId:config.periodId,settlementDate,query,afterRef,limit}),fetcher);
 }
 export function validateNativeSettlementDraft({config,kind,businessDocumentId,draft,context,accounts=[],bank}={}){
   if(!configured(config)||!validSettlementContext(context,{entityId:config.entityId,periodId:config.periodId,settlementKind:kind,businessDocumentId})||!context.can_create_draft)return fail('SETTLEMENT_NOT_AVAILABLE','This document has no available balance in the selected open period.');
   if(!text(draft?.number,128))return fail('NUMBER_REQUIRED','Enter a payment or receipt number.');
   if(typeof draft.date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(draft.date)||!Number.isFinite(Date.parse(draft.date))||new Date(draft.date).toISOString().slice(0,10)!==draft.date||draft.date<context.payment_period.starts_on||draft.date>context.payment_period.ends_on)return fail('DATE_INVALID','Choose a date in the selected accounting period.');
   if(typeof draft.amount!=='string'||!/^(0|[1-9]\d{0,15})(\.\d{1,4})?$/.test(draft.amount)||units(draft.amount)<=0n||units(draft.amount)>units(context.available_amount))return fail('AMOUNT_INVALID','Enter a positive amount no greater than the available balance.');
-  if(!accounts.some(row=>row.account_code===draft.cashAccountCode&&row.active===true&&row.requires_member===true&&row.required_member_type==='BANK'&&row.period_id===config.periodId&&(!row.entity_id||row.entity_id===config.entityId)))return fail('BANK_ACCOUNT_REQUIRED','Choose an active bank ledger account.');
-  if(bank?.member_type!=='BANK'||!text(bank?.member_ref,128))return fail('BANK_REQUIRED','Choose a bank from the company search.');
+  if(bank?.member_type!=='BANK'||!text(bank?.member_ref,128)||!text(bank?.cash_account_code,64)||bank.cash_account_code!==draft.cashAccountCode||bank.currency!==context.document.currency)return fail('BANK_ACCOUNT_PAIR_REQUIRED','Choose a current bank and cash-account pair returned for this payment date and currency.');
+  if(!accounts.some(row=>row.account_code===bank.cash_account_code&&row.active===true&&row.requires_member===true&&row.required_member_type==='BANK'&&row.period_id===config.periodId&&(!row.entity_id||row.entity_id===config.entityId)))return fail('BANK_ACCOUNT_REQUIRED','The selected cash account is no longer active in this period.');
   if(!text(draft.reason,2000,8))return fail('REASON_REQUIRED','Enter a description of at least eight characters.');
   return {ok:true,body:{periodId:config.periodId,number:draft.number,date:draft.date,cashAccountCode:draft.cashAccountCode,bankMemberRef:bank.member_ref,amount:draft.amount,reason:draft.reason}};
 }

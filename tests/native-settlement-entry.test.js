@@ -26,17 +26,18 @@ const config={baseUrl:'https://api.example',entityId,periodId,getAccessToken:asy
 const access={tenant_id:businessDocumentId,entity_id:entityId,actor_id:'oidc|maker',grant_set_version:1,permissions:['AP.PAYMENT.CREATE','ATTACHMENT.CREATE'],configured_permissions:['AP.PAYMENT.CREATE','ATTACHMENT.CREATE'],session_refresh_required:false};
 const account={period_id:periodId,period_code:'2026-08',period_start:'2026-08-01',period_end:'2026-08-31',account_code:'100100',account_name:'Operating bank',active:true,requires_member:true,required_member_type:'BANK',currency:null,opening_balance:null,period_debit:null,period_credit:null,ending_balance:null,posted_ledger_line_count:'0'};
 const context={schema_version:'SETTLEMENT_CONTEXT_V1',entity_id:entityId,settlement_kind:'AP_PAYMENT',payment_period:{period_id:periodId,starts_on:'2026-08-01',ends_on:'2026-08-31',status:'OPEN',revision:'0'},document:{business_document_id:businessDocumentId,document_kind:'AP_BILL',document_number:'B1',counterparty_ref:'V1',counterparty_name:'Vendor',currency:'USD',accounting_date:'2026-07-01',due_date:null,status:'OPEN',revision:'1',open_balance:'9007199254740993.1234'},pending_allocation_amount:'0.0000',available_amount:'9007199254740993.1234',can_create_draft:true};
-const bank={member_ref:'BANK1',member_type:'BANK',display_name:'Operating bank'};
+const bank={pair_ref:'WyJCQU5LMSIsIjEwMDEwMCIsIlVTRCJd',member_ref:'BANK1',member_type:'BANK',display_name:'Operating bank',cash_account_code:'100100',cash_account_name:'Operating bank',currency:'USD'};
 const draft={number:'P1',date:'2026-08-10',amount:'9007199254740993.1234',cashAccountCode:'100100',reason:'Supplier payment'};
 const args={config,kind:'AP_PAYMENT',businessDocumentId,draft,bank,accounts:[account],context,attachmentId:periodId,expectedActorId:access.actor_id,cryptoApi:webcrypto};
 const ok=(data,status=200)=>({ok:true,status,json:async()=>({ok:true,data})});
 const receipt={payment_occurrence_id:entityId,business_allocation_id:periodId,business_document_id:businessDocumentId,journal_entry_id:entityId,status:'DRAFT',allocation_status:'PENDING',revision:0,idempotent:false};
 const fixture=(command,currentAccess=access)=>async(url,options)=>{assert.equal(options.credentials,'include');assert.equal(options.cache,'no-store');assert.equal(options.headers.authorization,'Bearer '+'a'.repeat(48));if(url.endsWith('/access/self'))return ok(currentAccess);if(url.includes('/settlement-context?'))return ok(context);if(url.includes('/chart-of-accounts?'))return ok([account]);return command(url,options);};
 
-test('refund entry can read bank choices without becoming a receipt or payment command',async()=>{
-  const fetcher=fixture((url,options)=>{assert.equal(new URL(url).searchParams.get('kind'),'AR_REFUND');assert.equal(options.method,'GET');return ok({schema_version:'SETTLEMENT_BANK_MEMBERS_V1',entity_id:entityId,settlement_kind:'AR_REFUND',query:'',after_ref:null,limit:50,rows:[bank],next_ref:null});});
-  const result=await readNativeSettlementBanks({config,kind:'AR_REFUND',fetcher});
+test('settlement bank-account pair reader is only available for payment and receipt commands',async()=>{
+  const fetcher=fixture((url,options)=>{const parsed=new URL(url);assert.equal(parsed.pathname.endsWith('/draft-bank-account-pairs'),true);assert.equal(parsed.searchParams.get('kind'),'AP_PAYMENT');assert.equal(parsed.searchParams.get('periodId'),periodId);assert.equal(parsed.searchParams.get('settlementDate'),'2026-08-10');assert.equal(options.method,'GET');return ok({schema_version:'SETTLEMENT_BANK_ACCOUNT_PAIRS_V1',entity_id:entityId,settlement_kind:'AP_PAYMENT',period_id:periodId,settlement_date:'2026-08-10',query:'',after_ref:null,limit:50,rows:[bank],next_ref:null});});
+  const result=await readNativeSettlementBanks({config,kind:'AP_PAYMENT',settlementDate:'2026-08-10',fetcher});
   assert.equal(result.ok,true);assert.deepEqual(result.data.rows,[bank]);
+  assert.equal((await readNativeSettlementBanks({config,kind:'AR_REFUND',settlementDate:'2026-08-10',fetcher})).ok,false);
   assert.equal(nativeSettlementAccess(config,'AR_REFUND',{...access,permissions:['AR.REFUND.CREATE','ATTACHMENT.CREATE']}),false);
   assert.equal((await readNativeSettlementContext({config,kind:'AR_REFUND',businessDocumentId,fetcher})).ok,false);
 });
@@ -50,8 +51,8 @@ test('settlement validation preserves exact amounts and rejects unavailable bala
 test('context and bank reads reject cross-company data, arithmetic corruption, cursor rewind and wrong types',async()=>{
   assert.equal((await readNativeSettlementContext({...args,fetcher:async()=>ok(context)})).ok,true);
   for(const patch of [{entity_id:periodId},{pending_allocation_amount:'1.0000'},{document:{...context.document,business_document_id:entityId}}])assert.equal((await readNativeSettlementContext({...args,fetcher:async()=>ok({...context,...patch})})).ok,false);
-  const page={schema_version:'SETTLEMENT_BANK_MEMBERS_V1',entity_id:entityId,settlement_kind:'AP_PAYMENT',query:'50%_',after_ref:null,limit:1,rows:[bank],next_ref:bank.member_ref};
-  const read=value=>readNativeSettlementBanks({...args,query:'50%_',limit:1,fetcher:async(url)=>{assert.equal(new URL(url).searchParams.get('query'),'50%_');return ok(value);}});
+  const page={schema_version:'SETTLEMENT_BANK_ACCOUNT_PAIRS_V1',entity_id:entityId,settlement_kind:'AP_PAYMENT',period_id:periodId,settlement_date:'2026-08-10',query:'50%_',after_ref:null,limit:1,rows:[bank],next_ref:bank.pair_ref};
+  const read=value=>readNativeSettlementBanks({...args,settlementDate:'2026-08-10',query:'50%_',limit:1,fetcher:async(url)=>{assert.equal(new URL(url).searchParams.get('query'),'50%_');return ok(value);}});
   assert.equal((await read(page)).ok,true);for(const patch of [{entity_id:periodId},{next_ref:'different'},{rows:[{...bank,member_type:'VENDOR'}]}])assert.equal((await read({...page,...patch})).ok,false);
 });
 test('prepared native payment retries identical intent after an unknown result without rereading changed capacity',async()=>{
