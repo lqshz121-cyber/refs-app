@@ -79,3 +79,10 @@ These are release acceptance requirements, not completed evidence.
 - Local reconciliation contracts passed: `npm.cmd --prefix server run test:reconciliation` returned 4/4 pass.
 - Fresh PostgreSQL 16 passed `node runtime/test-postgres-fresh.mjs --pattern "reconciliation lifecycle is scoped, idempotent, separated by role, snapshotted, and reopen-gated|reconciliation adjustment Draft binds one unresolved bank source through Posted clearance, review, and immutable sign-off|Stage 2 test-data chain traces one reconciled bank payment through its posted JE, GL, TB and report rows"`: 3/3 pass, zero skip, and the owned container/network/volume were removed.
 - This covers local state, actor-bound idempotency, separated review/sign-off/reopen, immutable snapshot behavior, and Bank→Posted JE→GL/TB/report lineage. It does not prove a production bank statement, production reconciliation sign-off, deployed API SHA parity, or external provider evidence.
+
+## 2026-09-14 Unit Transfer local closure receipt — `76c8dcb0`
+
+- The current authoritative integration tip before this documentation receipt is `76c8dcb0fa9e054b2d161376e4ac35611d93ab7b`.
+- `npm.cmd --prefix server run test:unit-transfer` passed 31/31: evidence-bound paired Drafts, three-revision CAS, dual-entity approval and post flow, controlled reversals, tenant/role isolation, private gates, audit/outbox, reciprocal intercompany open items, and rollback protections.
+- `node runtime/run-postgres-fixture-suite.mjs --fixture unit-transfer-close` returned `REFS_POSTGRES_FIXTURE_SUITE_V1`, pass=true, 1/1, zero skip, using PostgreSQL 16 and removing its owned container/network/volume. It proves the controlled local chain from dual-entity Draft through separated approvals and atomic post to ownership transfer readback.
+- This remains isolated local fixture evidence. Production source ownership, approved mappings, intercompany settlement, deployed API SHA parity, and authenticated production readback remain required for release acceptance.
