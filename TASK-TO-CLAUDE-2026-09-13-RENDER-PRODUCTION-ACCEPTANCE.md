@@ -6,7 +6,7 @@
 - Remote: `https://github.com/lqshz121-cyber/refs-app.git`
 - Production branch: `main`
 - Functional accounting change SHA: `5500ceac1891b4dfb707df90b8d5decff24a8f45`
-- Current `main` / handoff SHA: `50991fd0ae37c429bd77a2d2e3f1e366e3accd4d`
+- Current `main` / handoff SHA: `3503c98c7227b3d987af6ee10ea5351d1dc23942`
 
 Do not use the obsolete `work\refs-app` checkout at SHA `98dcb137`.
 
@@ -35,9 +35,9 @@ All passed at the time of commit.
 
 Perform an independent production-readiness review without changing real accounting data:
 
-1. Verify GitHub `main` resolves to `50991fd0ae37c429bd77a2d2e3f1e366e3accd4d`, and verify it contains functional change `5500ceac1891b4dfb707df90b8d5decff24a8f45`.
+1. Verify GitHub `main` resolves to `3503c98c7227b3d987af6ee10ea5351d1dc23942`, and verify it contains functional change `5500ceac1891b4dfb707df90b8d5decff24a8f45`.
 2. Review migrations `server/db/migrations/401_*` and `402_*`, their down migrations, and `server/runtime/migration-manifest.mjs` for checksum and migration ordering integrity.
-3. Review the Render configuration and identify whether auto-deploy should build this SHA, but do not create paid resources or alter secrets.
+3. Review `docs/RENDER-STAGING-RELEASE-VERIFICATION-2026-09-13.md`, `render.yaml`, and the release verifier for coordinated exact-SHA deployment and rollback. Do not create paid resources or alter secrets.
 4. If a non-production/staging database is already configured and authorization is present, prepare a read-only migration status and deployment validation plan. Do not run destructive commands.
 5. Report exact commands, exit codes, SHA, and any blockers.
 
