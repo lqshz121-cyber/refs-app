@@ -269,6 +269,10 @@ for (const route of ['intuit-experts','products-services','custom-reports','mana
   assert.match(markup, /role="status"/);
   assert.doesNotMatch(markup, /Create|Edit|Schedule|Connect|Upload|Export|Post|Refresh/, `${item.label} must expose no unsupported command`);
 }
+const releaseGateSource = fs.readFileSync('src/authoritative-release-gate.js', 'utf8');
+assert.match(releaseGateSource, /const GIT_SHA = \/\^\[0-9a-f\]\{40\}\$\/i;/, 'the browser release gate must require complete Git SHAs');
+assert.match(releaseGateSource, /return Boolean\(client && api && client === api\);/, 'the browser release gate must require exact client/API parity');
+assert.doesNotMatch(releaseGateSource, /startsWith\(api\)|startsWith\(client\)/, 'the browser release gate must not admit prefix matches');
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
 assert.match(appSource,/response\?\.status === 401\) onAuthenticationRequired\?\.\(\)/,'all bound workspace HTTP reads must route 401 through the application login boundary');
 assert.doesNotMatch(appSource,/response\?\.status === 403\) onAuthenticationRequired/,'a 403 must remain an authorization refusal and never start sign-in');
