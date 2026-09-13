@@ -12,10 +12,10 @@ DROP TRIGGER IF EXISTS unit_transfer_reversal_pair_protect ON unit_transfer_reve
 DROP TRIGGER IF EXISTS unit_transfer_create_reversal_race_guard ON unit_transfer_pair;
 
 DO $$DECLARE fn text;BEGIN
- fn:=pg_get_functiondef('refs_post_unit_transfer_pair_370(uuid,uuid,uuid,bigint,bigint,bigint,text,text)'::regprocedure);EXECUTE replace(fn,'public.refs_post_unit_transfer_pair_370(','public.refs_post_unit_transfer_pair(')||';';
- fn:=pg_get_functiondef('refs_read_unit_transfer_pair_370(uuid,uuid,uuid)'::regprocedure);EXECUTE replace(fn,'public.refs_read_unit_transfer_pair_370(','public.refs_read_unit_transfer_pair(')||';';
- fn:=pg_get_functiondef('refs_guard_unit_transfer_journal_transition_370()'::regprocedure);EXECUTE replace(fn,'public.refs_guard_unit_transfer_journal_transition_370()','public.refs_guard_unit_transfer_journal_transition()')||';';
- fn:=pg_get_functiondef('refs_protect_unit_transfer_unit_370()'::regprocedure);EXECUTE replace(fn,'public.refs_protect_unit_transfer_unit_370()','public.refs_protect_unit_transfer_unit()')||';';
+ fn:=pg_get_functiondef('refs_post_unit_transfer_pair_370(uuid,uuid,uuid,bigint,bigint,bigint,text,text)'::regprocedure);EXECUTE replace(fn,'public.refs_post_unit_transfer_pair_370(','public.refs_post_unit_transfer_pair(');
+ fn:=pg_get_functiondef('refs_read_unit_transfer_pair_370(uuid,uuid,uuid)'::regprocedure);EXECUTE replace(fn,'public.refs_read_unit_transfer_pair_370(','public.refs_read_unit_transfer_pair(');
+ fn:=pg_get_functiondef('refs_guard_unit_transfer_journal_transition_370()'::regprocedure);EXECUTE replace(fn,'public.refs_guard_unit_transfer_journal_transition_370()','public.refs_guard_unit_transfer_journal_transition()');
+ fn:=pg_get_functiondef('refs_protect_unit_transfer_unit_370()'::regprocedure);EXECUTE replace(fn,'public.refs_protect_unit_transfer_unit_370()','public.refs_protect_unit_transfer_unit()');
 END$$;
 DROP FUNCTION refs_post_unit_transfer_pair_370(uuid,uuid,uuid,bigint,bigint,bigint,text,text);
 DROP FUNCTION refs_read_unit_transfer_pair_370(uuid,uuid,uuid);
