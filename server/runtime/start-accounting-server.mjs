@@ -137,48 +137,42 @@ export function accountingServerConfig(env=process.env){
 }
 
 export async function startAccountingServer({env=process.env,fetcher=globalThis.fetch,logger=console}={}){
-  let startupStage='CONFIGURATION';
-  try{
   const config=accountingServerConfig(env);
-  startupStage='RUNTIME_POOL';
-  const runtimePool=await createPool({databaseUrl:config.database.databaseUrl,applicationName:'refs-accounting-http-runtime',max:config.runtimePoolMax});
-  startupStage='ISSUER_POOL';
-  const issuerPool=await createPool({databaseUrl:config.database.contextIssuerDatabaseUrl,applicationName:'refs-accounting-http-issuer',max:config.issuerPoolMax});
-  const grantSyncPool=(config.internalTest||config.stage1SelfGrant||config.stage1SelfWbsReadUpgrade||config.stage1SelfWbsOperatorUpgrade||config.stage1SelfControlledTestWorkflowUpgrade||config.wbsTestImport||config.controlledTestAiWorkflow)?await createPool({databaseUrl:config.database.grantSyncDatabaseUrl,applicationName:'refs-accounting-http-grant-sync',max:1}):null;
-  const authenticator=config.internalTest?{authenticate:async()=>({trusted:true,tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,internalTest:true})}:new OidcJwtAuthenticator({issuer:config.issuer,audience:config.audience,keyResolver:new RemoteJwksResolver({jwksUri:config.jwksUri,fetcher})});
-  const wbsSnapshotVerifier=config.wbsIngestMode==='REQUIRED'?createWbsSnapshotSignatureVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
-  const wbsManifestVerifier=config.wbsIngestMode==='REQUIRED'?createWbsManifestSignatureVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
-  const wbsSignedBankAdmissionVerifier=wbsManifestVerifier?admission=>wbsManifestVerifier({manifest_hash:admission?.admission_hash,detached_signature:admission?.detached_signature}):null;
-  const wbsAutoRecTransitionContractVerifier=config.wbsIngestMode==='REQUIRED'?createWbsAutoRecTransitionContractVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
-  const attachmentStorage=config.attachmentMode==='REQUIRED'?new S3AttachmentStorage({...config.s3,fetcher}):null;
-  const wbsImmutableEvidenceStorage=config.wbsIngestMode==='REQUIRED'?new S3ImmutableEvidenceStorage({...config.s3,retentionDays:config.wbsEvidenceRetentionDays,fetcher}):null;
-  const scannerCaPem=config.attachmentMode==='REQUIRED'?(config.scanner.caPem||await readFile(config.scanner.caFile,'utf8')):null;
-  const virusScanner=config.attachmentMode==='REQUIRED'?new HttpVirusScanner({...config.scanner,ca:scannerCaPem}):null;
-  const wbsLivePilotClient=config.wbsLivePilotMode==='ENABLED'?createWbsLivePilotClient({credentials:config.wbsLivePilotCredentials,fetcher}):null;
-  const server=createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant:config.stage1SelfGrant,stage1SelfWbsReadUpgrade:config.stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade:config.stage1SelfWbsOperatorUpgrade,stage1SelfControlledTestWorkflowUpgrade:config.stage1SelfControlledTestWorkflowUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId:config.scanner?.actorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsTestImport:config.wbsTestImport,controlledTestAiWorkflow:config.controlledTestAiWorkflow,wbsProviderSignedTrust:config.wbsProviderSignedTrust,wbsProviderSignedServiceActorId:config.wbsProviderSignedServiceActorId,aiGateway:config.aiGateway,maxBodyBytes:config.maxBodyBytes,releaseSha:config.releaseSha,allowedOrigins:config.allowedOrigins,internalTest:config.internalTest});
+  let runtimePool=null,issuerPool=null,grantSyncPool=null,server=null;
+  let startupStage='RUNTIME_POOL';
   try{
+    runtimePool=await createPool({databaseUrl:config.database.databaseUrl,applicationName:'refs-accounting-http-runtime',max:config.runtimePoolMax});
+    startupStage='ISSUER_POOL';
+    issuerPool=await createPool({databaseUrl:config.database.contextIssuerDatabaseUrl,applicationName:'refs-accounting-http-issuer',max:config.issuerPoolMax});
+    startupStage='GRANT_SYNC_POOL';
+    grantSyncPool=(config.internalTest||config.stage1SelfGrant||config.stage1SelfWbsReadUpgrade||config.stage1SelfWbsOperatorUpgrade||config.stage1SelfControlledTestWorkflowUpgrade||config.wbsTestImport||config.controlledTestAiWorkflow)?await createPool({databaseUrl:config.database.grantSyncDatabaseUrl,applicationName:'refs-accounting-http-grant-sync',max:1}):null;
+    const authenticator=config.internalTest?{authenticate:async()=>({trusted:true,tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,internalTest:true})}:new OidcJwtAuthenticator({issuer:config.issuer,audience:config.audience,keyResolver:new RemoteJwksResolver({jwksUri:config.jwksUri,fetcher})});
+    const wbsSnapshotVerifier=config.wbsIngestMode==='REQUIRED'?createWbsSnapshotSignatureVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
+    const wbsManifestVerifier=config.wbsIngestMode==='REQUIRED'?createWbsManifestSignatureVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
+    const wbsSignedBankAdmissionVerifier=wbsManifestVerifier?admission=>wbsManifestVerifier({manifest_hash:admission?.admission_hash,detached_signature:admission?.detached_signature}):null;
+    const wbsAutoRecTransitionContractVerifier=config.wbsIngestMode==='REQUIRED'?createWbsAutoRecTransitionContractVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
+    const attachmentStorage=config.attachmentMode==='REQUIRED'?new S3AttachmentStorage({...config.s3,fetcher}):null;
+    const wbsImmutableEvidenceStorage=config.wbsIngestMode==='REQUIRED'?new S3ImmutableEvidenceStorage({...config.s3,retentionDays:config.wbsEvidenceRetentionDays,fetcher}):null;
+    const scannerCaPem=config.attachmentMode==='REQUIRED'?(config.scanner.caPem||await readFile(config.scanner.caFile,'utf8')):null;
+    const virusScanner=config.attachmentMode==='REQUIRED'?new HttpVirusScanner({...config.scanner,ca:scannerCaPem}):null;
+    const wbsLivePilotClient=config.wbsLivePilotMode==='ENABLED'?createWbsLivePilotClient({credentials:config.wbsLivePilotCredentials,fetcher}):null;
+    startupStage='DEPENDENCY_WIRING';
+    server=createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant:config.stage1SelfGrant,stage1SelfWbsReadUpgrade:config.stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade:config.stage1SelfWbsOperatorUpgrade,stage1SelfControlledTestWorkflowUpgrade:config.stage1SelfControlledTestWorkflowUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId:config.scanner?.actorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsTestImport:config.wbsTestImport,controlledTestAiWorkflow:config.controlledTestAiWorkflow,wbsProviderSignedTrust:config.wbsProviderSignedTrust,wbsProviderSignedServiceActorId:config.wbsProviderSignedServiceActorId,aiGateway:config.aiGateway,maxBodyBytes:config.maxBodyBytes,releaseSha:config.releaseSha,allowedOrigins:config.allowedOrigins,internalTest:config.internalTest});
+    startupStage='DATABASE_READINESS';
     await Promise.all([runtimePool.query('SELECT 1'),issuerPool.query('SELECT 1'),...(grantSyncPool?[grantSyncPool.query('SELECT 1')]:[])]);
-    // Every legacy self-read or fixture-service grant route is staging-only.
-    // Fail before automatic role assignment or accepting any HTTP request.
-    if(grantSyncPool)await assertStagingDeploymentTarget(grantSyncPool,{installationId:env.REFS_EXPECTED_INSTALLATION_ID||null,expectedDatabase:env.REFS_EXPECTED_DATABASE_NAME||null});
+    if(grantSyncPool){startupStage='STAGING_TARGET';await assertStagingDeploymentTarget(grantSyncPool,{installationId:env.REFS_EXPECTED_INSTALLATION_ID||null,expectedDatabase:env.REFS_EXPECTED_DATABASE_NAME||null});}
     const stagingGrantPrincipal=async()=>{await assertStagingDeploymentTarget(grantSyncPool,{installationId:env.REFS_EXPECTED_INSTALLATION_ID||null,expectedDatabase:env.REFS_EXPECTED_DATABASE_NAME||null});return {trusted:true,serviceId:'platform-iam-sync'};};
     const stagingTransactionGuard=client=>assertStagingDeploymentTarget(client,{installationId:env.REFS_EXPECTED_INSTALLATION_ID||null,expectedDatabase:env.REFS_EXPECTED_DATABASE_NAME||null});
-    if(config.internalTest){
-      const grantSync=new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard});
-      const expectedVersion=await grantSync.currentVersion({tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,entityId:env.REFS_INTERNAL_TEST_ENTITY_ID||RENDER_WBS_TEST_SCOPE.entityId});
-      await grantSync.reconcile({tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,entityId:env.REFS_INTERNAL_TEST_ENTITY_ID||RENDER_WBS_TEST_SCOPE.entityId,permissions:INTERNAL_TEST_READ_PERMISSIONS,authorityClass:'READ',validUntil:new Date(Date.now()+23*60*60*1000).toISOString(),expectedVersion,idempotencyKey:`internal-test-read-${config.internalTest.actorId}-${new Date().toISOString().slice(0,13).replace(/[-:T]/g,'')}`});
-    }
-    if(config.wbsTestImport)await reconcileWbsTestImportActorGrants({scope:config.wbsTestImport,grantSync:new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard})});
-    if(config.controlledTestAiWorkflow)await reconcileControlledTestAiWorkflowActorGrants({scope:config.controlledTestAiWorkflow,grantSync:new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard})});
+    if(config.internalTest){startupStage='INTERNAL_READ_GRANT';const grantSync=new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard});const expectedVersion=await grantSync.currentVersion({tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,entityId:env.REFS_INTERNAL_TEST_ENTITY_ID||RENDER_WBS_TEST_SCOPE.entityId});await grantSync.reconcile({tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,entityId:env.REFS_INTERNAL_TEST_ENTITY_ID||RENDER_WBS_TEST_SCOPE.entityId,permissions:INTERNAL_TEST_READ_PERMISSIONS,authorityClass:'READ',validUntil:new Date(Date.now()+23*60*60*1000).toISOString(),expectedVersion,idempotencyKey:`internal-test-read-${config.internalTest.actorId}-${new Date().toISOString().slice(0,13).replace(/[-:T]/g,'')}`});}
+    if(config.wbsTestImport){startupStage='WBS_TEST_GRANTS';await reconcileWbsTestImportActorGrants({scope:config.wbsTestImport,grantSync:new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard})});}
+    if(config.controlledTestAiWorkflow){startupStage='AI_WORKFLOW_GRANTS';await reconcileControlledTestAiWorkflowActorGrants({scope:config.controlledTestAiWorkflow,grantSync:new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard})});}
+    startupStage='HTTP_LISTENER';
     await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(config.port,config.host,resolve);});
-  }
-  catch(error){error.startupStage=startupStage;await Promise.allSettled([runtimePool?.end(),issuerPool?.end(),grantSyncPool?.end()]);throw error;}
-  }catch(error){error.startupStage=error.startupStage||startupStage;throw error;}
+  }catch(error){error.startupStage=error.startupStage||startupStage;await Promise.allSettled([runtimePool?.end(),issuerPool?.end(),grantSyncPool?.end()]);throw error;}
   let stopping=false;const stop=async signal=>{if(stopping)return;stopping=true;logger.info?.(JSON.stringify({event:'accounting_server_stopping',signal}));await new Promise(resolve=>server.close(resolve));await Promise.allSettled([runtimePool.end(),issuerPool.end(),grantSyncPool?.end()]);};
   for(const signal of ['SIGTERM','SIGINT'])process.once(signal,()=>{stop(signal).catch(()=>logger.error?.(safeRuntimeFailureLog('accounting_server_stop_failed','ACCOUNTING_SERVER_STOP_FAILED')));});
   logger.info?.(JSON.stringify({event:'accounting_server_started',host:config.host,port:config.port}));return {server,runtimePool,issuerPool,stop,config};
 }
-
 const startupFailureCode=error=>{
   const stage=typeof error?.startupStage==='string'?error.startupStage.trim().toUpperCase():'';
   const code=typeof error?.code==='string'?error.code.trim().toUpperCase():'';
