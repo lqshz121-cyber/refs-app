@@ -27,6 +27,8 @@ services:
         value: 6fb25daf-0799-4805-bede-be54230da33c
       - key: REFS_INTERNAL_TEST_ACTOR_ID
         value: refs-internal-readonly
+      - key: REFS_INTERNAL_TEST_ENTITY_ID
+        value: ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3
       - key: REFS_ATTACHMENT_MODE
         value: DISABLED
       - key: REFS_WBS_INGEST_MODE

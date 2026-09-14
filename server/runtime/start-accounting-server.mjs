@@ -16,6 +16,7 @@ import {reconcileControlledTestAiWorkflowActorGrants} from './controlled-test-ai
 import {safeRuntimeFailureLog} from './safe-runtime-log.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const INTERNAL_TEST_READ_PERMISSIONS=Object.freeze(['AP.VIEW','AR.VIEW','BANK.VIEW','GL.JE.VIEW','GL.REPORT.VIEW']);
 const integer=(value,name,{min,max})=>{const parsed=Number(value);if(!Number.isSafeInteger(parsed)||parsed<min||parsed>max)throw new Error(`${name} must be an integer between ${min} and ${max}`);return parsed;};
 const internalTestConfig=env=>{
   const enabled=String(env.REFS_INTERNAL_TEST_MODE||'DISABLED').trim().toUpperCase();
@@ -139,7 +140,7 @@ export async function startAccountingServer({env=process.env,fetcher=globalThis.
   const config=accountingServerConfig(env);
   const runtimePool=await createPool({databaseUrl:config.database.databaseUrl,applicationName:'refs-accounting-http-runtime',max:config.runtimePoolMax});
   const issuerPool=await createPool({databaseUrl:config.database.contextIssuerDatabaseUrl,applicationName:'refs-accounting-http-issuer',max:config.issuerPoolMax});
-  const grantSyncPool=(config.stage1SelfGrant||config.stage1SelfWbsReadUpgrade||config.stage1SelfWbsOperatorUpgrade||config.stage1SelfControlledTestWorkflowUpgrade||config.wbsTestImport||config.controlledTestAiWorkflow)?await createPool({databaseUrl:config.database.grantSyncDatabaseUrl,applicationName:'refs-accounting-http-grant-sync',max:1}):null;
+  const grantSyncPool=(config.internalTest||config.stage1SelfGrant||config.stage1SelfWbsReadUpgrade||config.stage1SelfWbsOperatorUpgrade||config.stage1SelfControlledTestWorkflowUpgrade||config.wbsTestImport||config.controlledTestAiWorkflow)?await createPool({databaseUrl:config.database.grantSyncDatabaseUrl,applicationName:'refs-accounting-http-grant-sync',max:1}):null;
   const authenticator=config.internalTest?{authenticate:async()=>({trusted:true,tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,internalTest:true})}:new OidcJwtAuthenticator({issuer:config.issuer,audience:config.audience,keyResolver:new RemoteJwksResolver({jwksUri:config.jwksUri,fetcher})});
   const wbsSnapshotVerifier=config.wbsIngestMode==='REQUIRED'?createWbsSnapshotSignatureVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
   const wbsManifestVerifier=config.wbsIngestMode==='REQUIRED'?createWbsManifestSignatureVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
@@ -158,6 +159,11 @@ export async function startAccountingServer({env=process.env,fetcher=globalThis.
     if(grantSyncPool)await assertStagingDeploymentTarget(grantSyncPool,{installationId:env.REFS_EXPECTED_INSTALLATION_ID||null,expectedDatabase:env.REFS_EXPECTED_DATABASE_NAME||null});
     const stagingGrantPrincipal=async()=>{await assertStagingDeploymentTarget(grantSyncPool,{installationId:env.REFS_EXPECTED_INSTALLATION_ID||null,expectedDatabase:env.REFS_EXPECTED_DATABASE_NAME||null});return {trusted:true,serviceId:'platform-iam-sync'};};
     const stagingTransactionGuard=client=>assertStagingDeploymentTarget(client,{installationId:env.REFS_EXPECTED_INSTALLATION_ID||null,expectedDatabase:env.REFS_EXPECTED_DATABASE_NAME||null});
+    if(config.internalTest){
+      const grantSync=new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard});
+      const expectedVersion=await grantSync.currentVersion({tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,entityId:env.REFS_INTERNAL_TEST_ENTITY_ID||RENDER_WBS_TEST_SCOPE.entityId});
+      await grantSync.reconcile({tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,entityId:env.REFS_INTERNAL_TEST_ENTITY_ID||RENDER_WBS_TEST_SCOPE.entityId,permissions:INTERNAL_TEST_READ_PERMISSIONS,authorityClass:'READ',validUntil:new Date(Date.now()+23*60*60*1000).toISOString(),expectedVersion,idempotencyKey:`internal-test-read-${config.internalTest.actorId}-${new Date().toISOString().slice(0,13).replace(/[-:T]/g,'')}`});
+    }
     if(config.wbsTestImport)await reconcileWbsTestImportActorGrants({scope:config.wbsTestImport,grantSync:new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard})});
     if(config.controlledTestAiWorkflow)await reconcileControlledTestAiWorkflowActorGrants({scope:config.controlledTestAiWorkflow,grantSync:new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard})});
     await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(config.port,config.host,resolve);});
