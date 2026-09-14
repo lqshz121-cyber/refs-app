@@ -17,7 +17,17 @@ import {safeRuntimeFailureLog} from './safe-runtime-log.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const integer=(value,name,{min,max})=>{const parsed=Number(value);if(!Number.isSafeInteger(parsed)||parsed<min||parsed>max)throw new Error(`${name} must be an integer between ${min} and ${max}`);return parsed;};
-const releaseSha=(value,production)=>{
+const internalTestConfig=env=>{
+  const enabled=String(env.REFS_INTERNAL_TEST_MODE||'DISABLED').trim().toUpperCase();
+  if(!['ENABLED','DISABLED'].includes(enabled))throw new Error('REFS_INTERNAL_TEST_MODE must be ENABLED or DISABLED');
+  if(enabled==='DISABLED')return null;
+  if(String(env.REFS_DEPLOYMENT_ENV||'').trim().toLowerCase()!=='internal-test')throw new Error('REFS_INTERNAL_TEST_MODE may be enabled only in internal-test');
+  for(const key of ['REFS_WBS_LIVE_PILOT_MODE','REFS_WBS_TEST_IMPORT_MODE','REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE','REFS_AI_MODE'])if(String(env[key]||'DISABLED').trim().toUpperCase()!=='DISABLED')throw new Error(`REFS_INTERNAL_TEST_MODE requires ${key}=DISABLED`);
+  for(const key of ['REFS_ATTACHMENT_MODE','REFS_WBS_INGEST_MODE'])if(String(env[key]||'DISABLED').trim().toUpperCase()!=='DISABLED')throw new Error(`REFS_INTERNAL_TEST_MODE requires ${key}=DISABLED`);
+  const tenantId=String(env.REFS_INTERNAL_TEST_TENANT_ID||'').trim().toLowerCase(),actorId=String(env.REFS_INTERNAL_TEST_ACTOR_ID||'').trim();
+  if(!UUID.test(tenantId)||!actorId||actorId.length>200||/[\u0000-\u001f\u007f]/.test(actorId))throw new Error('REFS_INTERNAL_TEST_TENANT_ID and REFS_INTERNAL_TEST_ACTOR_ID are required');
+  return Object.freeze({tenantId,actorId});
+};const releaseSha=(value,production)=>{
   const sha=String(value||'').trim().toLowerCase();
   if(!sha&&!production)return null;
   if(!/^[0-9a-f]{40}$/.test(sha))throw new Error('RENDER_GIT_COMMIT or GITHUB_SHA must be a full 40-character Git SHA in production');
@@ -63,8 +73,9 @@ const allowedOrigins=(raw,production)=>{
 };
 export function accountingServerConfig(env=process.env){
   const production=env.NODE_ENV==='production';
+  const internalTest=internalTestConfig(env);
   const database=runtimeConfig(env);const issuer=env.OIDC_ISSUER,audience=env.OIDC_AUDIENCE,jwksUri=env.OIDC_JWKS_URI;
-  if(!issuer||!audience||!jwksUri)throw new Error('OIDC_ISSUER, OIDC_AUDIENCE and OIDC_JWKS_URI are required');
+  if(!internalTest&&(!issuer||!audience||!jwksUri))throw new Error('OIDC_ISSUER, OIDC_AUDIENCE and OIDC_JWKS_URI are required');
   const attachmentMode=integrationMode(env.REFS_ATTACHMENT_MODE,'REFS_ATTACHMENT_MODE',production);
   const wbsIngestMode=integrationMode(env.REFS_WBS_INGEST_MODE,'REFS_WBS_INGEST_MODE',production);
   const wbsLivePilotMode=String(env.REFS_WBS_LIVE_PILOT_MODE||'DISABLED').trim().toUpperCase();
@@ -119,7 +130,7 @@ export function accountingServerConfig(env=process.env){
   }
   const origins=allowedOrigins(env.REFS_HTTP_ALLOWED_ORIGINS||'',production);if(production&&!origins.length)throw new Error('REFS_HTTP_ALLOWED_ORIGINS is required in production');
   const deploymentRelease=releaseSha(env.RENDER_GIT_COMMIT||env.GITHUB_SHA,production);
-  return {database,issuer,audience,jwksUri,host:env.REFS_HTTP_HOST||'127.0.0.1',port:integer(env.PORT||8080,'PORT',{min:1,max:65535}),maxBodyBytes:integer(env.REFS_HTTP_MAX_BODY_BYTES||1048576,'REFS_HTTP_MAX_BODY_BYTES',{min:1024,max:10*1024*1024}),runtimePoolMax:integer(env.REFS_PG_RUNTIME_POOL_MAX||4,'REFS_PG_RUNTIME_POOL_MAX',{min:1,max:20}),issuerPoolMax:integer(env.REFS_PG_ISSUER_POOL_MAX||2,'REFS_PG_ISSUER_POOL_MAX',{min:1,max:10}),allowedOrigins:origins,
+  return {database,issuer,audience,jwksUri,internalTest,host:env.REFS_HTTP_HOST||'127.0.0.1',port:integer(env.PORT||8080,'PORT',{min:1,max:65535}),maxBodyBytes:integer(env.REFS_HTTP_MAX_BODY_BYTES||1048576,'REFS_HTTP_MAX_BODY_BYTES',{min:1024,max:10*1024*1024}),runtimePoolMax:integer(env.REFS_PG_RUNTIME_POOL_MAX||4,'REFS_PG_RUNTIME_POOL_MAX',{min:1,max:20}),issuerPoolMax:integer(env.REFS_PG_ISSUER_POOL_MAX||2,'REFS_PG_ISSUER_POOL_MAX',{min:1,max:10}),allowedOrigins:origins,
     attachmentMode,wbsIngestMode,wbsSnapshotPublicKeys,wbsProviderSignedTrust,wbsProviderSignedServiceActorId,wbsEvidenceRetentionDays:wbsIngestMode==='REQUIRED'?integer(env.REFS_WBS_EVIDENCE_RETENTION_DAYS,'REFS_WBS_EVIDENCE_RETENTION_DAYS',{min:1,max:3650}):null,wbsLivePilotMode,wbsLivePilotCredentials:wbsLivePilotMode==='ENABLED'?{'CF-Access-Client-Id':env.WBS_CF_ACCESS_CLIENT_ID,'CF-Access-Client-Secret':env.WBS_CF_ACCESS_CLIENT_SECRET,'X-REFS-Auth':env.WBS_REFS_AUTH}:null,wbsTestImportMode,wbsTestImport,controlledTestAiMode,controlledTestAiWorkflow,aiMode,aiGateway,controlledDemoEnabled:database.controlledDemoEnabled,stage1SelfGrant:stage1SelfGrantConfig(env),stage1SelfWbsReadUpgrade:stage1SelfWbsReadUpgradeConfig(env),stage1SelfWbsOperatorUpgrade:stage1SelfWbsOperatorUpgradeConfig(env),stage1SelfControlledTestWorkflowUpgrade:stage1SelfControlledTestWorkflowUpgradeConfig(env),releaseSha:deploymentRelease,s3:attachmentMode==='REQUIRED'||wbsIngestMode==='REQUIRED'?{endpoint:env.S3_ENDPOINT,bucket:env.S3_BUCKET,region:env.S3_REGION,accessKeyId:env.S3_ACCESS_KEY_ID,secretAccessKey:env.S3_SECRET_ACCESS_KEY,sessionToken:env.S3_SESSION_TOKEN||null}:null,scanner:attachmentMode==='REQUIRED'?{endpoint:env.VIRUS_SCANNER_ENDPOINT,bearerToken:env.VIRUS_SCANNER_TOKEN,caFile:scannerCaConfig.file,caPem:scannerCaConfig.pem,serverName:env.VIRUS_SCANNER_SERVER_NAME,actorId:env.ATTACHMENT_SCANNER_ACTOR_ID,timeoutMs:integer(env.VIRUS_SCANNER_TIMEOUT_MS||30000,'VIRUS_SCANNER_TIMEOUT_MS',{min:100,max:120000}),maxAttempts:integer(env.VIRUS_SCANNER_MAX_ATTEMPTS||3,'VIRUS_SCANNER_MAX_ATTEMPTS',{min:1,max:5}),retryBaseMs:integer(env.VIRUS_SCANNER_RETRY_BASE_MS||100,'VIRUS_SCANNER_RETRY_BASE_MS',{min:1,max:10000})}:null};
 }
 
@@ -128,8 +139,7 @@ export async function startAccountingServer({env=process.env,fetcher=globalThis.
   const runtimePool=await createPool({databaseUrl:config.database.databaseUrl,applicationName:'refs-accounting-http-runtime',max:config.runtimePoolMax});
   const issuerPool=await createPool({databaseUrl:config.database.contextIssuerDatabaseUrl,applicationName:'refs-accounting-http-issuer',max:config.issuerPoolMax});
   const grantSyncPool=(config.stage1SelfGrant||config.stage1SelfWbsReadUpgrade||config.stage1SelfWbsOperatorUpgrade||config.stage1SelfControlledTestWorkflowUpgrade||config.wbsTestImport||config.controlledTestAiWorkflow)?await createPool({databaseUrl:config.database.grantSyncDatabaseUrl,applicationName:'refs-accounting-http-grant-sync',max:1}):null;
-  const resolver=new RemoteJwksResolver({jwksUri:config.jwksUri,fetcher});
-  const authenticator=new OidcJwtAuthenticator({issuer:config.issuer,audience:config.audience,keyResolver:resolver});
+  const authenticator=config.internalTest?{authenticate:async()=>({trusted:true,tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,internalTest:true})}:new OidcJwtAuthenticator({issuer:config.issuer,audience:config.audience,keyResolver:new RemoteJwksResolver({jwksUri:config.jwksUri,fetcher})});
   const wbsSnapshotVerifier=config.wbsIngestMode==='REQUIRED'?createWbsSnapshotSignatureVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
   const wbsManifestVerifier=config.wbsIngestMode==='REQUIRED'?createWbsManifestSignatureVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
   const wbsSignedBankAdmissionVerifier=wbsManifestVerifier?admission=>wbsManifestVerifier({manifest_hash:admission?.admission_hash,detached_signature:admission?.detached_signature}):null;
@@ -139,7 +149,7 @@ export async function startAccountingServer({env=process.env,fetcher=globalThis.
   const scannerCaPem=config.attachmentMode==='REQUIRED'?(config.scanner.caPem||await readFile(config.scanner.caFile,'utf8')):null;
   const virusScanner=config.attachmentMode==='REQUIRED'?new HttpVirusScanner({...config.scanner,ca:scannerCaPem}):null;
   const wbsLivePilotClient=config.wbsLivePilotMode==='ENABLED'?createWbsLivePilotClient({credentials:config.wbsLivePilotCredentials,fetcher}):null;
-  const server=createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant:config.stage1SelfGrant,stage1SelfWbsReadUpgrade:config.stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade:config.stage1SelfWbsOperatorUpgrade,stage1SelfControlledTestWorkflowUpgrade:config.stage1SelfControlledTestWorkflowUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId:config.scanner?.actorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsTestImport:config.wbsTestImport,controlledTestAiWorkflow:config.controlledTestAiWorkflow,wbsProviderSignedTrust:config.wbsProviderSignedTrust,wbsProviderSignedServiceActorId:config.wbsProviderSignedServiceActorId,aiGateway:config.aiGateway,maxBodyBytes:config.maxBodyBytes,releaseSha:config.releaseSha,allowedOrigins:config.allowedOrigins});
+  const server=createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant:config.stage1SelfGrant,stage1SelfWbsReadUpgrade:config.stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade:config.stage1SelfWbsOperatorUpgrade,stage1SelfControlledTestWorkflowUpgrade:config.stage1SelfControlledTestWorkflowUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId:config.scanner?.actorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsTestImport:config.wbsTestImport,controlledTestAiWorkflow:config.controlledTestAiWorkflow,wbsProviderSignedTrust:config.wbsProviderSignedTrust,wbsProviderSignedServiceActorId:config.wbsProviderSignedServiceActorId,aiGateway:config.aiGateway,maxBodyBytes:config.maxBodyBytes,releaseSha:config.releaseSha,allowedOrigins:config.allowedOrigins,internalTest:config.internalTest});
   try{
     await Promise.all([runtimePool.query('SELECT 1'),issuerPool.query('SELECT 1'),...(grantSyncPool?[grantSyncPool.query('SELECT 1')]:[])]);
     // Every legacy self-read or fixture-service grant route is staging-only.
