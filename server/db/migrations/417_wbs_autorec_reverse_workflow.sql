@@ -57,7 +57,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
-CREATE TRIGGER wbs_autorec_reversal_je_guard BEFORE UPDATE OF status,revision,posted_by,posted_at ON journal_entry FOR EACH ROW WHEN (NEW.journal_type='WBS_AUTOREC_REVERSAL' AND NEW.status='POSTED') EXECUTE FUNCTION refs_validate_wbs_autorec_reversal_je();
+CREATE TRIGGER wbs_autorec_reversal_je_guard BEFORE UPDATE OF status,revision,posted_by,posted_at ON journal_entry  FOR EACH ROW WHEN (NEW.journal_type='WBS_AUTOREC_REVERSAL' AND NEW.status='POSTED') EXECUTE FUNCTION refs_validate_wbs_autorec_reversal_je();
 
 CREATE FUNCTION refs_wbs_autorec_reverse_request_hash(p_tenant uuid,p_entity uuid,p_review uuid,p_reason text) RETURNS text LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$ SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',p_tenant,'entity_id',p_entity,'review_id',p_review,'reason',btrim(p_reason))) $$;
 CREATE FUNCTION refs_request_wbs_autorec_reverse(p_tenant uuid,p_entity uuid,p_review uuid,p_reason text,p_idempotency text,p_request_hash text) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
