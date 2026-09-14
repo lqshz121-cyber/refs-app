@@ -19,6 +19,7 @@ assert.equal(readableScope.periodLabel,'2026-08');
 assert.equal(readableScope.periodDetail,'Aug 1, 2026 - Aug 31, 2026');
 assert.equal(readableScope.periodEnd,'2026-08-31');
 assert.equal(readableScope.cashAccountLabel,'111000 - Operating cash');
+assert.equal(authoritativeScopePresentation({entityId,periodId,cashAccountCode:'111990'},[]).cashAccountLabel,'111990 - Internal test bank cash');
 assert.equal(authoritativeScopePresentation(
   {entityId,periodId,cashAccountCode:'111000'},
   [{entity_id:entityId,period_id:periodId,period_code:'2026-08',period_start:'2026-08-01',period_end:'2026-08-31',account_code:'111000',account_name:'Operating cash',entity_name:'Wan Pacific Real Estate Development LLC'}],

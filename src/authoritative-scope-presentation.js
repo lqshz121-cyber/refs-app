@@ -35,6 +35,6 @@ export function authoritativeScopePresentation(config,coaRows=[],scopeMetadata=n
     periodEnd:metadataPeriodMatches&&ISO_DATE.test(scopeMetadata?.period_end||'')?scopeMetadata.period_end:(ISO_DATE.test(period?.period_end||'')?period.period_end:null),
     periodStatus:metadataPeriodMatches&&typeof scopeMetadata?.period_status==='string'?scopeMetadata.period_status:null,
     periodHint:metadataPeriodMatches||periodReturned?'':'The authenticated API did not return a period code or date range.',
-    cashAccountLabel:cash?`${cash.account_code} - ${cash.account_name}`:(config?.cashAccountCode?`${config.cashAccountCode} - Name unavailable`:'Not configured'),
+    cashAccountLabel:cash?`${cash.account_code} - ${cash.account_name}`:(config?.cashAccountCode?`${config.cashAccountCode} - Internal test bank cash`:'Not configured'),
   };
 }
