@@ -117,7 +117,13 @@ const SOURCE_TYPE_ALIASES=Object.freeze({
   PROPERTY_MANAGEMENT:'PROPERTY_MANAGEMENT_OPERATION_REPORT',TAX_STATEMENT:'PROPERTY_TAX_STATEMENT',
   PROPERTY_TAX:'PROPERTY_TAX_STATEMENT',INSURANCE:'INSURANCE_DOCUMENT',WBS:'WBS_SOURCE_DATA'
 });
-const sourceIdOf=source=>[source?.source_id,source?.source_doc_id,source?.doc_id,source?.id].find(value=>value!==undefined&&value!==null&&value!=='');
+const sourceIdOf=source=>{
+  for(const value of [source?.source_id,source?.source_doc_id,source?.doc_id,source?.id]){
+    if(Number.isSafeInteger(value))return value;
+    if(typeof value==='string'&&textWithin(value))return value.trim();
+  }
+  return null;
+};
 const parseMoney4=value=>{
   if(typeof value==='number'&&Number.isFinite(value))value=String(value);
   if(typeof value!=='string'||!/^[-+]?(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(value.trim()))return null;
@@ -150,7 +156,7 @@ export function normalizeAccountingSource(source={}) {
   const matchedStatus=canonicalEnum(source.matched_status??source.match_status,['UNMATCHED','MATCHED','EXCEPTION'],'UNMATCHED');
   const treatmentStatus=canonicalEnum(source.accounting_treatment_status,['UNCLASSIFIED','CLASSIFIED','EXCEPTION','REVIEWED'],'UNCLASSIFIED');
   const hash=canonicalHash(source.source_payload_hash);
-  const normalized={...source,source_id:sourceId,source_type:sourceType,amount:amount===null?0:amount,date,period_code:periodCode,source_payload_hash:hash||source.source_payload_hash,matched_status:matchedStatus||source.matched_status||source.match_status||'UNMATCHED',accounting_treatment_status:treatmentStatus||source.accounting_treatment_status||'UNCLASSIFIED'};
+  const normalized={...source,source_id:sourceId,source_type:sourceType,amount:amount===null?0:amount,date,period_code:periodCode,source_payload_hash:hash||source.source_payload_hash,matched_status:matchedStatus,accounting_treatment_status:treatmentStatus};
   const required={source_id:sourceId,source_type:AI_SOURCE_TYPES.includes(sourceType)?sourceType:null,entity_id:textWithin(source.entity_id)?source.entity_id:null,date:isValidISODate(date)?date:null,period_code:isValidPeriodCode(periodCode)?periodCode:null,amount:amount===null?null:amount,source_payload_hash:hash,source_version:hasText(source.source_version)?source.source_version.trim():null,captured_at:isValidInstant(source.captured_at)?source.captured_at:null,dimensions:source.dimensions&&typeof source.dimensions==='object'&&!Array.isArray(source.dimensions)&&Object.keys(source.dimensions).length>0?source.dimensions:null,confidence_score:typeof source.confidence_score==='number'&&Number.isFinite(source.confidence_score)&&source.confidence_score>=0&&source.confidence_score<=1?source.confidence_score:null,matched_status:matchedStatus,accounting_treatment_status:treatmentStatus,audit_trace_id:hasText(source.audit_trace_id)?source.audit_trace_id.trim():null};
   const missing=Object.entries(required).filter(([,value])=>value===undefined||value===null||value==='').map(([field])=>field);
   return redactSecrets({...normalized,ingestion_status:missing.length?'INCOMPLETE':'READY',missing_fields:missing});

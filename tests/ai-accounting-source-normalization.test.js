@@ -10,6 +10,11 @@ const missingMetadata=normalizeAccountingSource({...complete,source_payload_hash
 const unknown=normalizeAccountingSource({...complete,source_type:'UNTRUSTED_SOURCE'});assert.ok(unknown.missing_fields.includes('source_type'));assert.equal(unknown.ingestion_status,'INCOMPLETE');
 for(const rawAmount of ['10.12345','1e3','NaN','',null]){const row=normalizeAccountingSource({...complete,amount:rawAmount});assert.ok(row.missing_fields.includes('amount'),`expected invalid amount ${rawAmount}`);assert.equal(row.ingestion_status,'INCOMPLETE');}
 for(const [field,value] of [['captured_at','2026-09-14T01:02:03+08:00'],['source_payload_hash','sha256:'+'z'.repeat(64)],['entity_id','x'.repeat(201)],['audit_trace_id','audit\ntrace'],['dimensions',{}],['matched_status','POSTED'],['accounting_treatment_status','AUTO_POSTED']]){const row=normalizeAccountingSource({...complete,[field]:value});assert.ok(row.missing_fields.includes(field),`expected invalid ${field}`);assert.equal(row.ingestion_status,'INCOMPLETE');}
+const invalidStatuses=normalizeAccountingSource({...complete,matched_status:'POSTED',accounting_treatment_status:'AUTO_POSTED'});
+assert.equal(invalidStatuses.matched_status,null);assert.equal(invalidStatuses.accounting_treatment_status,null);
+const canonicalStatuses=normalizeAccountingSource({...complete,matched_status:' matched ',accounting_treatment_status:' reviewed '});
+assert.equal(canonicalStatuses.matched_status,'MATCHED');assert.equal(canonicalStatuses.accounting_treatment_status,'REVIEWED');
+for(const sourceId of [{id:'bad'},['bad'],true,1.5,'x'.repeat(201)]){const row=normalizeAccountingSource({...complete,source_id:sourceId});assert.ok(row.missing_fields.includes('source_id'));assert.equal(row.source_id,null);}
 const canonicalHash=normalizeAccountingSource({...complete,source_payload_hash:`sha256:${'B'.repeat(64)}`});assert.equal(canonicalHash.source_payload_hash,`sha256:${'b'.repeat(64)}`);
 const bankClassification=classifyAccountingEvent(complete);
 assert.equal(bankClassification.event_type,'PAYMENT');assert.equal(bankClassification.can_post,false);assert.equal(bankClassification.requires_human_review,true);
