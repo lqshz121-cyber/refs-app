@@ -95,7 +95,7 @@ export function createProductionAiAccountingDecisionPacketServiceFactory({kernel
   };
 }
 
-export function createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant,stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade,stage1SelfControlledTestWorkflowUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsTestImport,controlledTestAiWorkflow,wbsProviderSignedTrust,wbsProviderSignedServiceActorId,aiGateway,runtimeLoginAllowlist=['refs_runtime'],maxBodyBytes,releaseSha,allowedOrigins=[]}={}){
+export function createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant,stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade,stage1SelfControlledTestWorkflowUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsTestImport,controlledTestAiWorkflow,wbsProviderSignedTrust,wbsProviderSignedServiceActorId,aiGateway,runtimeLoginAllowlist=['refs_runtime'],maxBodyBytes,releaseSha,allowedOrigins=[],internalTest=null,internalTestPrincipalRouter=null}={}){
   if(!runtimePool||!issuerPool||typeof authenticator?.authenticate!=='function')throw new Error('Production accounting server requires runtime pool, isolated issuer pool and authenticator');
   const attachmentEnabled=Boolean(attachmentStorage||virusScanner||scannerServiceActorId);
   if(attachmentEnabled&&(!attachmentStorage||!virusScanner||!scannerServiceActorId))throw new Error('Attachment integration requires object storage, virus scanner and scanner identity together');
@@ -398,7 +398,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
     aiNewVendorMaterialInvoiceReviewServiceFactory,
     aiVendorMonthlySpendAnomalyServiceFactory,
     aiFullControllerScanServiceFactory,aiFullControllerModelServiceFactory,
-    allowedOrigins,attachmentServiceFactory:attachmentEnabled?principal=>new AttachmentEvidenceService({storage:attachmentStorage,scanner:virusScanner,uploaderKernelFactory:kernelFor,
+    allowedOrigins,internalTest,internalTestPrincipalRouter,attachmentServiceFactory:attachmentEnabled?principal=>new AttachmentEvidenceService({storage:attachmentStorage,scanner:virusScanner,uploaderKernelFactory:kernelFor,
       scannerKernelFactory:()=>kernelFor({trusted:true,tenantId:principal.tenantId,actorId:scannerServiceActorId})})
       :undefined
   });

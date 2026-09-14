@@ -30,10 +30,11 @@ export const DEMONSTRATION_MODE = 'LOCAL_MOCK';
 // so a public demonstration build can never be mistaken for an internal test.
 export const INTERNAL_TEST_MODE = 'INTERNAL_TEST';
 export const INTERNAL_TEST_READONLY_MODE = 'INTERNAL_TEST_READONLY';
+export const INTERNAL_TEST_FULL_MODE = 'INTERNAL_TEST_FULL';
 export const AUTHORITATIVE_CHANNEL = 'AUTHORITATIVE';
 export const DEMONSTRATION_CHANNEL = 'PUBLIC_DEMONSTRATION';
-export const RUNTIME_MODES = [AUTHORITATIVE_MODE, DEMONSTRATION_MODE, INTERNAL_TEST_MODE, INTERNAL_TEST_READONLY_MODE];
-export const RUNTIME_CHANNELS = [AUTHORITATIVE_CHANNEL, DEMONSTRATION_CHANNEL, INTERNAL_TEST_MODE, INTERNAL_TEST_READONLY_MODE];
+export const RUNTIME_MODES = [AUTHORITATIVE_MODE, DEMONSTRATION_MODE, INTERNAL_TEST_MODE, INTERNAL_TEST_READONLY_MODE, INTERNAL_TEST_FULL_MODE];
+export const RUNTIME_CHANNELS = [AUTHORITATIVE_CHANNEL, DEMONSTRATION_CHANNEL, INTERNAL_TEST_MODE, INTERNAL_TEST_READONLY_MODE, INTERNAL_TEST_FULL_MODE];
 
 // The value refs-runtime-lock.js stores when an adapter tries to install a mode
 // that is not enumerated. It is deliberately not one of RUNTIME_MODES.
@@ -43,6 +44,7 @@ export const SURFACE_AUTHORITATIVE = 'AUTHORITATIVE';
 export const SURFACE_DEMONSTRATION = 'DEMONSTRATION';
 export const SURFACE_INTERNAL_TEST = 'INTERNAL_TEST';
 export const SURFACE_INTERNAL_TEST_READONLY = 'INTERNAL_TEST_READONLY';
+export const SURFACE_INTERNAL_TEST_FULL = 'INTERNAL_TEST_FULL';
 export const SURFACE_ERROR = 'ERROR';
 
 const channelOf = environment => {
@@ -77,6 +79,10 @@ export function resolveRuntimeBoundary(environment = globalThis) {
   if (mode === INTERNAL_TEST_READONLY_MODE) {
     if (channel !== INTERNAL_TEST_READONLY_MODE) return { ...base, surface: SURFACE_ERROR, code: 'RUNTIME_CHANNEL_MISMATCH' };
     return { ...base, surface: SURFACE_INTERNAL_TEST_READONLY, code: null };
+  }
+  if (mode === INTERNAL_TEST_FULL_MODE) {
+    if (channel !== INTERNAL_TEST_FULL_MODE) return { ...base, surface: SURFACE_ERROR, code: 'RUNTIME_CHANNEL_MISMATCH' };
+    return { ...base, surface: SURFACE_INTERNAL_TEST_FULL, code: null };
   }
   if (mode === INTERNAL_TEST_MODE) {
     // Internal-test must be deliberately stamped.  Like the public fixture

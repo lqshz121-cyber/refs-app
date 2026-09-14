@@ -11,6 +11,7 @@ assert.equal(accountingApiConfig({__REFS_ACCOUNTING_API__:{baseUrl:'http://unsaf
 const accessToken='a'.repeat(48);assert.equal(accountingApiConfig({__REFS_ACCOUNTING_API__:{baseUrl:'https://api.example/',entityId,periodId}}),null);
 const configured=accountingApiConfig({__REFS_ACCOUNTING_API__:{baseUrl:'https://api.example/',entityId,periodId,cashAccountCode:'111000',getAccessToken:async()=>accessToken}});
 const internalReadOnly=accountingApiConfig({__REFS_ACCOUNTING_API__:{baseUrl:'https://internal-api.example/',entityId,periodId,cashAccountCode:'111000',deploymentEnvironment:'internal-test',internalReadOnly:true,getAccessToken:async()=>null}});assert.equal(internalReadOnly.internalReadOnly,true);
+const internalFull=accountingApiConfig({__REFS_ACCOUNTING_API__:{baseUrl:'https://internal-api.example/',entityId,periodId,cashAccountCode:'111000',deploymentEnvironment:'internal-test',internalTestNoLogin:true,getAccessToken:async()=>null}});assert.equal(internalFull.internalTestNoLogin,true);
 assert.equal(configured.baseUrl,'https://api.example');assert.equal(configured.cashAccountCode,'111000');
 assert.equal(accountingApiConfig({__REFS_ACCOUNTING_API__:{baseUrl:'https://api.example/',entityId,periodId,cashAccountCode:'cash account',getAccessToken:async()=>accessToken}}).cashAccountCode,null);
 const rows={
@@ -24,6 +25,7 @@ const periodScope=(data,offset=0)=>({entity_id:entityId,period_id:periodId,perio
 const periodEnvelope=data=>({ok:true,data,scope:periodScope(data)});
 (async()=>{
   assert.deepEqual(await authoritativeBearerHeaders(internalReadOnly),{});
+  assert.deepEqual(await authoritativeBearerHeaders(internalFull),{});
   assert.equal((await authoritativeBearerHeaders(configured)).authorization,`Bearer ${accessToken}`);
   assert.equal(await authoritativeBearerHeaders({...configured,getAccessToken:async()=>null}),null);
   const coaRow={period_id:periodId,period_code:'2026-08',period_start:'2026-08-01',period_end:'2026-08-31',account_code:'291001',account_name:'Accounts payable control',requires_member:false,required_member_type:null,active:true,currency:null,opening_balance:null,period_debit:null,period_credit:null,ending_balance:null,posted_ledger_line_count:'0'};

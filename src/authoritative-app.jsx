@@ -69,6 +69,10 @@ import {canResumeFixedAssetAcquisitionJournal,resolveFixedAssetAcquisitionJourna
 import {resolveAuthorizedScopeFallback} from './authoritative-scope-selection.js';
 import {bootstrapAuthoritativeIdentity} from './authoritative-identity-bootstrap.js';
 
+const internalNoLoginRuntime = environment => Boolean(
+  (environment?.__REFS_RUNTIME_MODE__ === 'INTERNAL_TEST_READONLY' && environment?.__REFS_ACCOUNTING_API__?.internalReadOnly === true)
+  || (environment?.__REFS_RUNTIME_MODE__ === 'INTERNAL_TEST_FULL' && environment?.__REFS_ACCOUNTING_API__?.internalTestNoLogin === true)
+)
 const internalReadOnlyRuntime = environment => Boolean(
   environment?.__REFS_RUNTIME_MODE__ === 'INTERNAL_TEST_READONLY'
   && environment?.__REFS_ACCOUNTING_API__?.internalReadOnly === true
@@ -76,7 +80,7 @@ const internalReadOnlyRuntime = environment => Boolean(
 );
 
 export const authoritativeRuntimeConfigured = (environment = globalThis) =>
-  Boolean(accountingApiConfig(environment) && (oidcRuntimeConfig(environment) || internalReadOnlyRuntime(environment)));
+  Boolean(accountingApiConfig(environment) && (oidcRuntimeConfig(environment) || internalNoLoginRuntime(environment)));
 
 export const bindAuthoritativeFetcher = (environment, fetcher, onAuthenticationRequired) =>
   typeof fetcher === 'function'
@@ -177,10 +181,11 @@ const RENEWAL_MAX_SLEEP_MS = 300000;
 export function AuthoritativeApp({ environment = globalThis, fetcher = globalThis.fetch }) {
   const configured = authoritativeRuntimeConfigured(environment);
   const internalReadOnly = internalReadOnlyRuntime(environment);
+  const internalNoLogin = internalNoLoginRuntime(environment);
   const authenticationFailureRef = useRef(null);
   const authenticationHandlingRef = useRef(false);
   const boundFetcher = useMemo(() => bindAuthoritativeFetcher(environment, fetcher, () => authenticationFailureRef.current?.()), [environment, fetcher]);
-  const [phase, setPhase] = useState(configured ? (internalReadOnly ? 'CHECKING_RELEASE' : 'CHECKING_IDENTITY') : 'CONFIGURATION_REQUIRED');
+  const [phase, setPhase] = useState(configured ? (internalNoLogin ? 'CHECKING_RELEASE' : 'CHECKING_IDENTITY') : 'CONFIGURATION_REQUIRED');
   const [route, setRouteState] = useState(() => readRetainedRoute(environment));
   const [data, setData] = useState({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] });
   const [documentDetail, setDocumentDetail] = useState(null);
@@ -272,9 +277,9 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     window.addEventListener('keydown', onEscape);
     return () => window.removeEventListener('keydown', onEscape);
   }, [navOpen]);
-  const oidcClient = useMemo(() => configured && !internalReadOnly ? new BrowserOidcClient({ environment, fetcher:boundFetcher }) : null, [configured, internalReadOnly, environment, boundFetcher]);
+  const oidcClient = useMemo(() => configured && !internalNoLogin ? new BrowserOidcClient({ environment, fetcher:boundFetcher }) : null, [configured, internalNoLogin, environment, boundFetcher]);
   const baseConfig = useMemo(() => configured ? accountingApiConfig(environment) : null, [configured, environment, phase]);
-  const authenticatedBaseConfig = useMemo(() => internalReadOnly ? baseConfig : bindAuthoritativeAccessToken(baseConfig, requireAuthentication), [baseConfig, internalReadOnly, requireAuthentication]);
+  const authenticatedBaseConfig = useMemo(() => internalNoLogin ? baseConfig : bindAuthoritativeAccessToken(baseConfig, requireAuthentication), [baseConfig, internalNoLogin, requireAuthentication]);
   const config = useMemo(() => authenticatedBaseConfig&&selectedScope?{...authenticatedBaseConfig,entityId:selectedScope.entity_id,periodId:selectedScope.period_id}:authenticatedBaseConfig, [authenticatedBaseConfig, selectedScope]);
 
   // Verify the public release identity only after OIDC has completed.  This
@@ -530,7 +535,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   },[setRoute]);
 
   useEffect(() => {
-    if (!configured || internalReadOnly || !oidcClient || phase !== 'CHECKING_IDENTITY' || typeof environment?.document === 'undefined') return;
+    if (!configured || internalNoLogin || !oidcClient || phase !== 'CHECKING_IDENTITY' || typeof environment?.document === 'undefined') return;
     let active = true;
     environment.refsOidcClient = oidcClient;
     const finishIdentity = result => {
@@ -557,7 +562,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     };
     void restoreOrCompleteIdentity();
     return () => { active = false; };
-  }, [configured, internalReadOnly, environment, oidcClient, phase]);
+  }, [configured, internalNoLogin, environment, oidcClient, phase]);
 
   useEffect(() => { if (phase === 'AUTHENTICATED') refresh(); }, [phase, refresh]);
 
@@ -569,7 +574,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   }, [phase, route, sharedAccountingLoaded, refresh, workflowJournalId]);
 
   useEffect(() => {
-    if (internalReadOnly || !oidcClient || typeof environment?.document === 'undefined' || typeof environment?.setTimeout !== 'function') return;
+    if (internalNoLogin || !oidcClient || typeof environment?.document === 'undefined' || typeof environment?.setTimeout !== 'function') return;
     if (!RENEWAL_WATCH_PHASES.has(phase)) return;
     let active = true;
     let timer = null;
@@ -595,7 +600,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     };
     tick();
     return () => { active = false; if (timer !== null) { try { environment.clearTimeout(timer); } catch { /* non-fatal */ } } };
-  }, [internalReadOnly, oidcClient, phase, environment]);
+  }, [internalNoLogin, oidcClient, phase, environment]);
 
   const startLogin = async () => {
     setError(null);
@@ -608,7 +613,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       setPhase('IDENTITY_FAILED');
     }
   };
-  const logout = () => { authenticationHandlingRef.current=false; accountingReadGuard.current.invalidate(); oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setDocumentDetail(null); setAdjustmentDetail(null); setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}}); setError(null); setRenewalFailure(null); setSessionExpired(false); setPhase(internalReadOnly?'CHECKING_RELEASE':'LOGIN_REQUIRED'); };
+  const logout = () => { authenticationHandlingRef.current=false; accountingReadGuard.current.invalidate(); oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setDocumentDetail(null); setAdjustmentDetail(null); setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}}); setError(null); setRenewalFailure(null); setSessionExpired(false); setPhase(internalNoLogin?'CHECKING_RELEASE':'LOGIN_REQUIRED'); };
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeChartOfAccounts({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeRows(result.ok?result.rows:[]);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeScope({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeMetadata(result.ok?result.row:null);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};setAccessState({status:'LOADING'});refreshCurrentActorAccess({config,fetcher:boundFetcher}).then(result=>{if(current)setAccessState(result.ok?{status:'READY',row:result.row}:{status:'ERROR',code:result.code,message:result.message});});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);

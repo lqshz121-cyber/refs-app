@@ -15,7 +15,7 @@ import {
   validateAuthoritativeDocumentDraft,
 } from './authoritative-workspace.jsx';
 import { RuntimeErrorPage } from './runtime-error-page.jsx';
-import { SURFACE_AUTHORITATIVE, SURFACE_ERROR, SURFACE_INTERNAL_TEST_READONLY, resolveRuntimeBoundary } from './runtime-mode.mjs';
+import { SURFACE_AUTHORITATIVE, SURFACE_ERROR, SURFACE_INTERNAL_TEST_READONLY, SURFACE_INTERNAL_TEST_FULL, resolveRuntimeBoundary } from './runtime-mode.mjs';
 
 class AuthoritativeRootBoundary extends Component {
   constructor(props) {
@@ -36,7 +36,7 @@ class AuthoritativeRootBoundary extends Component {
 export function App() {
   const boundary = resolveRuntimeBoundary(globalThis);
   if (boundary.surface === SURFACE_ERROR) return <RuntimeErrorPage code={boundary.code}/>;
-  if (boundary.surface !== SURFACE_AUTHORITATIVE && boundary.surface !== SURFACE_INTERNAL_TEST_READONLY) {
+  if (boundary.surface !== SURFACE_AUTHORITATIVE && boundary.surface !== SURFACE_INTERNAL_TEST_READONLY && boundary.surface !== SURFACE_INTERNAL_TEST_FULL) {
     return <RuntimeErrorPage code="CONFIGURATION_REQUIRED"/>;
   }
   return <AuthoritativeRootBoundary><AuthoritativeApp environment={globalThis}/></AuthoritativeRootBoundary>;

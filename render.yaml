@@ -338,6 +338,26 @@ services:
         value: 6fb25daf-0799-4805-bede-be54230da33c
       - key: REFS_INTERNAL_TEST_ACTOR_ID
         value: refs-internal-readonly
+      - key: REFS_INTERNAL_TEST_PROFILE
+        value: FULL_WORKFLOW
+      - key: REFS_INTERNAL_TEST_READER_ACTOR_ID
+        value: refs-internal-reader
+      - key: REFS_INTERNAL_TEST_MAKER_ACTOR_ID
+        value: refs-internal-maker
+      - key: REFS_INTERNAL_TEST_SUBMITTER_ACTOR_ID
+        value: refs-internal-submitter
+      - key: REFS_INTERNAL_TEST_REVIEWER_ACTOR_ID
+        value: refs-internal-reviewer
+      - key: REFS_INTERNAL_TEST_APPROVER_ACTOR_ID
+        value: refs-internal-approver
+      - key: REFS_INTERNAL_TEST_POSTER_ACTOR_ID
+        value: refs-internal-poster
+      - key: REFS_INTERNAL_TEST_RECONCILIATION_STARTER_ACTOR_ID
+        value: refs-internal-reconciliation-starter
+      - key: REFS_INTERNAL_TEST_CLEARER_ACTOR_ID
+        value: refs-internal-clearer
+      - key: REFS_INTERNAL_TEST_REOPENER_ACTOR_ID
+        value: refs-internal-reopener
       - key: REFS_ATTACHMENT_MODE
         value: DISABLED
       - key: REFS_WBS_INGEST_MODE
@@ -387,8 +407,8 @@ services:
           envVarKey: WBS_REFS_AUTH
       - key: REFS_HTTP_ALLOWED_ORIGINS
         sync: false
-  # Internal complete read-only workspace. It has no OIDC coordinates or
-  # provider secrets; it calls only the fixed-identity API above over HTTPS.
+  # Internal full-test workspace. It has no OIDC coordinates or provider
+  # secrets; it calls only the fixed-identity API above over HTTPS.
   - type: web
     name: refs-internal-test
     runtime: static
@@ -397,7 +417,7 @@ services:
     autoDeployTrigger: off
     envVars:
       - key: REFS_PUBLIC_RUNTIME_MODE
-        value: INTERNAL_TEST_READONLY
+        value: INTERNAL_TEST_FULL
       - key: REFS_PUBLIC_ACCOUNTING_API_BASE_URL
         sync: false
       - key: REFS_PUBLIC_ENTITY_ID

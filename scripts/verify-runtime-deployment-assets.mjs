@@ -7,7 +7,7 @@
 // adapter, before the artefact is uploaded.
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {AUTHORITATIVE_CHANNEL,DEMONSTRATION_CHANNEL,DEMONSTRATION_MODE,INTERNAL_TEST_MODE,INTERNAL_TEST_READONLY_MODE,resolveRuntimeChannel} from './runtime-config-lib.mjs';
+import {AUTHORITATIVE_CHANNEL,DEMONSTRATION_CHANNEL,DEMONSTRATION_MODE,INTERNAL_TEST_MODE,INTERNAL_TEST_READONLY_MODE,INTERNAL_TEST_FULL_MODE,resolveRuntimeChannel} from './runtime-config-lib.mjs';
 
 const read=path=>readFileSync(path,'utf8');
 const index=read('dist/index.html');
@@ -25,6 +25,7 @@ const channel=resolveRuntimeChannel(process.env);
 const mock=channel===DEMONSTRATION_CHANNEL;
 const internalTest=channel===INTERNAL_TEST_MODE;
 const internalReadOnly=channel===INTERNAL_TEST_READONLY_MODE;
+const internalFull=channel===INTERNAL_TEST_FULL_MODE;
 
 assert.match(build,/window\.__BUILD=/,'build metadata asset is missing');
 
@@ -49,7 +50,7 @@ const [declaredMode]=declaredModes;
 const stampedChannels=[...build.matchAll(/channel:"([A-Z_]+)"/g)].map(match=>match[1]);
 assert.equal(stampedChannels.length,1,'dist/refs-build.js must carry exactly one release channel stamp');
 const [stampedChannel]=stampedChannels;
-assert.ok([AUTHORITATIVE_CHANNEL,DEMONSTRATION_CHANNEL,INTERNAL_TEST_MODE,INTERNAL_TEST_READONLY_MODE].includes(stampedChannel),`unrecognised release channel stamp ${stampedChannel}`);
+assert.ok([AUTHORITATIVE_CHANNEL,DEMONSTRATION_CHANNEL,INTERNAL_TEST_MODE,INTERNAL_TEST_READONLY_MODE,INTERNAL_TEST_FULL_MODE].includes(stampedChannel),`unrecognised release channel stamp ${stampedChannel}`);
 assert.equal(stampedChannel,channel,'the build stamp must record the channel this build was requested with');
 assert.equal(
   declaredMode===DEMONSTRATION_MODE,
@@ -73,6 +74,12 @@ if(mock){
   assert.match(config,/internalReadOnly:true/,'the internal read-only build must declare its fixed server identity boundary');
   assert.match(config,/getAccessToken:async\(\)=>null/,'the internal read-only build must not carry a browser token accessor');
   assert.match(config,/baseUrl:"https:\/\//,'the internal read-only build must reach its API over HTTPS');
+}else if(internalFull){
+  assert.equal(declaredMode,INTERNAL_TEST_FULL_MODE,'an internal full-test build must be explicitly marked INTERNAL_TEST_FULL');
+  assert.match(config,/window\.__REFS_OIDC__\s*=\s*null/,'the internal full-test build must not carry OIDC configuration');
+  assert.match(config,/internalTestNoLogin:true/,'the internal full-test build must declare its fixed server test-identity boundary');
+  assert.match(config,/getAccessToken:async\(\)=>null/,'the internal full-test build must not carry a browser token accessor');
+  assert.match(config,/baseUrl:"https:\/\//,'the internal full-test build must reach its API over HTTPS');
 }else{
   assert.equal(declaredMode,'REQUIRES_AUTHORITATIVE_API','an unconfigured or authoritative deployment must remain fail closed');
   // A configured authoritative deployment must reach its API over HTTPS only.

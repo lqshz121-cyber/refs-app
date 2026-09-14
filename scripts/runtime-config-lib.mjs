@@ -21,6 +21,7 @@ export const DEMONSTRATION_CHANNEL='PUBLIC_DEMONSTRATION';
 export const DEMONSTRATION_MODE='LOCAL_MOCK';
 export const INTERNAL_TEST_MODE='INTERNAL_TEST';
 export const INTERNAL_TEST_READONLY_MODE='INTERNAL_TEST_READONLY';
+export const INTERNAL_TEST_FULL_MODE='INTERNAL_TEST_FULL';
 
 const coordinatesPresent=environment=>keys.filter(key=>typeof environment[key]==='string'&&environment[key].trim());
 const internalReadOnlyCoordinatesPresent=environment=>internalReadOnlyKeys.filter(key=>typeof environment[key]==='string'&&environment[key].trim());
@@ -32,7 +33,8 @@ export const requestedRuntimeMode=(environment={})=>(environment.REFS_PUBLIC_RUN
 export const resolveRuntimeChannel=(environment={})=>
     requestedRuntimeMode(environment)===DEMONSTRATION_MODE?DEMONSTRATION_CHANNEL:
     requestedRuntimeMode(environment)===INTERNAL_TEST_MODE?INTERNAL_TEST_MODE:
-      requestedRuntimeMode(environment)===INTERNAL_TEST_READONLY_MODE?INTERNAL_TEST_READONLY_MODE:AUTHORITATIVE_CHANNEL;
+      requestedRuntimeMode(environment)===INTERNAL_TEST_READONLY_MODE?INTERNAL_TEST_READONLY_MODE:
+        requestedRuntimeMode(environment)===INTERNAL_TEST_FULL_MODE?INTERNAL_TEST_FULL_MODE:AUTHORITATIVE_CHANNEL;
 
 export const renderBuildChannelStamp=(environment={})=>{
   const channel=resolveRuntimeChannel(environment);
@@ -51,6 +53,14 @@ export const renderInternalTestReadOnlyRuntimeConfig=(environment={})=>{
   const baseUrl=https(environment.REFS_PUBLIC_ACCOUNTING_API_BASE_URL),entityId=environment.REFS_PUBLIC_ENTITY_ID.trim(),periodId=environment.REFS_PUBLIC_PERIOD_ID.trim(),cashAccountCode=environment.REFS_PUBLIC_CASH_ACCOUNT_CODE.trim();
   if(!baseUrl||!UUID.test(entityId)||!UUID.test(periodId)||!ACCOUNT.test(cashAccountCode))throw new Error('Internal read-only runtime public configuration contains an invalid HTTPS URL, UUID, or account code');
   return `// Generated internal read-only configuration. The fixed identity and provider credentials exist only on the server.\nwindow.__REFS_OIDC__=null;\nwindow.__REFS_ACCOUNTING_API__={baseUrl:${JSON.stringify(baseUrl.replace(/\/$/,''))},entityId:${JSON.stringify(entityId)},periodId:${JSON.stringify(periodId)},cashAccountCode:${JSON.stringify(cashAccountCode)},wbsTestImportMode:'DISABLED',deploymentEnvironment:'internal-test',controlledTestAiWorkflowMode:'DISABLED',cashTransferUiMode:'DISABLED',accountingApiAttachmentMode:'DISABLED',internalReadOnly:true,getAccessToken:async()=>null};\nwindow.__REFS_RUNTIME_MODE__='INTERNAL_TEST_READONLY';\n`;
+};
+
+export const renderInternalTestFullRuntimeConfig=(environment={})=>{
+  const present=internalReadOnlyCoordinatesPresent(environment);
+  if(present.length!==internalReadOnlyKeys.length)throw new Error(`Internal full-test runtime public configuration is incomplete: missing ${internalReadOnlyKeys.filter(key=>!present.includes(key)).join(', ')}`);
+  const baseUrl=https(environment.REFS_PUBLIC_ACCOUNTING_API_BASE_URL),entityId=environment.REFS_PUBLIC_ENTITY_ID.trim(),periodId=environment.REFS_PUBLIC_PERIOD_ID.trim(),cashAccountCode=environment.REFS_PUBLIC_CASH_ACCOUNT_CODE.trim();
+  if(!baseUrl||!UUID.test(entityId)||!UUID.test(periodId)||!ACCOUNT.test(cashAccountCode))throw new Error('Internal full-test runtime public configuration contains an invalid HTTPS URL, UUID, or account code');
+  return `// Generated internal full-test configuration. The browser has no provider token; the server selects pre-provisioned test workflow identities.\nwindow.__REFS_OIDC__=null;\nwindow.__REFS_ACCOUNTING_API__={baseUrl:${JSON.stringify(baseUrl.replace(/\/$/,''))},entityId:${JSON.stringify(entityId)},periodId:${JSON.stringify(periodId)},cashAccountCode:${JSON.stringify(cashAccountCode)},wbsTestImportMode:'DISABLED',deploymentEnvironment:'internal-test',controlledTestAiWorkflowMode:'DISABLED',cashTransferUiMode:'DISABLED',accountingApiAttachmentMode:'DISABLED',internalTestNoLogin:true,getAccessToken:async()=>null};\nwindow.__REFS_RUNTIME_MODE__='INTERNAL_TEST_FULL';\n`;
 };
 
 export const renderRuntimeConfig=(environment={})=>{
@@ -88,6 +98,11 @@ export const renderRuntimeConfigOrLock=(environment={})=>{
     const forbidden=keys.filter(key=>!internalReadOnlyKeys.includes(key)&&typeof environment[key]==='string'&&environment[key].trim());
     if(forbidden.length)throw new Error(`An internal read-only build must not carry OIDC coordinates: ${forbidden.join(', ')}`);
     return renderInternalTestReadOnlyRuntimeConfig(environment);
+  }
+  if(requestedMode===INTERNAL_TEST_FULL_MODE){
+    const forbidden=keys.filter(key=>!internalReadOnlyKeys.includes(key)&&typeof environment[key]==='string'&&environment[key].trim());
+    if(forbidden.length)throw new Error(`An internal full-test build must not carry OIDC coordinates: ${forbidden.join(', ')}`);
+    return renderInternalTestFullRuntimeConfig(environment);
   }
   if(requestedMode)throw new Error(`Unsupported public runtime mode: ${requestedMode}`);
   return renderRuntimeConfig(environment)??renderFailClosedRuntimeConfig();

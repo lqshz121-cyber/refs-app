@@ -14,6 +14,8 @@ import {reconcileWbsTestImportActorGrants} from './wbs-test-import-service.mjs';
 import {assertStagingDeploymentTarget} from './workflow-role-grant.mjs';
 import {reconcileControlledTestAiWorkflowActorGrants} from './controlled-test-ai-workflow-service.mjs';
 import {safeRuntimeFailureLog} from './safe-runtime-log.mjs';
+import {internalTestWorkflowActors,routeInternalTestPrincipal} from './internal-test-identity-router.mjs';
+import {reconcileInternalTestWorkflowActorGrants} from './internal-test-workflow-grants.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const INTERNAL_TEST_READ_PERMISSIONS=Object.freeze(['AP.VIEW','AR.VIEW','BANK.VIEW','GL.JE.VIEW','GL.REPORT.VIEW']);
@@ -27,7 +29,10 @@ const internalTestConfig=env=>{
   for(const key of ['REFS_ATTACHMENT_MODE','REFS_WBS_INGEST_MODE'])if(String(env[key]||'DISABLED').trim().toUpperCase()!=='DISABLED')throw new Error(`REFS_INTERNAL_TEST_MODE requires ${key}=DISABLED`);
   const tenantId=String(env.REFS_INTERNAL_TEST_TENANT_ID||'').trim().toLowerCase(),actorId=String(env.REFS_INTERNAL_TEST_ACTOR_ID||'').trim();
   if(!UUID.test(tenantId)||!actorId||actorId.length>200||/[\u0000-\u001f\u007f]/.test(actorId))throw new Error('REFS_INTERNAL_TEST_TENANT_ID and REFS_INTERNAL_TEST_ACTOR_ID are required');
-  return Object.freeze({tenantId,actorId,allowWbsLivePilot:String(env.REFS_WBS_LIVE_PILOT_MODE||'DISABLED').trim().toUpperCase()==='ENABLED'});
+  const profile=String(env.REFS_INTERNAL_TEST_PROFILE||'READ_ONLY').trim().toUpperCase();
+  if(!['READ_ONLY','FULL_WORKFLOW'].includes(profile))throw new Error('REFS_INTERNAL_TEST_PROFILE must be READ_ONLY or FULL_WORKFLOW');
+  const actors=profile==='FULL_WORKFLOW'?internalTestWorkflowActors(env):null;
+  return Object.freeze({tenantId,actorId,profile,actors,allowWbsLivePilot:String(env.REFS_WBS_LIVE_PILOT_MODE||'DISABLED').trim().toUpperCase()==='ENABLED'});
 };const releaseSha=(value,production)=>{
   const sha=String(value||'').trim().toLowerCase();
   if(!sha&&!production)return null;
@@ -157,13 +162,21 @@ export async function startAccountingServer({env=process.env,fetcher=globalThis.
     const virusScanner=config.attachmentMode==='REQUIRED'?new HttpVirusScanner({...config.scanner,ca:scannerCaPem}):null;
     const wbsLivePilotClient=config.wbsLivePilotMode==='ENABLED'?createWbsLivePilotClient({credentials:config.wbsLivePilotCredentials,fetcher}):null;
     startupStage='DEPENDENCY_WIRING';
-    server=createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant:config.stage1SelfGrant,stage1SelfWbsReadUpgrade:config.stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade:config.stage1SelfWbsOperatorUpgrade,stage1SelfControlledTestWorkflowUpgrade:config.stage1SelfControlledTestWorkflowUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId:config.scanner?.actorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsTestImport:config.wbsTestImport,controlledTestAiWorkflow:config.controlledTestAiWorkflow,wbsProviderSignedTrust:config.wbsProviderSignedTrust,wbsProviderSignedServiceActorId:config.wbsProviderSignedServiceActorId,aiGateway:config.aiGateway,maxBodyBytes:config.maxBodyBytes,releaseSha:config.releaseSha,allowedOrigins:config.allowedOrigins,internalTest:config.internalTest});
+    const internalTestPrincipalRouter=config.internalTest?.profile==='FULL_WORKFLOW'?request=>routeInternalTestPrincipal({...request,actors:config.internalTest.actors}):null;
+    server=createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant:config.stage1SelfGrant,stage1SelfWbsReadUpgrade:config.stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade:config.stage1SelfWbsOperatorUpgrade,stage1SelfControlledTestWorkflowUpgrade:config.stage1SelfControlledTestWorkflowUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId:config.scanner?.actorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsTestImport:config.wbsTestImport,controlledTestAiWorkflow:config.controlledTestAiWorkflow,wbsProviderSignedTrust:config.wbsProviderSignedTrust,wbsProviderSignedServiceActorId:config.wbsProviderSignedServiceActorId,aiGateway:config.aiGateway,maxBodyBytes:config.maxBodyBytes,releaseSha:config.releaseSha,allowedOrigins:config.allowedOrigins,internalTest:config.internalTest,internalTestPrincipalRouter});
     startupStage='DATABASE_READINESS';
     await Promise.all([runtimePool.query('SELECT 1'),issuerPool.query('SELECT 1'),...(grantSyncPool?[grantSyncPool.query('SELECT 1')]:[])]);
     if(grantSyncPool){startupStage='STAGING_TARGET';await assertStagingDeploymentTarget(grantSyncPool,{installationId:env.REFS_EXPECTED_INSTALLATION_ID||null,expectedDatabase:env.REFS_EXPECTED_DATABASE_NAME||null});}
     const stagingGrantPrincipal=async()=>{await assertStagingDeploymentTarget(grantSyncPool,{installationId:env.REFS_EXPECTED_INSTALLATION_ID||null,expectedDatabase:env.REFS_EXPECTED_DATABASE_NAME||null});return {trusted:true,serviceId:'platform-iam-sync'};};
     const stagingTransactionGuard=client=>assertStagingDeploymentTarget(client,{installationId:env.REFS_EXPECTED_INSTALLATION_ID||null,expectedDatabase:env.REFS_EXPECTED_DATABASE_NAME||null});
-    if(config.internalTest){startupStage='INTERNAL_READ_GRANT';const grantSync=new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard});const expectedVersion=await grantSync.currentVersion({tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,entityId:env.REFS_INTERNAL_TEST_ENTITY_ID||RENDER_WBS_TEST_SCOPE.entityId});await grantSync.reconcile({tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,entityId:env.REFS_INTERNAL_TEST_ENTITY_ID||RENDER_WBS_TEST_SCOPE.entityId,permissions:INTERNAL_TEST_READ_PERMISSIONS,authorityClass:'READ',validUntil:new Date(Date.now()+23*60*60*1000).toISOString(),expectedVersion,idempotencyKey:`internal-test-read-${config.internalTest.actorId}-${new Date().toISOString().slice(0,13).replace(/[-:T]/g,'')}`});}
+    if(config.internalTest){
+      const grantSync=new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard}),entityId=env.REFS_INTERNAL_TEST_ENTITY_ID||RENDER_WBS_TEST_SCOPE.entityId;
+      if(config.internalTest.profile==='FULL_WORKFLOW'){
+        startupStage='INTERNAL_WORKFLOW_GRANTS';await reconcileInternalTestWorkflowActorGrants({grantSync,scope:{tenantId:config.internalTest.tenantId,entityId,actors:config.internalTest.actors}});
+      }else{
+        startupStage='INTERNAL_READ_GRANT';const expectedVersion=await grantSync.currentVersion({tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,entityId});await grantSync.reconcile({tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,entityId,permissions:INTERNAL_TEST_READ_PERMISSIONS,authorityClass:'READ',validUntil:new Date(Date.now()+23*60*60*1000).toISOString(),expectedVersion,idempotencyKey:`internal-test-read-${config.internalTest.actorId}-${new Date().toISOString().slice(0,13).replace(/[-:T]/g,'')}`});
+      }
+    }
     if(config.wbsTestImport){startupStage='WBS_TEST_GRANTS';await reconcileWbsTestImportActorGrants({scope:config.wbsTestImport,grantSync:new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard})});}
     if(config.controlledTestAiWorkflow){startupStage='AI_WORKFLOW_GRANTS';await reconcileControlledTestAiWorkflowActorGrants({scope:config.controlledTestAiWorkflow,grantSync:new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard})});}
     startupStage='HTTP_LISTENER';

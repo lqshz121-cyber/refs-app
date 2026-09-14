@@ -98,10 +98,11 @@ export const accountingApiConfig=(environment=globalThis)=>{
   const deploymentEnvironment=['staging','internal-test'].includes(source.deploymentEnvironment)?source.deploymentEnvironment:'unknown';
   const controlledTestAiWorkflowMode=deploymentEnvironment==='staging'&&source.controlledTestAiWorkflowMode==='ENABLED'?'ENABLED':'DISABLED';
   const internalReadOnly=source.internalReadOnly===true&&deploymentEnvironment==='internal-test';
-  return {baseUrl:baseUrl.toString().replace(/\/$/,''),entityId:source.entityId,periodId:source.periodId,cashAccountCode,wbsTestImportMode,deploymentEnvironment,controlledTestAiWorkflowMode,internalReadOnly,getAccessToken:source.getAccessToken};
+  const internalTestNoLogin=source.internalTestNoLogin===true&&deploymentEnvironment==='internal-test';
+  return {baseUrl:baseUrl.toString().replace(/\/$/,''),entityId:source.entityId,periodId:source.periodId,cashAccountCode,wbsTestImportMode,deploymentEnvironment,controlledTestAiWorkflowMode,internalReadOnly,internalTestNoLogin,getAccessToken:source.getAccessToken};
 };
 
-export const authoritativeBearerHeaders=async config=>{if(config?.internalReadOnly===true)return {};try{const token=await config?.getAccessToken?.();return typeof token==='string'&&/^[A-Za-z0-9._~-]{16,8192}$/.test(token)?{authorization:`Bearer ${token}`} : null;}catch{return null;}};
+export const authoritativeBearerHeaders=async config=>{if(config?.internalReadOnly===true||config?.internalTestNoLogin===true)return {};try{const token=await config?.getAccessToken?.();return typeof token==='string'&&/^[A-Za-z0-9._~-]{16,8192}$/.test(token)?{authorization:`Bearer ${token}`} : null;}catch{return null;}};
 const authenticationRequired=()=>({ok:false,code:'AUTHENTICATION_REQUIRED',message:'An OIDC access token is required for the authoritative accounting API.'});
 
 const nativeExpenseText=(value,min,max)=>typeof value==='string'&&value===value.trim()&&value.length>=min&&value.length<=max&&!/[\u0000-\u001f\u007f]/.test(value);
