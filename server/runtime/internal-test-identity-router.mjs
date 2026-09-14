@@ -1,7 +1,7 @@
 // Internal full-test uses one browser entry point but never collapses the
 // accounting workflow into one database identity. Each admitted command is
 // executed by a pre-provisioned, finite test actor; reads use the reader.
-const ACTOR_KEYS=Object.freeze(['reader','maker','expenseMaker','paymentMaker','receiptMaker','salesReceiptMaker','reversalMaker','adjustmentMaker','refundMaker','allocator','submitter','reviewer','approver','poster','reconciliationStarter','clearer','unmatcher','reopener','periodCloser','periodReopener','cashTransferReconciler','recurringRunner']);
+const ACTOR_KEYS=Object.freeze(['reader','maker','expenseMaker','paymentMaker','receiptMaker','salesReceiptMaker','reversalMaker','adjustmentMaker','refundMaker','allocator','submitter','reviewer','approver','poster','reconciliationStarter','clearer','unmatcher','reopener','periodCloser','periodReopener','cashTransferReconciler','recurringRunner','wbsTestImporter']);
 const safeActor=value=>typeof value==='string'&&value.trim().length>=3&&value.trim().length<=200&&!/[\u0000-\u001f\u007f]/.test(value);
 
 export class InternalTestIdentityRouteError extends Error{
@@ -82,6 +82,7 @@ const writeActor=(method,pathname,body)=>{
     return null;
   }
   if(domain==='report-saved-views'&&(parts.length===5||parts.length===6))return 'maker';
+  if(domain==='wbs'&&resource==='test-import'&&['payables','bank-transactions'].includes(id)&&parts.length===7)return 'wbsTestImporter';
   if(domain==='periods'&&id==='close')return 'periodCloser';
   if(domain==='periods'&&id==='reopen')return 'periodReopener';
   return null;
