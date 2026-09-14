@@ -16,6 +16,7 @@ import {NativeDocumentEntry,NativeDocumentEntryForm} from '../src/native-documen
 import {NativeCreditAdjustmentEntry,NativeCreditAdjustmentEntryForm} from '../src/native-credit-adjustment-entry.jsx';
 import {NativeSettlementEntry,NativeSettlementForm} from '../src/native-settlement-entry.jsx';
 import {AuthoritativeDocumentWorkspace} from '../src/authoritative-workspace.jsx';
+import {AuthoritativeNativeExpenseWorkspace} from '../src/authoritative-native-expense-workspace.jsx';
 
 // Submission, server and recovery failures are blocking information. They
 // must interrupt assistive technology, while upload/save progress stays a
@@ -97,6 +98,20 @@ for(const [workspaceKind,label] of [['AP','New bill'],['AR','New invoice']]){
   const readonly=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind={workspaceKind} config={config}/>);
   assert.match(readonly,/READ ONLY/);assert.ok(!readonly.includes(label));
 }
+
+// The Expenses route is the operating surface for AP work.  Direct bank
+// expenses must be reachable there as an evidence-backed Draft workflow, not
+// hidden in the AI workbench.  It remains a server-scoped form and does not
+// make WBS source evidence writable.
+const apExpensePage=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" config={config} currentActorAccess={access} scope={scope} accounts={accounts}/>);
+assert.match(apExpensePage,/Direct bank expense/);
+assert.match(apExpensePage,/Manual Journal Draft/);
+assert.doesNotMatch(apExpensePage,/Post journal/);
+const arExpensePage=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AR" config={config} currentActorAccess={access} scope={scope} accounts={accounts}/>);
+assert.doesNotMatch(arExpensePage,/Direct bank expense/);
+const directExpenseMarkup=renderToStaticMarkup(<AuthoritativeNativeExpenseWorkspace config={config}/>);
+assert.match(directExpenseMarkup,/Direct bank expense/);
+assert.match(directExpenseMarkup,/DRAFT ONLY/);
 
 const creditAccess={entity_id:config.entityId,actor_id:'oidc|credit-maker',session_refresh_required:false,permissions:['AP.VIEW','AP.VENDOR_CREDIT.CREATE','AR.VIEW','AR.CREDIT_MEMO.CREATE','ATTACHMENT.CREATE']};
 for(const kind of ['AP_VENDOR_CREDIT','AR_CREDIT_MEMO']){
