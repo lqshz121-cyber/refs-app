@@ -1,5 +1,5 @@
-﻿import React,{useEffect,useRef,useState} from 'react';
-import {readAuthoritativeJournalEntryDetail,readAuthoritativeSourceDocumentDetail,refreshAuthoritativeFinancialStatements,refreshAuthoritativeGeneralLedger,refreshAuthoritativeGeneralLedgerSnapshot} from './accounting-api.js';
+import React,{useEffect,useRef,useState} from 'react';
+import {readAuthoritativeJournalEntryDetail,readAuthoritativeSourceDocumentDetail,refreshAuthoritativeFinancialStatements,refreshAuthoritativeGeneralLedger} from './accounting-api.js';
 import {adaptProviderTraceForUi} from './provider-trace-adapter.js';
 import {StateBlock} from './ui.jsx';
 import {exactLineageIdSet,journalLineMatchesLedger} from './domain/accounting-lineage.ts';
@@ -13,21 +13,17 @@ export {exactLineageIdSet,journalLineMatchesLedger};
 const journalContext=(config,journal)=>({entityId:config.entityId,periodId:config.periodId,journalId:journal.journal_entry_id,journalRevision:journal.revision,journalCurrency:journal.currency});
 export const reportRowContainsLedger=(report,row)=>Boolean(report&&row&&report.period_id===row.period_id&&report.account_code===row.account_code&&(report.currency==null||report.currency===row.currency)&&ids(report.journal_entry_ids).includes(row.journal_entry_id)&&ids(report.journal_line_ids).includes(row.journal_line_id)&&ids(report.ledger_line_ids).includes(row.ledger_line_id)&&includesAll(ids(report.source_document_ids),ids(row.source_document_ids)));
 export const createLineageRequestGuard=()=>{let version=0;return {start:()=>++version,isCurrent:token=>token===version,invalidate:()=>++version};};
-export async function readExactAuthoritativeLedgerLine({config,accountCode=null,ledgerLineId,fetcher=globalThis.fetch,readPage=refreshAuthoritativeGeneralLedgerSnapshot}={}){
-  if(!config||typeof ledgerLineId!=='string'||!ledgerLineId)return {ok:false,message:'The retained ledger-line identity is unavailable.'};
-  let offset=0,total=null,snapshotToken=null,match=null;
-  while(total===null||offset<total){
-    const result=await readPage({config,accountCode,query:null,limit:LEDGER_PAGE_SIZE,offset,snapshotToken,fetcher});
-    if(!result.ok)return result;
-    if(total===null){total=result.total;snapshotToken=result.snapshotToken??null;if(total>LEDGER_RESULT_CAP)return {ok:false,message:'The General Ledger evidence exceeds the bounded lineage-read limit.'};if(total>result.rows.length&&!snapshotToken)return {ok:false,message:'The General Ledger did not return an immutable snapshot token for later pages.'};}
-    else if(result.total!==total||result.snapshotToken!==snapshotToken)return {ok:false,message:'The General Ledger changed during the immutable lineage read.'};
-    if(!result.rows.length&&offset<total)return {ok:false,message:'The General Ledger pagination ended before the retained evidence was found.'};
-    for(const row of result.rows)if(row.ledger_line_id===ledgerLineId){if(match)return {ok:false,message:'The General Ledger returned duplicate retained ledger-line evidence.'};match=row;}
-    offset+=result.rows.length;
-  }
-  return match?{ok:true,row:match}:{ok:false,message:'The General Ledger did not return the retained ledger-line evidence.'};
-}
-const providerValue=value=>value===null||value===undefined||value===''?'Not supplied by Provider':String(value);
+export async function readExactAuthoritativeLedgerLine({config,accountCode=null,ledgerLineId,fetcher=globalThis.fetch,readJournal=readAuthoritativeJournalEntryDetail,journalEntryId=null,journalLineId=null}={}){
+  if(!config||typeof ledgerLineId!=='string'||!ledgerLineId||typeof journalEntryId!=='string'||!journalEntryId||typeof journalLineId!=='string'||!journalLineId)return {ok:false,message:'The retained ledger-line identity is unavailable.'};
+  const result=await readJournal({config,journalEntryId,fetcher});
+  if(!result.ok)return result;
+  const journal=result.journal;
+  if(journal.status!=='POSTED')return {ok:false,message:'The retained Journal is not posted.'};
+  const row=journal.lines.find(line=>line.journal_line_id===journalLineId&&line.ledger_line_id===ledgerLineId);
+  if(!row)return {ok:false,message:'The Journal did not retain the selected ledger-line identity.'};
+  if(accountCode!==null&&row.account_code!==accountCode)return {ok:false,message:'The Journal ledger line is outside the selected account.'};
+  return {ok:true,row:{period_id:journal.period_id,account_code:row.account_code,currency:journal.currency,journal_date:journal.journal_date,journal_entry_id:journal.journal_entry_id,journal_number:journal.journal_number,journal_line_id:row.journal_line_id,ledger_line_id:row.ledger_line_id,journal_revision:journal.revision,member_ref:row.member_ref,description:row.description,debit_amount:row.debit_amount,credit_amount:row.credit_amount,source_document_ids:[...row.source_document_ids]}};
+}const providerValue=value=>value===null||value===undefined||value===''?'Not supplied by Provider':String(value);
 const ProviderValue=({value})=>{const text=providerValue(value);const display=text.length>64?`${text.slice(0,61)}...`:text;return <b title={display===text?undefined:text}>{display}</b>;};
 const providerMatchCount=count=>count===0?'0':count===1?'1':'2+';
 const mappingTitle=status=>status==='RESOLVED'?'Controller mapping resolved':status==='QUARANTINED'?'Mapping quarantined':status==='REJECTED'?'Mapping rejected':'Mapping review required';
@@ -103,8 +99,9 @@ export function AuthoritativeLineageDrill({config,fetcher=globalThis.fetch,initi
   };
   const readLedgerFromReport=async(row,ledgerLineId)=>{
     if(!row.ledger_line_ids.includes(ledgerLineId)){block('The selected ledger line is outside the immutable report row.');return;}
+    const journalEntryId=ids(row.journal_entry_ids).find(Boolean),journalLineId=ids(row.journal_line_ids).find(Boolean);
     const token=beginRead();
-    let result;try{result=await readExactAuthoritativeLedgerLine({config,accountCode:row.account_code,ledgerLineId,fetcher});}catch{fail(token,'The immutable General Ledger evidence could not be read. Refresh the report and retry.');return;}
+    let result;try{result=await readExactAuthoritativeLedgerLine({config,accountCode:row.account_code,ledgerLineId,fetcher,journalEntryId,journalLineId});}catch{fail(token,'The immutable General Ledger evidence could not be read. Refresh the report and retry.');return;}
     if(!requestGuard.current.isCurrent(token))return;
     if(!result.ok){fail(token,result.message);return;}
     const item=result.row;
@@ -113,9 +110,10 @@ export function AuthoritativeLineageDrill({config,fetcher=globalThis.fetch,initi
   };
   const readLedgerFromEvidence=async(evidence,ledgerLineId)=>{
     if(!ids(evidence?.ledger_line_ids).includes(ledgerLineId)){block('The selected ledger line is outside the immutable evidence row.');return;}
+    const journalEntryId=ids(evidence?.journal_entry_ids).find(Boolean),journalLineId=ids(evidence?.journal_line_ids).find(Boolean);
     const token=beginRead();
     const accountCode=typeof evidence.account_code==='string'&&evidence.account_code?evidence.account_code:null;
-    let result;try{result=await readExactAuthoritativeLedgerLine({config,accountCode,ledgerLineId,fetcher});}catch{fail(token,'The immutable General Ledger evidence could not be read. Return to the current evidence and retry.');return;}
+    let result;try{result=await readExactAuthoritativeLedgerLine({config,accountCode,ledgerLineId,fetcher,journalEntryId,journalLineId});}catch{fail(token,'The immutable General Ledger evidence could not be read. Return to the current evidence and retry.');return;}
     if(!requestGuard.current.isCurrent(token))return;
     if(!result.ok){fail(token,result.message);return;}
     const item=result.row;
