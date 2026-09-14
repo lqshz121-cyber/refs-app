@@ -175,7 +175,7 @@ function Login({onLogin}) {
 // control resolves the same code everywhere instead of repeating the literal.
 const CURRENT_PERIOD = '2026-07';
 
-function App() {
+export function LegacyDemoApp({internalTest=false}={}) {
   const boundary = resolveRuntimeBoundary(globalThis);
   if (boundary.surface === SURFACE_ERROR) return <RuntimeErrorPage code={boundary.code}/>;
   if (boundary.surface !== SURFACE_DEMONSTRATION) return <AuthoritativeApp environment={globalThis}/>;
@@ -506,6 +506,7 @@ function App() {
 }
 
 
+
 function AuditLog({ctx}) {
   const log = repo.auditLog();
   const T = ctx ? null : null;
@@ -533,7 +534,9 @@ function Approvals({ctx}) {
   </div>;
 }
 
-export { App, AuthoritativeApp, authoritativeRuntimeConfigured, AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft };
+export { LegacyDemoApp as App, AuthoritativeApp, authoritativeRuntimeConfigured, AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft };
 if (typeof document !== 'undefined' && document.getElementById('root')) {
-  createRoot(document.getElementById('root')).render(<App/>);
+  createRoot(document.getElementById('root')).render(<LegacyDemoApp/>);
 }
+
+export default LegacyDemoApp;

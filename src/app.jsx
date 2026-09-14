@@ -15,7 +15,7 @@ import {
   validateAuthoritativeDocumentDraft,
 } from './authoritative-workspace.jsx';
 import { RuntimeErrorPage } from './runtime-error-page.jsx';
-import { SURFACE_AUTHORITATIVE, SURFACE_ERROR, resolveRuntimeBoundary } from './runtime-mode.mjs';
+import { SURFACE_AUTHORITATIVE, SURFACE_ERROR, SURFACE_INTERNAL_TEST, resolveRuntimeBoundary } from './runtime-mode.mjs';
 
 class AuthoritativeRootBoundary extends Component {
   constructor(props) {
@@ -38,6 +38,7 @@ class AuthoritativeRootBoundary extends Component {
 export function App() {
   const boundary = resolveRuntimeBoundary(globalThis);
   if (boundary.surface === SURFACE_ERROR) return <RuntimeErrorPage code={boundary.code}/>;
+  if (boundary.surface === SURFACE_INTERNAL_TEST) return <InternalTestFixtureApp/>;
   if (boundary.surface !== SURFACE_AUTHORITATIVE) {
     return <RuntimeErrorPage code="CONFIGURATION_REQUIRED"/>;
   }
@@ -45,6 +46,11 @@ export function App() {
     <AuthoritativeApp environment={globalThis}/>
   </AuthoritativeRootBoundary>;
 }
+
+// This intentionally has no production dependency: the complete fixture
+// workspace is bundled only for an explicit INTERNAL_TEST build.  `lazy`
+// avoids the authoritative shell importing browser-local accounting state.
+const InternalTestFixtureApp = React.lazy(() => import('./legacy-demo-app.jsx'));
 
 export {
   AuthoritativeApp,

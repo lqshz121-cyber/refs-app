@@ -18,6 +18,7 @@ const https=value=>{try{const url=new URL(value);return url.protocol==='https:'&
 export const AUTHORITATIVE_CHANNEL='AUTHORITATIVE';
 export const DEMONSTRATION_CHANNEL='PUBLIC_DEMONSTRATION';
 export const DEMONSTRATION_MODE='LOCAL_MOCK';
+export const INTERNAL_TEST_MODE='INTERNAL_TEST';
 
 const coordinatesPresent=environment=>keys.filter(key=>typeof environment[key]==='string'&&environment[key].trim());
 
@@ -26,7 +27,8 @@ export const requestedRuntimeMode=(environment={})=>(environment.REFS_PUBLIC_RUN
 // The channel is derived from the same environment that renders the adapter, so
 // the two artefacts cannot disagree unless one of them is edited after the build.
 export const resolveRuntimeChannel=(environment={})=>
-  requestedRuntimeMode(environment)===DEMONSTRATION_MODE?DEMONSTRATION_CHANNEL:AUTHORITATIVE_CHANNEL;
+  requestedRuntimeMode(environment)===DEMONSTRATION_MODE?DEMONSTRATION_CHANNEL:
+    requestedRuntimeMode(environment)===INTERNAL_TEST_MODE?INTERNAL_TEST_MODE:AUTHORITATIVE_CHANNEL;
 
 export const renderBuildChannelStamp=(environment={})=>{
   const channel=resolveRuntimeChannel(environment);
@@ -36,6 +38,8 @@ export const renderBuildChannelStamp=(environment={})=>{
 export const renderFailClosedRuntimeConfig=()=>`// Generated fail-closed deployment configuration. No provider coordinates were supplied.\nwindow.__REFS_OIDC__=null;\nwindow.__REFS_ACCOUNTING_API__=null;\nwindow.__REFS_RUNTIME_MODE__='REQUIRES_AUTHORITATIVE_API';\n`;
 
 export const renderLocalMockRuntimeConfig=()=>`// Generated explicit public demonstration configuration. Never treat this as provider or production evidence.\nwindow.__REFS_OIDC__=null;\nwindow.__REFS_ACCOUNTING_API__=null;\nwindow.__REFS_RUNTIME_MODE__='LOCAL_MOCK';\n`;
+
+export const renderInternalTestRuntimeConfig=()=>`// Generated internal-test configuration. It uses deterministic fixtures only; it has no provider, API credentials, or WBS write authority.\nwindow.__REFS_OIDC__=null;\nwindow.__REFS_ACCOUNTING_API__=null;\nwindow.__REFS_RUNTIME_MODE__='INTERNAL_TEST';\n`;
 
 export const renderRuntimeConfig=(environment={})=>{
   const present=coordinatesPresent(environment);
@@ -62,6 +66,11 @@ export const renderRuntimeConfigOrLock=(environment={})=>{
     const configured=coordinatesPresent(environment);
     if(configured.length)throw new Error(`A public demonstration build must not carry authoritative deployment coordinates: ${configured.join(', ')}`);
     return renderLocalMockRuntimeConfig();
+  }
+  if(requestedMode===INTERNAL_TEST_MODE){
+    const configured=coordinatesPresent(environment);
+    if(configured.length)throw new Error(`An internal-test build must not carry authoritative deployment coordinates: ${configured.join(', ')}`);
+    return renderInternalTestRuntimeConfig();
   }
   if(requestedMode)throw new Error(`Unsupported public runtime mode: ${requestedMode}`);
   return renderRuntimeConfig(environment)??renderFailClosedRuntimeConfig();

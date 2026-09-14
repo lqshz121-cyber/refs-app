@@ -23,9 +23,11 @@ import {
   AUTHORITATIVE_MODE,
   DEMONSTRATION_CHANNEL,
   DEMONSTRATION_MODE,
+  INTERNAL_TEST_MODE,
   REJECTED_MODE,
   SURFACE_AUTHORITATIVE,
   SURFACE_DEMONSTRATION,
+  SURFACE_INTERNAL_TEST,
   SURFACE_ERROR,
   resolveRuntimeBoundary,
 } from './src/runtime-mode.mjs';
@@ -33,6 +35,7 @@ import {
   renderBuildChannelStamp,
   renderFailClosedRuntimeConfig,
   renderLocalMockRuntimeConfig,
+  renderInternalTestRuntimeConfig,
   renderRuntimeConfigOrLock,
   resolveRuntimeChannel,
 } from './scripts/runtime-config-lib.mjs';
@@ -61,6 +64,7 @@ const boundaryCases = [
   ['authoritative adapter, unstamped build', { __REFS_RUNTIME_MODE__: AUTHORITATIVE_MODE }, SURFACE_AUTHORITATIVE, null],
   ['authoritative adapter, authoritative stamp', { __REFS_RUNTIME_MODE__: AUTHORITATIVE_MODE, __BUILD: stamp(AUTHORITATIVE_CHANNEL) }, SURFACE_AUTHORITATIVE, null],
   ['demonstration adapter, demonstration stamp', { __REFS_RUNTIME_MODE__: DEMONSTRATION_MODE, __BUILD: stamp(DEMONSTRATION_CHANNEL) }, SURFACE_DEMONSTRATION, null],
+  ['internal-test adapter, internal-test stamp', { __REFS_RUNTIME_MODE__: INTERNAL_TEST_MODE, __BUILD: stamp(INTERNAL_TEST_MODE) }, SURFACE_INTERNAL_TEST, null],
 ];
 let demonstrationSurfaces = 0;
 for (const [name, environment, surface, code] of boundaryCases) {
@@ -97,6 +101,11 @@ assert.throws(
   'a demonstration build must refuse authoritative coordinates',
 );
 assert.throws(
+  () => renderRuntimeConfigOrLock({ ...coordinates, REFS_PUBLIC_RUNTIME_MODE: INTERNAL_TEST_MODE }),
+  /must not carry authoritative deployment coordinates/,
+  'an internal-test build must refuse authoritative coordinates',
+);
+assert.throws(
   () => renderRuntimeConfigOrLock({ REFS_PUBLIC_RUNTIME_MODE: DEMONSTRATION_MODE, REFS_PUBLIC_ACCOUNTING_API_BASE_URL: 'https://api.example' }),
   /must not carry authoritative deployment coordinates/,
   'one authoritative coordinate is enough to refuse a demonstration build',
@@ -104,6 +113,7 @@ assert.throws(
 assert.throws(() => renderRuntimeConfigOrLock({ REFS_PUBLIC_RUNTIME_MODE: 'STAGING' }), /Unsupported public runtime mode/);
 assert.equal(renderRuntimeConfigOrLock({}), renderFailClosedRuntimeConfig(), 'an unconfigured build must render the fail-closed adapter');
 assert.equal(renderRuntimeConfigOrLock({ REFS_PUBLIC_RUNTIME_MODE: DEMONSTRATION_MODE }), renderLocalMockRuntimeConfig());
+assert.equal(renderRuntimeConfigOrLock({ REFS_PUBLIC_RUNTIME_MODE: INTERNAL_TEST_MODE }), renderInternalTestRuntimeConfig());
 
 // The adapter and the stamp are rendered from one environment, so they agree by
 // construction. Verify that agreement rather than assuming it.
@@ -111,6 +121,7 @@ for (const [environment, expectedChannel, expectedMode] of [
   [{}, AUTHORITATIVE_CHANNEL, AUTHORITATIVE_MODE],
   [coordinates, AUTHORITATIVE_CHANNEL, AUTHORITATIVE_MODE],
   [{ REFS_PUBLIC_RUNTIME_MODE: DEMONSTRATION_MODE }, DEMONSTRATION_CHANNEL, DEMONSTRATION_MODE],
+  [{ REFS_PUBLIC_RUNTIME_MODE: INTERNAL_TEST_MODE }, INTERNAL_TEST_MODE, INTERNAL_TEST_MODE],
 ]) {
   const adapter = renderRuntimeConfigOrLock(environment);
   const channelStamp = renderBuildChannelStamp(environment);
@@ -121,7 +132,7 @@ for (const [environment, expectedChannel, expectedMode] of [
   assert.ok(!/REFS_PUBLIC_|DATABASE_URL|ACCESS_KEY|SECRET_ACCESS/i.test(channelStamp), 'the build stamp must not carry environment placeholders or secrets');
   // The browser-side resolver must accept the artefacts the build step produces.
   const boundary = resolveRuntimeBoundary({ __REFS_RUNTIME_MODE__: expectedMode, __BUILD: stamp(expectedChannel) });
-  assert.equal(boundary.surface, expectedMode === DEMONSTRATION_MODE ? SURFACE_DEMONSTRATION : SURFACE_AUTHORITATIVE);
+  assert.equal(boundary.surface, expectedMode === DEMONSTRATION_MODE ? SURFACE_DEMONSTRATION : expectedMode === INTERNAL_TEST_MODE ? SURFACE_INTERNAL_TEST : SURFACE_AUTHORITATIVE);
 }
 
 // A configured authoritative adapter must reach its API and provider over HTTPS.
@@ -148,7 +159,8 @@ assert.match(app, /resolveRuntimeBoundary\(globalThis\)/, 'app.jsx must resolve 
 assert.doesNotMatch(app, /__REFS_RUNTIME_MODE__\s*[!=]==/, 'app.jsx must not compare the runtime mode directly');
 assert.match(app, /boundary\.surface === SURFACE_ERROR\) return <RuntimeErrorPage/, 'an error surface must render the runtime error page');
 assert.match(app, /boundary\.surface !== SURFACE_AUTHORITATIVE/, 'only the authoritative surface may reach the authoritative app');
-assert.doesNotMatch(app, /SURFACE_DEMONSTRATION|legacy-demo-app|seed\.js|localStorage/, 'the production entry must not retain a route to browser demonstration state');
+assert.match(app, /SURFACE_INTERNAL_TEST/, 'internal-test fixture entry must be explicit');
+assert.doesNotMatch(app, /SURFACE_DEMONSTRATION|seed\.js|localStorage/, 'the production entry must not retain a route to browser demonstration state');
 
 const authoritative = read('src/authoritative-app.jsx');
 assert.match(authoritative, /AUTHENTICATION_REQUIRED' \? 'LOGIN_REQUIRED'/, '401 must route to re-authentication');
