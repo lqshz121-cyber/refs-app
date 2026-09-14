@@ -23,7 +23,8 @@ export async function readExactAuthoritativeLedgerLine({config,accountCode=null,
   if(!row)return {ok:false,message:'The Journal did not retain the selected ledger-line identity.'};
   if(accountCode!==null&&row.account_code!==accountCode)return {ok:false,message:'The Journal ledger line is outside the selected account.'};
   return {ok:true,row:{period_id:journal.period_id,account_code:row.account_code,currency:journal.currency,journal_date:journal.journal_date,journal_entry_id:journal.journal_entry_id,journal_number:journal.journal_number,journal_line_id:row.journal_line_id,ledger_line_id:row.ledger_line_id,journal_revision:journal.revision,member_ref:row.member_ref,description:row.description,debit_amount:row.debit_amount,credit_amount:row.credit_amount,source_document_ids:[...row.source_document_ids]}};
-}const providerValue=value=>value===null||value===undefined||value===''?'Not supplied by Provider':String(value);
+}
+const providerValue=value=>value===null||value===undefined||value===''?'Not supplied by Provider':String(value);
 const ProviderValue=({value})=>{const text=providerValue(value);const display=text.length>64?`${text.slice(0,61)}...`:text;return <b title={display===text?undefined:text}>{display}</b>;};
 const providerMatchCount=count=>count===0?'0':count===1?'1':'2+';
 const mappingTitle=status=>status==='RESOLVED'?'Controller mapping resolved':status==='QUARANTINED'?'Mapping quarantined':status==='REJECTED'?'Mapping rejected':'Mapping review required';
