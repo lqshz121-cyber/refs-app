@@ -6,7 +6,9 @@ This guide is for an isolated internal demonstration. It uses only the repositor
 
 ```powershell
 npm.cmd ci
+$env:REFS_PUBLIC_RUNTIME_MODE='INTERNAL_TEST'
 npm.cmd run build
+Remove-Item Env:REFS_PUBLIC_RUNTIME_MODE
 npx serve dist -l 4173
 ```
 
