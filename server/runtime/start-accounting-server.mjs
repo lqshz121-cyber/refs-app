@@ -174,4 +174,9 @@ export async function startAccountingServer({env=process.env,fetcher=globalThis.
   logger.info?.(JSON.stringify({event:'accounting_server_started',host:config.host,port:config.port}));return {server,runtimePool,issuerPool,stop,config};
 }
 
-if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)startAccountingServer().catch(()=>{console.error(safeRuntimeFailureLog('accounting_server_start_failed','ACCOUNTING_SERVER_START_FAILED'));process.exitCode=1;});
+const startupFailureCode=error=>{
+  const code=typeof error?.code==='string'?error.code.trim().toUpperCase():'';
+  return /^[A-Z][A-Z0-9_]{2,127}$/.test(code)?code:'ACCOUNTING_SERVER_START_FAILED';
+};
+
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)startAccountingServer().catch(error=>{console.error(safeRuntimeFailureLog('accounting_server_start_failed',startupFailureCode(error)));process.exitCode=1;});
