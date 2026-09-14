@@ -43,11 +43,11 @@ const writeActor=(method,pathname,body)=>{
   }
   if(domain==='cash-transfers'){
     if(parts.length===5)return 'maker';
+    if(resource==='bank-account-controls')return parts.length===6?'maker':next==='approve'?'approver':next==='retire'?'reversalMaker':null;
     if(id==='transitions')return action==='SUBMIT'?'submitter':action==='REVIEW'?'reviewer':action==='APPROVE'?'approver':null;
     if(id==='post')return 'poster';
     if(id==='cancel')return 'reversalMaker';
     if(id==='bank-links')return 'cashTransferReconciler';
-    if(resource==='bank-account-controls')return parts.length===6?'maker':next==='approve'?'approver':next==='retire'?'reversalMaker':null;
     return null;
   }
   if(domain==='ap'){
@@ -95,6 +95,7 @@ export function routeInternalTestPrincipal({method,url,body,principal,actors}={}
   // unauthenticated, so use its dedicated expense maker only for this exact
   // prerequisite read; all other reads remain the reader identity.
   if(method==='GET'&&/^\/api\/v1\/entities\/[^/]+\/ap\/expenses\/options$/.test(pathname))return Object.freeze({...principal,actorId:actors.expenseMaker,internalTest:true,internalTestActorRole:'expenseMaker'});
+  if(method==='GET'&&/^\/api\/v1\/entities\/[^/]+\/cash-transfers\/bank-account-controls$/.test(pathname))return Object.freeze({...principal,actorId:actors.maker,internalTest:true,internalTestActorRole:'maker'});
   if(method==='GET'||method==='HEAD')return Object.freeze({...principal,actorId:actors.reader,internalTest:true});
   const actorKey=writeActor(method,pathname,body);
   if(!actorKey)throw new InternalTestIdentityRouteError('INTERNAL_TEST_COMMAND_NOT_ADMITTED','This internal-test command is not admitted to the controlled workflow');
