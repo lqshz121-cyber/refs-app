@@ -13,7 +13,7 @@ const role=(authorityClass,permissions,{principalKind='HUMAN'}={})=>Object.freez
 // Each authenticated subject receives one frozen bundle. Write authority
 // stages never mix Draft, Submit, Review, Approve, or Post.
 export const AUTHORITATIVE_WORKFLOW_ROLES=Object.freeze({
-  ...Object.fromEntries(Object.entries(ADDITIONAL_WORKFLOW_ROLES).map(([name,definition])=>[name,role(definition.authorityClass,[...READ,...(definition.permission.startsWith('ACCOUNTING.SETTINGS.WORKFLOW.')&&definition.permission!=='ACCOUNTING.SETTINGS.WORKFLOW.VIEW'?['ACCOUNTING.SETTINGS.WORKFLOW.VIEW']:[]),...(definition.permission.startsWith('RECURRING.SCHEDULE.')&&definition.permission!=='RECURRING.SCHEDULE.VIEW'?['RECURRING.SCHEDULE.VIEW']:[]),definition.permission])])),
+  ...Object.fromEntries(Object.entries(ADDITIONAL_WORKFLOW_ROLES).map(([name,definition])=>[name,role(definition.authorityClass,[...(definition.permission.startsWith('RECURRING.SCHEDULE.')?[]:READ),...(definition.permission.startsWith('ACCOUNTING.SETTINGS.WORKFLOW.')&&definition.permission!=='ACCOUNTING.SETTINGS.WORKFLOW.VIEW'?['ACCOUNTING.SETTINGS.WORKFLOW.VIEW']:[]),definition.permission])])),
   RECURRING_SCHEDULE_VIEWER:role('READ',[...READ,'RECURRING.SCHEDULE.VIEW']),
   ACCOUNTING_SETTINGS_WORKFLOW_VIEWER:role('READ',[...READ,'ACCOUNTING.SETTINGS.WORKFLOW.VIEW']),
   COUNTERPARTY_MAKER:role('DRAFT',[...READ,'MASTER.COUNTERPARTY.PROPOSE']),

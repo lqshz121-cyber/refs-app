@@ -416,4 +416,8 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"409_unit_transfer_post_lineage_guard_fix.sql","up":"9d12e393046bee6a075e4bcac548f78d7d9f5fb5ed44185b143819395536dbdc","down":"68a790d4cbd3ec533f0918c4e4dd3e56c777c4071c5e7f8fd8aa43111da71345"}),
   Object.freeze({"name":"410_unit_transfer_pair_read_arity_fix.sql","up":"ed66d0771d1fb3a9e6d3f97e93c3b4e386ef464d22e0c02cefafb631aa2d9e9c","down":"0058be9704b0a91f913eba4c44395275dd3e1e6aa740ebd0606d800e423738ec"}),
   Object.freeze({"name":"411_cash_transfer_journal_status_enum_fix.sql","up":"4cdba2b92ac01ccfd517e2605fbdf0883f6358f30682cb00d8e4c4933170de8c","down":"21326f3275b81ecd3118bbf9a2b7ed7d382b8cdfa4083395797be543e04bc339"}),
+  Object.freeze({"name":"412_recurring_scheduler_read_authority_fix.sql","up":"078fe91c73d374d86fbf70ecb810c6fd26c10914911c6c696fadc8d4c55f5d0a","down":"164dbf7978270eb715df170489520036e57f3f31b1b975135d7aa4813cb11e0a"}),
+  Object.freeze({"name":"413_recurring_scheduler_line_validation_fix.sql","up":"feb3968403e7646bf2d46cbb29ccaae182beb5b16837939957cff836ac465858","down":"7a15dadbb4953e2bc16954e00ea7b6fe44aed9d8758002ec415611933bde00ff"}),
+  Object.freeze({"name":"414_runtime_context_additive_authority_fix.sql","up":"1d121952f548d249d2d24dcdff5b52f988f0ef2b1999ba6cdb5d74d7dc9d3b52","down":"0377a7b3434845e3c9ff3f4673126aa9c968041090d0349824adfe561f9bf27b"}),
+  Object.freeze({"name":"415_recurring_scheduler_lifecycle_least_privilege.sql","up":"f70bd3c0588af3834cf83f739956e623467003521c200c54ce1377bf791f1c1c","down":"f035af58fd0e454c88fc3f80568b3444abda38009e6692f50712d2bee0365e1b"}),
 ]);

@@ -7368,6 +7368,39 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   assert.equal((await counts()).sales,2);
 });
 
+pgTest('recurring scheduler separates creation approval and due-run, creates one Draft, and never writes ledger',async()=>{
+  const ids=await seed({status:'DRAFT',extraAccounts:[{accountCode:'610000',accountName:'Recurring expense'}]});
+  const maker=await formalWorkflowRoleKernel(ids,'recurring-maker','RECURRING_SCHEDULE_MAKER');
+  const submitter=await formalWorkflowRoleKernel(ids,'recurring-submitter','RECURRING_SCHEDULE_SUBMITTER');
+  const approver=await formalWorkflowRoleKernel(ids,'recurring-approver','RECURRING_SCHEDULE_APPROVER');
+  const runner=await formalWorkflowRoleKernel(ids,'recurring-runner','RECURRING_SCHEDULE_RUNNER');
+  assert.deepEqual((await adminPool.query("SELECT permission,authority_class FROM runtime_actor_grant WHERE tenant_id=$1 AND entity_id=$2 AND actor_id='recurring-submitter' AND revoked_at IS NULL ORDER BY permission",[ids.tenantId,ids.entityId])).rows,[{permission:'RECURRING.SCHEDULE.SUBMIT',authority_class:'SUBMIT'}]);
+  const command={tenantId:ids.tenantId,entityId:ids.entityId,name:'Monthly recurring fixture',journalPrefix:'RECUR',currency:'USD',frequency:'MONTHLY',nextDueOn:'2026-07-31',endsOn:null,lines:[{lineNo:1,accountCode:'610000',debitAmount:'25.0000',creditAmount:'0.0000',memberRef:null,description:'Recurring expense',dimensions:{}},{lineNo:2,accountCode:'291001',debitAmount:'0.0000',creditAmount:'25.0000',memberRef:'VENDOR-1',description:'Recurring payable',dimensions:{}}],reason:'Create a controlled recurring schedule fixture.',idempotencyKey:'recurring-create-fixture-001'};
+  const created=await maker.createRecurringSchedule(command);assert.equal(created.status,'DRAFT');assert.equal(created.revision,'0');
+  const replay=await maker.createRecurringSchedule(command);assert.equal(replay.idempotent,true);assert.equal(replay.recurring_schedule_id,created.recurring_schedule_id);
+  await assert.rejects(maker.transitionRecurringSchedule({...ids,scheduleId:created.recurring_schedule_id,action:'SUBMIT',expectedRevision:0,reason:'Maker cannot submit this recurring schedule.',idempotencyKey:'recurring-maker-submit-001'}),error=>error.code==='40001');
+  const submitted=await submitter.transitionRecurringSchedule({...ids,scheduleId:created.recurring_schedule_id,action:'SUBMIT',expectedRevision:0,reason:'Independent submitter sends this recurring schedule.',idempotencyKey:'recurring-submit-001'});assert.equal(submitted.status,'PENDING_APPROVAL');assert.equal(submitted.revision,'1');
+  await assert.rejects(submitter.transitionRecurringSchedule({...ids,scheduleId:created.recurring_schedule_id,action:'APPROVE',expectedRevision:1,reason:'Submitter cannot approve this recurring schedule.',idempotencyKey:'recurring-submitter-approve-001'}),error=>error.code==='42501');
+  const active=await approver.transitionRecurringSchedule({...ids,scheduleId:created.recurring_schedule_id,action:'APPROVE',expectedRevision:1,reason:'Independent approver activates this recurring schedule.',idempotencyKey:'recurring-approve-001'});assert.equal(active.status,'ACTIVE');assert.equal(active.revision,'2');
+  const before=(await adminPool.query('SELECT count(*)::int journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0];
+  const batch=await runner.runDueRecurringSchedules({...ids,asOfDate:'2026-07-31',limit:1,idempotencyKey:'recurring-run-001'});assert.deepEqual({attempted:batch.attempted_count,drafts:batch.draft_created_count,failed:batch.failed_count,post:batch.action_flags.can_post},{attempted:'1',drafts:'1',failed:'0',post:false});assert.equal(batch.runs.length,1);assert.equal(batch.runs[0].status,'DRAFT_CREATED');
+  const draftId=batch.runs[0].journal_entry_id;assert.ok(draftId);assert.deepEqual((await adminPool.query('SELECT status,journal_type,journal_date,currency FROM journal_entry WHERE journal_entry_id=$1',[draftId])).rows[0],{status:'DRAFT',journal_type:'AUTO',journal_date:'2026-07-31',currency:'USD'});assert.deepEqual((await adminPool.query('SELECT account_code,debit_amount,credit_amount,member_ref FROM journal_line WHERE journal_entry_id=$1 ORDER BY line_no',[draftId])).rows,[{account_code:'610000',debit_amount:'25.0000',credit_amount:'0.0000',member_ref:null},{account_code:'291001',debit_amount:'0.0000',credit_amount:'25.0000',member_ref:'VENDOR-1'}]);
+  const after=(await adminPool.query('SELECT count(*)::int journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0];assert.deepEqual(after,{journals:before.journals+1,ledger:before.ledger});
+  const rerun=await runner.runDueRecurringSchedules({...ids,asOfDate:'2026-07-31',limit:1,idempotencyKey:'recurring-run-001'});assert.equal(rerun.idempotent,true);assert.equal((await adminPool.query('SELECT count(*)::int n FROM recurring_schedule_run WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,1);assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='RECURRING_SCHEDULE_DRAFT_CREATED'",[ids.tenantId])).rows[0].n,1);assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE tenant_id=$1 AND event_type='RECURRING_SCHEDULE_DRAFT_CREATED'",[ids.tenantId])).rows[0].n,1);
+});
+
+pgTest('kernel issues a fresh one-transaction capability for every sequential operation',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),actor='sequential-capability-reader';
+  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor,tenantId:ids.tenantId})});
+  await trustedSession(ids,actor,['AP.VIEW']);
+  const issued=[];
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>{const session=await issuer.issue({tenantId:ids.tenantId});issued.push(hash(session.contextToken));return session;}});
+  for(let attempt=0;attempt<2;attempt++)await kernel.inSession(client=>client.query("SELECT refs_assert_scope($1,$2,'AP.VIEW')",[ids.tenantId,ids.entityId]));
+  assert.equal(issued.length,2);assert.notEqual(issued[0],issued[1]);
+  const contexts=(await adminPool.query('SELECT bound_backend_pid,bound_txid FROM runtime_auth_context WHERE token_hash=ANY($1::text[]) ORDER BY token_hash', [issued])).rows;
+  assert.equal(contexts.length,2);assert.ok(contexts.every(row=>row.bound_backend_pid!==null&&row.bound_txid!==null));
+});
+
 pgTest('native expense creates, preserves evidence, posts through normal approval, and rejects journal drift atomically',async()=>{
   const ids=await seed({status:'DRAFT',extraAccounts:[{accountCode:'610000',accountName:'Expense'}]});
   const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;

@@ -25,6 +25,7 @@ export const FIXTURES=Object.freeze([
   Object.freeze({id:'ai-amortization-human-close',pattern:'AI amortization creates a human Draft then standard Posted JE with immutable source and ledger lineage'}),
   Object.freeze({id:'fixed-asset-depreciation-close',pattern:'native fixed asset depreciation retains evidence, races one Post, and refreshes register GL and report'}),
   Object.freeze({id:'native-expense-close',pattern:'native expense creates, preserves evidence, posts through normal approval, and rejects journal drift atomically'}),
+  Object.freeze({id:'recurring-scheduler-close',pattern:'recurring scheduler separates creation approval and due-run, creates one Draft, and never writes ledger'}),
   Object.freeze({id:'unit-transfer-close',pattern:'Unit Transfer creates a dual-entity Draft, applies separated approvals, posts both ledgers, and transfers the unit atomically'}),
   Object.freeze({id:'cash-transfer-close',pattern:'Cash Transfer creates a two-bank Draft, applies separated approvals, and posts one retained ledger journal'}),
   Object.freeze({id:'ap-partial-payment-reversal-close',pattern:'AP payment partial occurrence posts and reversal restores bill balance atomically'}),
