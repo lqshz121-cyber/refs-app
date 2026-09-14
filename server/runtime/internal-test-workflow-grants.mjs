@@ -1,7 +1,7 @@
 import {KernelError} from './db.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const ROLES=Object.freeze(['reader','maker','expenseMaker','paymentMaker','receiptMaker','salesReceiptMaker','reversalMaker','adjustmentMaker','refundMaker','allocator','submitter','reviewer','approver','poster','reconciliationStarter','clearer','unmatcher','reopener','periodCloser','periodReopener','cashTransferReconciler','recurringRunner','wbsTestImporter']);
+const ROLES=Object.freeze(['reader','maker','expenseMaker','paymentMaker','receiptMaker','salesReceiptMaker','reversalMaker','adjustmentMaker','refundMaker','allocator','submitter','reviewer','approver','poster','reconciliationStarter','clearer','unmatcher','reopener','periodCloser','periodReopener','cashTransferReconciler','recurringRunner']);
 const READ=Object.freeze(['AP.VIEW','AR.VIEW','BANK.VIEW','GL.JE.VIEW','GL.REPORT.VIEW','WBS.AUTOREC.VIEW']);
 
 // These bundles must conform to the live database authority matrix.  The
@@ -29,11 +29,10 @@ export const INTERNAL_TEST_WORKFLOW_GRANT_BUNDLES=Object.freeze({
   periodCloser:Object.freeze([...READ,'GL.PERIOD.CLOSE']),
   periodReopener:Object.freeze([...READ,'GL.PERIOD.REOPEN']),
   cashTransferReconciler:Object.freeze([...READ,'CASH.TRANSFER.VIEW','CASH.TRANSFER.RECONCILE']),
-  recurringRunner:Object.freeze([...READ,'RECURRING.SCHEDULE.RUN']),
-  wbsTestImporter:Object.freeze(['WBS.TEST.IMPORT','WBS.AUTOREC.VIEW'])
+  recurringRunner:Object.freeze([...READ,'RECURRING.SCHEDULE.RUN'])
 });
 
-const AUTHORITY=Object.freeze({reader:'READ',maker:'DRAFT',expenseMaker:'DRAFT',paymentMaker:'PAYMENT',receiptMaker:'RECEIPT',salesReceiptMaker:'DRAFT',reversalMaker:'REVERSAL',adjustmentMaker:'ADJUSTMENT',refundMaker:'REFUND',allocator:'ALLOCATION',submitter:'SUBMIT',reviewer:'REVIEW',approver:'APPROVE',poster:'POST',reconciliationStarter:'DRAFT',clearer:'DRAFT',unmatcher:'UNMATCH',reopener:'REOPEN',periodCloser:'CLOSE',periodReopener:'REOPEN',cashTransferReconciler:'JE_REVIEW',recurringRunner:'SCHEDULE',wbsTestImporter:'SERVICE'});
+const AUTHORITY=Object.freeze({reader:'READ',maker:'DRAFT',expenseMaker:'DRAFT',paymentMaker:'PAYMENT',receiptMaker:'RECEIPT',salesReceiptMaker:'DRAFT',reversalMaker:'REVERSAL',adjustmentMaker:'ADJUSTMENT',refundMaker:'REFUND',allocator:'ALLOCATION',submitter:'SUBMIT',reviewer:'REVIEW',approver:'APPROVE',poster:'POST',reconciliationStarter:'DRAFT',clearer:'DRAFT',unmatcher:'UNMATCH',reopener:'REOPEN',periodCloser:'CLOSE',periodReopener:'REOPEN',cashTransferReconciler:'JE_REVIEW',recurringRunner:'SCHEDULE'});
 
 function assertScope(scope){
   if(!UUID.test(scope?.tenantId||'')||!UUID.test(scope?.entityId||''))throw new KernelError('INTERNAL_TEST_GRANT_CONFIG_INVALID','Internal-test scope must use canonical UUIDs');
