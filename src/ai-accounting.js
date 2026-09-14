@@ -101,9 +101,30 @@ export function deriveMonthlyAccountVariances({jes=[],periodCode,entityId=null,m
 
 // Ingestion is deliberately lossless: source metadata stays attached to the
 // normalized read model so later rules and reviewers can drill back to it.
-export const AI_SOURCE_TYPES=Object.freeze(['BANK_TRANSACTION','PAYABLE_INVOICE','VENDOR_INVOICE','LOAN_STATEMENT','LOAN_DRAW','INTEREST_STATEMENT','GL_TRANSACTION','TRIAL_BALANCE','RENT_ROLL','PROPERTY_REPORT','WORK_ORDER','PURCHASE_ORDER','CLOSING_STATEMENT','TAX_STATEMENT','INSURANCE_DOCUMENT']);
-const SOURCE_TYPE_ALIASES=Object.freeze({BANK:'BANK_TRANSACTION',BANK_FEED:'BANK_TRANSACTION',INVOICE:'VENDOR_INVOICE',PAYABLE:'PAYABLE_INVOICE',CONSTRUCTION_INVOICE:'VENDOR_INVOICE',SERVICE_INVOICE:'VENDOR_INVOICE',LOAN:'LOAN_STATEMENT',INTEREST:'INTEREST_STATEMENT',PROPERTY_TAX:'TAX_STATEMENT',INSURANCE:'INSURANCE_DOCUMENT'});
-const sourceIdOf=source=>source?.source_id||source?.source_doc_id||source?.doc_id||source?.id;
+export const AI_SOURCE_TYPES=Object.freeze([
+  'BANK_STATEMENT','BANK_FEED','PAYABLE_REPORT','COST_GL','PROPERTY_COMPARISON_REPORT',
+  'CONSTRUCTION_LOAN_DATA','LOAN_DRAW_SCHEDULE','VENDOR_INVOICE','WORK_ORDER','PURCHASE_ORDER',
+  'PROPERTY_MANAGEMENT_OPERATION_REPORT','RENT_ROLL','RESIDENT_ACTIVITY','CLOSING_STATEMENT',
+  'TITLE_SETTLEMENT_STATEMENT','INSURANCE_DOCUMENT','PROPERTY_TAX_STATEMENT','GL_TRANSACTION_DETAIL',
+  'TRIAL_BALANCE','CHART_OF_ACCOUNTS','ENTITY_MASTER','PROJECT_MASTER','PROPERTY_MASTER',
+  'VENDOR_MASTER','CUSTOMER_TENANT_MASTER','INTERCOMPANY_MAPPING','EXISTING_JE_HISTORY',
+  'BUDGET_PROFORMA','WBS_SOURCE_DATA'
+]);
+const SOURCE_TYPE_ALIASES=Object.freeze({
+  BANK:'BANK_FEED',BANK_TRANSACTION:'BANK_FEED',PAYABLE:'PAYABLE_REPORT',PAYABLE_INVOICE:'PAYABLE_REPORT',
+  INVOICE:'VENDOR_INVOICE',CONSTRUCTION_INVOICE:'VENDOR_INVOICE',SERVICE_INVOICE:'VENDOR_INVOICE',
+  LOAN:'CONSTRUCTION_LOAN_DATA',LOAN_STATEMENT:'CONSTRUCTION_LOAN_DATA',LOAN_DRAW:'LOAN_DRAW_SCHEDULE',
+  INTEREST:'CONSTRUCTION_LOAN_DATA',GL_TRANSACTION:'GL_TRANSACTION_DETAIL',PROPERTY_REPORT:'PROPERTY_COMPARISON_REPORT',
+  PROPERTY_MANAGEMENT:'PROPERTY_MANAGEMENT_OPERATION_REPORT',TAX_STATEMENT:'PROPERTY_TAX_STATEMENT',
+  PROPERTY_TAX:'PROPERTY_TAX_STATEMENT',INSURANCE:'INSURANCE_DOCUMENT',WBS:'WBS_SOURCE_DATA'
+});
+const sourceIdOf=source=>[source?.source_id,source?.source_doc_id,source?.doc_id,source?.id].find(value=>value!==undefined&&value!==null&&value!=='');
+const parseMoney4=value=>{
+  if(typeof value==='number'&&Number.isFinite(value))value=String(value);
+  if(typeof value!=='string'||!/^[-+]?(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(value.trim()))return null;
+  const normalized=value.trim().replace(/^\+/,'');
+  return Number(normalized);
+};
 const isValidISODate=value=>{ const match=String(value||'').match(/^(\d{4})-(\d{2})-(\d{2})$/); if(!match) return false; const year=Number(match[1]),month=Number(match[2]),day=Number(match[3]); const parsed=new Date(Date.UTC(year,month-1,day)); return parsed.getUTCFullYear()===year&&parsed.getUTCMonth()===month-1&&parsed.getUTCDate()===day; };
 const isValidPeriodCode=value=>/^\d{4}-(0[1-9]|1[0-2])$/.test(String(value||''));
 export function normalizeAccountingSource(source={}) {
@@ -111,12 +132,12 @@ export function normalizeAccountingSource(source={}) {
   const rawSourceType=String(source.source_type||source.type||'').toUpperCase();
   const sourceType=SOURCE_TYPE_ALIASES[rawSourceType]||rawSourceType;
   const rawAmount=source.amount??source.total_amount;
-  const amount=Number(rawAmount??0);
+  const amount=parseMoney4(rawAmount);
   const date=source.date||source.txn_date||source.invoice_date||null;
   const periodCode=source.period_code||(date||'').slice(0,7)||null;
-  const required={source_id:sourceId,source_type:sourceType,entity_id:source.entity_id,date:isValidISODate(date)?date:null,period_code:isValidPeriodCode(periodCode)?periodCode:null,amount:rawAmount!==undefined&&rawAmount!==null&&rawAmount!==''&&Number.isFinite(amount)?amount:null};
+  const required={source_id:sourceId,source_type:AI_SOURCE_TYPES.includes(sourceType)?sourceType:null,entity_id:source.entity_id,date:isValidISODate(date)?date:null,period_code:isValidPeriodCode(periodCode)?periodCode:null,amount:amount===null?null:amount};
   const missing=Object.entries(required).filter(([,value])=>value===undefined||value===null||value==='').map(([field])=>field);
-  return redactSecrets({...source,source_id:sourceId,source_type:sourceType,amount:Number.isFinite(amount)?Math.round(amount*100)/100:0,date,period_code:periodCode,matched_status:source.matched_status||source.match_status||'UNMATCHED',accounting_treatment_status:source.accounting_treatment_status||'UNCLASSIFIED',ingestion_status:missing.length?'INCOMPLETE':'READY',missing_fields:missing});
+  return redactSecrets({...source,source_id:sourceId,source_type:sourceType,amount:amount===null?0:amount,date,period_code:periodCode,matched_status:source.matched_status||source.match_status||'UNMATCHED',accounting_treatment_status:source.accounting_treatment_status||'UNCLASSIFIED',ingestion_status:missing.length?'INCOMPLETE':'READY',missing_fields:missing});
 }
 
 // Classification is a transparent rule result, not an instruction to post.
