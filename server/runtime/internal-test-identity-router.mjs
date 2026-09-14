@@ -1,7 +1,7 @@
 // Internal full-test uses one browser entry point but never collapses the
-// accounting workflow into one database identity.  Each admitted command is
+// accounting workflow into one database identity. Each admitted command is
 // executed by a pre-provisioned, finite test actor; reads use the reader.
-const ACTOR_KEYS=Object.freeze(['reader','maker','submitter','reviewer','approver','poster','reconciliationStarter','clearer','reopener']);
+const ACTOR_KEYS=Object.freeze(['reader','maker','paymentMaker','reversalMaker','allocator','submitter','reviewer','approver','poster','reconciliationStarter','clearer','reopener','periodCloser','periodReopener','cashTransferReconciler']);
 const safeActor=value=>typeof value==='string'&&value.trim().length>=3&&value.trim().length<=200&&!/[\u0000-\u001f\u007f]/.test(value);
 
 export class InternalTestIdentityRouteError extends Error{
@@ -18,28 +18,58 @@ const writeActor=(method,pathname)=>{
   if(method!=='POST')return null;
   const parts=pathname.split('/').filter(Boolean);
   if(parts[0]!=='api'||parts[1]!=='v1'||parts[2]!=='entities')return null;
-  if(parts[4]==='journal-entries'&&parts[6]==='transitions'){
-    const action=String(parts[7]||'').toUpperCase();
-    return action==='SUBMIT'?'submitter':action==='REVIEW'?'reviewer':action==='APPROVE'?'approver':null;
+  const [,,, ,domain,resource,id,next,after]=parts;
+  const action=String(next||'').toUpperCase();
+  if(domain==='journal-entries'){
+    if(['manual','auto'].includes(resource))return 'maker';
+    if(id==='transitions')return action==='SUBMIT'?'submitter':action==='REVIEW'?'reviewer':action==='APPROVE'?'approver':null;
+    if(id==='post')return 'poster';
+    return null;
   }
-  if(parts[4]==='journal-entries'&&parts[6]==='post')return 'poster';
-  if(parts[4]==='journal-entries'&&['manual','auto'].includes(parts[5]))return 'maker';
-  if(parts[4]==='bank'&&parts[5]==='reconciliations'&&parts.length===6)return 'reconciliationStarter';
-  if(parts[4]==='bank'&&parts[5]==='reconciliations'&&parts[7]==='transitions'){
-    const action=String(parts[8]||'').toUpperCase();
-    return action==='REVIEW'?'reviewer':action==='SIGN_OFF'?'approver':action==='REOPEN'?'reopener':null;
-  }
-  if(parts[4]==='bank'&&parts[5]==='reconciliations'&&(parts[7]==='items'||parts[7]==='adjustment-items')&&parts[9]==='clearance')return 'clearer';
-  if((parts[4]==='ap'&&parts[5]==='bills')||(parts[4]==='ar'&&parts[5]==='invoices'))return 'maker';
-  if(parts[4]==='cash-transfers'){
-    if(parts.length===5)return 'maker';
-    if(parts[6]==='transitions'){
-      const action=String(parts[7]||'').toUpperCase();
-      return action==='SUBMIT'?'submitter':action==='REVIEW'?'reviewer':action==='APPROVE'?'approver':null;
+  if(domain==='bank'){
+    if(resource==='reconciliations'){
+      if(parts.length===6||id==='from-admitted-statement')return 'reconciliationStarter';
+      if(next==='transitions'){const transition=String(after||'').toUpperCase();return transition==='REVIEW'?'reviewer':transition==='SIGN_OFF'?'approver':transition==='REOPEN'?'reopener':null;}
+      if((next==='items'||next==='adjustment-items')&&parts[9]==='clearance')return 'clearer';
+      if(next==='adjustment-drafts')return 'maker';
     }
-    if(parts[6]==='post')return 'poster';
-    if(parts[6]==='bank-links')return 'maker';
+    if(resource==='transactions'){
+      if(next==='matches'&&parts[9]==='unmatch')return 'clearer';
+      if(next==='matches'||next==='sales-receipt-matches')return 'maker';
+    }
+    return null;
   }
+  if(domain==='cash-transfers'){
+    if(parts.length===5)return 'maker';
+    if(id==='transitions')return action==='SUBMIT'?'submitter':action==='REVIEW'?'reviewer':action==='APPROVE'?'approver':null;
+    if(id==='post')return 'poster';
+    if(id==='cancel')return 'reversalMaker';
+    if(id==='bank-links')return 'cashTransferReconciler';
+    if(resource==='bank-account-controls')return parts.length===6?'maker':next==='approve'?'approver':next==='retire'?'reversalMaker':null;
+    return null;
+  }
+  if(domain==='ap'){
+    if(resource==='bills'&&parts.length===6)return 'maker';
+    if(resource==='bills'&&next==='voids')return 'reversalMaker';
+    if(resource==='bills'&&next==='native-payments')return 'paymentMaker';
+    if(resource==='expenses'&&parts.length===6)return 'paymentMaker';
+    if(resource==='payments'&&next==='reversals')return 'reversalMaker';
+    if(resource==='vendor-credits'&&parts.length===6)return 'reversalMaker';
+    if(resource==='vendor-credits'&&next==='allocations')return 'allocator';
+    return null;
+  }
+  if(domain==='ar'){
+    if(resource==='invoices'&&parts.length===6)return 'maker';
+    if(resource==='invoices'&&next==='native-receipts')return 'paymentMaker';
+    if(resource==='sales-receipts'&&parts.length===6)return 'paymentMaker';
+    if(resource==='receipts'&&next==='reversals')return 'reversalMaker';
+    if(resource==='credit-memos'&&parts.length===6)return 'reversalMaker';
+    if(resource==='credit-memos'&&next==='allocations')return 'allocator';
+    if(resource==='credit-memos'&&next==='native-refunds')return 'reversalMaker';
+    return null;
+  }
+  if(domain==='periods'&&id==='close')return 'periodCloser';
+  if(domain==='periods'&&id==='reopen')return 'periodReopener';
   return null;
 };
 

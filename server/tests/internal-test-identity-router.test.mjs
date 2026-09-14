@@ -1,22 +1,15 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {internalTestWorkflowActors,routeInternalTestPrincipal,InternalTestIdentityRouteError} from '../runtime/internal-test-identity-router.mjs';
-const env=Object.fromEntries(['READER','MAKER','SUBMITTER','REVIEWER','APPROVER','POSTER','RECONCILIATION_STARTER','CLEARER','REOPENER'].map((role,index)=>[`REFS_INTERNAL_TEST_${role}_ACTOR_ID`,`${role.toLowerCase()}-actor-${index}`]));
+const env=Object.fromEntries(['READER','MAKER','PAYMENT_MAKER','REVERSAL_MAKER','ALLOCATOR','SUBMITTER','REVIEWER','APPROVER','POSTER','RECONCILIATION_STARTER','CLEARER','REOPENER','PERIOD_CLOSER','PERIOD_REOPENER','CASH_TRANSFER_RECONCILER'].map((role,index)=>[`REFS_INTERNAL_TEST_${role}_ACTOR_ID`,`${role.toLowerCase()}-actor-${index}`]));
 const actors=internalTestWorkflowActors(env),principal={trusted:true,internalTest:true,tenantId:'11111111-1111-4111-8111-111111111111',actorId:'entry'};
 const route=(method,path)=>routeInternalTestPrincipal({method,url:`https://internal.example${path}`,principal,actors});
+const entity='22222222-2222-4222-8222-222222222222',id='33333333-3333-4333-8333-433333333333';
 test('internal full-test router retains distinct finite identities by workflow stage',()=>{
-  assert.equal(route('GET','/api/v1/entities/22222222-2222-4222-8222-222222222222/journal-entries').actorId,actors.reader);
-  assert.equal(route('POST','/api/v1/entities/22222222-2222-4222-8222-222222222222/ap/bills').actorId,actors.maker);
-  assert.equal(route('POST','/api/v1/entities/22222222-2222-4222-8222-222222222222/journal-entries/33333333-3333-4333-8333-333333333333/transitions/submit').actorId,actors.submitter);
-  assert.equal(route('POST','/api/v1/entities/22222222-2222-4222-8222-222222222222/journal-entries/33333333-3333-4333-8333-433333333333/transitions/review').actorId,actors.reviewer);
-  assert.equal(route('POST','/api/v1/entities/22222222-2222-4222-8222-222222222222/journal-entries/33333333-3333-4333-8333-433333333333/transitions/approve').actorId,actors.approver);
-  assert.equal(route('POST','/api/v1/entities/22222222-2222-4222-8222-222222222222/journal-entries/33333333-3333-4333-8333-433333333333/post').actorId,actors.poster);
-  assert.equal(route('POST','/api/v1/entities/22222222-2222-4222-8222-222222222222/journal-entries/manual').actorId,actors.maker);
-  assert.equal(route('POST','/api/v1/entities/22222222-2222-4222-8222-222222222222/cash-transfers').actorId,actors.maker);
-  assert.equal(route('POST','/api/v1/entities/22222222-2222-4222-8222-222222222222/cash-transfers/33333333-3333-4333-8333-433333333333/transitions/submit').actorId,actors.submitter);
-  assert.equal(route('POST','/api/v1/entities/22222222-2222-4222-8222-222222222222/cash-transfers/33333333-3333-4333-8333-433333333333/post').actorId,actors.poster);
-  assert.notEqual(actors.maker,actors.reviewer);assert.notEqual(actors.reviewer,actors.approver);assert.notEqual(actors.approver,actors.poster);
+  assert.equal(route('GET',`/api/v1/entities/${entity}/journal-entries`).actorId,actors.reader);
+  for(const [path,role] of [[`/api/v1/entities/${entity}/ap/bills`,'maker'],[`/api/v1/entities/${entity}/ar/invoices`,'maker'],[`/api/v1/entities/${entity}/ap/bills/${id}/native-payments`,'paymentMaker'],[`/api/v1/entities/${entity}/ar/invoices/${id}/native-receipts`,'paymentMaker'],[`/api/v1/entities/${entity}/ap/expenses`,'paymentMaker'],[`/api/v1/entities/${entity}/ar/sales-receipts`,'paymentMaker'],[`/api/v1/entities/${entity}/ap/vendor-credits`,'reversalMaker'],[`/api/v1/entities/${entity}/ar/credit-memos`,'reversalMaker'],[`/api/v1/entities/${entity}/ap/vendor-credits/${id}/allocations`,'allocator'],[`/api/v1/entities/${entity}/ar/credit-memos/${id}/allocations`,'allocator'],[`/api/v1/entities/${entity}/periods/${id}/close`,'periodCloser'],[`/api/v1/entities/${entity}/periods/${id}/reopen`,'periodReopener'],[`/api/v1/entities/${entity}/cash-transfers/${id}/bank-links`,'cashTransferReconciler'],[`/api/v1/entities/${entity}/bank/reconciliations`,'reconciliationStarter'],[`/api/v1/entities/${entity}/bank/reconciliations/${id}/transitions/sign_off`,'approver'],[`/api/v1/entities/${entity}/bank/transactions/${id}/matches/${id}/unmatch`,'clearer'],[`/api/v1/entities/${entity}/journal-entries/${id}/transitions/submit`,'submitter'],[`/api/v1/entities/${entity}/journal-entries/${id}/transitions/review`,'reviewer'],[`/api/v1/entities/${entity}/journal-entries/${id}/transitions/approve`,'approver'],[`/api/v1/entities/${entity}/journal-entries/${id}/post`,'poster']])assert.equal(route('POST',path).actorId,actors[role],path);
+  assert.equal(new Set(Object.values(actors)).size,Object.keys(actors).length);
 });
 test('internal full-test router rejects unadmitted writes and invalid actor configuration',()=>{
-  assert.throws(()=>route('POST','/api/v1/entities/22222222-2222-4222-8222-222222222222/unknown'),error=>error instanceof InternalTestIdentityRouteError&&error.code==='INTERNAL_TEST_COMMAND_NOT_ADMITTED');
+  assert.throws(()=>route('POST',`/api/v1/entities/${entity}/unknown`),error=>error instanceof InternalTestIdentityRouteError&&error.code==='INTERNAL_TEST_COMMAND_NOT_ADMITTED');
   assert.throws(()=>internalTestWorkflowActors({...env,REFS_INTERNAL_TEST_POSTER_ACTOR_ID:env.REFS_INTERNAL_TEST_APPROVER_ACTOR_ID}),error=>error instanceof InternalTestIdentityRouteError&&error.code==='INTERNAL_TEST_ACTOR_CONFIG_INVALID');
 });

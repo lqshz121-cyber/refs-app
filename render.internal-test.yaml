@@ -35,6 +35,12 @@ services:
         value: refs-internal-maker
       - key: REFS_INTERNAL_TEST_SUBMITTER_ACTOR_ID
         value: refs-internal-submitter
+      - key: REFS_INTERNAL_TEST_PAYMENT_MAKER_ACTOR_ID
+        value: refs-internal-payment-maker
+      - key: REFS_INTERNAL_TEST_REVERSAL_MAKER_ACTOR_ID
+        value: refs-internal-reversal-maker
+      - key: REFS_INTERNAL_TEST_ALLOCATOR_ACTOR_ID
+        value: refs-internal-allocator
       - key: REFS_INTERNAL_TEST_REVIEWER_ACTOR_ID
         value: refs-internal-reviewer
       - key: REFS_INTERNAL_TEST_APPROVER_ACTOR_ID
@@ -47,6 +53,12 @@ services:
         value: refs-internal-clearer
       - key: REFS_INTERNAL_TEST_REOPENER_ACTOR_ID
         value: refs-internal-reopener
+      - key: REFS_INTERNAL_TEST_PERIOD_CLOSER_ACTOR_ID
+        value: refs-internal-period-closer
+      - key: REFS_INTERNAL_TEST_PERIOD_REOPENER_ACTOR_ID
+        value: refs-internal-period-reopener
+      - key: REFS_INTERNAL_TEST_CASH_TRANSFER_RECONCILER_ACTOR_ID
+        value: refs-internal-cash-transfer-reconciler
       - key: REFS_INTERNAL_TEST_ENTITY_ID
         value: ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3
       - key: REFS_ATTACHMENT_MODE
