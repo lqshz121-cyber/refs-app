@@ -90,6 +90,11 @@ const writeActor=(method,pathname,body)=>{
 export function routeInternalTestPrincipal({method,url,body,principal,actors}={}){
   if(!principal?.internalTest||!actors)return principal;
   const pathname=new URL(url,'http://refs.local').pathname;
+  // Options disclose only the bounded creation vocabulary and are protected by
+  // AP.EXPENSE.CREATE in PostgreSQL.  The full-test browser is intentionally
+  // unauthenticated, so use its dedicated expense maker only for this exact
+  // prerequisite read; all other reads remain the reader identity.
+  if(method==='GET'&&/^\/api\/v1\/entities\/[^/]+\/ap\/expenses\/options$/.test(pathname))return Object.freeze({...principal,actorId:actors.expenseMaker,internalTest:true,internalTestActorRole:'expenseMaker'});
   if(method==='GET'||method==='HEAD')return Object.freeze({...principal,actorId:actors.reader,internalTest:true});
   const actorKey=writeActor(method,pathname,body);
   if(!actorKey)throw new InternalTestIdentityRouteError('INTERNAL_TEST_COMMAND_NOT_ADMITTED','This internal-test command is not admitted to the controlled workflow');
