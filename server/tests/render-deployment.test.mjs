@@ -104,6 +104,22 @@ test('Render integrations outbox producer fails closed when its isolated consume
   assert.throws(()=>assertOutboxCoverage(withoutConsumer,{apiName:'refs-accounting-api-integrations-staging',workerName:'refs-outbox-dispatch-integrations-staging'}),/Render manifest is missing refs-outbox-dispatch-integrations-staging/);
 });
 
+test('isolated internal-test Blueprint creates only the fixed read-only API and browser client',async()=>{
+  const manifest=await readFile(resolve(root,'render.internal-test.yaml'),'utf8');
+  const api=serviceSection(manifest,'refs-internal-test-api'),web=serviceSection(manifest,'refs-internal-test');
+  assert.equal(api.type,'web');assert.equal(web.type,'web');
+  assert.equal((manifest.match(/^  - type: /gm)||[]).length,2,'internal-test Blueprint must not recreate staging services');
+  assert.equal((manifest.match(/autoDeployTrigger: off/g)||[]).length,2,'both internal-test services require manual releases');
+  assert.match(api.body,/rootDir: server/);assert.match(api.body,/buildCommand: npm ci/);assert.match(api.body,/startCommand: npm start/);assert.match(api.body,/healthCheckPath: \/health\/ready/);
+  for(const [key,value] of [['NODE_ENV','production'],['REFS_HTTP_HOST','0.0.0.0'],['REFS_PG_REQUIRED','"1"'],['REFS_DEPLOYMENT_ENV','internal-test'],['REFS_INTERNAL_TEST_MODE','ENABLED'],['REFS_INTERNAL_TEST_TENANT_ID','6fb25daf-0799-4805-bede-be54230da33c'],['REFS_INTERNAL_TEST_ACTOR_ID','refs-internal-readonly'],['REFS_ATTACHMENT_MODE','DISABLED'],['REFS_WBS_INGEST_MODE','DISABLED'],['REFS_WBS_LIVE_PILOT_MODE','ENABLED'],['REFS_WBS_TEST_IMPORT_MODE','DISABLED'],['REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE','DISABLED'],['REFS_AI_MODE','DISABLED']])assert.ok(hasFixed(api.body,key,value),`isolated internal API is missing ${key}=${value}`);
+  for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL','WBS_CF_ACCESS_CLIENT_ID','WBS_CF_ACCESS_CLIENT_SECRET','WBS_REFS_AUTH'])assert.match(api.body,new RegExp(`- key: ${key}\\r?\\n\\s+fromService: \\{ type: web, name: refs-accounting-api-staging, envVarKey: ${key} \\}`),`isolated internal API must reference ${key} without copying it`);
+  assert.ok(hasSecret(api.body,'REFS_HTTP_ALLOWED_ORIGINS'));assert.doesNotMatch(api.body,/OIDC_|REFS_PUBLIC_|S3_|VIRUS_SCANNER|REFS_WBS_TEST_IMPORT_[A-Z_]+_ACTOR_ID/);
+  assert.match(web.body,/runtime: static/);assert.match(web.body,/buildCommand: npm ci && npm run build/);assert.match(web.body,/staticPublishPath: \.\/dist/);assert.match(web.body,/REFS_PUBLIC_RUNTIME_MODE\r?\n\s+value: INTERNAL_TEST_READONLY/);
+  for(const key of ['REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_PERIOD_ID'])assert.ok(hasSecret(web.body,key),`isolated internal client is missing ${key}`);
+  for(const [key,value] of [['REFS_PUBLIC_ENTITY_ID','ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3'],['REFS_PUBLIC_CASH_ACCOUNT_CODE','"111000"']])assert.ok(hasFixed(web.body,key,value),`isolated internal client is missing ${key}=${value}`);
+  assert.doesNotMatch(web.body,/DATABASE_URL|WBS_|OIDC_|REFS_PUBLIC_OIDC_/);assert.match(web.body,/source: \/\*/);assert.match(web.body,/destination: \/index\.html/);
+});
+
 const envKeys=section=>[...section.matchAll(/^\s+- key: ([A-Z0-9_]+)\r?$/gm)].map(match=>match[1]).sort();
 const exactEnv=(section,keys,label)=>assert.deepEqual(envKeys(section),[...keys].sort(),`${label} environment contract must remain closed`);
 const DATABASE_KEYS=['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL'];
