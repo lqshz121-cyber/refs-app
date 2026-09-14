@@ -137,8 +137,12 @@ export function accountingServerConfig(env=process.env){
 }
 
 export async function startAccountingServer({env=process.env,fetcher=globalThis.fetch,logger=console}={}){
+  let startupStage='CONFIGURATION';
+  try{
   const config=accountingServerConfig(env);
+  startupStage='RUNTIME_POOL';
   const runtimePool=await createPool({databaseUrl:config.database.databaseUrl,applicationName:'refs-accounting-http-runtime',max:config.runtimePoolMax});
+  startupStage='ISSUER_POOL';
   const issuerPool=await createPool({databaseUrl:config.database.contextIssuerDatabaseUrl,applicationName:'refs-accounting-http-issuer',max:config.issuerPoolMax});
   const grantSyncPool=(config.internalTest||config.stage1SelfGrant||config.stage1SelfWbsReadUpgrade||config.stage1SelfWbsOperatorUpgrade||config.stage1SelfControlledTestWorkflowUpgrade||config.wbsTestImport||config.controlledTestAiWorkflow)?await createPool({databaseUrl:config.database.grantSyncDatabaseUrl,applicationName:'refs-accounting-http-grant-sync',max:1}):null;
   const authenticator=config.internalTest?{authenticate:async()=>({trusted:true,tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,internalTest:true})}:new OidcJwtAuthenticator({issuer:config.issuer,audience:config.audience,keyResolver:new RemoteJwksResolver({jwksUri:config.jwksUri,fetcher})});
@@ -168,15 +172,18 @@ export async function startAccountingServer({env=process.env,fetcher=globalThis.
     if(config.controlledTestAiWorkflow)await reconcileControlledTestAiWorkflowActorGrants({scope:config.controlledTestAiWorkflow,grantSync:new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard})});
     await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(config.port,config.host,resolve);});
   }
-  catch(error){await Promise.allSettled([runtimePool.end(),issuerPool.end(),grantSyncPool?.end()]);throw error;}
+  catch(error){error.startupStage=startupStage;await Promise.allSettled([runtimePool?.end(),issuerPool?.end(),grantSyncPool?.end()]);throw error;}
+  }catch(error){error.startupStage=error.startupStage||startupStage;throw error;}
   let stopping=false;const stop=async signal=>{if(stopping)return;stopping=true;logger.info?.(JSON.stringify({event:'accounting_server_stopping',signal}));await new Promise(resolve=>server.close(resolve));await Promise.allSettled([runtimePool.end(),issuerPool.end(),grantSyncPool?.end()]);};
   for(const signal of ['SIGTERM','SIGINT'])process.once(signal,()=>{stop(signal).catch(()=>logger.error?.(safeRuntimeFailureLog('accounting_server_stop_failed','ACCOUNTING_SERVER_STOP_FAILED')));});
   logger.info?.(JSON.stringify({event:'accounting_server_started',host:config.host,port:config.port}));return {server,runtimePool,issuerPool,stop,config};
 }
 
 const startupFailureCode=error=>{
+  const stage=typeof error?.startupStage==='string'?error.startupStage.trim().toUpperCase():'';
   const code=typeof error?.code==='string'?error.code.trim().toUpperCase():'';
-  return /^[A-Z][A-Z0-9_]{2,127}$/.test(code)?code:'ACCOUNTING_SERVER_START_FAILED';
+  if(/^[A-Z][A-Z0-9_]{2,127}$/.test(code))return code;
+  return /^[A-Z][A-Z0-9_]{2,127}$/.test(stage)?`STARTUP_${stage}_FAILED`:'ACCOUNTING_SERVER_START_FAILED';
 };
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)startAccountingServer().catch(error=>{console.error(safeRuntimeFailureLog('accounting_server_start_failed',startupFailureCode(error)));process.exitCode=1;});
