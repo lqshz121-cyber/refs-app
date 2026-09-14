@@ -421,5 +421,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"414_runtime_context_additive_authority_fix.sql","up":"1d121952f548d249d2d24dcdff5b52f988f0ef2b1999ba6cdb5d74d7dc9d3b52","down":"0377a7b3434845e3c9ff3f4673126aa9c968041090d0349824adfe561f9bf27b"}),
   Object.freeze({"name":"415_recurring_scheduler_lifecycle_least_privilege.sql","up":"f70bd3c0588af3834cf83f739956e623467003521c200c54ce1377bf791f1c1c","down":"f035af58fd0e454c88fc3f80568b3444abda38009e6692f50712d2bee0365e1b"}),
   Object.freeze({"name":"416_recurring_scheduler_command_payload_authority_fix.sql","up":"39a6232647f110e9556ed9dca39427a179760e6a89dd2533d3d4d70903753b90","down":"10dd9a22482942aab60e8a80b8239dc4fae7bb22b633aaab2d3d46cc4c31c983"}),
-  Object.freeze({"name":"417_wbs_autorec_reverse_workflow.sql","up":"48a78efc3bf5b04fb66f8a118da572816ea4e48d7815f769712e03fc721d093b","down":"2b17d79f74ba14975fe911547debe00f382bc7ce9eaf364f77ea0bad7cbfa0f8"}),
+  Object.freeze({"name":"417_wbs_autorec_reverse_workflow.sql","up":"afaded1f0d88eac18034cf2dba6aa4e8c2881ff36050b6a5359bd2420584faf7","down":"2b17d79f74ba14975fe911547debe00f382bc7ce9eaf364f77ea0bad7cbfa0f8"}),
 ]);
