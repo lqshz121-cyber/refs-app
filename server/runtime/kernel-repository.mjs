@@ -1861,6 +1861,27 @@ export class PostgresAccountingKernel{
     ),'WBS_AUTOREC_EXECUTION_FAILED','WBS AutoRec execution did not return a result').result);
   }
 
+  async requestWbsAutoRecReverse({tenantId,entityId,reviewId,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_wbs_autorec_reverse_request_hash($1,$2,$3,$4) request_hash',[tenantId,entityId,reviewId,reason]),'WBS_AUTOREC_REVERSE_HASH_FAILED','AutoRec reverse request hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_request_wbs_autorec_reverse($1,$2,$3,$4,$5,$6) result',[tenantId,entityId,reviewId,reason,idempotencyKey,requestHash]),'WBS_AUTOREC_REVERSE_REQUEST_FAILED','AutoRec reverse request did not return a result').result;
+    });
+  }
+
+  async createWbsAutoRecReverseDraft({tenantId,entityId,reviewId,eventType,originalJournalEntryId,periodId,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_wbs_autorec_reverse_draft_hash($1,$2,$3,$4,$5,$6,$7) request_hash',[tenantId,entityId,reviewId,eventType,originalJournalEntryId,periodId,reason]),'WBS_AUTOREC_REVERSE_DRAFT_HASH_FAILED','AutoRec reverse Draft hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_create_wbs_autorec_reverse_draft($1,$2,$3,$4,$5,$6,$7,$8,$9) result',[tenantId,entityId,reviewId,eventType,originalJournalEntryId,periodId,reason,idempotencyKey,requestHash]),'WBS_AUTOREC_REVERSE_DRAFT_FAILED','AutoRec reverse Draft did not return a result').result;
+    });
+  }
+
+  async completeWbsAutoRecReverse({tenantId,entityId,reviewId,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_wbs_autorec_reverse_request_hash($1,$2,$3,$4) request_hash',[tenantId,entityId,reviewId,reason]),'WBS_AUTOREC_REVERSE_COMPLETE_HASH_FAILED','AutoRec reverse completion hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_complete_wbs_autorec_reverse($1,$2,$3,$4,$5,$6) result',[tenantId,entityId,reviewId,reason,idempotencyKey,requestHash]),'WBS_AUTOREC_REVERSE_COMPLETE_FAILED','AutoRec reverse completion did not return a result').result;
+    });
+  }
+
   async persistWbsInboundSnapshotRows({tenantId,entityId,importBatchId,groups,idempotencyKey,requestHash}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_persist_wbs_inbound_snapshot_rows($1,$2,$3,$4,$5,$6) AS result',

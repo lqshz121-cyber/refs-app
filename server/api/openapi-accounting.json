@@ -29678,7 +29678,11 @@
           }
         }
       }
-    }
+    },
+    "/entities/{entityId}/wbs/auto-reconciliation/executions": {"post":{"operationId":"executeWbsAutoRecExecution","summary":"Reserve or release an AutoRec candidate","parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/reverse-request": {"post":{"operationId":"requestWbsAutoRecReverse","summary":"Request G11 reversal","parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/reverse-drafts/{eventType}": {"post":{"operationId":"createWbsAutoRecReverseDraft","summary":"Create AutoRec reversal Draft","parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/reverse-complete": {"post":{"operationId":"completeWbsAutoRecReverse","summary":"Complete G11 reversal","parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}}
   },
   "components": {
     "securitySchemes": {

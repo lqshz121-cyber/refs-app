@@ -66,6 +66,7 @@ import {assertAiAccountingDecisionPacketBatch} from '../runtime/ai-accounting-de
 import {assertAiAccountingDecisionPacketFullBatch} from '../runtime/ai-accounting-approved-decision-service.mjs';
 import {safeAiEvidenceTree} from '../runtime/ai-secret-safety.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
+import {buildWbsAutoRecExecutionIntent,WbsAutoRecExecutionContractError} from '../runtime/wbs-autorec-execution-contract.mjs';
 import {validCounterpartyProposal,validCounterpartyReview,validCounterpartyChangeReceipt} from '../runtime/counterparty-maintenance.mjs';
 import {validCounterpartyDetailSelection,validCounterpartyDetail,validCounterpartyChangesSelection,validCounterpartyChangesPage} from '../runtime/counterparty-maintenance-reads.mjs';
 import {assertWbsH1ImportInventory} from '../runtime/wbs-h1-import-inventory.mjs';
@@ -3057,6 +3058,27 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(parts[9]==='payable-incur'&&typeof kernel?.createWbsAutoRecPayableIncurDraft==='function')result=await kernel.createWbsAutoRecPayableIncurDraft(args);
         else if(parts[9]==='autoc'&&typeof kernel?.createWbsAutoRecAutocDraft==='function')result=await kernel.createWbsAutoRecAutocDraft(args);
         else throw new AccountingApiError(404,'WBS_AUTOREC_G11_DRAFT_ROUTE_NOT_FOUND','Unknown or unavailable G11 Draft producer');
+      }else if(parts.length===7&&parts[4]==='wbs'&&parts[5]==='auto-reconciliation'&&parts[6]==='executions'){
+        requireExactQuery(parsedUrl.searchParams,[]); allowOnly(payload,['command','currentState','reviewCandidate','reservationReceipt','postedJournals','postedReversalJournals','reason']);
+        const idempotencyKey=requireIdempotency(headers); let intent;
+        try{intent=buildWbsAutoRecExecutionIntent({command:payload.command,currentState:payload.currentState,reviewCandidate:payload.reviewCandidate,reservationReceipt:payload.reservationReceipt,postedJournals:payload.postedJournals,postedReversalJournals:payload.postedReversalJournals,reason:payload.reason,idempotencyKey});}
+        catch(error){if(error instanceof WbsAutoRecExecutionContractError)throw new AccountingApiError(400,error.code,error.message);throw error;}
+        if(!['RESERVE','RELEASE'].includes(intent.command))throw new AccountingApiError(400,'WBS_AUTOREC_EXECUTION_COMMAND_ROUTE_INVALID','Use the dedicated G11 incur and reverse routes for this command');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.executeWbsAutoRecIntent!=='function')throw new AccountingApiError(503,'WBS_AUTOREC_EXECUTION_UNAVAILABLE','WBS AutoRec execution is unavailable');
+        result=await kernel.executeWbsAutoRecIntent({tenantId:principal.tenantId,entityId,intent});
+      }else if(parts.length===9&&parts[4]==='wbs'&&parts[5]==='auto-reconciliation'&&parts[6]==='match-reviews'&&parts[8]==='reverse-request'){
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','AutoRec reverse request is bound to immutable G11 evidence');allowOnly(payload,['reason']);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.requestWbsAutoRecReverse!=='function')throw new AccountingApiError(503,'WBS_AUTOREC_REVERSE_UNAVAILABLE','AutoRec reverse request is unavailable');
+        result=await kernel.requestWbsAutoRecReverse({tenantId:principal.tenantId,entityId,reviewId:requireUuid(parts[7],'reviewId'),reason:requireReviewReason(payload.reason),idempotencyKey:requireIdempotency(headers)});
+      }else if(parts.length===10&&parts[4]==='wbs'&&parts[5]==='auto-reconciliation'&&parts[6]==='match-reviews'&&parts[8]==='reverse-drafts'){
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','AutoRec reverse Draft creation is bound to immutable G11 evidence');allowOnly(payload,['originalJournalEntryId','periodId','reason']);
+        const eventType=parts[9]==='payable-incur'?'PAYABLE_INCUR':parts[9]==='autoc'?'AUTOC':null;if(!eventType)throw new AccountingApiError(404,'WBS_AUTOREC_REVERSE_DRAFT_ROUTE_NOT_FOUND','Unknown AutoRec reverse Draft event type');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.createWbsAutoRecReverseDraft!=='function')throw new AccountingApiError(503,'WBS_AUTOREC_REVERSE_DRAFT_UNAVAILABLE','AutoRec reverse Draft creation is unavailable');
+        result=await kernel.createWbsAutoRecReverseDraft({tenantId:principal.tenantId,entityId,reviewId:requireUuid(parts[7],'reviewId'),eventType,originalJournalEntryId:requireUuid(payload.originalJournalEntryId,'originalJournalEntryId'),periodId:requireUuid(payload.periodId,'periodId'),reason:requireReviewReason(payload.reason),idempotencyKey:requireIdempotency(headers)});
+      }else if(parts.length===9&&parts[4]==='wbs'&&parts[5]==='auto-reconciliation'&&parts[6]==='match-reviews'&&parts[8]==='reverse-complete'){
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','AutoRec reverse completion is bound to immutable G11 evidence');allowOnly(payload,['reason']);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.completeWbsAutoRecReverse!=='function')throw new AccountingApiError(503,'WBS_AUTOREC_REVERSE_COMPLETE_UNAVAILABLE','AutoRec reverse completion is unavailable');
+        result=await kernel.completeWbsAutoRecReverse({tenantId:principal.tenantId,entityId,reviewId:requireUuid(parts[7],'reviewId'),reason:requireReviewReason(payload.reason),idempotencyKey:requireIdempotency(headers)});
       }else if(parts.length===9&&parts[4]==='wbs'&&parts[5]==='auto-reconciliation'&&parts[6]==='match-reviews'&&parts[8]==='g11-incur'){
         requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','G11 INCUR is bound to immutable review and posted evidence');
         allowOnly(payload,['expectedEvidenceHash','reason']);const kernel=await kernelFactory(principal);
