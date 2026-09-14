@@ -4,6 +4,7 @@ const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const MONEY=/^(0|[1-9]\d{0,15})\.\d{4}$/;
 const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve:false,can_post:false});
 const SOURCE_TYPES=Object.freeze(['INVOICE','PAYMENT','BANK_TRANSACTION','LOAN_TRANSACTION','CONSTRUCTION_COST','PROPERTY_MANAGEMENT','TAX_STATEMENT','FIXED_ASSET_EVENT','CLOSING_SETTLEMENT','MANUAL_JOURNAL','REVENUE','DEPOSIT','INTERCOMPANY','REIMBURSEMENT']);
+const CONTEXT_EVIDENCE_TYPES=Object.freeze(['CHART_OF_ACCOUNTS','ENTITY_MASTER','PROJECT_MASTER','PROPERTY_MASTER','VENDOR_MASTER','CUSTOMER_TENANT_MASTER','INTERCOMPANY_MAPPING','EXISTING_JE_HISTORY','BUDGET_PROFORMA','WBS_SOURCE_DATA']);
 const CLASSIFICATIONS=Object.freeze(['EXPENSE','CAPITALIZATION','PREPAID','ACCRUAL','PAYMENT','LOAN','REVENUE','DEPOSIT','INTERCOMPANY','REIMBURSEMENT','FIXED_ASSET','CONSTRUCTION_COST','PROPERTY_OPERATING_COST','TAX','CLOSING_COST','RECLASS','REVERSAL','BLOCKED']);
 const COMMON_SOURCE_KEYS=Object.freeze(['accounting_date','accounting_period_end','accounting_period_id','accounting_period_start','admission_status','amount','business_date','cash_direction','company_code','completeness_status','cost_code_ref','currency','duplicate_status','entity_id','exception_codes','member_ref','project_ref','property_ref','schema_version','source_detail','source_document_id','source_document_line_id','source_line_hash','source_payload_hash','source_type','tenant_id','vendor_ref']);
 const DETAIL_KEYS=Object.freeze({
@@ -128,4 +129,10 @@ export function buildAiAccountingDecisionPacketFullV1({tenantId,entityId,account
 }
 
 export const AI_ACCOUNTING_SOURCE_TYPES=SOURCE_TYPES;
+export const AI_ACCOUNTING_CONTEXT_EVIDENCE_TYPES=CONTEXT_EVIDENCE_TYPES;
+
+export function assertAiAccountingContextEvidenceV1(evidence,{tenantId,entityId}={}){
+  if(!exact(evidence,['entity_id','evidence_id','evidence_payload_hash','evidence_type','schema_version','source_version','tenant_id'])||evidence.schema_version!=='AI_ACCOUNTING_CONTEXT_EVIDENCE_V1'||evidence.tenant_id!==tenantId||evidence.entity_id!==entityId||!UUID.test(evidence.tenant_id||'')||!UUID.test(evidence.entity_id||'')||!text(evidence.evidence_id,256)||!CONTEXT_EVIDENCE_TYPES.includes(evidence.evidence_type)||!SHA.test(evidence.evidence_payload_hash||'')||!text(evidence.source_version,256))fail('AI_ACCOUNTING_CONTEXT_EVIDENCE_INVALID','Retained context evidence must be scoped, versioned, and limited to non-transactional source types.');
+  return freeze({...evidence,action_flags:ACTIONS});
+}
 export const AI_ACCOUNTING_CLASSIFICATIONS=CLASSIFICATIONS;
