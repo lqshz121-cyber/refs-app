@@ -15,7 +15,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {NativeDocumentEntry,NativeDocumentEntryForm} from '../src/native-document-entry.jsx';
 import {NativeCreditAdjustmentEntry,NativeCreditAdjustmentEntryForm} from '../src/native-credit-adjustment-entry.jsx';
 import {NativeSettlementEntry,NativeSettlementForm} from '../src/native-settlement-entry.jsx';
-import {AuthoritativeDocumentWorkspace} from '../src/authoritative-workspace.jsx';
+import {AuthoritativeDocumentWorkspace,nativeExpenseEntryAccess} from '../src/authoritative-workspace.jsx';
 import {AuthoritativeNativeExpenseWorkspace} from '../src/authoritative-native-expense-workspace.jsx';
 
 // Submission, server and recovery failures are blocking information. They
@@ -104,9 +104,19 @@ for(const [workspaceKind,label] of [['AP','New bill'],['AR','New invoice']]){
 // hidden in the AI workbench.  It remains a server-scoped form and does not
 // make WBS source evidence writable.
 const apExpensePage=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" config={config} currentActorAccess={access} scope={scope} accounts={accounts}/>);
-assert.match(apExpensePage,/Direct bank expense/);
-assert.match(apExpensePage,/Manual Journal Draft/);
-assert.doesNotMatch(apExpensePage,/Post journal/);
+assert.doesNotMatch(apExpensePage,/Direct bank expense/);
+assert.equal(nativeExpenseEntryAccess(config,access,scope),false);
+const expenseAccess={...access,permissions:['AP.EXPENSE.CREATE']};
+const directExpensePage=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" config={config} currentActorAccess={expenseAccess} scope={scope} accounts={accounts}/>);
+assert.match(directExpensePage,/Direct bank expense/);
+assert.match(directExpensePage,/Manual Journal Draft/);
+assert.doesNotMatch(directExpensePage,/Post journal/);
+assert.equal(nativeExpenseEntryAccess(config,expenseAccess,scope),true);
+const internalExpenseConfig={...config,internalTestNoLogin:true};
+const internalExpensePage=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" config={internalExpenseConfig} currentActorAccess={access} scope={scope} accounts={accounts}/>);
+assert.match(internalExpensePage,/Direct bank expense/);
+assert.equal(nativeExpenseEntryAccess(internalExpenseConfig,access,scope),true);
+assert.equal(nativeExpenseEntryAccess(internalExpenseConfig,access,{...scope,period_status:'CLOSED'}),false);
 const arExpensePage=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AR" config={config} currentActorAccess={access} scope={scope} accounts={accounts}/>);
 assert.doesNotMatch(arExpensePage,/Direct bank expense/);
 const directExpenseMarkup=renderToStaticMarkup(<AuthoritativeNativeExpenseWorkspace config={config}/>);

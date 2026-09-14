@@ -46,6 +46,20 @@ const EXPENSE_TRANSACTION_TYPES=[
   {id:'ITEM_RECEIPT',label:'Item Receipt'},
   {id:'RECEIPT_REMINDER',label:'Expense (Receipt reminder)'},
 ];
+// Internal full-test deliberately removes only browser sign-in friction.  Its
+// API still maps each command to a distinct server-side actor, so the reader
+// diagnostic cannot be used as the UI capability source for those commands.
+// This narrowly admits the native Expense form when the runtime itself has
+// declared that controlled full-workflow routing is active.
+export const nativeExpenseEntryAccess=(config,access,scope)=>Boolean(
+  scope?.entity_id===config?.entityId
+  &&scope?.period_id===config?.periodId
+  &&scope?.period_status==='OPEN'
+  &&(
+    (access?.entity_id===config?.entityId&&access?.session_refresh_required===false&&Array.isArray(access?.permissions)&&access.permissions.includes('AP.EXPENSE.CREATE'))
+    ||config?.internalTestNoLogin===true
+  )
+);
 export const isAuthoritativeDateFilterValue=value=>{
   const text=String(value??'').trim();
   if(!text)return true;
@@ -195,9 +209,10 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   const openScope=scope?.entity_id===config?.entityId&&scope?.period_id===config?.periodId&&scope?.period_status==='OPEN';
   const documentEntry=nativeDocumentEntryAccess(config,bill?'AP_BILL':'AR_INVOICE',currentActorAccess)&&openScope;
   const creditEntry=nativeCreditAdjustmentAccess(config,bill?'AP_VENDOR_CREDIT':'AR_CREDIT_MEMO',currentActorAccess)&&openScope;
-  return <AuthoritativeApArView kind={kind} readOnly={!(documentEntry||creditEntry)} className="authoritative-document-workspace stack" headerClassName={`authoritative-document-page-head${bill?' authoritative-expense-page-head':''}`} metrics={metrics} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab} toolbar={bill?null:<p className="muted sm authoritative-api-scope">API read · filters do not change records.</p>}>
+  const expenseEntry=bill&&nativeExpenseEntryAccess(config,currentActorAccess,scope);
+  return <AuthoritativeApArView kind={kind} readOnly={!(documentEntry||creditEntry||expenseEntry)} className="authoritative-document-workspace stack" headerClassName={`authoritative-document-page-head${bill?' authoritative-expense-page-head':''}`} metrics={metrics} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab} toolbar={bill?null:<p className="muted sm authoritative-api-scope">API read · filters do not change records.</p>}>
     <NativeDocumentEntry key={`${config?.entityId}:${config?.periodId}:${kind}`} config={config} kind={bill?'AP_BILL':'AR_INVOICE'} access={currentActorAccess} scope={scope} accounts={accounts} fetcher={fetcher} onOpenDraft={onOpenDraft} onRefresh={onRefresh}/>
-    {bill&&<AuthoritativeNativeExpenseWorkspace key={`${config?.entityId}:${config?.periodId}:expense`} config={config} fetcher={fetcher} onOpenJournalWorkflow={onOpenExpenseDraft||onOpenDraft}/>}
+    {expenseEntry&&<AuthoritativeNativeExpenseWorkspace key={`${config?.entityId}:${config?.periodId}:expense`} config={config} fetcher={fetcher} onOpenJournalWorkflow={onOpenExpenseDraft||onOpenDraft}/>}
     <NativeCreditAdjustmentEntry key={`${config?.entityId}:${config?.periodId}:${kind}:credit`} config={config} kind={bill?'AP_VENDOR_CREDIT':'AR_CREDIT_MEMO'} access={currentActorAccess} scope={scope} accounts={accounts} fetcher={fetcher} onOpenDraft={onOpenDraft} onRefresh={onRefresh}/>
     {readScopes&&<p className="muted sm authoritative-period-read-counts" aria-label={`${workspaceLabel} authoritative period read counts`}>Period {readScopes.documents?.periodId||'Unavailable'} · {bill?'Bills':'Invoices'} {readScopes.documents?.totalCount??'—'} · Adjustments {readScopes.adjustments?.totalCount??'—'} · server-scoped GET</p>}
     <section className={`card authoritative-filter-card${bill?' authoritative-expense-filter-card':''}`} aria-label={`${workspaceLabel} API list filters`}>
