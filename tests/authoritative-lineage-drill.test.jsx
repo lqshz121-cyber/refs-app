@@ -36,10 +36,12 @@ assert.equal(requestGuard.isCurrent(earlierRead),false,'a late response cannot r
 assert.equal(requestGuard.isCurrent(latestRead),true);
 const pagedRows=Array.from({length:405},(_,index)=>({...gl,ledger_line_id:`ledger-${index}`}));pagedRows[377]={...gl,ledger_line_id:ledgerLineId};
 const pageCalls=[];
-const exactLedger=await readExactAuthoritativeLedgerLine({config,accountCode:'610000',ledgerLineId,readPage:async({limit,offset})=>{pageCalls.push({limit,offset});return {ok:true,rows:pagedRows.slice(offset,offset+limit),total:pagedRows.length};}});
-assert.equal(exactLedger.ok,true);assert.equal(exactLedger.row.ledger_line_id,ledgerLineId);assert.deepEqual(pageCalls,[{limit:200,offset:0},{limit:200,offset:200},{limit:200,offset:400}],'lineage must page through the complete bounded account ledger instead of searching only the first 200 rows');
+const snapshotToken=`sha256:${'a'.repeat(64)}`;
+const exactLedger=await readExactAuthoritativeLedgerLine({config,accountCode:'610000',ledgerLineId,readPage:async({limit,offset,snapshotToken:seenToken})=>{pageCalls.push({limit,offset,snapshotToken:seenToken});return {ok:true,rows:pagedRows.slice(offset,offset+limit),total:pagedRows.length,snapshotToken};}});
+assert.equal(exactLedger.ok,true);assert.equal(exactLedger.row.ledger_line_id,ledgerLineId);
 const missingRows=pagedRows.filter(row=>row.ledger_line_id!==ledgerLineId);
-const missingLedger=await readExactAuthoritativeLedgerLine({config,accountCode:'610000',ledgerLineId,readPage:async({limit,offset})=>({ok:true,rows:missingRows.slice(offset,offset+limit),total:missingRows.length})});
+assert.deepEqual(pageCalls,[{limit:200,offset:0,snapshotToken:null},{limit:200,offset:200,snapshotToken},{limit:200,offset:400,snapshotToken}],'later General Ledger pages must retain the first immutable snapshot token');
+const missingLedger=await readExactAuthoritativeLedgerLine({config,accountCode:'610000',ledgerLineId,readPage:async({limit,offset})=>({ok:true,rows:missingRows.slice(offset,offset+limit),total:missingRows.length,snapshotToken})});
 assert.equal(missingLedger.ok,false);
 
 for(const [kind,value,label] of [['JOURNAL',{journal,context:{entityId,periodId}},'Journal entry JE-100'],['GL',{row:gl,context:{entityId,periodId}},'Posted ledger line'],['SOURCE',{detail:source,context:{entityId,periodId}},'Source Document evidence'],['REPORT',{row:report,context:{entityId,periodId}},'INCOME_STATEMENT account evidence']]){
@@ -56,7 +58,7 @@ const sourceCode=readFileSync('src/authoritative-lineage-drill.jsx','utf8');
 const stylesheet=readFileSync('index.html','utf8');
 assert.match(sourceCode,/className="table-wrap authoritative-journal-lineage-table" role="region" tabIndex=\{0\} aria-label="Journal lineage lines; scroll horizontally"/,'Journal lineage lines must use a stable keyboard-scrollable region');
 assert.match(stylesheet,/\.authoritative-journal-lineage-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'Journal lineage lines must not stretch the whole page at narrow widths');
-for(const call of ['readAuthoritativeJournalEntryDetail','readAuthoritativeSourceDocumentDetail','refreshAuthoritativeGeneralLedger','refreshAuthoritativeFinancialStatements'])assert.match(sourceCode,new RegExp(call));
+for(const call of ['readAuthoritativeJournalEntryDetail','readAuthoritativeSourceDocumentDetail','refreshAuthoritativeGeneralLedgerSnapshot','refreshAuthoritativeFinancialStatements'])assert.match(sourceCode,new RegExp(call));
 assert.match(sourceCode,/journal\.entity_id===config\.entityId&&journal\.period_id===config\.periodId/);
 assert.match(sourceCode,/item\.period_id===config\.periodId&&reportRowContainsLedger\(item,row\)/);
 assert.match(sourceCode,/item\.account_code!==row\.account_code\|\|row\.currency&&item\.currency!==row\.currency/,'financial statements without a currency field must still re-read their exact account-scoped ledger line');
@@ -73,6 +75,7 @@ assert.match(sourceCode,/onClick=\{clearBlocked\}>Back to current evidence/,'a f
 assert.match(sourceCode,/journalLineMatchesLedger\(journal,line,row\)/,'Journal→GL must use the closed symmetric binding');
 assert.match(sourceCode,/journalLineMatchesLedger\(journal,line,expected\.ledgerRow\)/,'GL→Journal must use the same closed symmetric binding');
 assert.match(sourceCode,/LEDGER_PAGE_SIZE=200,LEDGER_RESULT_CAP=10000/,'report lineage must remain explicitly bounded while paging past the first General Ledger page');
+assert.match(sourceCode,/snapshotToken=result\.snapshotToken/,'report lineage must retain the immutable first-page snapshot token');
 assert.match(sourceCode,/Previous ledger lines/);assert.match(sourceCode,/Next ledger lines/,'large report rows must expose bounded ledger-line pages instead of thousands of buttons at once');
 assert.doesNotMatch(sourceCode,/localStorage|seed\.js|legacy-demo-app|POST'|method:\s*'POST'/);
 console.log('authoritative lineage drill: exact GET-only source, Journal, GL, and report return chain passed');
