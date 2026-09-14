@@ -9,6 +9,7 @@
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ACCOUNT=/^[A-Za-z0-9._-]{1,64}$/;
 const keys=['REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE','REFS_PUBLIC_OIDC_ISSUER','REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT','REFS_PUBLIC_OIDC_TOKEN_ENDPOINT','REFS_PUBLIC_OIDC_REDIRECT_URI','REFS_PUBLIC_OIDC_CLIENT_ID','REFS_PUBLIC_OIDC_AUDIENCE'];
+const internalReadOnlyKeys=['REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE'];
 // This is a release binding, not an authorization claim. A Cash Transfer UI
 // build can be enabled only when its configured API declares attachment support.
 const cashTransferUiMode=environment=>String(environment.REFS_PUBLIC_CASH_TRANSFER_UI_MODE||'DISABLED').trim().toUpperCase();
@@ -19,16 +20,19 @@ export const AUTHORITATIVE_CHANNEL='AUTHORITATIVE';
 export const DEMONSTRATION_CHANNEL='PUBLIC_DEMONSTRATION';
 export const DEMONSTRATION_MODE='LOCAL_MOCK';
 export const INTERNAL_TEST_MODE='INTERNAL_TEST';
+export const INTERNAL_TEST_READONLY_MODE='INTERNAL_TEST_READONLY';
 
 const coordinatesPresent=environment=>keys.filter(key=>typeof environment[key]==='string'&&environment[key].trim());
+const internalReadOnlyCoordinatesPresent=environment=>internalReadOnlyKeys.filter(key=>typeof environment[key]==='string'&&environment[key].trim());
 
 export const requestedRuntimeMode=(environment={})=>(environment.REFS_PUBLIC_RUNTIME_MODE||'').trim();
 
 // The channel is derived from the same environment that renders the adapter, so
 // the two artefacts cannot disagree unless one of them is edited after the build.
 export const resolveRuntimeChannel=(environment={})=>
-  requestedRuntimeMode(environment)===DEMONSTRATION_MODE?DEMONSTRATION_CHANNEL:
-    requestedRuntimeMode(environment)===INTERNAL_TEST_MODE?INTERNAL_TEST_MODE:AUTHORITATIVE_CHANNEL;
+    requestedRuntimeMode(environment)===DEMONSTRATION_MODE?DEMONSTRATION_CHANNEL:
+    requestedRuntimeMode(environment)===INTERNAL_TEST_MODE?INTERNAL_TEST_MODE:
+      requestedRuntimeMode(environment)===INTERNAL_TEST_READONLY_MODE?INTERNAL_TEST_READONLY_MODE:AUTHORITATIVE_CHANNEL;
 
 export const renderBuildChannelStamp=(environment={})=>{
   const channel=resolveRuntimeChannel(environment);
@@ -40,6 +44,14 @@ export const renderFailClosedRuntimeConfig=()=>`// Generated fail-closed deploym
 export const renderLocalMockRuntimeConfig=()=>`// Generated explicit public demonstration configuration. Never treat this as provider or production evidence.\nwindow.__REFS_OIDC__=null;\nwindow.__REFS_ACCOUNTING_API__=null;\nwindow.__REFS_RUNTIME_MODE__='LOCAL_MOCK';\n`;
 
 export const renderInternalTestRuntimeConfig=()=>`// Generated internal-test configuration. It uses deterministic fixtures only; it has no provider, API credentials, or WBS write authority.\nwindow.__REFS_OIDC__=null;\nwindow.__REFS_ACCOUNTING_API__=null;\nwindow.__REFS_RUNTIME_MODE__='INTERNAL_TEST';\n`;
+
+export const renderInternalTestReadOnlyRuntimeConfig=(environment={})=>{
+  const present=internalReadOnlyCoordinatesPresent(environment);
+  if(present.length!==internalReadOnlyKeys.length)throw new Error(`Internal read-only runtime public configuration is incomplete: missing ${internalReadOnlyKeys.filter(key=>!present.includes(key)).join(', ')}`);
+  const baseUrl=https(environment.REFS_PUBLIC_ACCOUNTING_API_BASE_URL),entityId=environment.REFS_PUBLIC_ENTITY_ID.trim(),periodId=environment.REFS_PUBLIC_PERIOD_ID.trim(),cashAccountCode=environment.REFS_PUBLIC_CASH_ACCOUNT_CODE.trim();
+  if(!baseUrl||!UUID.test(entityId)||!UUID.test(periodId)||!ACCOUNT.test(cashAccountCode))throw new Error('Internal read-only runtime public configuration contains an invalid HTTPS URL, UUID, or account code');
+  return `// Generated internal read-only configuration. The fixed identity and provider credentials exist only on the server.\nwindow.__REFS_OIDC__=null;\nwindow.__REFS_ACCOUNTING_API__={baseUrl:${JSON.stringify(baseUrl.replace(/\/$/,''))},entityId:${JSON.stringify(entityId)},periodId:${JSON.stringify(periodId)},cashAccountCode:${JSON.stringify(cashAccountCode)},wbsTestImportMode:'DISABLED',deploymentEnvironment:'internal-test',controlledTestAiWorkflowMode:'DISABLED',cashTransferUiMode:'DISABLED',accountingApiAttachmentMode:'DISABLED',internalReadOnly:true,getAccessToken:async()=>null};\nwindow.__REFS_RUNTIME_MODE__='INTERNAL_TEST_READONLY';\n`;
+};
 
 export const renderRuntimeConfig=(environment={})=>{
   const present=coordinatesPresent(environment);
@@ -71,6 +83,11 @@ export const renderRuntimeConfigOrLock=(environment={})=>{
     const configured=coordinatesPresent(environment);
     if(configured.length)throw new Error(`An internal-test build must not carry authoritative deployment coordinates: ${configured.join(', ')}`);
     return renderInternalTestRuntimeConfig();
+  }
+  if(requestedMode===INTERNAL_TEST_READONLY_MODE){
+    const forbidden=keys.filter(key=>!internalReadOnlyKeys.includes(key)&&typeof environment[key]==='string'&&environment[key].trim());
+    if(forbidden.length)throw new Error(`An internal read-only build must not carry OIDC coordinates: ${forbidden.join(', ')}`);
+    return renderInternalTestReadOnlyRuntimeConfig(environment);
   }
   if(requestedMode)throw new Error(`Unsupported public runtime mode: ${requestedMode}`);
   return renderRuntimeConfig(environment)??renderFailClosedRuntimeConfig();

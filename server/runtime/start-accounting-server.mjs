@@ -22,11 +22,11 @@ const internalTestConfig=env=>{
   if(!['ENABLED','DISABLED'].includes(enabled))throw new Error('REFS_INTERNAL_TEST_MODE must be ENABLED or DISABLED');
   if(enabled==='DISABLED')return null;
   if(String(env.REFS_DEPLOYMENT_ENV||'').trim().toLowerCase()!=='internal-test')throw new Error('REFS_INTERNAL_TEST_MODE may be enabled only in internal-test');
-  for(const key of ['REFS_WBS_LIVE_PILOT_MODE','REFS_WBS_TEST_IMPORT_MODE','REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE','REFS_AI_MODE'])if(String(env[key]||'DISABLED').trim().toUpperCase()!=='DISABLED')throw new Error(`REFS_INTERNAL_TEST_MODE requires ${key}=DISABLED`);
+  for(const key of ['REFS_WBS_TEST_IMPORT_MODE','REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE','REFS_AI_MODE'])if(String(env[key]||'DISABLED').trim().toUpperCase()!=='DISABLED')throw new Error(`REFS_INTERNAL_TEST_MODE requires ${key}=DISABLED`);
   for(const key of ['REFS_ATTACHMENT_MODE','REFS_WBS_INGEST_MODE'])if(String(env[key]||'DISABLED').trim().toUpperCase()!=='DISABLED')throw new Error(`REFS_INTERNAL_TEST_MODE requires ${key}=DISABLED`);
   const tenantId=String(env.REFS_INTERNAL_TEST_TENANT_ID||'').trim().toLowerCase(),actorId=String(env.REFS_INTERNAL_TEST_ACTOR_ID||'').trim();
   if(!UUID.test(tenantId)||!actorId||actorId.length>200||/[\u0000-\u001f\u007f]/.test(actorId))throw new Error('REFS_INTERNAL_TEST_TENANT_ID and REFS_INTERNAL_TEST_ACTOR_ID are required');
-  return Object.freeze({tenantId,actorId});
+  return Object.freeze({tenantId,actorId,allowWbsLivePilot:String(env.REFS_WBS_LIVE_PILOT_MODE||'DISABLED').trim().toUpperCase()==='ENABLED'});
 };const releaseSha=(value,production)=>{
   const sha=String(value||'').trim().toLowerCase();
   if(!sha&&!production)return null;
