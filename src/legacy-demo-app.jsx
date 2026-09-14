@@ -178,7 +178,7 @@ const CURRENT_PERIOD = '2026-07';
 export function LegacyDemoApp({internalTest=false}={}) {
   const boundary = resolveRuntimeBoundary(globalThis);
   if (boundary.surface === SURFACE_ERROR) return <RuntimeErrorPage code={boundary.code}/>;
-  if (boundary.surface !== SURFACE_DEMONSTRATION) return <AuthoritativeApp environment={globalThis}/>;
+  if (boundary.surface !== SURFACE_DEMONSTRATION && !(internalTest && boundary.surface === 'INTERNAL_TEST')) return <AuthoritativeApp environment={globalThis}/>;
   const SEED_V='v14';
   const load=(k,d)=>{try{ if(localStorage.getItem('refs_seedv')!==SEED_V){['jes','exc','close','ap','bank','coa','ar','periods','periodevents'].forEach(x=>localStorage.removeItem('refs_'+x)); localStorage.setItem('refs_seedv',SEED_V);} const v=localStorage.getItem('refs_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
   const [userId, setUserId] = useState(()=>load('user',null));
