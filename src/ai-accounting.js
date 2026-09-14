@@ -22,7 +22,8 @@ export const AI_REVIEW_BANDS = Object.freeze([
 ]);
 
 export function reviewBand(confidence=0) {
-  const normalized=Math.max(0,Math.min(1,Number(confidence)||0));
+  const parsed=Number(confidence);
+  const normalized=Number.isFinite(parsed)?Math.max(0,Math.min(1,parsed)):0;
   return AI_REVIEW_BANDS.find(b=>normalized>=b.min) || AI_REVIEW_BANDS.at(-1);
 }
 
@@ -156,8 +157,12 @@ export function normalizeAccountingSource(source={}) {
   const matchedStatus=canonicalEnum(source.matched_status??source.match_status,['UNMATCHED','MATCHED','EXCEPTION'],'UNMATCHED');
   const treatmentStatus=canonicalEnum(source.accounting_treatment_status,['UNCLASSIFIED','CLASSIFIED','EXCEPTION','REVIEWED'],'UNCLASSIFIED');
   const hash=canonicalHash(source.source_payload_hash);
-  const normalized={...source,source_id:sourceId,source_type:sourceType,amount:amount===null?0:amount,date,period_code:periodCode,source_payload_hash:hash||source.source_payload_hash,matched_status:matchedStatus,accounting_treatment_status:treatmentStatus};
-  const required={source_id:sourceId,source_type:AI_SOURCE_TYPES.includes(sourceType)?sourceType:null,entity_id:textWithin(source.entity_id)?source.entity_id:null,date:isValidISODate(date)?date:null,period_code:isValidPeriodCode(periodCode)?periodCode:null,amount:amount===null?null:amount,source_payload_hash:hash,source_version:hasText(source.source_version)?source.source_version.trim():null,captured_at:isValidInstant(source.captured_at)?source.captured_at:null,dimensions:source.dimensions&&typeof source.dimensions==='object'&&!Array.isArray(source.dimensions)&&Object.keys(source.dimensions).length>0?source.dimensions:null,confidence_score:typeof source.confidence_score==='number'&&Number.isFinite(source.confidence_score)&&source.confidence_score>=0&&source.confidence_score<=1?source.confidence_score:null,matched_status:matchedStatus,accounting_treatment_status:treatmentStatus,audit_trace_id:hasText(source.audit_trace_id)?source.audit_trace_id.trim():null};
+  const uploadedBy=source.uploaded_by??source.uploader??null;
+  const uploadedAt=source.uploaded_at??source.upload_time??null;
+  const auditTrail=source.audit_trail===undefined?source.audit_trace_id:source.audit_trail;
+  const metadataDimension=(name)=>{const value=source[name]===undefined?null:source[name];return textWithin(value)?value.trim():null;};
+  const normalized={...source,source_id:sourceId,source_type:sourceType,amount:amount===null?0:amount,date,period_code:periodCode,source_payload_hash:hash||source.source_payload_hash,matched_status:matchedStatus,accounting_treatment_status:treatmentStatus,uploaded_by:textWithin(uploadedBy)?uploadedBy.trim():null,uploaded_at:isValidInstant(uploadedAt)?uploadedAt:null,audit_trail:textWithin(auditTrail)?auditTrail.trim():null,entity:metadataDimension('entity'),project:metadataDimension('project'),property:metadataDimension('property'),vendor:metadataDimension('vendor')};
+  const required={source_id:sourceId,source_type:AI_SOURCE_TYPES.includes(sourceType)?sourceType:null,uploaded_by:normalized.uploaded_by,uploaded_at:normalized.uploaded_at,entity:normalized.entity,project:normalized.project,property:normalized.property,vendor:normalized.vendor,date:isValidISODate(date)?date:null,period_code:isValidPeriodCode(periodCode)?periodCode:null,amount:amount===null?null:amount,confidence_score:typeof source.confidence_score==='number'&&Number.isFinite(source.confidence_score)&&source.confidence_score>=0&&source.confidence_score<=1?source.confidence_score:null,matched_status:matchedStatus,accounting_treatment_status:treatmentStatus,audit_trail:normalized.audit_trail,source_payload_hash:hash,source_version:hasText(source.source_version)?source.source_version.trim():null,captured_at:isValidInstant(source.captured_at)?source.captured_at:null,entity_id:textWithin(source.entity_id)?source.entity_id:null,dimensions:source.dimensions&&typeof source.dimensions==='object'&&!Array.isArray(source.dimensions)&&Object.keys(source.dimensions).length>0?source.dimensions:null,audit_trace_id:hasText(source.audit_trace_id)?source.audit_trace_id.trim():null};
   const missing=Object.entries(required).filter(([,value])=>value===undefined||value===null||value==='').map(([field])=>field);
   return redactSecrets({...normalized,ingestion_status:missing.length?'INCOMPLETE':'READY',missing_fields:missing});
 }
@@ -568,7 +573,8 @@ export function createControllerReviewMemo({findings=[],periodCode=null,entityId
 }
 
 export function makeFinding({skill, rule, risk='MEDIUM', objectType, objectRef, reason, action, confidence=0.5, sourceRefs=[], dimensions={}, proposedJE=null}) {
-  const normalizedConfidence=Math.max(0,Math.min(1,Number(confidence)||0));
+  const parsedConfidence=Number(confidence);
+  const normalizedConfidence=Number.isFinite(parsedConfidence)?Math.max(0,Math.min(1,parsedConfidence)):0;
   const normalizedSourceRefs=[...new Set((sourceRefs||[]).filter(Boolean).map(String))];
   if(!normalizedSourceRefs.length && objectType && objectRef) normalizedSourceRefs.push(`${objectType}:${objectRef}`);
   const band=reviewBand(normalizedConfidence);
