@@ -122,4 +122,3 @@ These are release acceptance requirements, not completed evidence.
 - Native expense static contracts passed 17/17 across classified-source evidence, policy identity, scoped reads, OpenAPI, options, canonical decimal handling, Draft receipt verification, bank-control selection, and rollback safeguards.
 - Fresh PostgreSQL 16 `native-expense-close` returned `REFS_POSTGRES_FIXTURE_SUITE_V1`, pass=true, 1/1, zero skip. It created and retained native expense evidence, posted through normal separated approval, and rejected journal drift atomically; owned Docker resources were removed.
 - This is controlled local evidence only. Production bank source, actual expense approvals, deployed SHA parity, and authenticated live readback remain unresolved.
-
