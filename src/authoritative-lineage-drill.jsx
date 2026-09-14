@@ -104,7 +104,7 @@ export function AuthoritativeLineageDrill({config,fetcher=globalThis.fetch,initi
   const readLedgerFromReport=async(row,ledgerLineId)=>{
     if(!row.ledger_line_ids.includes(ledgerLineId)){block('The selected ledger line is outside the immutable report row.');return;}
     const token=beginRead();
-    const result=await readExactAuthoritativeLedgerLine({config,accountCode:row.account_code,ledgerLineId,fetcher});
+    let result;try{result=await readExactAuthoritativeLedgerLine({config,accountCode:row.account_code,ledgerLineId,fetcher});}catch{fail(token,'The immutable General Ledger evidence could not be read. Refresh the report and retry.');return;}
     if(!requestGuard.current.isCurrent(token))return;
     if(!result.ok){fail(token,result.message);return;}
     const item=result.row;
@@ -115,7 +115,7 @@ export function AuthoritativeLineageDrill({config,fetcher=globalThis.fetch,initi
     if(!ids(evidence?.ledger_line_ids).includes(ledgerLineId)){block('The selected ledger line is outside the immutable evidence row.');return;}
     const token=beginRead();
     const accountCode=typeof evidence.account_code==='string'&&evidence.account_code?evidence.account_code:null;
-    const result=await readExactAuthoritativeLedgerLine({config,accountCode,ledgerLineId,fetcher});
+    let result;try{result=await readExactAuthoritativeLedgerLine({config,accountCode,ledgerLineId,fetcher});}catch{fail(token,'The immutable General Ledger evidence could not be read. Return to the current evidence and retry.');return;}
     if(!requestGuard.current.isCurrent(token))return;
     if(!result.ok){fail(token,result.message);return;}
     const item=result.row;
