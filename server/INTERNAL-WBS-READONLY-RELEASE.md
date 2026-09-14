@@ -43,3 +43,30 @@ Run in order and retain the status plus release SHA:
 
 Do not deploy if any fixed actor permission, period, CORS value, WBS read response,
 release SHA, or write-denial check is missing.
+
+## Exact read-only API preflight
+
+With `API_ORIGIN`, `ENTITY_ID`, and `PERIOD_ID` set to the newly created internal
+services' values, retain the response bodies and HTTP status for these requests.
+They must all be plain `GET` requests without an `Authorization`, `Idempotency-Key`,
+or `If-Match` header:
+
+1. `GET $API_ORIGIN/health/ready` returns `200`, `ok=true`, and the exact deployed
+   40-character candidate SHA.
+2. `GET $API_ORIGIN/api/v1/entities/$ENTITY_ID/access/self` returns `200`; its
+   `actor_id` is `refs-internal-readonly`, tenant and entity match the configured
+   scope, `session_refresh_required=false`, and both `permissions` and
+   `configured_permissions` are exactly `AP.VIEW`, `AR.VIEW`, `BANK.VIEW`,
+   `GL.JE.VIEW`, `GL.REPORT.VIEW`, and `WBS.AUTOREC.VIEW`.
+3. `GET $API_ORIGIN/api/v1/entities/$ENTITY_ID/scope?periodId=$PERIOD_ID` returns
+   `200` and confirms the configured period scope.
+4. `GET $API_ORIGIN/api/v1/entities/$ENTITY_ID/general-ledger/entries?periodId=$PERIOD_ID&limit=25&offset=0`
+   and `GET $API_ORIGIN/api/v1/entities/$ENTITY_ID/reports/financial-statements?periodId=$PERIOD_ID`
+   both return `200` from the posted-ledger projection.
+5. `GET $API_ORIGIN/api/v1/entities/$ENTITY_ID/wbs/live-pilot?tool=list_payables&limit=10`
+   returns `200` with `status=NOT_ADMITTED`, `observation_mode=UNSIGNED_PILOT`,
+   `signature_verified=false`, a provider content hash, an observation hash, a
+   bounded record count, and every `can_*` action flag false.
+6. `POST` any accounting command path with a minimal JSON object returns `403`
+   with `INTERNAL_TEST_READ_ONLY`. Do not use a WBS provider endpoint for this
+   check. Record that no object was created.
