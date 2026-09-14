@@ -4,8 +4,8 @@ import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {createAccountingApi} from '../api/accounting-http.mjs';
 
-const migration=await readFile(new URL('../db/migrations/335_wbs_autorec_reverse_workflow.sql',import.meta.url),'utf8');
-const down=await readFile(new URL('../db/migrations/down/335_wbs_autorec_reverse_workflow.sql',import.meta.url),'utf8');
+const migration=await readFile(new URL('../db/migrations/417_wbs_autorec_reverse_workflow.sql',import.meta.url),'utf8');
+const down=await readFile(new URL('../db/migrations/down/417_wbs_autorec_reverse_workflow.sql',import.meta.url),'utf8');
 const http=await readFile(new URL('../api/accounting-http.mjs',import.meta.url),'utf8');
 const openapi=JSON.parse(await readFile(new URL('../api/openapi-accounting.json',import.meta.url),'utf8'));
 
