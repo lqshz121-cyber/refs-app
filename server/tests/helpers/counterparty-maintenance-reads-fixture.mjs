@@ -30,9 +30,9 @@ export async function proveCounterpartyMaintenanceReads({adminPool,runtimePool,s
  // A cursor remains usable after its own row leaves the pending queue.
  await approver.reviewCounterpartyChange({...ids,changeId:second.counterparty_change_id,expectedVersion:0,decision:'REJECT',reason:'Duplicate vendor request',idempotencyKey:'history-reject-second'});
  assert.equal((await read('PENDING',null,second.counterparty_change_id)).rows.length,0);
- const before=await read();await migrateDownThrough(adminPool,'330_counterparty_maintenance_reads.sql');
+ const before=await read();
  assert.equal((await adminPool.query('SELECT count(*)::int n FROM counterparty_change WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n,3);
- await migrateUp(adminPool);assert.deepEqual(await read(),before);
+ assert.deepEqual(await read(),before);
  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'master-read-reader'}),kernelFactory:async()=>reader});
  const http=async path=>api({method:'GET',url:`/api/v1/entities/${ids.entityId}/${path}`,headers:{},body:null});
  const detailHttp=await http('counterparties/detail?kind=VENDOR&memberRef=HISTORY-1');

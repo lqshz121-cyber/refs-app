@@ -18,7 +18,7 @@ export async function issueDuringGrantRefresh({adminPool,issuerPool,ids,actorId,
     (SELECT count(*)::int FROM runtime_auth_context WHERE tenant_id=$1 AND actor_id=$2) contexts,
     (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND actor_id=$2 AND event_type='RUNTIME_CONTEXT_ISSUED') audits`,[ids.tenantId,actorId])).rows[0];
   const before=await counts();
-  const issuer=new PostgresContextIssuer(controlledPool,{principalProvider:async()=>{principalCalls++;return {trusted:true,actorId};}});
+  const issuer=new PostgresContextIssuer(controlledPool,{principalProvider:async()=>{principalCalls++;return {trusted:true,actorId,tenantId:ids.tenantId};}});
   const pending=issuer.issue({tenantId:ids.tenantId}).then(value=>({value}),error=>({error}));
   let writerError,writer;
   try{

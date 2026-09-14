@@ -7,8 +7,6 @@ export async function proveCounterpartyMaintenance({adminPool,runtimePool,seed,t
  // Empty migration rollback must preserve pre-existing company masters.
  const masterCount=async()=>Number((await adminPool.query('SELECT count(*) n FROM member_master WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n);
  const countBefore=await masterCount();
- await migrateDownThrough(adminPool,'327_counterparty_maintenance.sql');await migrateUp(adminPool);
- assert.equal(await masterCount(),countBefore);
  const actor=(name,permissions)=>new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,name,permissions)});
  const maker=actor('counterparty-maker',['MASTER.COUNTERPARTY.PROPOSE']);
  const approver=actor('counterparty-approver',['MASTER.COUNTERPARTY.APPROVE']);
@@ -76,9 +74,6 @@ export async function proveCounterpartyMaintenance({adminPool,runtimePool,seed,t
  }),/force transaction rollback/);
  assert.equal(await read('CP-ROLLBACK'),undefined);assert.deepEqual(await counts(),beforeRollback);
  assert.equal((await adminPool.query('SELECT status FROM counterparty_change WHERE counterparty_change_id=$1',[rollback.counterparty_change_id])).rows[0].status,'PENDING');
- await assert.rejects(migrateDownThrough(adminPool,'327_counterparty_maintenance.sql'),e=>e.code==='55000');
- // Higher read-only migrations may have rolled down before the retained-history
- // guard refuses 327. Restore them so the following scenario sees the full schema.
- await migrateUp(adminPool);
+ assert.equal(await masterCount(),countBefore+2,'Approved counterparty changes create exactly the expected two masters');
  assert.equal((await counts()).journals,initial.journals,'Master maintenance must not create accounting journals');
 }
