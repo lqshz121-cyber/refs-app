@@ -737,7 +737,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
           <button type="button" className="btn btn-sm btn-ghost authoritative-signout" onClick={logout}>Sign out</button>
         </div>
       </header>}
-      <AuthoritativeTopbar navOpenerRef={navOpenerRef} navOpen={navOpen} onOpenNavigation={() => setNavOpen(true)} entityLabel={scopePresentation.entityLabel} periodLabel={scopePresentation.periodLabel} scopes={scopeCatalog} entityId={config.entityId} periodId={config.periodId} onEntityChange={selectEntityScope} onPeriodChange={selectPeriodScope} theme={theme} onToggleTheme={toggleTheme} onRefresh={refresh} onSignOut={logout}/>
+      <AuthoritativeTopbar navOpenerRef={navOpenerRef} navOpen={navOpen} onOpenNavigation={() => setNavOpen(true)} entityLabel={scopePresentation.entityLabel} periodLabel={scopePresentation.periodLabel} scopes={scopeCatalog} entityId={config.entityId} periodId={config.periodId} onEntityChange={selectEntityScope} onPeriodChange={selectPeriodScope} theme={theme} onToggleTheme={toggleTheme} onRefresh={refresh} onSignOut={logout} internalTestNoLogin={internalNoLogin}/>
       <main className="content">
         <section className="authoritative-scope-bar" aria-label="Authoritative accounting scope">
           <span title={`${scopePresentation.entityHint ? `${scopePresentation.entityHint} ` : ''}Entity ID: ${scopePresentation.entityDetail}`}><b>Entity</b> {scopePresentation.entityLabel}{scopePresentation.entityHint&&<small className="muted sm"> — display name not returned by API</small>}</span>

@@ -7,7 +7,7 @@ import {Icon} from './ui.jsx';
 export function AuthoritativeTopbar({
   navOpenerRef,navOpen,onOpenNavigation,entityLabel,periodLabel,
   scopes=[],entityId,periodId,onEntityChange,onPeriodChange,
-  theme,onToggleTheme,onRefresh,onSignOut,
+  theme,onToggleTheme,onRefresh,onSignOut,internalTestNoLogin=false,
 }){
   const available=Array.isArray(scopes)?scopes:[];
   const entities=[...new Map(available.map(row=>[row.entity_id,row])).values()].sort((a,b)=>a.entity_name.localeCompare(b.entity_name));
@@ -25,8 +25,10 @@ export function AuthoritativeTopbar({
         <button type="button" className="icon-btn" aria-label="Refresh authoritative accounting evidence" title="Refresh authoritative accounting evidence" onClick={onRefresh}><span aria-hidden="true">↻</span></button>
         <button type="button" className="icon-btn" aria-label={theme==='dark'?'Switch to light theme':'Switch to dark theme'} title={theme==='dark'?'Switch to light theme':'Switch to dark theme'} aria-pressed={theme==='dark'} onClick={onToggleTheme}><span aria-hidden="true">{theme==='dark'?'☀':'☾'}</span></button>
       </div>
-      <span className="badge badge-ok authoritative-mode-chip">Authoritative</span>
-      <span className="user-chip authoritative-user-chip" aria-label="Authenticated OIDC session"><span className="user-av" aria-hidden="true">A</span><span className="user-nm">Authenticated</span><button type="button" className="link-btn" onClick={onSignOut}>Sign out</button></span>
+      <span className="badge badge-ok authoritative-mode-chip">{internalTestNoLogin?'Internal test':'Authoritative'}</span>
+      {internalTestNoLogin
+        ? <span className="user-chip authoritative-user-chip" aria-label="Internal test session"><span className="user-av" aria-hidden="true">T</span><span className="user-nm">Internal test</span></span>
+        : <span className="user-chip authoritative-user-chip" aria-label="Authenticated OIDC session"><span className="user-av" aria-hidden="true">A</span><span className="user-nm">Authenticated</span><button type="button" className="link-btn" onClick={onSignOut}>Sign out</button></span>}
     </div>
   </header>;
 }
