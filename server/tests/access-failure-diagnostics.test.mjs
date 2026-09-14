@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {reportAccessFailure} from '../api/access-failure-diagnostics.mjs';
 import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
 
-test('kernel acquires a transaction before issuing one context and reuses it across retries',async()=>{
+test('kernel issues and binds a fresh context for each retry transaction',async()=>{
   const events=[];
   const pool={connect:async()=>{
     events.push('connect');
@@ -24,12 +24,15 @@ test('kernel acquires a transaction before issuing one context and reuses it acr
     return 'ok';
   });
   assert.equal(result,'ok');
-  assert.equal(sessionCalls,1);
-  const sessionIndex=events.indexOf('session:1');
-  assert.equal(events[sessionIndex-1],'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE');
-  assert.match(events[sessionIndex+1],/^SELECT session_user/);
+  assert.equal(sessionCalls,2);
+  for(const session of ['session:1','session:2']){
+    const sessionIndex=events.indexOf(session);
+    assert.equal(events[sessionIndex-1],'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE');
+    assert.match(events[sessionIndex+1],/^SELECT session_user/);
+  }
   assert.equal(events.filter(event=>event==='connect').length,2);
   assert.equal(events.filter(event=>event==='SELECT refs_bootstrap_context($1)').length,2);
+  assert.deepEqual(events.filter(event=>event.startsWith('session:')),['session:1','session:2']);
 });
 
 test('database timeout diagnostics retain a closed stage and never raw database details',async()=>{
