@@ -102,16 +102,15 @@ export function deriveMonthlyAccountVariances({jes=[],periodCode,entityId=null,m
 // Ingestion is deliberately lossless: source metadata stays attached to the
 // normalized read model so later rules and reviewers can drill back to it.
 export const AI_SOURCE_TYPES=Object.freeze([
-  'BANK_STATEMENT','BANK_FEED','PAYABLE_REPORT','COST_GL','PROPERTY_COMPARISON_REPORT',
-  'CONSTRUCTION_LOAN_DATA','LOAN_DRAW_SCHEDULE','VENDOR_INVOICE','WORK_ORDER','PURCHASE_ORDER',
-  'PROPERTY_MANAGEMENT_OPERATION_REPORT','RENT_ROLL','RESIDENT_ACTIVITY','CLOSING_STATEMENT',
-  'TITLE_SETTLEMENT_STATEMENT','INSURANCE_DOCUMENT','PROPERTY_TAX_STATEMENT','GL_TRANSACTION_DETAIL',
-  'TRIAL_BALANCE','CHART_OF_ACCOUNTS','ENTITY_MASTER','PROJECT_MASTER','PROPERTY_MASTER',
-  'VENDOR_MASTER','CUSTOMER_TENANT_MASTER','INTERCOMPANY_MAPPING','EXISTING_JE_HISTORY',
-  'BUDGET_PROFORMA','WBS_SOURCE_DATA'
+  'BANK_STATEMENT','PAYABLE_REPORT','COST_GL','PROPERTY_COMPARISON_REPORT','CONSTRUCTION_LOAN_DATA',
+  'LOAN_DRAW_SCHEDULE','VENDOR_INVOICE','WORK_ORDER','PURCHASE_ORDER','PROPERTY_MANAGEMENT_OPERATION_REPORT',
+  'RENT_ROLL','RESIDENT_ACTIVITY','CLOSING_STATEMENT','TITLE_SETTLEMENT_STATEMENT','INSURANCE_DOCUMENT',
+  'PROPERTY_TAX_STATEMENT','GL_TRANSACTION_DETAIL','TRIAL_BALANCE','CHART_OF_ACCOUNTS','ENTITY_MASTER',
+  'PROJECT_MASTER','PROPERTY_MASTER','VENDOR_MASTER','CUSTOMER_TENANT_MASTER','INTERCOMPANY_MAPPING',
+  'EXISTING_JE_HISTORY','BUDGET_PROFORMA','WBS_SOURCE_DATA'
 ]);
 const SOURCE_TYPE_ALIASES=Object.freeze({
-  BANK:'BANK_FEED',BANK_TRANSACTION:'BANK_FEED',PAYABLE:'PAYABLE_REPORT',PAYABLE_INVOICE:'PAYABLE_REPORT',
+  BANK:'BANK_STATEMENT',BANK_FEED:'BANK_STATEMENT',BANK_TRANSACTION:'BANK_STATEMENT',PAYABLE:'PAYABLE_REPORT',PAYABLE_INVOICE:'PAYABLE_REPORT',
   INVOICE:'VENDOR_INVOICE',CONSTRUCTION_INVOICE:'VENDOR_INVOICE',SERVICE_INVOICE:'VENDOR_INVOICE',
   LOAN:'CONSTRUCTION_LOAN_DATA',LOAN_STATEMENT:'CONSTRUCTION_LOAN_DATA',LOAN_DRAW:'LOAN_DRAW_SCHEDULE',
   INTEREST:'CONSTRUCTION_LOAN_DATA',GL_TRANSACTION:'GL_TRANSACTION_DETAIL',PROPERTY_REPORT:'PROPERTY_COMPARISON_REPORT',
@@ -122,11 +121,13 @@ const sourceIdOf=source=>[source?.source_id,source?.source_doc_id,source?.doc_id
 const parseMoney4=value=>{
   if(typeof value==='number'&&Number.isFinite(value))value=String(value);
   if(typeof value!=='string'||!/^[-+]?(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(value.trim()))return null;
-  const normalized=value.trim().replace(/^\+/,'');
-  return Number(normalized);
+  return Number(value.trim().replace(/^\+/,''));
 };
 const isValidISODate=value=>{ const match=String(value||'').match(/^(\d{4})-(\d{2})-(\d{2})$/); if(!match) return false; const year=Number(match[1]),month=Number(match[2]),day=Number(match[3]); const parsed=new Date(Date.UTC(year,month-1,day)); return parsed.getUTCFullYear()===year&&parsed.getUTCMonth()===month-1&&parsed.getUTCDate()===day; };
 const isValidPeriodCode=value=>/^\d{4}-(0[1-9]|1[0-2])$/.test(String(value||''));
+const SHA256=/^[a-f0-9]{64}$/i;
+const isValidInstant=value=>typeof value==='string'&&Number.isFinite(Date.parse(value));
+const hasText=value=>typeof value==='string'&&value.trim().length>0;
 export function normalizeAccountingSource(source={}) {
   const sourceId=sourceIdOf(source);
   const rawSourceType=String(source.source_type||source.type||'').toUpperCase();
@@ -135,9 +136,10 @@ export function normalizeAccountingSource(source={}) {
   const amount=parseMoney4(rawAmount);
   const date=source.date||source.txn_date||source.invoice_date||null;
   const periodCode=source.period_code||(date||'').slice(0,7)||null;
-  const required={source_id:sourceId,source_type:AI_SOURCE_TYPES.includes(sourceType)?sourceType:null,entity_id:source.entity_id,date:isValidISODate(date)?date:null,period_code:isValidPeriodCode(periodCode)?periodCode:null,amount:amount===null?null:amount};
+  const normalized={...source,source_id:sourceId,source_type:sourceType,amount:amount===null?0:amount,date,period_code:periodCode,matched_status:source.matched_status||source.match_status||'UNMATCHED',accounting_treatment_status:source.accounting_treatment_status||'UNCLASSIFIED'};
+  const required={source_id:sourceId,source_type:AI_SOURCE_TYPES.includes(sourceType)?sourceType:null,entity_id:source.entity_id,date:isValidISODate(date)?date:null,period_code:isValidPeriodCode(periodCode)?periodCode:null,amount:amount===null?null:amount,source_payload_hash:SHA256.test(source.source_payload_hash||'')?source.source_payload_hash:null,source_version:hasText(source.source_version)?source.source_version:null,captured_at:isValidInstant(source.captured_at)?source.captured_at:null,dimensions:source.dimensions&&typeof source.dimensions==='object'&&!Array.isArray(source.dimensions)?source.dimensions:null,confidence_score:typeof source.confidence_score==='number'&&source.confidence_score>=0&&source.confidence_score<=1?source.confidence_score:null,matched_status:['UNMATCHED','MATCHED','EXCEPTION'].includes(normalized.matched_status)?normalized.matched_status:null,accounting_treatment_status:['UNCLASSIFIED','CLASSIFIED','EXCEPTION','REVIEWED'].includes(normalized.accounting_treatment_status)?normalized.accounting_treatment_status:null,audit_trace_id:hasText(source.audit_trace_id)?source.audit_trace_id:null};
   const missing=Object.entries(required).filter(([,value])=>value===undefined||value===null||value==='').map(([field])=>field);
-  return redactSecrets({...source,source_id:sourceId,source_type:sourceType,amount:amount===null?0:amount,date,period_code:periodCode,matched_status:source.matched_status||source.match_status||'UNMATCHED',accounting_treatment_status:source.accounting_treatment_status||'UNCLASSIFIED',ingestion_status:missing.length?'INCOMPLETE':'READY',missing_fields:missing});
+  return redactSecrets({...normalized,ingestion_status:missing.length?'INCOMPLETE':'READY',missing_fields:missing});
 }
 
 // Classification is a transparent rule result, not an instruction to post.
@@ -151,8 +153,8 @@ export function classifyAccountingEvent(source={}) {
     /escrow|reserve/.test(text)?'LOAN_ESCROW_RESERVE':
     /loan|draw|lender/.test(text)?'LOAN_DRAW':
     isInsurance(normalized)||/property tax|subscription|license|warranty/.test(text)?'PREPAID':
-    /invoice|bill/.test(text)||['PAYABLE_INVOICE','VENDOR_INVOICE'].includes(normalized.source_type)?'INVOICE':
-    normalized.source_type==='BANK_TRANSACTION'?'PAYMENT':'UNCLASSIFIED');
+    /invoice|bill/.test(text)||['PAYABLE_REPORT','VENDOR_INVOICE'].includes(normalized.source_type)?'INVOICE':
+    normalized.source_type==='BANK_STATEMENT'?'PAYMENT':'UNCLASSIFIED');
   const ruleConfidence=normalized.ingestion_status==='READY'?(eventType==='UNCLASSIFIED'?0.45:0.9):0.4;
   const sourceConfidence=Number(normalized.confidence_score);
   const confidence=Number.isFinite(sourceConfidence)?Math.min(ruleConfidence,Math.max(0,Math.min(1,sourceConfidence))):ruleConfidence;
