@@ -1,6 +1,6 @@
 # Capability Matrix — evidence status, not release status
 
-> **Release boundary (2026-08-03):** UI/SSR scenarios and local PostgreSQL gates are not production or live evidence. `src/repo.js`/`src/app.jsx` retain browser-local persistence; WBS live immutable receipts, authenticated production IAM, shared-session browser E2E, and deployment recovery evidence remain unverified. No row below authorizes production deployment or claims QuickBooks/WBS functional equivalence.
+> **Release boundary (2026-09-14):** This matrix records capability evidence, never a production-release authorization. Candidate `e2d8c2ee6a9dd4f1f1a34e39df073bcb7a2b4611` has a clean local release-evidence bundle, a production frontend build, fail-closed external-gate tests, local UI/S3/WBS simulation, focused AI-source and server workflow tests, and CI gates in progress. The browser client still retains local-persistence paths; real provider-signed WBS receipts, authenticated production IAM and 23-page browser E2E, live database dictionary export, recovery evidence, and every real business close remain independently required. No row below claims QuickBooks/WBS functional equivalence or authorizes production posting.
 | # | Module | Status | Evidence | Workflow | Src→JE | GL | AI Judge | AI Audit | Remaining Gap | Pri |
 |---|---|---|---|---|---|---|---|---|---|---|
 |1| Account Setting | PARTIAL (UI/local) | module-setting/settings.js | ✅编辑/±/状态 | ✅S2/S6 | ✅ | ✅ | ✅ | server persistence, effective-date history, independent E2E | P1 |
