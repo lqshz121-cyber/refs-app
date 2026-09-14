@@ -173,6 +173,10 @@ export async function startAccountingServer({env=process.env,fetcher=globalThis.
       const grantSync=new PostgresGrantSync(grantSyncPool,{principalProvider:stagingGrantPrincipal,transactionGuard:stagingTransactionGuard}),entityId=env.REFS_INTERNAL_TEST_ENTITY_ID||RENDER_WBS_TEST_SCOPE.entityId;
       if(config.internalTest.profile==='FULL_WORKFLOW'){
         startupStage='INTERNAL_WORKFLOW_GRANTS';await reconcileInternalTestWorkflowActorGrants({grantSync,scope:{tenantId:config.internalTest.tenantId,entityId,actors:config.internalTest.actors}});
+        startupStage='INTERNAL_TEST_BANK_CASH_MASTER';
+        const masterKernel=server.internalTestKernelFactory?.(config.internalTest.actors.maker);
+        if(!masterKernel||typeof masterKernel.ensureInternalTestBankCashMaster!=='function')throw new Error('Internal test bank/cash bootstrap kernel is unavailable');
+        await masterKernel.ensureInternalTestBankCashMaster({tenantId:config.internalTest.tenantId,entityId,idempotencyKey:`internal-test-bank-cash-master-v1-${entityId}`});
       }else{
         startupStage='INTERNAL_READ_GRANT';const expectedVersion=await grantSync.currentVersion({tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,entityId});await grantSync.reconcile({tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,entityId,permissions:INTERNAL_TEST_READ_PERMISSIONS,authorityClass:'READ',validUntil:new Date(Date.now()+23*60*60*1000).toISOString(),expectedVersion,idempotencyKey:`internal-test-read-${config.internalTest.actorId}-${new Date().toISOString().slice(0,13).replace(/[-:T]/g,'')}`});
       }

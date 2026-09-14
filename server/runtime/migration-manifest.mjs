@@ -423,4 +423,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"416_recurring_scheduler_command_payload_authority_fix.sql","up":"39a6232647f110e9556ed9dca39427a179760e6a89dd2533d3d4d70903753b90","down":"10dd9a22482942aab60e8a80b8239dc4fae7bb22b633aaab2d3d46cc4c31c983"}),
   Object.freeze({"name":"417_wbs_autorec_reverse_workflow.sql","up":"afaded1f0d88eac18034cf2dba6aa4e8c2881ff36050b6a5359bd2420584faf7","down":"2b17d79f74ba14975fe911547debe00f382bc7ce9eaf364f77ea0bad7cbfa0f8"}),
   Object.freeze({"name":"418_reconciliation_actor_binding_regression_fix.sql","up":"dbbe59971f35588c4bfd037da45e41048358392151af0f06bd58ceabb0996437","down":"e43472c940498ac5e0ee2ac1476f22f51bc5f7584109a428566041ed1995fd75"}),
+  Object.freeze({name:"419_internal_test_bank_cash_master.sql",up:"b91fa9f5bb1f5ed9dbf0cff109011e9f75ced9af71c09a127eefe6cee39548fd",down:"a16320da0bba284297441e4e67ef703f79ab9fee99d559cca8461da202b7addd"}),
 ]);

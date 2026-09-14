@@ -109,6 +109,8 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
   if(wbsTestImport&&!wbsLivePilotClient)throw new Error('WBS test import requires the configured live-pilot client');
   const initialReadSession=createInitialReadSessionFactory({tenantId:stage1SelfGrant?.tenantId,initializeReadAccess:stage1SelfGrant?({actorId,idempotencyKey})=>grantStage1SelfReadAccess(grantSyncPool,{...stage1SelfGrant,actorId,idempotencyKey}):undefined});
   const kernelFor=(principal,{allowReadFallback=false}={})=>{const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>principal});return new PostgresAccountingKernel(runtimePool,{runtimeLoginAllowlist,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,sessionProvider:initialReadSession({principal,issue:()=>issueAccountingReadContext(issuer,{tenantId:principal.tenantId,allowReadFallback})})});};
+  const internalTestKernelFactory=internalTest?.profile==='FULL_WORKFLOW'?actorId=>kernelFor({trusted:true,tenantId:internalTest.tenantId,actorId}):null;
+
   const aiAnalysisExplanationServiceFactory=aiGateway?principal=>{const kernel=kernelFor(principal);return createAiAnalysisExplanationService({gateway:aiGateway,auditRepository:kernel,summaryReader:async({tenantId,entityId})=>{
     if(tenantId!==principal.tenantId)throw new Error('AI analysis tenant scope does not match the authenticated principal');
     return kernel.readAiAccountingAnalysisSummary({tenantId,entityId});
@@ -402,6 +404,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
       scannerKernelFactory:()=>kernelFor({trusted:true,tenantId:principal.tenantId,actorId:scannerServiceActorId})})
       :undefined
   });
+  Object.defineProperty(server,'internalTestKernelFactory',{value:internalTestKernelFactory,writable:false,enumerable:false,configurable:false});
   Object.defineProperty(server,'aiGateway',{value:aiGateway||null,writable:false,enumerable:false,configurable:false});
   Object.defineProperty(server,'createAiAnalysisExplanationService',{value:aiAnalysisExplanationServiceFactory||null,writable:false,enumerable:false,configurable:false});
   Object.defineProperty(server,'createAiAccrualCandidateAnalysisService',{value:aiAccrualCandidateAnalysisServiceFactory,writable:false,enumerable:false,configurable:false});

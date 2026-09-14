@@ -119,7 +119,7 @@ services:
       - key: REFS_PUBLIC_PERIOD_ID
         sync: false
       - key: REFS_PUBLIC_CASH_ACCOUNT_CODE
-        value: "111000"
+        value: "111990"
     routes:
       - type: rewrite
         source: /*

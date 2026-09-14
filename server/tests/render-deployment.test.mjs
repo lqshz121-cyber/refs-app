@@ -75,7 +75,7 @@ test('Render staging manifest declares every production startup secret and uses 
   assert.ok(hasSecret(internalApi.body,'REFS_HTTP_ALLOWED_ORIGINS'));assert.doesNotMatch(internalApi.body,/OIDC_|REFS_PUBLIC_|REFS_WBS_TEST_IMPORT_[A-Z_]+_ACTOR_ID/);
   assert.match(internalWeb.body,/runtime: static/);assert.match(internalWeb.body,/REFS_PUBLIC_RUNTIME_MODE\r?\n\s+value: INTERNAL_TEST_FULL/);
   for(const key of ['REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_PERIOD_ID'])assert.ok(hasSecret(internalWeb.body,key),`internal static client is missing ${key}`);
-  for(const [key,value] of [['REFS_PUBLIC_ENTITY_ID','ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3'],['REFS_PUBLIC_CASH_ACCOUNT_CODE','"111000"']])assert.ok(hasFixed(internalWeb.body,key,value),`internal static client is missing ${key}=${value}`);
+  for(const [key,value] of [['REFS_PUBLIC_ENTITY_ID','ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3'],['REFS_PUBLIC_CASH_ACCOUNT_CODE','"111990"']])assert.ok(hasFixed(internalWeb.body,key,value),`internal static client is missing ${key}=${value}`);
   assert.doesNotMatch(internalWeb.body,/REFS_PUBLIC_OIDC_|WBS_|DATABASE_URL|OIDC_/);
   assert.equal((manifest.match(/autoDeployTrigger: off/g)||[]).length,5,'Stage 1 coordinates API, its outbox consumer, static client, internal full-test API, and internal client');
   assert.equal((integrations.match(/autoDeployTrigger: off/g)||[]).length,3,'signed-ingest API and both isolated workers require explicit coordinated releases');
@@ -117,7 +117,7 @@ test('isolated internal-test Blueprint creates only the full workflow API and br
   assert.ok(hasSecret(api.body,'REFS_HTTP_ALLOWED_ORIGINS'));assert.doesNotMatch(api.body,/OIDC_|REFS_PUBLIC_|S3_|VIRUS_SCANNER|REFS_WBS_TEST_IMPORT_[A-Z_]+_ACTOR_ID/);
   assert.match(web.body,/runtime: static/);assert.match(web.body,/buildCommand: npm ci && npm run build/);assert.match(web.body,/staticPublishPath: \.\/dist/);assert.match(web.body,/REFS_PUBLIC_RUNTIME_MODE\r?\n\s+value: INTERNAL_TEST_FULL/);
   for(const key of ['REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_PERIOD_ID'])assert.ok(hasSecret(web.body,key),`isolated internal client is missing ${key}`);
-  for(const [key,value] of [['REFS_PUBLIC_ENTITY_ID','ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3'],['REFS_PUBLIC_CASH_ACCOUNT_CODE','"111000"']])assert.ok(hasFixed(web.body,key,value),`isolated internal client is missing ${key}=${value}`);
+  for(const [key,value] of [['REFS_PUBLIC_ENTITY_ID','ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3'],['REFS_PUBLIC_CASH_ACCOUNT_CODE','"111990"']])assert.ok(hasFixed(web.body,key,value),`isolated internal client is missing ${key}=${value}`);
   assert.doesNotMatch(web.body,/DATABASE_URL|WBS_|OIDC_|REFS_PUBLIC_OIDC_/);assert.match(web.body,/source: \/\*/);assert.match(web.body,/destination: \/index\.html/);
 });
 
