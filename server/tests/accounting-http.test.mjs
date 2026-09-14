@@ -703,13 +703,13 @@ test('credit command routes reject malformed creation and allocation receipts',a
   const adjustmentId=randomUUID(),documentId=randomUUID(),validDraft={business_adjustment_id:adjustmentId,journal_entry_id:randomUUID(),status:'DRAFT',revision:0,idempotent:false};
   for(const [path,method,body,invalidResult] of [
     ['ap/vendor-credits','createApVendorCredit',{periodId,creditNumber:'VC-BAD',creditDate:'2026-08-02',vendorRef:'V-100',vendorName:'Vendor',amount:10,lines:[{line_no:1,account_code:'610000',amount:10}],reason:'Vendor credit receipt validation',attachmentIds:[randomUUID()]},{...validDraft,status:'POSTED'}],
-    ['ar/credit-memos','createArCreditMemo',{periodId,memoNumber:'CM-BAD',memoDate:'2026-08-02',customerRef:'C-100',customerName:'Customer',amount:10,lines:[{line_no:1,account_code:'410000',amount:10}],reason:'Customer credit receipt validation',attachmentIds:[randomUUID()]},{...validDraft,revision:1}]
+    ['ar/credit-memos','createArCreditMemo',{periodId,memoNumber:'CM-BAD',memoDate:'2026-08-02',customerRef:'C-100',customerName:'Customer',amount:10,lines:[{line_no:1,account_code:'410000',amount:10}],reason:'Customer credit receipt validation',attachmentIds:[randomUUID()]},{...validDraft,status:'PENDING_APPROVAL'}]
   ]){
     const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'credit-maker'}),kernelFactory:async()=>({[method]:async()=>invalidResult})});
     const response=await api({method:'POST',url:`/api/v1/entities/${entityId}/${path}`,headers:{'Idempotency-Key':`bad-${method}`},body});assert.equal(response.status,500);assert.equal(response.body.code,'BUSINESS_ADJUSTMENT_RECEIPT_INVALID');
   }
   for(const [path,method] of [['ap/vendor-credits','applyApVendorCredit'],['ar/credit-memos','applyArCreditMemo']]){
-    const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'credit-applier'}),kernelFactory:async()=>({[method]:async()=>({business_allocation_id:randomUUID(),business_adjustment_id:adjustmentId,business_document_id:documentId,amount:10,status:'ACTIVE',idempotent:false})})});
+    const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'credit-applier'}),kernelFactory:async()=>({[method]:async()=>({business_allocation_id:randomUUID(),business_adjustment_id:adjustmentId,business_document_id:documentId,amount:10,status:'POSTED',idempotent:false})})});
     const response=await api({method:'POST',url:`/api/v1/entities/${entityId}/${path}/${adjustmentId}/allocations`,headers:{'Idempotency-Key':`bad-${method}`},body:{businessDocumentId:documentId,amount:10,reason:'Receipt validation'}});assert.equal(response.status,500);assert.equal(response.body.code,'BUSINESS_ALLOCATION_RECEIPT_INVALID');
   }
 });

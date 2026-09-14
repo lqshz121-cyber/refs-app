@@ -33,6 +33,16 @@ services:
         value: refs-internal-reader
       - key: REFS_INTERNAL_TEST_MAKER_ACTOR_ID
         value: refs-internal-maker
+      - key: REFS_INTERNAL_TEST_REFUND_MAKER_ACTOR_ID
+        value: refs-internal-refund-maker
+      - key: REFS_INTERNAL_TEST_ADJUSTMENT_MAKER_ACTOR_ID
+        value: refs-internal-adjustment-maker
+      - key: REFS_INTERNAL_TEST_SALES_RECEIPT_MAKER_ACTOR_ID
+        value: refs-internal-sales-receipt-maker
+      - key: REFS_INTERNAL_TEST_RECEIPT_MAKER_ACTOR_ID
+        value: refs-internal-receipt-maker
+      - key: REFS_INTERNAL_TEST_EXPENSE_MAKER_ACTOR_ID
+        value: refs-internal-expense-maker
       - key: REFS_INTERNAL_TEST_SUBMITTER_ACTOR_ID
         value: refs-internal-submitter
       - key: REFS_INTERNAL_TEST_PAYMENT_MAKER_ACTOR_ID
@@ -51,6 +61,8 @@ services:
         value: refs-internal-reconciliation-starter
       - key: REFS_INTERNAL_TEST_CLEARER_ACTOR_ID
         value: refs-internal-clearer
+      - key: REFS_INTERNAL_TEST_UNMATCHER_ACTOR_ID
+        value: refs-internal-unmatcher
       - key: REFS_INTERNAL_TEST_REOPENER_ACTOR_ID
         value: refs-internal-reopener
       - key: REFS_INTERNAL_TEST_PERIOD_CLOSER_ACTOR_ID
@@ -59,6 +71,8 @@ services:
         value: refs-internal-period-reopener
       - key: REFS_INTERNAL_TEST_CASH_TRANSFER_RECONCILER_ACTOR_ID
         value: refs-internal-cash-transfer-reconciler
+      - key: REFS_INTERNAL_TEST_RECURRING_RUNNER_ACTOR_ID
+        value: refs-internal-recurring-runner
       - key: REFS_INTERNAL_TEST_ENTITY_ID
         value: ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3
       - key: REFS_ATTACHMENT_MODE
