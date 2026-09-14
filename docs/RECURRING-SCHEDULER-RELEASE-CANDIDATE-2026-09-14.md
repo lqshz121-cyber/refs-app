@@ -3,7 +3,7 @@
 ## Candidate
 
 - Branch: `codex/374-postgres-syntax-verify`
-- Candidate commit: `1b9bc2e97e4c6986f236fa626ca5cff84125b1ae`
+- Candidate commit: `867ed1054d5e72c92fcdafc6fa4c2460b476a690`
 - Prerequisite commit: `8e54dd83efd4ac3983d2abb1e345aca3527c9fce`
 - Added migrations: 412 through 416. Existing applied migrations are not modified.
 
