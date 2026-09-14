@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {renderBuildChannelStamp,renderFailClosedRuntimeConfig,renderLocalMockRuntimeConfig,renderRuntimeConfig,renderRuntimeConfigOrLock,resolveRuntimeChannel} from '../scripts/runtime-config-lib.mjs';
+import {renderBuildChannelStamp,renderFailClosedRuntimeConfig,renderInternalTestRuntimeConfig,renderInternalTestReadOnlyRuntimeConfig,renderLocalMockRuntimeConfig,renderRuntimeConfig,renderRuntimeConfigOrLock,resolveRuntimeChannel} from '../scripts/runtime-config-lib.mjs';
 
 const environment={REFS_PUBLIC_ACCOUNTING_API_BASE_URL:'https://api.example/',REFS_PUBLIC_ENTITY_ID:'11111111-1111-4111-8111-111111111111',REFS_PUBLIC_PERIOD_ID:'33333333-3333-4333-8333-333333333333',REFS_PUBLIC_CASH_ACCOUNT_CODE:'111000',REFS_PUBLIC_OIDC_ISSUER:'https://issuer.example/',REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT:'https://issuer.example/authorize',REFS_PUBLIC_OIDC_TOKEN_ENDPOINT:'https://issuer.example/token',REFS_PUBLIC_OIDC_REDIRECT_URI:'https://app.example/callback',REFS_PUBLIC_OIDC_CLIENT_ID:'refs-browser',REFS_PUBLIC_OIDC_AUDIENCE:'refs-accounting'};
 assert.equal(renderRuntimeConfig({}),null);assert.throws(()=>renderRuntimeConfig({REFS_PUBLIC_ACCOUNTING_API_BASE_URL:'https://api.example'}),/incomplete/);
 const locked=renderRuntimeConfigOrLock({});assert.equal(locked,renderFailClosedRuntimeConfig());assert.match(locked,/window\.__REFS_OIDC__=null/);assert.match(locked,/window\.__REFS_ACCOUNTING_API__=null/);assert.match(locked,/REQUIRES_AUTHORITATIVE_API/);assert.doesNotMatch(locked,/LOCAL_DEMO/);
 const mock=renderRuntimeConfigOrLock({REFS_PUBLIC_RUNTIME_MODE:'LOCAL_MOCK'});assert.equal(mock,renderLocalMockRuntimeConfig());assert.match(mock,/LOCAL_MOCK/);assert.throws(()=>renderRuntimeConfigOrLock({REFS_PUBLIC_RUNTIME_MODE:'DEMO'}),/Unsupported public runtime mode/);
+const internal=renderRuntimeConfigOrLock({REFS_PUBLIC_RUNTIME_MODE:'INTERNAL_TEST'});assert.equal(internal,renderInternalTestRuntimeConfig());assert.match(internal,/INTERNAL_TEST/);assert.throws(()=>renderRuntimeConfigOrLock({...environment,REFS_PUBLIC_RUNTIME_MODE:'INTERNAL_TEST'}),/must not carry authoritative deployment coordinates/);
+const internalReadOnlyEnvironment={REFS_PUBLIC_RUNTIME_MODE:'INTERNAL_TEST_READONLY',REFS_PUBLIC_ACCOUNTING_API_BASE_URL:'https://internal-api.example/',REFS_PUBLIC_ENTITY_ID:environment.REFS_PUBLIC_ENTITY_ID,REFS_PUBLIC_PERIOD_ID:environment.REFS_PUBLIC_PERIOD_ID,REFS_PUBLIC_CASH_ACCOUNT_CODE:environment.REFS_PUBLIC_CASH_ACCOUNT_CODE};
+const internalReadOnly=renderRuntimeConfigOrLock(internalReadOnlyEnvironment);assert.equal(internalReadOnly,renderInternalTestReadOnlyRuntimeConfig(internalReadOnlyEnvironment));assert.match(internalReadOnly,/INTERNAL_TEST_READONLY/);assert.match(internalReadOnly,/internalReadOnly:true/);assert.match(internalReadOnly,/getAccessToken:async\(\)=>null/);assert.match(internalReadOnly,/window\.__REFS_OIDC__=null/);assert.doesNotMatch(internalReadOnly,/(?:issuer|authorizationEndpoint|tokenEndpoint|redirectUri|clientId|audience|DATABASE_URL|SECRET)/i);assert.throws(()=>renderRuntimeConfigOrLock({...internalReadOnlyEnvironment,REFS_PUBLIC_OIDC_CLIENT_ID:'forbidden'}),/must not carry OIDC coordinates/);
 const rendered=renderRuntimeConfig(environment);assert.match(rendered,/window\.__REFS_OIDC__/);assert.match(rendered,/window\.refsOidcClient\?\.getAccessToken/);assert.match(rendered,/https:\/\/api\.example/);assert.doesNotMatch(rendered,/REFS_PUBLIC_|DATABASE_URL|S3_ACCESS_KEY/i);
 assert.match(rendered,/wbsTestImportMode:"DISABLED"/);assert.match(renderRuntimeConfig({...environment,REFS_WBS_TEST_IMPORT_MODE:'ENABLED'}),/wbsTestImportMode:"ENABLED"/);assert.throws(()=>renderRuntimeConfig({...environment,REFS_WBS_TEST_IMPORT_MODE:'AUTO'}),/must be ENABLED or DISABLED/);
 assert.match(rendered,/cashTransferUiMode:"DISABLED"/);assert.match(rendered,/accountingApiAttachmentMode:"DISABLED"/);assert.match(renderRuntimeConfig({...environment,REFS_PUBLIC_CASH_TRANSFER_UI_MODE:'ENABLED',REFS_PUBLIC_ACCOUNTING_API_ATTACHMENT_MODE:'REQUIRED'}),/cashTransferUiMode:"ENABLED"/);assert.throws(()=>renderRuntimeConfig({...environment,REFS_PUBLIC_CASH_TRANSFER_UI_MODE:'ENABLED',REFS_PUBLIC_ACCOUNTING_API_ATTACHMENT_MODE:'DISABLED'}),/Cash Transfer UI requires an API with REFS_ATTACHMENT_MODE=REQUIRED/);assert.throws(()=>renderRuntimeConfig({...environment,REFS_PUBLIC_CASH_TRANSFER_UI_MODE:'AUTO'}),/REFS_PUBLIC_CASH_TRANSFER_UI_MODE must be ENABLED or DISABLED/);assert.throws(()=>renderRuntimeConfig({...environment,REFS_PUBLIC_ACCOUNTING_API_ATTACHMENT_MODE:'OPTIONAL'}),/REFS_PUBLIC_ACCOUNTING_API_ATTACHMENT_MODE must be REQUIRED or DISABLED/);assert.match(rendered,/controlledTestAiWorkflowMode:"DISABLED"/);assert.match(renderRuntimeConfig({...environment,REFS_DEPLOYMENT_ENV:'staging',REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE:'ENABLED'}),/controlledTestAiWorkflowMode:"ENABLED"/);assert.throws(()=>renderRuntimeConfig({...environment,REFS_DEPLOYMENT_ENV:'production',REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE:'ENABLED'}),/only in staging/);assert.throws(()=>renderRuntimeConfig({...environment,REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE:'AUTO'}),/must be ENABLED or DISABLED/);
@@ -22,8 +25,12 @@ assert.match(index,/Chart\.js\/4\.4\.1\/chart\.umd\.min\.js" integrity="sha384-b
 assert.equal(resolveRuntimeChannel({}),'AUTHORITATIVE');
 assert.equal(resolveRuntimeChannel(environment),'AUTHORITATIVE');
 assert.equal(resolveRuntimeChannel({REFS_PUBLIC_RUNTIME_MODE:'LOCAL_MOCK'}),'PUBLIC_DEMONSTRATION');
+assert.equal(resolveRuntimeChannel({REFS_PUBLIC_RUNTIME_MODE:'INTERNAL_TEST'}),'INTERNAL_TEST');
+assert.equal(resolveRuntimeChannel(internalReadOnlyEnvironment),'INTERNAL_TEST_READONLY');
 assert.match(renderBuildChannelStamp({}),/window\.__BUILD=Object\.assign\(window\.__BUILD\|\|\{\},\{channel:"AUTHORITATIVE",authoritative:true\}\);/);
 assert.match(renderBuildChannelStamp({REFS_PUBLIC_RUNTIME_MODE:'LOCAL_MOCK'}),/channel:"PUBLIC_DEMONSTRATION",authoritative:false/);
+assert.match(renderBuildChannelStamp({REFS_PUBLIC_RUNTIME_MODE:'INTERNAL_TEST'}),/channel:"INTERNAL_TEST",authoritative:false/);
+assert.match(renderBuildChannelStamp(internalReadOnlyEnvironment),/channel:"INTERNAL_TEST_READONLY",authoritative:false/);
 assert.doesNotMatch(renderBuildChannelStamp(environment),/REFS_PUBLIC_|DATABASE_URL|S3_ACCESS_KEY/i);
 
 // A demonstration build must not also be pointed at a real accounting API.
@@ -42,6 +49,10 @@ const lockScope={};
 new Function('window',lockSource)(lockScope);
 lockScope.__REFS_RUNTIME_MODE__='LOCAL_MOCK';
 assert.equal(lockScope.__REFS_RUNTIME_MODE__,'LOCAL_MOCK','the lock must accept an enumerated mode');
+lockScope.__REFS_RUNTIME_MODE__='INTERNAL_TEST';
+assert.equal(lockScope.__REFS_RUNTIME_MODE__,'INTERNAL_TEST','the lock must accept explicit internal-test mode');
+lockScope.__REFS_RUNTIME_MODE__='INTERNAL_TEST_READONLY';
+assert.equal(lockScope.__REFS_RUNTIME_MODE__,'INTERNAL_TEST_READONLY','the lock must accept explicit internal read-only mode');
 lockScope.__REFS_RUNTIME_MODE__='DEMO';
 assert.equal(lockScope.__REFS_RUNTIME_MODE__,'RUNTIME_MODE_REJECTED','the lock must reject an unenumerated mode');
 lockScope.__REFS_RUNTIME_MODE__='REQUIRES_AUTHORITATIVE_API';

@@ -24,10 +24,12 @@ test('IAM cleanup preserves the test failure and discards a connection whose tim
 });
 
 test('PostgreSQL fixture suite names each isolated accounting closure explicitly',()=>{
-  assert.deepEqual(FIXTURES.map(item=>item.id),['controlled-ap-close','ar-rent-pickup-close','signed-wbs-payable-post','signed-cost-cwip-post','signed-bank-same-source-close','bank-reconcile-close','bank-match-unmatch-controls','wbs-autorec-reserve-release','reconciliation-governance-snapshot','reconciliation-lifecycle-close','ai-exception-lineage','ai-amortization-human-close','dimension-profitability-close','cash-flow-close','cwip-rollforward-close','construction-loan-rollforward-close','prepaid-rollforward-close','intercompany-reconciliation-close','budget-vs-actual-close','consolidation-close','insurance-pc-mapping-controller','wbs-autorec-event-foundation','real-estate-profitability-lineage','real-estate-reports']);
+  assert.deepEqual(FIXTURES.map(item=>item.id),['controlled-ap-close','ar-rent-pickup-close','signed-wbs-payable-post','signed-cost-cwip-post','signed-bank-same-source-close','bank-reconcile-close','bank-match-unmatch-controls','wbs-autorec-reserve-release','reconciliation-governance-snapshot','reconciliation-lifecycle-close','ai-exception-lineage','ai-amortization-human-close','fixed-asset-depreciation-close','native-expense-close','recurring-scheduler-close','unit-transfer-close','cash-transfer-close','ap-partial-payment-reversal-close','ar-credit-memo-allocation-close','dimension-profitability-close','cash-flow-close','cwip-rollforward-close','construction-loan-rollforward-close','prepaid-rollforward-close','intercompany-reconciliation-close','budget-vs-actual-close','consolidation-close','insurance-pc-mapping-controller','wbs-autorec-event-foundation','real-estate-profitability-lineage','real-estate-reports']);
   assert.ok(FIXTURES.every(item=>typeof item.pattern==='string'&&item.pattern.length>20));
   assert.deepEqual(selectFixtures().map(item=>item.id),FIXTURES.map(item=>item.id));
   assert.deepEqual(selectFixtures(['--fixture','bank-reconcile-close']).map(item=>item.id),['bank-reconcile-close']);
+  assert.deepEqual(selectFixtures(['--fixture','ap-partial-payment-reversal-close']).map(item=>item.id),['ap-partial-payment-reversal-close']);
+  assert.deepEqual(selectFixtures(['--fixture','ar-credit-memo-allocation-close']).map(item=>item.id),['ar-credit-memo-allocation-close']);
   assert.deepEqual(selectFixtures(['--fixture','signed-bank-same-source-close']).map(item=>item.id),['signed-bank-same-source-close']);
   assert.deepEqual(selectFixtures(['--fixture','wbs-autorec-event-foundation']).map(item=>item.id),['wbs-autorec-event-foundation']);
   assert.deepEqual(selectFixtures(['--fixture','insurance-pc-mapping-controller']).map(item=>item.id),['insurance-pc-mapping-controller']);
@@ -53,6 +55,17 @@ test('PostgreSQL fixture suite accepts only a child-verified pattern receipt wit
   assert.equal(fixtureResult({id:'fixture',exitCode:1,output,durationMs:1}).exitCode,1);
 });
 
+test('PostgreSQL fixture suite separates per-test and process timeout budgets',async()=>{
+  const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>true;
+  const resultPromise=runFixture({id:'budget',pattern:'budget fixture'},
+    {REFS_PG_FIXTURE_TEST_TIMEOUT_MS:'150000',REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS:'180000'},
+    {spawnFixture:(_fixture,env)=>{assert.equal(env.REFS_PG_TEST_TIMEOUT_MS,'150000');queueMicrotask(()=>child.emit('exit',1,null));return child;},cleanupProject:async()=>{}});
+  assert.equal((await resultPromise).exitCode,1);
+  for(const env of [
+    {REFS_PG_FIXTURE_TEST_TIMEOUT_MS:'bad'},
+    {REFS_PG_FIXTURE_TEST_TIMEOUT_MS:'2000',REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS:'1000'}
+  ])assert.throws(()=>runFixture({id:'invalid-budget',pattern:'invalid'},env,{spawnFixture:()=>{throw Error('must not spawn');}}),/REFS_PG_FIXTURE/);
+});
 test('PostgreSQL fixture suite waits for child exit and owned Docker cleanup after timeout',async()=>{
   const child=new EventEmitter(),signals=[],cleanups=[];
   child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=signal=>{signals.push(signal);return true;};
@@ -60,7 +73,7 @@ test('PostgreSQL fixture suite waits for child exit and owned Docker cleanup aft
   const cleanupBlocked=new Promise(resolve=>{releaseCleanup=resolve;});
   let settled=false;
   const resultPromise=runFixture({id:'timeout-behavior',pattern:'behavior-only fixture'},
-    {REFS_PG_FIXTURE_TIMEOUT_MS:'1000',REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS:'1000'},
+    {REFS_PG_FIXTURE_TEST_TIMEOUT_MS:'1000',REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS:'1000'},
     {spawnFixture:(_fixture,env)=>{assert.match(env.REFS_PG_COMPOSE_PROJECT,/^refs_kernel_gate_fixture_/);return child;},cleanupProject:async project=>{cleanups.push(project);await cleanupBlocked;}});
   resultPromise.then(()=>{settled=true;});
   await delay(1050);

@@ -6,7 +6,7 @@
 // unknown mode leaves the slot holding RUNTIME_MODE_REJECTED, which resolves to
 // an explicit error surface - never to the demonstration surface.
 (function(){
-  var ALLOWED=['REQUIRES_AUTHORITATIVE_API','LOCAL_MOCK'];
+  var ALLOWED=['REQUIRES_AUTHORITATIVE_API','LOCAL_MOCK','INTERNAL_TEST','INTERNAL_TEST_READONLY'];
   var mode='REQUIRES_AUTHORITATIVE_API';
   try{
     Object.defineProperty(window,'__REFS_RUNTIME_MODE__',{

@@ -23,6 +23,13 @@ export const FIXTURES=Object.freeze([
   Object.freeze({id:'reconciliation-lifecycle-close',pattern:'reconciliation adjustment Draft binds one unresolved bank source through Posted clearance, review, and immutable sign-off'}),
   Object.freeze({id:'ai-exception-lineage',pattern:'operator exception row links append-only to the later exact signed Payable source without becoming Review authority'}),
   Object.freeze({id:'ai-amortization-human-close',pattern:'AI amortization creates a human Draft then standard Posted JE with immutable source and ledger lineage'}),
+  Object.freeze({id:'fixed-asset-depreciation-close',pattern:'native fixed asset depreciation retains evidence, races one Post, and refreshes register GL and report'}),
+  Object.freeze({id:'native-expense-close',pattern:'native expense creates, preserves evidence, posts through normal approval, and rejects journal drift atomically'}),
+  Object.freeze({id:'recurring-scheduler-close',pattern:'recurring scheduler separates creation approval and due-run, creates one Draft, and never writes ledger'}),
+  Object.freeze({id:'unit-transfer-close',pattern:'Unit Transfer creates a dual-entity Draft, applies separated approvals, posts both ledgers, and transfers the unit atomically'}),
+  Object.freeze({id:'cash-transfer-close',pattern:'Cash Transfer creates a two-bank Draft, applies separated approvals, and posts one retained ledger journal'}),
+  Object.freeze({id:'ap-partial-payment-reversal-close',pattern:'AP payment partial occurrence posts and reversal restores bill balance atomically'}),
+  Object.freeze({id:'ar-credit-memo-allocation-close',pattern:'AR credit memo posted first then partial and full apply updates invoice atomically'}),
   // PostgreSQL test modules own process-level pools. Keep each report closure in
   // its own process so a slow report teardown cannot hide another passing closure.
   Object.freeze({id:'dimension-profitability-close',pattern:'dimension profitability reads only exact POSTED ledger dimensions and never fills a missing property, project, unit, or lot'}),
@@ -80,13 +87,15 @@ function cleanupOwnedProject(project,env){
 }
 
 export function runFixture(fixture,env,{spawnFixture=spawnFixtureProcess,cleanupProject=cleanupOwnedProject}={}){
+  const testTimeout=env.REFS_PG_FIXTURE_TEST_TIMEOUT_MS||'150000';
+  const processTimeout=env.REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS||String(Number(testTimeout)+30000);
+  if(!/^[1-9]\d*$/.test(testTimeout)||Number(testTimeout)<1000||Number(testTimeout)>900000)throw new Error('REFS_PG_FIXTURE_TEST_TIMEOUT_MS must be an integer between 1000 and 900000 milliseconds');
+  if(!/^[1-9]\d*$/.test(processTimeout)||Number(processTimeout)<1000||Number(processTimeout)>930000)throw new Error('REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS must be an integer between 1000 and 930000 milliseconds');
+  if(Number(processTimeout)<Number(testTimeout))throw new Error('REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS must be greater than or equal to REFS_PG_FIXTURE_TEST_TIMEOUT_MS');
   return new Promise(resolveRun=>{
     const startedAt=Date.now();
-    const timeout=env.REFS_PG_FIXTURE_TIMEOUT_MS||'90000';
-    const processTimeout=env.REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS||String(Number(timeout)+30000);
-    if(!/^[1-9]\d*$/.test(processTimeout)||Number(processTimeout)<1000||Number(processTimeout)>930000)throw new Error('REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS must be an integer between 1000 and 930000 milliseconds');
     const project=ownedProjectName(fixture);
-    const childEnv={...env,REFS_PG_TEST_TIMEOUT_MS:timeout,REFS_PG_COMPOSE_PROJECT:project};
+    const childEnv={...env,REFS_PG_TEST_TIMEOUT_MS:testTimeout,REFS_PG_COMPOSE_PROJECT:project};
     const child=spawnFixture(fixture,childEnv);
     let output='';
     let settled=false;
@@ -102,7 +111,7 @@ export function runFixture(fixture,env,{spawnFixture=spawnFixtureProcess,cleanup
     };
     const watchdog=setTimeout(()=>{
       timedOut=true;
-      timeoutError=`Fixture process exceeded ${processTimeout}ms after its ${timeout}ms test timeout.`;
+      timeoutError=`Fixture process exceeded ${processTimeout}ms after its ${testTimeout}ms test timeout.`;
       child.kill('SIGTERM');
       terminationWatchdog=setTimeout(()=>child.kill('SIGKILL'),5000);
     },Number(processTimeout));

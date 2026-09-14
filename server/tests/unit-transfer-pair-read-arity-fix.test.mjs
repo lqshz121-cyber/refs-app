@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { MIGRATION_MANIFEST } from '../runtime/migration-manifest.mjs';
+const normalize = value => value.replace(/\r\n/g, '\n');
+const digest = value => createHash('sha256').update(normalize(value)).digest('hex');
+const root = new URL('../db/migrations/', import.meta.url);
+const name = '410_unit_transfer_pair_read_arity_fix.sql';
+const up = await readFile(new URL(name, root), 'utf8');
+const down = await readFile(new URL(`down/${name}`, root), 'utf8');
+const entry = MIGRATION_MANIFEST.find(item => item.name === name);
+assert.ok(entry);
+assert.equal(entry.up, digest(up));
+assert.equal(entry.down, digest(down));
+assert.match(up, /RETURN jsonb_build_object\([\s\S]*?\)\s*\|\|\s*jsonb_build_object\(/);
+assert.match(up, /\|\|\s*jsonb_build_object\('action_flags'/);
+assert.doesNotMatch(down, /\|\|\s*jsonb_build_object/);

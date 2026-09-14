@@ -32,9 +32,9 @@ const assertOutboxCoverage=(manifest,{apiName,workerName,fixedTenant=false})=>{
 test('Render staging manifest declares every production startup secret and uses locked frontend installs',async()=>{
   const manifest=await readFile(resolve(root,'render.yaml'),'utf8');
   const integrations=await readFile(resolve(root,'render.integrations.yaml'),'utf8');
-  const api=serviceSection(manifest,'refs-accounting-api-staging'),integrationApi=serviceSection(integrations,'refs-accounting-api-integrations-staging'),worker=serviceSection(integrations,'refs-attachment-cleanup-staging'),outboxWorker=assertOutboxCoverage(manifest,{apiName:'refs-accounting-api-staging',workerName:'refs-outbox-dispatch-staging',fixedTenant:true}),integrationOutboxWorker=assertOutboxCoverage(integrations,{apiName:'refs-accounting-api-integrations-staging',workerName:'refs-outbox-dispatch-integrations-staging'}),web=serviceSection(manifest,'refs-app');
+  const api=serviceSection(manifest,'refs-accounting-api-staging'),integrationApi=serviceSection(integrations,'refs-accounting-api-integrations-staging'),worker=serviceSection(integrations,'refs-attachment-cleanup-staging'),outboxWorker=assertOutboxCoverage(manifest,{apiName:'refs-accounting-api-staging',workerName:'refs-outbox-dispatch-staging',fixedTenant:true}),integrationOutboxWorker=assertOutboxCoverage(integrations,{apiName:'refs-accounting-api-integrations-staging',workerName:'refs-outbox-dispatch-integrations-staging'}),web=serviceSection(manifest,'refs-app'),internalApi=serviceSection(manifest,'refs-internal-test-api'),internalWeb=serviceSection(manifest,'refs-internal-test');
   assert.doesNotMatch(integrations,/name: refs-outbox-dispatch-staging/,'the authoritative dispatcher name must not be duplicated in the integrations blueprint');
-  assert.equal(api.type,'web');assert.equal(integrationApi.type,'web');assert.equal(worker.type,'worker');assert.equal(outboxWorker.type,'worker');assert.equal(integrationOutboxWorker.type,'worker');assert.equal(web.type,'web');
+  assert.equal(api.type,'web');assert.equal(integrationApi.type,'web');assert.equal(worker.type,'worker');assert.equal(outboxWorker.type,'worker');assert.equal(integrationOutboxWorker.type,'worker');assert.equal(web.type,'web');assert.equal(internalApi.type,'web');assert.equal(internalWeb.type,'web');
   for(const section of [api.body,integrationApi.body,worker.body,outboxWorker.body,integrationOutboxWorker.body,web.body])assert.doesNotMatch(section,/buildCommand: npm install/);
   assert.match(api.body,/rootDir: server/);assert.match(api.body,/buildCommand: npm ci/);assert.match(api.body,/preDeployCommand: npm run db:up/);assert.match(api.body,/startCommand: npm start/);assert.match(api.body,/healthCheckPath: \/health\/ready/);assert.ok(hasFixed(api.body,'REFS_PG_REQUIRED','"1"'));assert.ok(hasFixed(api.body,'REFS_HTTP_MAX_BODY_BYTES','"10485760"'));
   for(const [key,value] of [
@@ -68,7 +68,15 @@ test('Render staging manifest declares every production startup secret and uses 
   for(const key of publicKeys)assert.ok(hasSecret(web.body,key),`static service is missing ${key}`);
   assert.ok(hasFixed(web.body,'REFS_PUBLIC_CASH_TRANSFER_UI_MODE','DISABLED'),'Stage 1 static client must not enable Cash Transfer against its attachment-disabled API');assert.ok(hasFixed(web.body,'REFS_PUBLIC_ACCOUNTING_API_ATTACHMENT_MODE','DISABLED'),'Stage 1 static client must declare its attachment-disabled API');assert.ok(hasFixed(web.body,'REFS_WBS_TEST_IMPORT_MODE','ENABLED'),'static runtime config must expose the staging test-import switch');
   assert.doesNotMatch(api.body,/REFS_PUBLIC_/);assert.doesNotMatch(worker.body,/REFS_PUBLIC_/);assert.doesNotMatch(web.body,/REFS_PUBLIC_RUNTIME_MODE/,'authoritative static builds must not opt into LOCAL_MOCK');
-  assert.equal((manifest.match(/autoDeployTrigger: off/g)||[]).length,3,'Stage 1 coordinates API, its outbox consumer, and static client');
+  assert.match(internalApi.body,/rootDir: server/);assert.match(internalApi.body,/buildCommand: npm ci/);assert.match(internalApi.body,/startCommand: npm start/);assert.match(internalApi.body,/healthCheckPath: \/health\/ready/);
+  for(const [key,value] of [['NODE_ENV','production'],['REFS_HTTP_HOST','0.0.0.0'],['REFS_PG_REQUIRED','"1"'],['REFS_DEPLOYMENT_ENV','internal-test'],['REFS_INTERNAL_TEST_MODE','ENABLED'],['REFS_INTERNAL_TEST_TENANT_ID','6fb25daf-0799-4805-bede-be54230da33c'],['REFS_INTERNAL_TEST_ACTOR_ID','refs-internal-readonly'],['REFS_ATTACHMENT_MODE','DISABLED'],['REFS_WBS_INGEST_MODE','DISABLED'],['REFS_WBS_LIVE_PILOT_MODE','ENABLED'],['REFS_WBS_TEST_IMPORT_MODE','DISABLED'],['REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE','DISABLED'],['REFS_AI_MODE','DISABLED']])assert.ok(hasFixed(internalApi.body,key,value),`internal read-only API is missing ${key}=${value}`);
+  for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL','WBS_CF_ACCESS_CLIENT_ID','WBS_CF_ACCESS_CLIENT_SECRET','WBS_REFS_AUTH'])assert.ok(hasServiceReference(internalApi.body,key,'refs-accounting-api-staging'),`internal read-only API must inherit ${key} only from staging API`);
+  assert.ok(hasSecret(internalApi.body,'REFS_HTTP_ALLOWED_ORIGINS'));assert.doesNotMatch(internalApi.body,/OIDC_|REFS_PUBLIC_|REFS_WBS_TEST_IMPORT_[A-Z_]+_ACTOR_ID/);
+  assert.match(internalWeb.body,/runtime: static/);assert.match(internalWeb.body,/REFS_PUBLIC_RUNTIME_MODE\r?\n\s+value: INTERNAL_TEST_READONLY/);
+  for(const key of ['REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_PERIOD_ID'])assert.ok(hasSecret(internalWeb.body,key),`internal static client is missing ${key}`);
+  for(const [key,value] of [['REFS_PUBLIC_ENTITY_ID','ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3'],['REFS_PUBLIC_CASH_ACCOUNT_CODE','"111000"']])assert.ok(hasFixed(internalWeb.body,key,value),`internal static client is missing ${key}=${value}`);
+  assert.doesNotMatch(internalWeb.body,/REFS_PUBLIC_OIDC_|WBS_|DATABASE_URL|OIDC_/);
+  assert.equal((manifest.match(/autoDeployTrigger: off/g)||[]).length,5,'Stage 1 coordinates API, its outbox consumer, static client, internal read-only API, and internal client');
   assert.equal((integrations.match(/autoDeployTrigger: off/g)||[]).length,3,'signed-ingest API and both isolated workers require explicit coordinated releases');
   const pages=await readFile(resolve(root,'.github','workflows','deploy.yml'),'utf8');
   assert.match(pages,/run: npm ci/);assert.doesNotMatch(pages,/run: npm install/);
@@ -94,6 +102,22 @@ test('Render integrations outbox producer fails closed when its isolated consume
   const integrations=await readFile(resolve(root,'render.integrations.yaml'),'utf8');
   const withoutConsumer=integrations.replace(/^  # Dedicated dispatcher for the separately promoted integrations API[\s\S]*$/m,'');
   assert.throws(()=>assertOutboxCoverage(withoutConsumer,{apiName:'refs-accounting-api-integrations-staging',workerName:'refs-outbox-dispatch-integrations-staging'}),/Render manifest is missing refs-outbox-dispatch-integrations-staging/);
+});
+
+test('isolated internal-test Blueprint creates only the fixed read-only API and browser client',async()=>{
+  const manifest=await readFile(resolve(root,'render.internal-test.yaml'),'utf8');
+  const api=serviceSection(manifest,'refs-internal-test-api'),web=serviceSection(manifest,'refs-internal-test');
+  assert.equal(api.type,'web');assert.equal(web.type,'web');
+  assert.equal((manifest.match(/^  - type: /gm)||[]).length,2,'internal-test Blueprint must not recreate staging services');
+  assert.equal((manifest.match(/autoDeployTrigger: off/g)||[]).length,2,'both internal-test services require manual releases');
+  assert.match(api.body,/rootDir: server/);assert.match(api.body,/buildCommand: npm ci/);assert.match(api.body,/startCommand: npm start/);assert.match(api.body,/healthCheckPath: \/health\/ready/);
+  for(const [key,value] of [['NODE_ENV','production'],['REFS_HTTP_HOST','0.0.0.0'],['REFS_PG_REQUIRED','"1"'],['REFS_DEPLOYMENT_ENV','internal-test'],['REFS_INTERNAL_TEST_MODE','ENABLED'],['REFS_INTERNAL_TEST_TENANT_ID','6fb25daf-0799-4805-bede-be54230da33c'],['REFS_INTERNAL_TEST_ACTOR_ID','refs-internal-readonly'],['REFS_ATTACHMENT_MODE','DISABLED'],['REFS_WBS_INGEST_MODE','DISABLED'],['REFS_WBS_LIVE_PILOT_MODE','ENABLED'],['REFS_WBS_TEST_IMPORT_MODE','DISABLED'],['REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE','DISABLED'],['REFS_AI_MODE','DISABLED']])assert.ok(hasFixed(api.body,key,value),`isolated internal API is missing ${key}=${value}`);
+  for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL','WBS_CF_ACCESS_CLIENT_ID','WBS_CF_ACCESS_CLIENT_SECRET','WBS_REFS_AUTH'])assert.match(api.body,new RegExp(`- key: ${key}\\r?\\n\\s+fromService: \\{ type: web, name: refs-accounting-api-staging, envVarKey: ${key} \\}`),`isolated internal API must reference ${key} without copying it`);
+  assert.ok(hasSecret(api.body,'REFS_HTTP_ALLOWED_ORIGINS'));assert.doesNotMatch(api.body,/OIDC_|REFS_PUBLIC_|S3_|VIRUS_SCANNER|REFS_WBS_TEST_IMPORT_[A-Z_]+_ACTOR_ID/);
+  assert.match(web.body,/runtime: static/);assert.match(web.body,/buildCommand: npm ci && npm run build/);assert.match(web.body,/staticPublishPath: \.\/dist/);assert.match(web.body,/REFS_PUBLIC_RUNTIME_MODE\r?\n\s+value: INTERNAL_TEST_READONLY/);
+  for(const key of ['REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_PERIOD_ID'])assert.ok(hasSecret(web.body,key),`isolated internal client is missing ${key}`);
+  for(const [key,value] of [['REFS_PUBLIC_ENTITY_ID','ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3'],['REFS_PUBLIC_CASH_ACCOUNT_CODE','"111000"']])assert.ok(hasFixed(web.body,key,value),`isolated internal client is missing ${key}=${value}`);
+  assert.doesNotMatch(web.body,/DATABASE_URL|WBS_|OIDC_|REFS_PUBLIC_OIDC_/);assert.match(web.body,/source: \/\*/);assert.match(web.body,/destination: \/index\.html/);
 });
 
 const envKeys=section=>[...section.matchAll(/^\s+- key: ([A-Z0-9_]+)\r?$/gm)].map(match=>match[1]).sort();

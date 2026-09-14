@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {AI_ACCOUNTING_CLASSIFICATIONS,AI_ACCOUNTING_SOURCE_TYPES,assertAiAccountingSourceV1,buildAiAccountingDecisionPacketFullV1,deriveAiAccountingReportDeltas} from '../runtime/ai-accounting-decision-packet-full-contract.mjs';
+import {AI_ACCOUNTING_CLASSIFICATIONS,AI_ACCOUNTING_SOURCE_TYPES,assertAiAccountingContextEvidenceV1,assertAiAccountingSourceV1,buildAiAccountingDecisionPacketFullV1,deriveAiAccountingReportDeltas} from '../runtime/ai-accounting-decision-packet-full-contract.mjs';
 
 const id=n=>`${String(n).padStart(8,'0')}-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const hash=n=>`sha256:${String(n).repeat(64).slice(0,64)}`;
@@ -132,4 +132,12 @@ test('aggregates split lines, removes net-zero effects, and derives cash flow an
 test('required dimensions cannot be omitted and unapproved dimensions cannot be invented',()=>{
   const projectPolicy=accountPolicy('610000','EXPENSE','OPERATING_EXPENSE',{required_dimensions:['PROJECT']});
   assert.throws(()=>buildAiAccountingDecisionPacketFullV1(input({approvedAccountPolicies:[projectPolicy,...accounts.filter(policy=>policy.account_code!=='610000')]})),error=>error.code==='AI_ACCOUNTING_SUGGESTED_JOURNAL_INVALID');
+});
+
+test('accepts only retained non-transactional context evidence and grants no accounting authority',()=>{
+  const context={schema_version:'AI_ACCOUNTING_CONTEXT_EVIDENCE_V1',tenant_id:scope.tenantId,entity_id:scope.entityId,evidence_id:'wbs-source-2026-07-15',evidence_type:'WBS_SOURCE_DATA',evidence_payload_hash:hash(77),source_version:'wbs-v1'};
+  const evidence=assertAiAccountingContextEvidenceV1(context,scope);
+  assert.equal(evidence.evidence_type,'WBS_SOURCE_DATA');
+  assert.deepEqual(evidence.action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+  for(const unsafe of [{evidence_type:'BANK_STATEMENT'},{evidence_type:'UNTRUSTED'},{source_version:''},{tenant_id:id(98)}])assert.throws(()=>assertAiAccountingContextEvidenceV1({...context,...unsafe},scope),error=>error.code==='AI_ACCOUNTING_CONTEXT_EVIDENCE_INVALID');
 });

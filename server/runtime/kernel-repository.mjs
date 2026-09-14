@@ -33,15 +33,14 @@ export class PostgresAccountingKernel{
 
   async inSession(work){
     let databaseStage='CONTEXT_ISSUE';
-    let session=null;
     try{
     return await withSerializableRetry(this.pool,async client=>{
       databaseStage='CONTEXT_ISSUE';
-      // Issue only after the first runtime connection is acquired, so a pool
-      // wait cannot consume the context TTL. A serialization retry reuses the
-      // same capability: the failed transaction rolls its binding back, while
-      // issuing another capability here would retain an unused context row.
-      session=session||assertTrustedSession(await this.sessionProvider());
+      // A capability is bound to exactly one backend transaction by
+      // refs_bootstrap_context. Issue it after the runtime connection is
+      // acquired and for every retry attempt; reusing it across transactions
+      // would make later workflow commands lose their DB authorization.
+      const session=assertTrustedSession(await this.sessionProvider());
       databaseStage='RUNTIME_IDENTITY';
       const identity=requireRow(await client.query(`SELECT session_user,current_user,
         COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname=session_user),false) AS is_superuser`),'DB_IDENTITY_MISSING','Database identity is unavailable');
@@ -887,7 +886,8 @@ export class PostgresAccountingKernel{
 
   async createRecurringSchedule({tenantId,entityId,name,journalPrefix,currency,frequency,nextDueOn,endsOn,lines,reason,idempotencyKey}){
     return this.inSession(async client=>{
-      const args=[tenantId,entityId,name,journalPrefix,currency,frequency,nextDueOn,endsOn,lines,reason];
+      const canonicalLines=typeof lines==='string'?lines:JSON.stringify(lines);
+      const args=[tenantId,entityId,name,journalPrefix,currency,frequency,nextDueOn,endsOn,canonicalLines,reason];
       const requestHash=requireRow(await client.query('SELECT refs_recurring_schedule_create_hash($1,$2,$3,$4,$5,$6,$7::date,$8::date,$9::jsonb,$10) AS request_hash',args),'RECURRING_SCHEDULE_CREATE_HASH_MISSING','Recurring schedule create hash unavailable').request_hash;
       return requireRow(await client.query('SELECT refs_create_recurring_schedule($1,$2,$3,$4,$5,$6,$7::date,$8::date,$9::jsonb,$10,$11,$12) AS result',[...args,idempotencyKey,requestHash]),'RECURRING_SCHEDULE_CREATE_FAILED','Recurring schedule creation unavailable').result;
     });
@@ -1024,7 +1024,7 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>{
       const args=[tenantId,entityId,pairId,action,expectedPairRevision,expectedSourceRevision,expectedTargetRevision,reason];
       const requestHash=requireRow(await client.query('SELECT refs_unit_transfer_transition_hash($1,$2,$3,$4,$5::bigint,$6::bigint,$7::bigint,$8) AS request_hash',args),'UNIT_TRANSFER_TRANSITION_HASH_MISSING','Unit Transfer transition hash unavailable').request_hash;
-      return requireRow(await client.query('SELECT refs_transition_unit_transfer_pair($1,$2,$3,$4,$5::bigint,$6::bigint,$7::bigint,$8,$9,$10) AS result',[...args,idempotencyKey,requestHash]),'UNIT_TRANSFER_TRANSITION_FAILED','Unit Transfer transition unavailable').result;
+      return requireRow(await client.query('SELECT refs_transition_unit_transfer_pair($1,$2,$3,$4::text,$5::bigint,$6::bigint,$7::bigint,$8::text,$9::text,$10::text) AS result',[...args,idempotencyKey,requestHash]),'UNIT_TRANSFER_TRANSITION_FAILED','Unit Transfer transition unavailable').result;
     });
   }
 

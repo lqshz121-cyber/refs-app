@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { MIGRATION_MANIFEST } from '../runtime/migration-manifest.mjs';
+const normalize = value => value.replace(/\r\n/g, '\n');
+const digest = value => createHash('sha256').update(normalize(value)).digest('hex');
+const root = new URL('../db/migrations/', import.meta.url);
+const name = '409_unit_transfer_post_lineage_guard_fix.sql';
+const up = await readFile(new URL(name, root), 'utf8');
+const down = await readFile(new URL(`down/${name}`, root), 'utf8');
+const entry = MIGRATION_MANIFEST.find(item => item.name === name);
+assert.ok(entry);
+assert.equal(entry.up, digest(up));
+assert.equal(entry.down, digest(down));
+assert.match(up, /TG_OP='INSERT' AND NEW\.link_type='JE_LINE_TO_LEDGER'/);
+assert.match(up, /Unit Transfer Journal lineage is retained evidence and cannot be edited/);
+assert.doesNotMatch(down, /NEW\.link_type='JE_LINE_TO_LEDGER'/);

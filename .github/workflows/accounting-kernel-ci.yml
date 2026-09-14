@@ -78,6 +78,9 @@ jobs:
       - name: Install kernel dependencies exactly
         working-directory: server
         run: npm ci
+      - name: Verify PostgreSQL checkout provenance
+        working-directory: server
+        run: npm run verify:postgres-ci-checkout
       - name: Run fresh zero-skip PostgreSQL kernel and accounting settings gates
         working-directory: server
         env:
@@ -109,6 +112,9 @@ jobs:
       - name: Install kernel dependencies exactly
         working-directory: server
         run: npm ci
+      - name: Verify PostgreSQL checkout provenance
+        working-directory: server
+        run: npm run verify:postgres-ci-checkout
       - name: Run every isolated PostgreSQL accounting closure
         working-directory: server
         env:

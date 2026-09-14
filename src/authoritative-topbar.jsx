@@ -15,11 +15,16 @@ export function AuthoritativeTopbar({
   const selectable=entities.length>0&&typeof onEntityChange==='function'&&typeof onPeriodChange==='function';
   return <header className="topbar authoritative-topbar">
     <button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={onOpenNavigation}><Icon name="menu" size={24}/></button>
-    <label className="sw authoritative-shell-scope"><span className="sr-only">Authoritative company</span>{selectable?<select className="authoritative-shell-select" aria-label="Authoritative company" value={entityId} onChange={event=>onEntityChange(event.target.value)}>{entities.map(row=><option key={row.entity_id} value={row.entity_id}>{row.entity_name} ({row.entity_code})</option>)}</select>:<span className="authoritative-shell-select" title={entityLabel}>{entityLabel}</span>}</label>
+    <div className="authoritative-top-scope-control">
+      <span className="authoritative-top-label">Entity</span>
+      <label className="sw authoritative-shell-scope"><span className="sr-only">Authoritative company</span>{selectable?<select className="authoritative-shell-select" aria-label="Authoritative company" value={entityId} onChange={event=>onEntityChange(event.target.value)}>{entities.map(row=><option key={row.entity_id} value={row.entity_id}>{row.entity_name} ({row.entity_code})</option>)}</select>:<span className="authoritative-shell-select" title={entityLabel}>{entityLabel}</span>}</label>
+    </div>
     <div className="top-right authoritative-top-actions">
       <span className="period-chip authoritative-period-chip"><span className="period-label">Period</span>{selectable?<select aria-label="Accounting period" value={periodId} onChange={event=>onPeriodChange(event.target.value)}>{periods.map(row=><option key={row.period_id} value={row.period_id}>{row.period_code}</option>)}</select>:<b>{periodLabel}</b>}<span className="badge badge-ok">API read</span></span>
-      <button type="button" className="icon-btn" aria-label="Refresh authoritative accounting evidence" title="Refresh authoritative accounting evidence" onClick={onRefresh}><span aria-hidden="true">↻</span></button>
-      <button type="button" className="icon-btn" aria-label={theme==='dark'?'Switch to light theme':'Switch to dark theme'} title={theme==='dark'?'Switch to light theme':'Switch to dark theme'} aria-pressed={theme==='dark'} onClick={onToggleTheme}><span aria-hidden="true">{theme==='dark'?'☀':'☾'}</span></button>
+      <div className="authoritative-top-action-group" role="group" aria-label="Presentation actions">
+        <button type="button" className="icon-btn" aria-label="Refresh authoritative accounting evidence" title="Refresh authoritative accounting evidence" onClick={onRefresh}><span aria-hidden="true">↻</span></button>
+        <button type="button" className="icon-btn" aria-label={theme==='dark'?'Switch to light theme':'Switch to dark theme'} title={theme==='dark'?'Switch to light theme':'Switch to dark theme'} aria-pressed={theme==='dark'} onClick={onToggleTheme}><span aria-hidden="true">{theme==='dark'?'☀':'☾'}</span></button>
+      </div>
       <span className="badge badge-ok authoritative-mode-chip">Authoritative</span>
       <span className="user-chip authoritative-user-chip" aria-label="Authenticated OIDC session"><span className="user-av" aria-hidden="true">A</span><span className="user-nm">Authenticated</span><button type="button" className="link-btn" onClick={onSignOut}>Sign out</button></span>
     </div>

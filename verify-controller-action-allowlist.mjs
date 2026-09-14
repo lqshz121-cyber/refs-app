@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 
 const app = readFileSync(new URL('./src/legacy-demo-app.jsx', import.meta.url), 'utf8');
 const start = app.indexOf('function Approvals({ctx})');
-const end = app.indexOf('\nexport { App,', start);
+const end = app.indexOf('\nexport { LegacyDemoApp as App,', start);
 assert.ok(start >= 0 && end > start, 'Controller Action Required workspace must be statically locatable.');
 const actionQueue = app.slice(start, end);
 

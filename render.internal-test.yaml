@@ -1,0 +1,78 @@
+services:
+  # A self-contained internal-test Blueprint.  It deliberately creates only
+  # these two read-only services; all sensitive values remain references to
+  # the existing staging API and are never copied into this repository.
+  - type: web
+    name: refs-internal-test-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health/ready
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: REFS_HTTP_HOST
+        value: 0.0.0.0
+      - key: REFS_HTTP_MAX_BODY_BYTES
+        value: "1048576"
+      - key: REFS_PG_REQUIRED
+        value: "1"
+      - key: REFS_DEPLOYMENT_ENV
+        value: internal-test
+      - key: REFS_INTERNAL_TEST_MODE
+        value: ENABLED
+      - key: REFS_INTERNAL_TEST_TENANT_ID
+        value: 6fb25daf-0799-4805-bede-be54230da33c
+      - key: REFS_INTERNAL_TEST_ACTOR_ID
+        value: refs-internal-readonly
+      - key: REFS_ATTACHMENT_MODE
+        value: DISABLED
+      - key: REFS_WBS_INGEST_MODE
+        value: DISABLED
+      - key: REFS_WBS_LIVE_PILOT_MODE
+        value: ENABLED
+      - key: REFS_WBS_TEST_IMPORT_MODE
+        value: DISABLED
+      - key: REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE
+        value: DISABLED
+      - key: REFS_AI_MODE
+        value: DISABLED
+      - key: DATABASE_URL
+        fromService: { type: web, name: refs-accounting-api-staging, envVarKey: DATABASE_URL }
+      - key: MIGRATION_DATABASE_URL
+        fromService: { type: web, name: refs-accounting-api-staging, envVarKey: MIGRATION_DATABASE_URL }
+      - key: CONTEXT_ISSUER_DATABASE_URL
+        fromService: { type: web, name: refs-accounting-api-staging, envVarKey: CONTEXT_ISSUER_DATABASE_URL }
+      - key: GRANT_SYNC_DATABASE_URL
+        fromService: { type: web, name: refs-accounting-api-staging, envVarKey: GRANT_SYNC_DATABASE_URL }
+      - key: WBS_CF_ACCESS_CLIENT_ID
+        fromService: { type: web, name: refs-accounting-api-staging, envVarKey: WBS_CF_ACCESS_CLIENT_ID }
+      - key: WBS_CF_ACCESS_CLIENT_SECRET
+        fromService: { type: web, name: refs-accounting-api-staging, envVarKey: WBS_CF_ACCESS_CLIENT_SECRET }
+      - key: WBS_REFS_AUTH
+        fromService: { type: web, name: refs-accounting-api-staging, envVarKey: WBS_REFS_AUTH }
+      - key: REFS_HTTP_ALLOWED_ORIGINS
+        sync: false
+  - type: web
+    name: refs-internal-test
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    autoDeployTrigger: off
+    envVars:
+      - key: REFS_PUBLIC_RUNTIME_MODE
+        value: INTERNAL_TEST_READONLY
+      - key: REFS_PUBLIC_ACCOUNTING_API_BASE_URL
+        sync: false
+      - key: REFS_PUBLIC_ENTITY_ID
+        value: ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3
+      - key: REFS_PUBLIC_PERIOD_ID
+        sync: false
+      - key: REFS_PUBLIC_CASH_ACCOUNT_CODE
+        value: "111000"
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

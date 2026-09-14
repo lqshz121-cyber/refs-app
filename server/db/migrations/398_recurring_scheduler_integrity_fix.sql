@@ -10,6 +10,7 @@ END $$;
 ALTER TABLE recurring_schedule DROP CONSTRAINT IF EXISTS recurring_schedule_entity_id_fkey;
 ALTER TABLE recurring_schedule ADD CONSTRAINT recurring_schedule_tenant_entity_fkey FOREIGN KEY(tenant_id,entity_id) REFERENCES entity(tenant_id,entity_id);
 ALTER TABLE recurring_schedule_exception ADD CONSTRAINT recurring_schedule_exception_tenant_entity_fkey FOREIGN KEY(tenant_id,entity_id) REFERENCES entity(tenant_id,entity_id);
+ALTER TABLE recurring_schedule_run ADD CONSTRAINT recurring_schedule_run_tenant_entity_uq UNIQUE(tenant_id,entity_id,recurring_schedule_run_id);
 ALTER TABLE recurring_schedule_exception ADD CONSTRAINT recurring_schedule_exception_tenant_entity_run_fkey FOREIGN KEY(tenant_id,entity_id,recurring_schedule_run_id) REFERENCES recurring_schedule_run(tenant_id,entity_id,recurring_schedule_run_id);
 
 CREATE OR REPLACE FUNCTION refs_run_due_recurring_schedules(p_tenant uuid,p_entity uuid,p_as_of date,p_limit integer,p_idempotency_key text,p_request_hash text) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$ DECLARE actor text:=refs_current_actor();idem idempotency_receipt;s recurring_schedule;r recurring_schedule_run;run_id uuid;period uuid;journal uuid;payload jsonb;rows jsonb:='[]'::jsonb;reason text:='Scheduler run due date';drafts integer:=0;failures integer:=0;attempted integer:=0;run_attempt bigint;BEGIN

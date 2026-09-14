@@ -7,7 +7,9 @@ const oidc = readFileSync(new URL('./src/oidc-client.js', import.meta.url), 'utf
 
 assert.match(app, /<AuthoritativeApp environment=\{globalThis\}\s*\/>/, 'production runtime must enter AuthoritativeApp');
 assert.doesNotMatch(app, /__REFS_RUNTIME_MODE__==='REQUIRES_AUTHORITATIVE_API'\) return <AuthoritativeRuntimeLock/, 'configured production must not unconditionally lock');
-assert.match(authoritative, /accountingApiConfig\(environment\) && oidcRuntimeConfig\(environment\)/, 'API and OIDC configuration must both be required');
+assert.match(authoritative, /accountingApiConfig\(environment\) && \(oidcRuntimeConfig\(environment\) \|\| internalReadOnlyRuntime\(environment\)\)/, 'an API must be configured; OIDC is mandatory except for the exact internal read-only runtime');
+assert.match(authoritative, /environment\?\.__REFS_RUNTIME_MODE__ === 'INTERNAL_TEST_READONLY'\s*&& environment\?\.__REFS_ACCOUNTING_API__\?\.internalReadOnly === true/, 'internal read-only access must require the exact runtime mode and API read-only flag');
+assert.match(authoritative, /const oidcClient = useMemo\(\(\) => configured && !internalReadOnly \? new BrowserOidcClient/, 'every non-internal runtime must bootstrap OIDC');
 assert.match(authoritative, /Reflect\.apply\(fetcher, environment, \[url, options\]\)/, 'authoritative runtime must bind browser fetch to its environment');
 assert.match(authoritative, /new BrowserOidcClient\(\{ environment, fetcher:boundFetcher \}\)/, 'authoritative runtime must bootstrap OIDC with the environment-bound fetcher');
 assert.match(authoritative, /refreshAuthoritativeDocuments\(\{ config, fetcher:boundFetcher \}\)/, 'authoritative AP and AR reads must use the environment-bound fetcher');
@@ -30,7 +32,7 @@ assert.match(oidc, /code_challenge_method:'S256',prompt:'none'/, 'silent renewal
 assert.match(authoritative, /renewSilently/, 'authoritative runtime must attempt token renewal before expiry');
 assert.match(authoritative, /silentRenewalSchedule/, 'authoritative runtime must schedule renewal from the verified expiry');
 const watchStart = authoritative.indexOf('RENEWAL_WATCH_PHASES.has(phase)');
-const watchEnd = authoritative.indexOf('}, [oidcClient, phase, environment]);');
+const watchEnd = authoritative.indexOf('}, [internalReadOnly, oidcClient, phase, environment]);');
 assert.ok(watchStart > 0 && watchEnd > watchStart, 'the renewal watch must remain auditable');
 const watch = authoritative.slice(watchStart, watchEnd);
 assert.doesNotMatch(watch, /AUTHORIZATION_DENIED|ACCESS_DENIED|setPhase/, 'renewal failure must not become an authorization decision');

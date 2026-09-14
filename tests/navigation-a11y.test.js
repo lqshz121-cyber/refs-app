@@ -95,6 +95,12 @@ assert.match(ui,/menu:\s+\['M4\.5 6\.5h15', 'M4\.5 12h15', 'M4\.5 17\.5h15'\]/,'
 assert.match(ui,/users:\s+\['M8\.8 11\.2a3\.3 3\.3 0 1 0 0-6\.6/,
   'vendor and contractor navigation must use the shared self-authored people glyph rather than a text tile or third-party asset');
 assert.match(styles,/\.mobile-nav-btn svg\{display:block;width:24px;height:24px;\}/,'the 24px menu glyph must remain contained inside the fixed navigation control');
+assert.match(styles,/\.authoritative-top-action-group\{display:flex;align-items:center;gap:4px;/,
+  'the authoritative topbar must visually group presentation actions on wide screens');
+assert.doesNotMatch(styles,/\.nav-group-h:hover \.rail-glyph svg\{[^}]*transform|\.nav-group-h\.rail-on \.rail-glyph svg\{[^}]*transform/,
+  'the workflow rail must use color and background feedback without hover or selected-state movement');
+assert.doesNotMatch(styles,/\.rail-glyph svg\{[^}]*transition:transform/,
+  'the workflow rail must not animate icon transforms');
 assert.match(styles,/\.authoritative-secondary-disclosure>summary:after\{content:'';[^}]*border-right:2px solid currentColor;[^}]*border-bottom:2px solid currentColor;[^}]*transform:rotate\(-45deg\)/,
   'shared secondary disclosures must use the same CSS chevron vocabulary as QBO-style expandable groups');
 assert.match(styles,/\.authoritative-secondary-disclosure\[open\]>summary:after\{transform:rotate\(45deg\);\}/,

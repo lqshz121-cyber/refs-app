@@ -71,6 +71,45 @@ test('formal credit entry roles satisfy the actual browser access predicate',asy
   }
 });
 
+test('Unit Transfer role bundles preserve dual-entity workflow segregation',()=>{
+  const roles={
+    UNIT_TRANSFER_MAKER:['DRAFT','REAL_ESTATE.UNIT_TRANSFER.CREATE','GL.JE.CREATE'],
+    UNIT_TRANSFER_SUBMITTER:['SUBMIT','REAL_ESTATE.UNIT_TRANSFER.SUBMIT','GL.JE.SUBMIT'],
+    UNIT_TRANSFER_REVIEWER:['REVIEW','REAL_ESTATE.UNIT_TRANSFER.REVIEW','GL.JE.REVIEW'],
+    UNIT_TRANSFER_APPROVER:['APPROVE','REAL_ESTATE.UNIT_TRANSFER.APPROVE','GL.JE.APPROVE'],
+    UNIT_TRANSFER_POSTER:['POST','REAL_ESTATE.UNIT_TRANSFER.POST','GL.JE.POST']
+  };
+  for(const [name,[authority,permission,journalPermission]] of Object.entries(roles)){
+    const role=AUTHORITATIVE_WORKFLOW_ROLES[name];
+    assert.equal(role.authorityClass,authority,name);
+    assert.equal(role.permissions.includes('REAL_ESTATE.UNIT_TRANSFER.VIEW'),true,name);
+    assert.equal(role.permissions.includes(permission),true,name);
+    assert.equal(role.permissions.includes(journalPermission),true,name);
+    assert.equal(assertWorkflowRoleSafety(role),role,name);
+  }
+  const maker=AUTHORITATIVE_WORKFLOW_ROLES.UNIT_TRANSFER_MAKER;
+  for(const forbidden of ['REAL_ESTATE.UNIT_TRANSFER.SUBMIT','REAL_ESTATE.UNIT_TRANSFER.REVIEW','REAL_ESTATE.UNIT_TRANSFER.APPROVE','REAL_ESTATE.UNIT_TRANSFER.POST','GL.JE.POST'])assert.equal(maker.permissions.includes(forbidden),false);
+});
+test('Cash Transfer role bundles preserve dedicated lifecycle segregation',()=>{
+  const roles={
+    CASH_TRANSFER_MAKER:['DRAFT','CASH.TRANSFER.CREATE','GL.JE.CREATE'],
+    CASH_TRANSFER_SUBMITTER:['SUBMIT','CASH.TRANSFER.SUBMIT','GL.JE.SUBMIT'],
+    CASH_TRANSFER_REVIEWER:['REVIEW','CASH.TRANSFER.REVIEW','GL.JE.REVIEW'],
+    CASH_TRANSFER_APPROVER:['APPROVE','CASH.TRANSFER.APPROVE','GL.JE.APPROVE'],
+    CASH_TRANSFER_POSTER:['POST','CASH.TRANSFER.POST','GL.JE.POST'],
+    CASH_TRANSFER_RECONCILER:['RECONCILE','CASH.TRANSFER.RECONCILE',null]
+  };
+  for(const [name,[authority,permission,journalPermission]] of Object.entries(roles)){
+    const role=AUTHORITATIVE_WORKFLOW_ROLES[name];
+    assert.equal(role.authorityClass,authority,name);
+    assert.equal(role.permissions.includes('CASH.TRANSFER.VIEW'),true,name);
+    assert.equal(role.permissions.includes(permission),true,name);
+    if(journalPermission)assert.equal(role.permissions.includes(journalPermission),true,name);
+    assert.equal(assertWorkflowRoleSafety(role),role,name);
+  }
+  const maker=AUTHORITATIVE_WORKFLOW_ROLES.CASH_TRANSFER_MAKER;
+  for(const forbidden of ['CASH.TRANSFER.SUBMIT','CASH.TRANSFER.REVIEW','CASH.TRANSFER.APPROVE','CASH.TRANSFER.POST','CASH.TRANSFER.RECONCILE','GL.JE.SUBMIT','GL.JE.REVIEW','GL.JE.APPROVE','GL.JE.POST'])assert.equal(maker.permissions.includes(forbidden),false);
+});
 test('sales receipt entry has native Draft and upload without later accounting authority',()=>{
   const role=AUTHORITATIVE_WORKFLOW_ROLES.AR_SALES_RECEIPT_ENTRY_MAKER;
   assert.equal(role.authorityClass,'DRAFT');
@@ -98,10 +137,10 @@ test('counterparty maker and approver remain separate in runtime policy before g
 });
 
 test('native document entry roles allow support upload and exactly one Draft kind without scanner or later workflow authority',()=>{
-  for(const [name,createPermission,other] of [['AP_BILL_ENTRY_MAKER','AP.BILL.CREATE','AR.INVOICE.CREATE'],['AR_INVOICE_ENTRY_MAKER','AR.INVOICE.CREATE','AP.BILL.CREATE']]){
+  for(const [name,createPermission,other,requiresAttachmentCreate] of [['AP_BILL_ENTRY_MAKER','AP.BILL.CREATE','AR.INVOICE.CREATE',true],['AP_EXPENSE_MAKER','AP.EXPENSE.CREATE','AR.INVOICE.CREATE',false],['AR_INVOICE_ENTRY_MAKER','AR.INVOICE.CREATE','AP.BILL.CREATE',true]]){
     const definition=AUTHORITATIVE_WORKFLOW_ROLES[name];
     assert.equal(definition.principalKind,'HUMAN');assert.equal(definition.authorityClass,'DRAFT');
-    assert.ok(definition.permissions.includes(createPermission));assert.ok(definition.permissions.includes('ATTACHMENT.CREATE'));
+    assert.ok(definition.permissions.includes(createPermission));assert.equal(definition.permissions.includes('ATTACHMENT.CREATE'),requiresAttachmentCreate);
     for(const forbidden of [other,'ATTACHMENT.FINALIZE','ATTACHMENT.CLEANUP','GL.JE.SUBMIT','GL.JE.REVIEW','GL.JE.APPROVE','GL.JE.POST','GL.PERIOD.REOPEN'])assert.equal(definition.permissions.includes(forbidden),false);
     assert.equal(assertWorkflowRoleSafety(definition),definition);
   }

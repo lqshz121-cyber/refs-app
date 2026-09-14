@@ -41,7 +41,7 @@ function deepFamilyBody(source) {
 function strip374RuntimeParityHardening(source) {
   let normalized = source
     .replaceAll(" OR (account->>'role'='INTERCOMPANY_CLEARING' AND account->>'account_class' NOT IN ('ASSET','LIABILITY'))", '')
-    .replace(/^\s*IF[^\n]*Approved intercompany clearing report mapping violates COA class semantics[^\n]*\n/gm, '')
+    .replace(/\n\s*IF EXISTS \(\n\s*SELECT 1\n\s*FROM jsonb_array_elements\(child_row\.snapshot#>'\{settings,account_mappings\}'\) AS m[\s\S]*?^\s*END IF;\n/gm, '\n')
     .replace(/^\s*IF[^\n]*Approved vendor payment terms must be bounded JSON integers[^\n]*\n/gm, '')
     .replace(/^\s*IF[^\n]*Approved tax MONEY4 values must be JSON strings[^\n]*\n/gm, '')
     .replace(/^\s*IF[^\n]*Approved materiality MONEY4 values must be JSON strings[^\n]*\n/gm, '')
@@ -51,9 +51,9 @@ function strip374RuntimeParityHardening(source) {
       "EXISTS(SELECT 1 FROM jsonb_array_elements(child_row.snapshot#>'{settings,non_business_dates}') d WHERE jsonb_typeof(d)<>'string' OR d#>>'{}' !~ '^\\d{4}-\\d{2}-\\d{2}$')",
       () => "EXISTS(SELECT 1 FROM jsonb_array_elements_text(child_row.snapshot#>'{settings,non_business_dates}') d WHERE d !~ '^\\d{4}-\\d{2}-\\d{2}$')"
     )
-    .replace(/    IF CASE child_key[\s\S]*?Approved AI settings contain a reversed effective range[^\n]*\n/, '')
-    .replace(/    IF CASE child_key[\s\S]*?Approved AI settings contain an invalid required JSON string[^\n]*\n/, '')
-    .replace(/    IF CASE child_key[\s\S]*?Approved AI settings contain an empty or non-string evidence key[^\n]*\n/, '')
+    .replace(/    IF \(?CASE child_key[\s\S]*?Approved AI settings contain a reversed effective range[^\n]*\n/, '')
+    .replace(/    IF \(?CASE child_key[\s\S]*?Approved AI settings contain an invalid required JSON string[^\n]*\n/, '')
+    .replace(/    IF \(?CASE child_key[\s\S]*?Approved AI settings contain an empty or non-string evidence key[^\n]*\n/, '')
     .replace(/NOT \(CASE WHEN jsonb_typeof\(v->'payment_terms_days'\)[^\n]*?ELSE false END\)/g, () => "v->>'payment_terms_days' !~ '^[0-9]{1,4}$'");
   for (const [key, legacyRegex] of [
     ['ap_stale_days', "'^[0-9]+$'"],
@@ -65,7 +65,9 @@ function strip374RuntimeParityHardening(source) {
     new RegExp(`NOT \\(CASE WHEN jsonb_typeof\\(child_row\\.snapshot#>'\\{settings,${key}\\}'\\)[^\\n]*?ELSE false END\\)`, 'g'),
     () => `child_row.snapshot#>>'{settings,${key}}' !~ ${legacyRegex}`
   );
-  return normalized;
+  return normalized
+    .replace(/IF \(CASE child_key/g, 'IF CASE child_key')
+    .replace(/ELSE false END\) THEN RAISE EXCEPTION/g, 'ELSE false END THEN RAISE EXCEPTION');
 }
 
 function normalizePeriodHistoryPolicy(source) {
@@ -179,9 +181,9 @@ test('374 private selected bundle validator is exact ten-family validation acros
 test('374 keeps clearing-account semantics and JSON scalar types aligned with the runtime validator in all three deep readers', () => {
   assert.equal((up.match(/account->>'role'='INTERCOMPANY_CLEARING' AND account->>'account_class' NOT IN \('ASSET','LIABILITY'\)/g) || []).length, 3);
   assert.equal((up.match(/Approved intercompany clearing report mapping violates COA class semantics/g) || []).length, 3);
-  assert.equal((up.match(/account->>'account_class'='ASSET' AND m->>'normal_balance'<>'DEBIT'/g) || []).length, 3);
-  assert.equal((up.match(/account->>'account_class'='LIABILITY' AND m->>'normal_balance'<>'CREDIT'/g) || []).length, 3);
-  assert.equal((up.match(/m->>'statement'<>'BS' OR m->>'contra'<>'false'/g) || []).length, 3);
+  assert.equal((up.match(/account->>'account_class'='ASSET'\s+AND\s+m->>'normal_balance'<>'DEBIT'/g) || []).length, 3);
+  assert.equal((up.match(/account->>'account_class'='LIABILITY'\s+AND\s+m->>'normal_balance'<>'CREDIT'/g) || []).length, 3);
+  assert.equal((up.match(/m->>'statement'<>'BS'\s+OR\s+m->>'contra'<>'false'/g) || []).length, 3);
   for (const message of [
     'Approved tax MONEY4 values must be JSON strings',
     'Approved materiality MONEY4 values must be JSON strings',
