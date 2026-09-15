@@ -424,4 +424,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"417_wbs_autorec_reverse_workflow.sql","up":"afaded1f0d88eac18034cf2dba6aa4e8c2881ff36050b6a5359bd2420584faf7","down":"2b17d79f74ba14975fe911547debe00f382bc7ce9eaf364f77ea0bad7cbfa0f8"}),
   Object.freeze({"name":"418_reconciliation_actor_binding_regression_fix.sql","up":"dbbe59971f35588c4bfd037da45e41048358392151af0f06bd58ceabb0996437","down":"e43472c940498ac5e0ee2ac1476f22f51bc5f7584109a428566041ed1995fd75"}),
   Object.freeze({name:"419_internal_test_bank_cash_master.sql",up:"b91fa9f5bb1f5ed9dbf0cff109011e9f75ced9af71c09a127eefe6cee39548fd",down:"a16320da0bba284297441e4e67ef703f79ab9fee99d559cca8461da202b7addd"}),
+  Object.freeze({name:"420_internal_test_bank_cash_master_v2.sql",up:"dff10813483aec86540623e322246c3f6e09ebef66beb846ab10e4ed589708f0",down:"f3b44d05e494fc75473aae79bc3d2e211f896990d016b471c1ca2062b1d7b59e"}),
 ]);
