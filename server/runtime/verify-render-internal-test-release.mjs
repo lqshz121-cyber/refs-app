@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {pathToFileURL} from 'node:url';
 
 const SHA=/^[0-9a-f]{40}$/i;
 const origin=value=>{const text=String(value||'').replace(/\/+$/,'');assert.ok(/^https:\/\//.test(text),'expected an HTTPS origin');return text;};
@@ -27,7 +28,7 @@ export async function verifyRenderInternalTestRelease({releaseSha,apiBaseUrl,web
  return {ok:true,release:expected,api:{live:live.release,ready:ready.release},web:build.sha,channel:build.channel};
 }
 
-if(process.argv[1]&&import.meta.url===new URL(process.argv[1],'file:').href){
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  const result=await verifyRenderInternalTestRelease({releaseSha:process.env.REFS_RELEASE_SHA,apiBaseUrl:process.env.REFS_INTERNAL_TEST_API_BASE_URL,webOrigin:process.env.REFS_INTERNAL_TEST_WEB_ORIGIN});
  console.log(JSON.stringify(result));
 }
