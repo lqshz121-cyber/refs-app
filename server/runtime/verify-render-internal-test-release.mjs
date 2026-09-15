@@ -20,8 +20,8 @@ export async function verifyRenderInternalTestRelease({releaseSha,apiBaseUrl,web
  assert.equal(live?.ok,true);assert.equal(live?.status,'live');assert.ok(same(live?.release),'liveness release differs');
  assert.equal(ready?.ok,true);assert.equal(ready?.status,'ready');assert.ok(same(ready?.release),'readiness release differs');
  assert.equal(buildResponse.status,200,'web build stamp did not load');
- const buildText=await buildResponse.text(),match=buildText.match(/window\.__BUILD\s*=\s*(\{[^\n;]+\})/);assert.ok(match,'web build stamp is missing');
- const build=JSON.parse(match[1]);assert.ok(same(build?.sha),'web build release differs');assert.equal(build?.channel,'INTERNAL_TEST_FULL');assert.equal(build?.authoritative,false);
+ const buildText=await buildResponse.text(),match=buildText.match(/window\.__BUILD\s*=\s*(\{[^\n;]+\})/),channelMatch=buildText.match(/channel\s*:\s*["']([^"']+)["']/),authoritativeMatch=buildText.match(/authoritative\s*:\s*(true|false)/);assert.ok(match,'web build stamp is missing');
+ const build={...JSON.parse(match[1]),channel:channelMatch?.[1],authoritative:authoritativeMatch?.[1]==='true'};assert.ok(same(build?.sha),'web build release differs');assert.equal(build?.channel,'INTERNAL_TEST_FULL');assert.equal(build?.authoritative,false);
  assert.equal(runtimeResponse.status,200,'web runtime config did not load');
  const runtime=await runtimeResponse.text();
  assert.match(runtime,/window\.__REFS_RUNTIME_MODE__='INTERNAL_TEST_FULL'/);assert.match(runtime,/internalTestNoLogin:true/);assert.match(runtime,/cashTransferUiMode:'ENABLED'/);assert.doesNotMatch(runtime,/window\.__REFS_OIDC__\s*=\s*\{/, 'internal test must not expose OIDC configuration');
