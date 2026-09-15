@@ -17,6 +17,7 @@ import {safeRuntimeFailureLog} from './safe-runtime-log.mjs';
 import {internalTestWorkflowActors,routeInternalTestPrincipal} from './internal-test-identity-router.mjs';
 import {reconcileInternalTestWorkflowActorGrants} from './internal-test-workflow-grants.mjs';
 import {bootstrapInternalTestCashControls} from './internal-test-cash-control-bootstrap.mjs';
+import {bootstrapInternalTestCashTransferEvidence} from './internal-test-cash-transfer-evidence-bootstrap.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const INTERNAL_TEST_READ_PERMISSIONS=Object.freeze(['AP.VIEW','AR.VIEW','BANK.VIEW','GL.JE.VIEW','GL.REPORT.VIEW']);
@@ -180,6 +181,8 @@ export async function startAccountingServer({env=process.env,fetcher=globalThis.
         await masterKernel.ensureInternalTestBankCashMaster({tenantId:config.internalTest.tenantId,entityId,idempotencyKey:`internal-test-bank-cash-master-v2-${entityId}`});
         startupStage='INTERNAL_TEST_CASH_CONTROLS';
         await bootstrapInternalTestCashControls({makerKernel:masterKernel,approverKernel:server.internalTestKernelFactory?.(config.internalTest.actors.approver),tenantId:config.internalTest.tenantId,entityId});
+        startupStage='INTERNAL_TEST_CASH_TRANSFER_EVIDENCE';
+        await bootstrapInternalTestCashTransferEvidence({makerKernel:masterKernel,tenantId:config.internalTest.tenantId,entityId});
       }else{
         startupStage='INTERNAL_READ_GRANT';const expectedVersion=await grantSync.currentVersion({tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,entityId});await grantSync.reconcile({tenantId:config.internalTest.tenantId,actorId:config.internalTest.actorId,entityId,permissions:INTERNAL_TEST_READ_PERMISSIONS,authorityClass:'READ',validUntil:new Date(Date.now()+23*60*60*1000).toISOString(),expectedVersion,idempotencyKey:`internal-test-read-${config.internalTest.actorId}-${new Date().toISOString().slice(0,13).replace(/[-:T]/g,'')}`});
       }

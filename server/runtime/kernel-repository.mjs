@@ -791,6 +791,11 @@ export class PostgresAccountingKernel{
       'SELECT refs_ensure_internal_test_bank_cash_master($1,$2,$3) AS result',[tenantId,entityId,idempotencyKey]
     ),'INTERNAL_TEST_BANK_CASH_MASTER_UNAVAILABLE','Internal test bank/cash master could not be prepared').result);
   }
+  async ensureInternalTestCashTransferEvidence({tenantId,entityId,idempotencyKey}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_ensure_internal_test_cash_transfer_evidence($1,$2,$3) AS result',[tenantId,entityId,idempotencyKey]
+    ),'INTERNAL_TEST_CASH_TRANSFER_EVIDENCE_UNAVAILABLE','Internal test cash-transfer evidence could not be prepared').result);
+  }
   async createCashTransferBankAccountControl({tenantId,entityId,bankMemberRef,cashAccountCode,currency,effectiveFrom,effectiveTo=null,idempotencyKey}){
     return this.inSession(async client=>{
       const args=[tenantId,entityId,bankMemberRef,cashAccountCode,currency,effectiveFrom,effectiveTo];
