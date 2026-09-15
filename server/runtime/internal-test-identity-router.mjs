@@ -99,7 +99,11 @@ export function routeInternalTestPrincipal({method,url,body,principal,actors}={}
   // unauthenticated, so use its dedicated expense maker only for this exact
   // prerequisite read; all other reads remain the reader identity.
   if(method==='GET'&&/^\/api\/v1\/entities\/[^/]+\/ap\/expenses\/options$/.test(pathname))return Object.freeze({...principal,actorId:actors.expenseMaker,internalTest:true,internalTestActorRole:'expenseMaker'});
-  if(method==='GET'&&(/^\/api\/v1\/entities\/[^/]+\/cash-transfers$/.test(pathname)||/^\/api\/v1\/entities\/[^/]+\/cash-transfers\/bank-account-controls$/.test(pathname)))return Object.freeze({...principal,actorId:actors.maker,internalTest:true,internalTestActorRole:'maker'});
+  // Every Cash Transfer read is part of the maker's bounded workflow
+  // vocabulary.  Route the complete read family through that same actor so a
+  // register/detail/options/candidate request cannot silently fall back to a
+  // generic reader that lacks CASH.TRANSFER.VIEW.
+  if(method==='GET'&&/^\/api\/v1\/entities\/[^/]+\/cash-transfers(?:\/|$)/.test(pathname))return Object.freeze({...principal,actorId:actors.maker,internalTest:true,internalTestActorRole:'maker'});
   if(method==='GET'||method==='HEAD')return Object.freeze({...principal,actorId:actors.reader,internalTest:true});
   const actorKey=writeActor(method,pathname,body);
   if(!actorKey)throw new InternalTestIdentityRouteError('INTERNAL_TEST_COMMAND_NOT_ADMITTED','This internal-test command is not admitted to the controlled workflow');
