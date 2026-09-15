@@ -7,6 +7,9 @@ services:
     runtime: node
     rootDir: server
     buildCommand: npm ci
+    # Keep the isolated test API on the same schema revision as the code
+    # before the replacement instance starts its fixed-identity bootstrap.
+    preDeployCommand: npm run db:up
     startCommand: npm start
     healthCheckPath: /health/ready
     autoDeployTrigger: off
@@ -19,6 +22,8 @@ services:
         value: "1048576"
       - key: REFS_PG_REQUIRED
         value: "1"
+      - key: REFS_PG_MIGRATION_STATEMENT_TIMEOUT_MS
+        value: "600000"
       - key: REFS_DEPLOYMENT_ENV
         value: internal-test
       - key: REFS_INTERNAL_TEST_MODE
