@@ -38,8 +38,8 @@ Rules of this file: a row is **DONE** only when code, an executable test, the ex
 | ID | Requirement | Code | Test / Doc | SHA | Offline read-back | Live read-back | Status | Owner |
 |---|---|---|---|---|---|---|---|---|
 | C1 | Native AP payment / AR receipt / AR refund routes (legacy 410) with authz, period, idempotency, audit | `accounting-http.mjs` native routes; 305/311/401 | `server/tests/postgres-kernel.test.mjs` (T05 three tests) | `6a757d79` | 403 / 423 55000 / 200 idempotent / 409 / audit row | not run | EVIDENCED | ☐ |
-| C2 | Native AP bill can be voided when fully open | `refs_create_ap_bill_void` (006) vs `refs_create_business_document` (048) | `server/tests/ap-bill-void-reachability-postgres.test.mjs` (pins refusal) | `76cc6c9d` | posted OPEN 100/100 → void 23514 | — | **GAP T11-G1** — predicate change needs Owner | ☐ |
-| C3 | Reversal status symmetric AP/AR | reducers 023 vs 016 | same test, test 2 | `76cc6c9d` | APPROVED vs OPEN pinned | — | GAP (N15 G2) | ☐ |
+| C2 | Native AP bill can be voided when fully open | migration `server/db/migrations/423_ap_bill_open_status_unification.sql` (patches 006/010 in place) | `server/tests/ap-bill-void-reachability-postgres.test.mjs` (end-to-end void → bill VOID, 291001 nets 0) | N-batch branch | PG16: native bill OPEN → void DRAFT → 4-role post → VOID; kernel void/reversal tests 5/5; 423 down/up clean | not run | EVIDENCED (Owner approved 2026-09-16 「统一」) | ☑ |
+| C3 | Reversal status symmetric AP/AR | 423 patches 023 → reopen to OPEN (AR 016 unchanged) | same test, test 2 (reads `pg_get_functiondef`) | N-batch branch | both reducers reopen to OPEN; `postgres-kernel` :4187 updated | not run | EVIDENCED (Owner approved) | ☑ |
 | C4 | AR credit memo → allocation → native refund limited to remaining posted credit; over-refund zero residue | 017/018/019/036/311/021 | `postgres-kernel.test.mjs` :4078, :4857 | `6a757d79` | 422 + 0 rows in adjustment/JE/receipt | not run | EVIDENCED | ☐ |
 | C5 | Refund reversal path | — | N13 C1 | — | — | — | GAP — business decision | ☐ |
 | C6 | AP/AR aging reconciles to GL control | `refs_ap_control_total` (166), `refs_ap_aging` (046), 253 snapshots | `postgres-kernel.test.mjs` :4509/:4676 | ff163552 | pass | not run | PARTIAL (2-arg vs 3-arg total mismatch T11-G9; aging not point-in-time G4) | ☐ |
@@ -78,7 +78,7 @@ Rules of this file: a row is **DONE** only when code, an executable test, the ex
 
 ## G. Decisions the Owner must make (nothing else is waiting on Claude)
 
-1. C2/C3 — change 006 predicate to `status IN ('APPROVED','OPEN') AND open_balance = gross_amount` and unify reversal status to OPEN?
+1. ~~C2/C3~~ — approved 2026-09-16 and implemented as migration 423.
 2. B5 — revoke base reconciliation transition from `refs_app`?
 3. B6/E5 — document self-service grant activation in OpenAPI, or retire it?
 4. A8 — confirm `main` branch protection and Pages environment approval (screenshot or `gh api` output).

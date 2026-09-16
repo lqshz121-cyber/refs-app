@@ -1,13 +1,11 @@
-// N15 / T11-G1 pinned as an executable fact.
+// N15 / T11-G1 closed by migration 423 (Owner decision 2026-09-16).
 //
-// refs_create_ap_bill_void (006:54) accepts only a bill in status APPROVED with
-// open_balance = gross_amount. The native document path posts a bill straight
-// into OPEN (048:124), and OPEN never returns to APPROVED except after a payment
-// is fully reversed (023:18). So a natively created, posted, untouched AP bill
-// cannot be voided. The existing kernel test seeds status APPROVED by raw SQL
-// and never sees this. This test drives the real path and asserts today's
-// behaviour; when the void predicate is widened deliberately it fails and the
-// expectation below is updated with it.
+// Before 423, refs_create_ap_bill_void (006) and its posting reducer (010)
+// accepted only status APPROVED while the native document path posts a bill
+// straight into OPEN (048), so no natively created bill could be voided. This
+// test drives the real path end to end: create -> four-role post -> void
+// draft -> four-role post of the void -> bill VOID, and then pins that the AP
+// payment reversal reducer (023 as replaced by 423) reopens to OPEN like AR.
 import test, {before, after} from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID, createHash} from 'node:crypto';
@@ -42,7 +40,7 @@ async function seed(){
 }
 function pgTest(name,fn){test(name,async t=>{if(unavailable){t.skip(unavailable);return;}await fn(t);});}
 
-pgTest('a natively created AP bill posts into OPEN, and refs_create_ap_bill_void then refuses it with 23514 - void is unreachable for native bills',async()=>{
+pgTest('a natively created AP bill posts into OPEN and can be voided end to end (T11-G1 closed by 423)',async()=>{
   const ids=await seed();
   const bill=await kernelFor(ids,'maker').createBusinessDocument({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,documentKind:'AP_BILL',documentNumber:'BILL-VOID-1',counterpartyRef:'VENDOR-1',counterpartyName:'Vendor',currency:'USD',accountingDate:'2026-07-10',dueDate:'2026-08-09',amount:'100.0000',offsetAccountCode:'610000',description:'native bill',attachmentIds:[ids.attachmentId],idempotencyKey:'void-bill-create-0001'});
   const jeId=bill.journal_entry_id||bill.draft_journal_entry_id;
@@ -52,17 +50,27 @@ pgTest('a natively created AP bill posts into OPEN, and refs_create_ap_bill_void
   await kernelFor(ids,'poster').postJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalEntryId:jeId,expectedRevision:3,idempotencyKey:'void-bill-post-0001'});
   const doc=(await admin.query('SELECT status,open_balance::text ob,gross_amount::text g,version::int v,posted_journal_entry_id IS NOT NULL AS posted FROM business_document WHERE business_document_id=$1',[bill.business_document_id])).rows[0];
   assert.deepEqual([doc.status,doc.ob,doc.g,doc.posted],['OPEN','100.0000','100.0000',true],'native posting lands the bill in OPEN with full open balance');
-  // The void predicate requires APPROVED; an OPEN fully-open posted bill is refused.
-  await assert.rejects(kernelFor(ids,'voider').createApBillVoid({tenantId:ids.tenantId,entityId:ids.entityId,businessDocumentId:bill.business_document_id,expectedVersion:doc.v,periodId:ids.periodId,journalNumber:'BILL-VOID-1-V',journalDate:'2026-07-12',reason:'Duplicate bill entered by mistake',idempotencyKey:'void-bill-void-0001'}),
-    e=>e.code==='23514'&&/fully-open posted AP bills/.test(e.message),
-    'KNOWN GAP (T11-G1): if void now accepts OPEN bills, this expectation must flip to success and the gap is closed');
-  assert.equal((await admin.query("SELECT count(*)::int n FROM business_adjustment WHERE tenant_id=$1 AND adjustment_kind='AP_BILL_VOID'",[ids.tenantId])).rows[0].n,0);
+  const voided=await kernelFor(ids,'voider').createApBillVoid({tenantId:ids.tenantId,entityId:ids.entityId,businessDocumentId:bill.business_document_id,expectedVersion:doc.v,periodId:ids.periodId,journalNumber:'BILL-VOID-1-V',journalDate:'2026-07-12',reason:'Duplicate bill entered by mistake',idempotencyKey:'void-bill-void-0001'});
+  assert.equal(voided.status,'DRAFT');
+  const adj=(await admin.query("SELECT status,amount::text amount,draft_journal_entry_id FROM business_adjustment WHERE tenant_id=$1 AND adjustment_kind='AP_BILL_VOID'",[ids.tenantId])).rows;
+  assert.equal(adj.length,1);assert.equal(adj[0].amount,'100.0000');
+  const vje=adj[0].draft_journal_entry_id;
+  const moveV=(actor,action,rev,key)=>kernelFor(ids,actor).transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:vje,action,expectedRevision:rev,idempotencyKey:key});
+  await moveV('submitter','SUBMIT',0,'void-je-submit-0001');await moveV('reviewer','REVIEW',1,'void-je-review-0001');await moveV('approver','APPROVE',2,'void-je-approve-0001');
+  await kernelFor(ids,'poster').postJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalEntryId:vje,expectedRevision:3,idempotencyKey:'void-je-post-0001'});
+  const after=(await admin.query('SELECT status,open_balance::text ob FROM business_document WHERE business_document_id=$1',[bill.business_document_id])).rows[0];
+  assert.equal(after.status,'VOID','reducer 010 (as replaced by 423) accepts an OPEN fully-open bill');
+  assert.equal((await admin.query("SELECT status FROM business_adjustment WHERE tenant_id=$1 AND adjustment_kind='AP_BILL_VOID'",[ids.tenantId])).rows[0].status,'POSTED');
+  // Ledger: original + void JE net to zero on the AP control account.
+  const net=(await admin.query("SELECT COALESCE(sum(debit_amount-credit_amount),0)::text n FROM ledger_line WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId])).rows[0].n;
+  assert.equal(Number(net),0);
 });
 
-pgTest('the only route to APPROVED is a fully reversed payment (023:18) - documented by reading the reducer text, so the asymmetry with AR (016:36 -> OPEN) stays visible',async()=>{
-  const {readFile}=await import('node:fs/promises');
-  const ap=await readFile(new URL('../db/migrations/023_ap_payment_reversal_post_reducer.sql',import.meta.url),'utf8').catch(()=>'' );
-  const ar=await readFile(new URL('../db/migrations/016_ar_receipt_reversal_post_reducer.sql',import.meta.url),'utf8').catch(()=>'' );
-  if(!ap||!ar){console.log('# reducer files not at the expected names; skipping text pin');return;}
-  assert.match(ap,/'APPROVED'/);assert.match(ar,/'OPEN'/);
+pgTest('after 423 both AP (payment reversal) and AR (receipt reversal) reducers reopen a fully reversed document to OPEN',async()=>{
+  const ap=(await admin.query("SELECT pg_get_functiondef('refs_apply_ap_payment_reversal_posted'::regproc) d")).rows[0].d;
+  const ar=(await admin.query("SELECT pg_get_functiondef('refs_apply_ar_receipt_reversal_posted'::regproc) d")).rows[0].d;
+  assert.match(ap,/THEN 'OPEN' ELSE 'PARTIALLY_PAID'/);assert.doesNotMatch(ap,/'APPROVED'/);
+  assert.match(ar,/'OPEN'/);
+  const voidFn=(await admin.query("SELECT pg_get_functiondef('refs_create_ap_bill_void(uuid,uuid,uuid,uuid,bigint,text,date,text,text,text)'::regprocedure) d")).rows[0].d;
+  assert.match(voidFn,/status NOT IN \('APPROVED','OPEN'\)/);
 });

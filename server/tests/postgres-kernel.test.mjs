@@ -4184,7 +4184,7 @@ pgTest('authenticated HTTP posts an AP payment and a cross-period Draft reversal
   await advance(reversal.journal_entry_id,'payment-reversal',reversalPeriodId,submitterId);
   assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[payment.journal_entry_id])).rows[0].status,'POSTED');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[payment.journal_entry_id])).rows[0].n,2);
-  assert.deepEqual((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[billId])).rows[0],{open_balance:'100.0000',status:'APPROVED'});
+  assert.deepEqual((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[billId])).rows[0],{open_balance:'100.0000',status:'OPEN'});
   assert.equal((await adminPool.query('SELECT status FROM payment_occurrence WHERE payment_occurrence_id=$1',[payment.payment_occurrence_id])).rows[0].status,'REVERSED');
 });
 
