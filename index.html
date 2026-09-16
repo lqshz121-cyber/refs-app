@@ -2654,6 +2654,7 @@ body.dark .skel-table .skel-head,body.dark .skel-table .skel-row{border-color:va
 </head>
 <body>
 <div id="root"></div>
+<script src="./refs-boot-guard.js"></script>
 <!-- Chart.js is optional (useChart falls back when window.Chart is absent). It must not be a blocking classic script ahead of bundle.js: a slow or unreachable CDN would hold the whole app at a blank #root until the request timed out. async lets bundle.js run immediately; useChart re-renders the chart when the library arrives. -->
 <script async data-refs-chartjs src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" integrity="sha384-bs/nf9FbdNouRbMiFcrcZfLXYPKiPaGVGplVbv7dLGECccEXDW+S3zjqSKR5ZEaD" crossorigin="anonymous"></script>
 <script src="./refs-runtime-lock.js"></script>

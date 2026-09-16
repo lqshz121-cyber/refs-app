@@ -13,6 +13,7 @@ const writeStaticShell=()=>{ const candidateSha=process.env.GITHUB_SHA||process.
   writeFileSync('dist/index.html',readFileSync('index.html','utf8').replace('refs-build.js',`refs-build.js?b=${cacheKey}`).replace('refs-runtime-config.js',`refs-runtime-config.js?b=${cacheKey}`).replace('bundle.js',`bundle.js?b=${cacheKey}`));
   writeFileSync('dist/refs-build.js',`window.__BUILD=${JSON.stringify({sha,time:`${bt} UTC`})};\n`,{encoding:'utf8'});
   copyFileSync(join(root,'refs-runtime-lock.js'),join(root,'dist/refs-runtime-lock.js'));
+  copyFileSync(join(root,'refs-boot-guard.js'),join(root,'dist/refs-boot-guard.js'));
   copyFileSync(join(root,'refs-runtime-config.js'),join(root,'dist/refs-runtime-config.js'));
 };
 if (process.argv.includes('--watch')) { writeStaticShell(); const c=await esbuild.context(opts); await c.watch(); console.log('watching...'); }

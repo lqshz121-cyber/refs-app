@@ -33,7 +33,7 @@ test identity; everything else runs against the static shell.
 | B9 | Denied scope | identity with no entity grant | open any workspace | access-status surface explains denial; no blank | **yes** |
 | B10 | Deep link to a workspace | test identity | open `/#/reports/general-ledger?…` | workspace renders with controls; back/forward works | **yes** |
 | B11 | Reload mid-workflow | test identity, a Draft open | F5 | state re-hydrates or returns to safe list; no blank | **yes** |
-| B12 | `bundle.js` 404 | serve `dist/` without bundle | open `/` | **blank by design gap** → must be caught by deploy gate; document as accepted risk or add inline `<noscript>`/pre-bundle fallback (proposal below) | no |
+| B12 | `bundle.js` 404 | serve `dist/` without bundle | open `/` | **S11:** `refs-boot-guard.js` renders `APP_BUNDLE_NOT_STARTED` + release stamp after 8 s (`tests/boot-guard.test.mjs`); pass = notice visible, no blank `<noscript>`/pre-bundle fallback (proposal below) | no |
 | B13 | Zoom 80/100/125/150 %, widths 360–1440 | none | open shell | no horizontal overflow; controls reachable | no |
 | B14 | Console error budget | none | run B1, B5, B10 | zero uncaught errors, zero failed same-origin requests | partly |
 
@@ -44,6 +44,19 @@ test identity; everything else runs against the static shell.
 3. B6–B11 run against the staging URL with the dedicated test identity; record `release_sha` from `/health/ready` in the report header.
 4. Report format: one row per ID with pass/fail, screenshot path, console error count. A blank `#root` at any step is a **release blocker**, not a UI bug.
 
-## D. Proposal for the remaining blank path (B12, not implemented)
+## D. B12 closed (S11)
 
-Add to `index.html` a pre-bundle inline block that shows "loading…" and a `setTimeout` that, if `#root` is still empty after N seconds, replaces it with a static "application failed to start (release <sha>)" message read from `window.__BUILD`. This is presentation-only and needs Owner agreement on wording; not included in T14's patch.
+Implemented as `refs-boot-guard.js` (external, same-origin, CSP-compatible): copied by `build.mjs`, required by `verify:runtime-deployment-assets`, loaded right after `#root` and before the runtime adapter chain. Silent when the app mounts; after 8 s of an empty `#root` it renders a static notice with code `APP_BUNDLE_NOT_STARTED` and the `window.__BUILD.sha` stamp. Browser check: serve `dist/` without `bundle.js`, open `/`, expect the notice within 8–9 s and zero uncaught errors.
+
+## E. Browser-executable checklist (no credentials)
+
+```
+npm ci && npm run build && npx http-server dist -p 4173 -s &
+# B1  open http://localhost:4173/            -> #root non-empty < 3 s
+# B2  block cdnjs (devtools request blocking) -> shell renders, charts fall back
+# B3  mv dist/refs-runtime-config.js away    -> RUNTIME_CONFIG_MISSING surface
+# B5  open /#/does-not-exist                 -> not blank
+# B12 mv dist/bundle.js away                 -> APP_BUNDLE_NOT_STARTED notice at ~8 s
+# B13 widths 360/768/1024/1440, zoom 80-150  -> no horizontal overflow
+# B14 console: 0 uncaught errors across B1/B5
+```

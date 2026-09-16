@@ -11,7 +11,7 @@ import {AUTHORITATIVE_CHANNEL,DEMONSTRATION_CHANNEL,DEMONSTRATION_MODE,INTERNAL_
 
 const read=path=>readFileSync(path,'utf8');
 const index=read('dist/index.html');
-const assets=['refs-build.js','refs-runtime-lock.js','refs-runtime-config.js','bundle.js'];
+const assets=['refs-build.js','refs-boot-guard.js','refs-runtime-lock.js','refs-runtime-config.js','bundle.js'];
 let previous=-1;
 for(const asset of assets){
   const position=index.indexOf(`./${asset}`);
