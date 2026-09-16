@@ -45,6 +45,7 @@ Rules of this file: a row is **DONE** only when code, an executable test, the ex
 | C6 | AP/AR aging reconciles to GL control | `refs_ap_control_total` (166), `refs_ap_aging` (046), 253 snapshots | `postgres-kernel.test.mjs` :4509/:4676 | ff163552 | pass | not run | PARTIAL (2-arg vs 3-arg total mismatch T11-G9; aging not point-in-time G4) | ☐ |
 | C7 | Report figure → ledger → JE → business object → WBS raw event and back | projections over `ledger_line` | `server/tests/report-ledger-reverse-trace-postgres.test.mjs` | `6a757d79` | round trip asserted (T09) | not run | EVIDENCED | ☐ |
 | C8 | Optimistic locking / ETag / If-Match on key objects; 40001 classification | `isRevisionPrecondition`, `withSerializableRetry` | `server/tests/concurrency-optimistic-lock-postgres.test.mjs` (5/5) | `76cc6c9d` | 412 vs 503 split measured (64/96 messages); `bank_source.version` dead | not run | PARTIAL (N39 gaps) | ☐ |
+| C9 | 291001 two-step clearing (native AP and WBS G11): member-level net zero, intermediate state, idempotent INCUR, immutable events | 048/305 (native); `server/db/migrations/152_wbs_autorec_g11_draft.sql`, `server/db/migrations/153_wbs_autorec_g11_incurred.sql` | `server/tests/postgres-kernel.test.mjs` :2130 (G11), :4676, :4509 | ff163552 | PG16 pass; 4 lines per chain read back; net 0 by member | not run | PARTIAL (N24 K1: no member-level open-clearing read surface) | ☐ |
 
 ## D. WBS evidence chain
 
