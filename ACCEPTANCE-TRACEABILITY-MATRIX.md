@@ -1,0 +1,88 @@
+# Acceptance traceability matrix (N40)
+
+Owner: Ricky · Maintained by Claude session `claude-9c9cd162` · Baseline `origin/main` = `ff163552eec0ee78b5806a7ae16323a9463b3a8c` · Integration branch `claude/2026-09-16-n-batch-9c9cd162`.
+
+Rules of this file: a row is **DONE** only when code, an executable test, the exact SHA and a database/log read-back all exist and the Owner has ticked the last column. "Page opens" and "`/health/ready` 200" never satisfy the read-back column (RELEASE-GATES.md §0). Live read-backs marked **not run** are truthful: no session has production or staging credentials. Statuses: `DONE` (all evidence, Owner-accepted) · `EVIDENCED` (all evidence, awaiting Owner tick) · `GAP` (known defect pinned by a test that asserts current behaviour) · `BLOCKED` (needs credentials / platform access / Owner decision) · `PARTIAL`.
+
+`tests/acceptance-traceability-matrix.test.mjs` fails when any test file or document referenced in the *Test / Doc* column stops existing.
+
+## A. Release readiness (P0)
+
+| ID | Requirement | Code | Test / Doc | SHA | Offline read-back | Live read-back | Status | Owner |
+|---|---|---|---|---|---|---|---|---|
+| A1 | Migration chain is manifest-pinned, idempotent, checksum-guarded | `server/runtime/migrations.mjs`, `migration-manifest.mjs` (428 entries) | `server/tests/migration-down-symmetry.test.mjs`; `npm run db:up` ×2 | ff163552 + `6a757d79` | PG 16.4 fresh: 428 applied → 428 skipped, exit 0/0 (T01/T02, P0-B) · independent PG 16.14: 427/427 (session f5b431ef) | not run | EVIDENCED | ☐ |
+| A2 | Exactly one unconditional irreversibility barrier (down/401); reset refuses before first down | `migrations.mjs` `downMigrationRefusesUnconditionally`, `MIGRATION_RESET_BLOCKED` | `server/tests/migration-reset-preflight.test.mjs`, `server/tests/migration-barrier-contract-postgres.test.mjs` | `6a757d79` | 43 conditional + 1 unconditional, two independent detectors agree | n/a | EVIDENCED | ☐ |
+| A3 | down/371 symmetric with up/371 | `server/db/migrations/down/371_*.sql` | `migration-down-symmetry.test.mjs` | `6a757d79` | up→down→up cycle exit 0 | n/a | EVIDENCED | ☐ |
+| A4 | Migration 422 only disambiguates PL/pgSQL names in 374 (no semantic change) | `server/db/migrations/422_accounting_settings_workflow_alias_fix.sql` | `server/tests/accounting-settings-workflow-postgres.test.mjs` (T04) | `6a757d79` | tenant/approval/closed-period/SQLSTATE read-backs in T01 receipt | not run | EVIDENCED | ☐ |
+| A5 | Older build cannot start in front of newer schema (rollback is forward-only, enforced) | `migrations.mjs` `MIGRATION_LEDGER_AHEAD` | `server/tests/migration-ledger-ahead-preflight.test.mjs`; `server/PRODUCTION-RECOVERY-RUNBOOK.md`; `RELEASE-GATES.md` §1a | `76cc6c9d` | PG16: foreign ledger row → `db:up` exit 1, 0 statements, ledger 429 unchanged | not run | EVIDENCED | ☐ |
+| A6 | Pages deploy only after same-SHA kernel gate on main | `.github/workflows/deploy.yml` | `verify-release-deploy-gate.mjs` | ff163552 | exit 0 | GitHub Actions history — **Owner** | PARTIAL (G3 `workflow_dispatch` bypass) | ☐ |
+| A7 | Render services manual-deploy only, secrets `sync:false`, `preDeployCommand: db:up`, `/health/ready` gate | `render.yaml`, `render.integrations.yaml` | N35 receipt §1; T13 `RELEASE-GATES.md` | ff163552 | file audit | Render dashboard — **Owner** | EVIDENCED | ☐ |
+| A8 | Branch protection on `main`, `github-pages` environment approval | GitHub settings (not in repo) | — | — | impossible offline | **Owner**: `gh api repos/:o/:r/branches/main/protection` | BLOCKED | ☐ |
+| A9 | Production Blueprint exists | — (`render.yaml` defines staging / internal-test only) | N35 G7 | — | — | — | GAP — Owner decision | ☐ |
+| A10 | Backup / restore drill incl. `refs_schema_migration` | `server/runtime/test-backup-restore-drill.mjs` | `server/BACKUP-RESTORE-DRILL.md` (T15) | `6a757d79` | local drill exit 0 (Docker path documented; embedded PG path run) | production drill **plan only** | PARTIAL | ☐ |
+| A11 | Release signing / provenance / SBOM | — | N35 G5 | — | — | — | GAP — Owner decision | ☐ |
+
+## B. Authority, SoD, period control
+
+| ID | Requirement | Code | Test / Doc | SHA | Offline read-back | Live read-back | Status | Owner |
+|---|---|---|---|---|---|---|---|---|
+| B1 | Authenticated principal required; GUC claims not trusted; bound context token ⋈ grants ⋈ catalog | `server/runtime/kernel-repository.mjs`, migrations 274/307 | `server/tests/posting-sod-contract-postgres.test.mjs` (7/7) | `6a757d79` | 403 paths + DB zero-write read-backs (T03) | not run | EVIDENCED | ☐ |
+| B2 | One workflow authority class per actor per entity; creator≠reviewer≠approver≠poster | `refs_transition_journal`, `refs_post_journal` (002/274) | `posting-sod-contract-postgres`, `server/tests/journal-lifecycle-contract-postgres.test.mjs` (8/8) | `76cc6c9d` | SoD negatives via fixture-seated created_by/reviewed_by | not run | EVIDENCED | ☐ |
+| B3 | Period reopen CRITICAL, closer≠reopener, close requires readiness hash | `refs_reopen_period_v`, `refs_close_period` | `journal-lifecycle-contract-postgres` (interlock asserted; close blocked by `APPROVED_CLOSE_POLICY_UNAVAILABLE`) | `76cc6c9d` | 22023 without readiness hash; blocker codes read back | not run | PARTIAL (full close path needs approved policy + statement snapshot fixtures) | ☐ |
+| B4 | Failed SSI retry leaves no unbound context; success token binding intact | `kernel-repository.mjs` `revokeOnFailure`, `accounting-server.mjs` | `server/tests/context-retry-revocation-postgres.test.mjs` | `6a757d79` | 16-way concurrency, zero cross-tenant leak (T06) | not run | EVIDENCED | ☐ |
+| B5 | Base reconciliation transition still granted to `refs_app` | migration grants | T10 receipt | ff163552 | `has_function_privilege` read-back | — | GAP — revoke proposal awaiting Owner | ☐ |
+| B6 | Self-service grant activation endpoint undocumented in OpenAPI | `accounting-http.mjs:359` | N33 F1, T16 M-1 | ff163552 | source audit (two sessions) | — | GAP — document or retire, Owner | ☐ |
+
+## C. Sub-ledgers and GL
+
+| ID | Requirement | Code | Test / Doc | SHA | Offline read-back | Live read-back | Status | Owner |
+|---|---|---|---|---|---|---|---|---|
+| C1 | Native AP payment / AR receipt / AR refund routes (legacy 410) with authz, period, idempotency, audit | `accounting-http.mjs` native routes; 305/311/401 | `server/tests/postgres-kernel.test.mjs` (T05 three tests) | `6a757d79` | 403 / 423 55000 / 200 idempotent / 409 / audit row | not run | EVIDENCED | ☐ |
+| C2 | Native AP bill can be voided when fully open | `refs_create_ap_bill_void` (006) vs `refs_create_business_document` (048) | `server/tests/ap-bill-void-reachability-postgres.test.mjs` (pins refusal) | `76cc6c9d` | posted OPEN 100/100 → void 23514 | — | **GAP T11-G1** — predicate change needs Owner | ☐ |
+| C3 | Reversal status symmetric AP/AR | reducers 023 vs 016 | same test, test 2 | `76cc6c9d` | APPROVED vs OPEN pinned | — | GAP (N15 G2) | ☐ |
+| C4 | AR credit memo → allocation → native refund limited to remaining posted credit; over-refund zero residue | 017/018/019/036/311/021 | `postgres-kernel.test.mjs` :4078, :4857 | `6a757d79` | 422 + 0 rows in adjustment/JE/receipt | not run | EVIDENCED | ☐ |
+| C5 | Refund reversal path | — | N13 C1 | — | — | — | GAP — business decision | ☐ |
+| C6 | AP/AR aging reconciles to GL control | `refs_ap_control_total` (166), `refs_ap_aging` (046), 253 snapshots | `postgres-kernel.test.mjs` :4509/:4676 | ff163552 | pass | not run | PARTIAL (2-arg vs 3-arg total mismatch T11-G9; aging not point-in-time G4) | ☐ |
+| C7 | Report figure → ledger → JE → business object → WBS raw event and back | projections over `ledger_line` | `server/tests/report-ledger-reverse-trace-postgres.test.mjs` | `6a757d79` | round trip asserted (T09) | not run | EVIDENCED | ☐ |
+| C8 | Optimistic locking / ETag / If-Match on key objects; 40001 classification | `isRevisionPrecondition`, `withSerializableRetry` | `server/tests/concurrency-optimistic-lock-postgres.test.mjs` (5/5) | `76cc6c9d` | 412 vs 503 split measured (64/96 messages); `bank_source.version` dead | not run | PARTIAL (N39 gaps) | ☐ |
+
+## D. WBS evidence chain
+
+| ID | Requirement | Code | Test / Doc | SHA | Offline read-back | Live read-back | Status | Owner |
+|---|---|---|---|---|---|---|---|---|
+| D1 | Raw event immutable (hash, no UPDATE/DELETE) | triggers on `wbs_raw_event` | `server/tests/wbs-evidence-immutability-postgres.test.mjs` (3/3) | `76cc6c9d` | pg_trigger read-back; UPDATE/DELETE refused | not run | EVIDENCED (immutability by privilege + trigger; N30 note) | ☐ |
+| D2 | Raw → Normalized → Staging → Exception → manual review → Draft trace with stable source id, mapping version, control totals | `wbs-mcp-lineage.mjs`, `wbs-mcp-inbound-*.mjs` | `server/tests/wbs-h1-discovery-catalog-synthetic.test.mjs`; T08 checklist | `6a757d79` | synthetic fixtures only | **BLOCKED — no WBS credentials; never write WBS** | PARTIAL | ☐ |
+| D3 | 12-sample manual acceptance workbook (N31) | — | not started | — | — | — | open task | ☐ |
+| D4 | Workbench HTML artifact carries no real aggregates without Owner approval | `outputs/wbs-h1-2026/qbo-company-workbench.html` | T18 synthetic parser test + preflight draft | `6a757d79` | synthetic pass | — | Owner policy decision | ☐ |
+
+## E. Frontend, observability, security
+
+| ID | Requirement | Code | Test / Doc | SHA | Offline read-back | Live read-back | Status | Owner |
+|---|---|---|---|---|---|---|---|---|
+| E1 | No white screen on CDN block / missing adapter / release mismatch | `index.html` async Chart.js, `src/modules-core.jsx useChart` | `tests/startup-surface-matrix.test.jsx` (7/7); `E2E-BROWSER-MATRIX.md`; authoritative-boot-white-screen test (session 3f0a1c7e patch, 14/14, not yet on this branch) | `6a757d79` | jsdom scenarios | staging E2E **PREPARED, NOT EXECUTED** | PARTIAL | ☐ |
+| E2 | Static client CSP: no inline script, SRI on remote scripts, identical headers on all static services | `render.yaml`, `index.html` | `tests/frontend-security-surface.test.mjs` (4/4) | `039c271f` | negative run on ff163552 fails 2/4 (internal-test lacked CSP) | Render headers — **Owner** curl after deploy | EVIDENCED | ☐ |
+| E3 | Secrets never committed; prod deps 0 vulnerabilities | — | `frontend-security-surface` test 4; `npm audit --omit=dev` | `039c271f` | 0/0 root+server; 3 placeholder hits allow-listed | n/a | EVIDENCED | ☐ |
+| E4 | Key events / metrics / alert thresholds defined as local contract | `server/runtime/observability-contract.mjs`, `server/OBSERVABILITY.md` | `server/tests/observability-contract.test.mjs` | `76cc6c9d` | catalog ⊆ emitted events; MISSING_EVENTS listed | no SaaS — contract only | EVIDENCED | ☐ |
+| E5 | Route surface ⇄ kernel ⇄ OpenAPI closed | `accounting-http.mjs`, `server/api/openapi-accounting.json` | `server/tests/router-kernel-surface-contract.test.mjs` (KNOWN_UNIMPLEMENTED = final1/orphans); N33 342/357 mechanical + 15 manual | `6a757d79` | dead route pinned | — | PARTIAL (T16 G-1 no bidirectional gate) | ☐ |
+| E6 | SAST | — | N37 S3 | — | — | — | Owner decision (CodeQL free) | ☐ |
+
+## F. Integration status of this work
+
+| Item | State |
+|---|---|
+| Cumulative T01–T18 patch | applies clean to ff163552 (N03 verified, session e952882a); one HIGH regression (`ai-financial-variance-policy-contract` cwd) fixed in `987c77c8` |
+| Pre-existing red on ff163552 | `test:visual` (N03 F2) — not introduced by this work |
+| Branch | `claude/2026-09-16-n-batch-9c9cd162` = ff163552 + `6a757d79` + `76cc6c9d` + `039c271f` + `987c77c8` (+ this matrix). **Not pushed** (no credentials in sandbox) — Owner: `git push origin claude/2026-09-16-n-batch-9c9cd162` |
+| PR #582 | untouched, unmerged |
+| Shared dirty tree 98dcb137 | untouched |
+
+## G. Decisions the Owner must make (nothing else is waiting on Claude)
+
+1. C2/C3 — change 006 predicate to `status IN ('APPROVED','OPEN') AND open_balance = gross_amount` and unify reversal status to OPEN?
+2. B5 — revoke base reconciliation transition from `refs_app`?
+3. B6/E5 — document self-service grant activation in OpenAPI, or retire it?
+4. A8 — confirm `main` branch protection and Pages environment approval (screenshot or `gh api` output).
+5. A9 — who defines the production Render Blueprint; until then no "production rollback" claim is valid.
+6. A11/E6 — introduce build provenance attestation and CodeQL (both free)?
+7. A6 — remove `workflow_dispatch` from `deploy.yml` or restrict it to main?
+8. D2/D3 — provide (via Codex) a WBS MCP tool schema or one sanitized sample response so fakes and the N31 workbook match the real contract; no secrets needed.
