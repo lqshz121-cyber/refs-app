@@ -9,4 +9,6 @@ assert.match(workflow, /workflow_run\.head_branch == 'main'/, 'automatic Pages d
 assert.match(workflow, /ref: \$\{\{ github\.event\.workflow_run\.head_sha \|\| github\.sha \}\}/, 'Pages must checkout the exact gated SHA');
 assert.match(workflow, /deploy:\s*\n\s+needs: build/, 'deployment must require the gated build job');
 assert.match(workflow, /npm run verify:runtime-deployment-assets/, 'Pages must verify runtime deployment assets before upload');
+assert.match(workflow, /github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'/, 'manual Pages dispatch must be restricted to main (no bypass from other refs)');
+assert.doesNotMatch(workflow, /\n\s+github\.event_name == 'workflow_dispatch' \|\|/, 'unconditional workflow_dispatch bypass must not return');
 console.log('PASS release deploy: Pages waits for the successful same-SHA accounting kernel gate');
