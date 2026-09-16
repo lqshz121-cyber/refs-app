@@ -5416,7 +5416,7 @@ pgTest('reconciliation command idempotency keys are bound to the issuing actor a
   await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
     VALUES($1,$2,$3,$4,'BANK-1','BANK-ACTOR-IDEMPOTENCY-1','2026-07-20','USD',50)`,[bankSourceId,ids.tenantId,ids.entityId,trace.documentId]);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'recon-idempotency-maker',['BANK.RECONCILIATION.START'])});
-  const intruder=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'recon-idempotency-intruder',['BANK.RECONCILIATION.START','BANK.RECONCILIATION.ADJUSTMENT_DRAFT','GL.JE.CREATE','BANK.RECONCILIATION.CLEAR','BANK.RECONCILIATION.REVIEW'])});
+  const intruder=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'recon-idempotency-intruder',['BANK.RECONCILIATION.START'])});
   const startArgs={...ids,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31',statementOpeningBalance:'0.0000',statementEndingBalance:'50.0000',reason:'Start statement for actor-bound idempotency evidence',idempotencyKey:'reconciliation-actor-bound-start-001'};
   const started=await maker.startReconciliation(startArgs);assert.equal((await maker.startReconciliation(startArgs)).idempotent,true);
   await assert.rejects(intruder.startReconciliation(startArgs),error=>error.code==='42501'&&/belongs to another actor/i.test(error.message));
