@@ -47,6 +47,15 @@ ancestor of the candidate, stop: reconcile first.
 | 21 | Logging / alerting | `/health/ready` scraped; alert on `migration_runner_failed`, `startup_failed`, 5xx rate, outbox dead-letter count | monitoring config | Ops |
 | 22 | Reachability (not acceptance) | `/health/ready` 200 with `release_sha` = candidate; frontend shell renders | `reachability.log` | Ops |
 
+### 1a. Gate 19 detail — what `db:up` refuses
+
+| Refusal | Meaning | Action |
+|---|---|---|
+| `MIGRATION_MANIFEST_MISMATCH` / `MIGRATION_CHECKSUM_MISMATCH` | Build's migration files differ from the pinned manifest or from what the ledger recorded | Stop; the build is not the reviewed candidate |
+| `MIGRATION_IDENTITY_REJECTED` / `MIGRATION_DATABASE_REJECTED` | Wrong login or wrong database | Fix `MIGRATION_DATABASE_URL`; never override |
+| `MIGRATION_LEDGER_AHEAD` | Database already migrated by a newer build (rollback past a migration) | Redeploy the newer build or restore the pre-migration backup; older code must not start |
+| `migration_failed` (SQLSTATE) | A new migration errored; its transaction rolled back, ledger unchanged for that entry | Forward fix + redeploy, per `server/PRODUCTION-RECOVERY-RUNBOOK.md` |
+
 ## 2. Rollback triggers
 
 Any of: gate 19 emits `migration_failed`; `/health/ready` not 200 within the deploy window; post-deploy `startup_failed`; outbox dead-letter growth; any 5xx on posting/reopen/settlement routes. Action: **do not** run `db:down`. Follow `server/PRODUCTION-RECOVERY-RUNBOOK.md` (restore + forward fix); redeploy the previous binary only if the rollback drill (T15) has shown it tolerates the applied schema.

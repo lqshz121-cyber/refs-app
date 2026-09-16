@@ -120,6 +120,19 @@ export async function migrateUp(pool,observation={}){
     await ensureMetadata(client);
     const files=await filesAt(migrationRoot);
     assertManifest(files);
+    // A release that is older than the database must not start. Render's
+    // "rollback to previous deploy" re-runs this command with the previous
+    // code; without this check every known file is 'skipped' and the ledger
+    // rows written by the newer release are silently ignored, so old code
+    // serves a newer schema. Refuse up front and name the recovery path.
+    const known=new Set(files);
+    const ahead=(await client.query('SELECT migration_name,checksum FROM refs_schema_migration ORDER BY migration_name')).rows.filter(row=>!known.has(row.migration_name));
+    if(ahead.length){
+      const details={schema_head:ahead[ahead.length-1].migration_name,release_head:files[files.length-1],unknown_migrations:ahead.map(row=>row.migration_name),
+        recovery:'The database has been migrated by a newer release than this build. Application rollback is forward-only: redeploy a build that contains these migrations, or restore the approved pre-migration backup (including refs_schema_migration) before starting older code.'};
+      emitMigrationEvent(observation.onEvent,{event:'migration_ledger_ahead',...details});
+      throw new KernelError('MIGRATION_LEDGER_AHEAD',`Database holds ${ahead.length} migration(s) unknown to this release`,details);
+    }
     for(const name of files){
       await observeMigration(name,'up',async()=>{
         const migration=await migrationFile(migrationRoot,name);

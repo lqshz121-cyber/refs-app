@@ -69,11 +69,15 @@ const INFRASTRUCTURE_BOUND_SERVER_SUITES=Object.freeze([
   'test:postgres:fixture:signed-bank-same-source-close',
   'test:postgres:fixture:signed-wbs-payable-post',
   'test:postgres:fixtures:closure',
+  'test:postgres:ap-bill-void', // Requires the fresh gate database: pins T11-G1 (native AP bill posts OPEN; void requires APPROVED).
   'test:postgres:barriers', // Requires the fresh gate database: probes down/401 and down/414 inside rolled-back transactions.
+  'test:postgres:concurrency', // Requires the fresh gate database: two-transaction races on one journal, If-Match 428/412, close/post interlock.
   'test:postgres:context-revocation', // Requires the fresh gate database: 16-way parallel bootstrap under SERIALIZABLE.
   'test:postgres:fresh',
+  'test:postgres:journal-lifecycle', // Requires the fresh gate database: Draft->Submit->Review->Approve->Post->Reverse contract with SoD, 40001, idempotency and immutability.
   'test:postgres:report-trace', // Requires the fresh gate database: report-row-first reverse trace to ledger_line, journal_entry and evidence.
-  'test:postgres:sod', // Requires the fresh gate database: grant -> issue -> bind -> refs_post_journal positive and refusal paths.
+  'test:postgres:sod',
+  'test:postgres:wbs-evidence', // Requires the fresh gate database: pg_trigger/privilege readback proving WBS evidence tables are immutable to refs_app. // Requires the fresh gate database: grant -> issue -> bind -> refs_post_journal positive and refusal paths.
   'test:production-ai-accounting-e2e',
   'test:stage1:authoritative-e2e',
   'test:stage2:authoritative-e2e',

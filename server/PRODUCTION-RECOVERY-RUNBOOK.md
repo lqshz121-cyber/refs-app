@@ -81,3 +81,14 @@ active. **Do not assume; drill it** (T15).
 - Deleting or inserting rows in `refs_schema_migration` to make a run green.
 - Editing a historical migration file (the manifest checksum will refuse it; if it does not, the manifest was edited too, which is worse).
 - Restoring a backup that lacks `refs_schema_migration` or lacks a recorded ledger hash.
+
+## Application rollback past a migration is refused automatically
+
+`db:up` (Render `preDeployCommand`) now compares `refs_schema_migration` with the
+files the build ships. If the ledger holds a migration this build does not know,
+the runner emits `migration_ledger_ahead` (`MIGRATION_LEDGER_AHEAD`), executes
+nothing, and the deploy aborts before the old code starts. This makes the
+forward-only policy above enforceable: "rollback to previous deploy" in Render
+cannot put older code in front of a newer schema. Recovery is unchanged —
+redeploy the newer build, or restore the approved pre-migration backup
+(including `refs_schema_migration`) and then deploy the older build.
