@@ -53,7 +53,30 @@ Never edit historical migrations, skip a failed entry, or manually insert or
 delete migration metadata to make a deployment green.
 
 Do not use `db:down`/`reset` as an automatic production recovery mechanism.
-Existing destructive database/identity guards still apply. If ten minutes is
+Existing destructive database/identity guards still apply: outside a `*_test`
+database both commands exit 1 with `DB_DOWN_FORBIDDEN` unless
+`REFS_ALLOW_DB_DOWN=1` is set, and the schema is left untouched.
+
+`db:reset` cannot complete on any database - test databases included - whose
+applied chain has crossed an irreversible migration. Migration
+`401_native_settlement_bank_account_control` refuses to roll back
+unconditionally because it retains migration 305 as immutable historical
+evidence; forty-three further down migrations refuse while the evidence they
+protect exists. The runner checks for an unconditional barrier before the first
+down runs and exits 1 with `MIGRATION_RESET_BLOCKED`, emitting a
+`migration_reset_blocked` event that names the schema head, the applied count,
+the first irreversible migration and the recovery path, without touching the
+ledger or schema. `db:reset` is therefore only a tool for fresh test databases
+that have not reached a barrier.
+
+Production recovery is restore-from-backup plus forward fix: restore the
+approved backup taken before the release (it must include
+`refs_schema_migration` - losing that table while the schema survives makes
+`db:up` fail closed with `42723` rather than re-run), then apply corrections as
+new forward migrations with `db:up`. Rolling the application binary back to a
+SHA whose manifest is shorter than the applied chain is only safe once a
+rollback drill has shown that binary tolerates the extra applied objects; do
+not assume it. If ten minutes is
 insufficient, stop and give the release owner the exact SHA, migration name,
 elapsed time and safe code; investigate locks/query design and agree a forward
 fix or approved database recovery. Do not remove all deadlines. Keep business
@@ -61,7 +84,7 @@ writes frozen until the release owner confirms the required acceptance gates.
 
 ## Verification
 
-`node --test tests/migration-runner.test.mjs tests/migrations-safety.test.mjs`
+`node --test tests/migration-runner.test.mjs tests/migrations-safety.test.mjs tests/migration-reset-preflight.test.mjs` (offline) and `npm run test:postgres:barriers` (against the fresh gate database) — see also `PRODUCTION-RECOVERY-RUNBOOK.md`
 from `server` exercises deadline isolation, validation before connections,
 fixed-order/checksum checks, transaction commit/rollback and redacted logs with
 fake pools (no database writes). Full PostgreSQL fresh/upgrade gates remain the

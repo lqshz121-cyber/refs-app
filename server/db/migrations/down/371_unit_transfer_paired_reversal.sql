@@ -10,16 +10,15 @@ DROP TRIGGER IF EXISTS unit_transfer_reversal_source_link_guard ON source_link;
 DROP TRIGGER IF EXISTS unit_transfer_reversal_journal_line_guard ON journal_line;
 DROP TRIGGER IF EXISTS unit_transfer_reversal_pair_protect ON unit_transfer_reversal_pair;
 DROP TRIGGER IF EXISTS unit_transfer_create_reversal_race_guard ON unit_transfer_pair;
+DROP TRIGGER IF EXISTS unit_transfer_paired_reversal_journal_guard ON journal_entry;
 
 DO $$DECLARE fn text;BEGIN
  fn:=pg_get_functiondef('refs_post_unit_transfer_pair_370(uuid,uuid,uuid,bigint,bigint,bigint,text,text)'::regprocedure);EXECUTE replace(fn,'public.refs_post_unit_transfer_pair_370(','public.refs_post_unit_transfer_pair(')||';';
  fn:=pg_get_functiondef('refs_read_unit_transfer_pair_370(uuid,uuid,uuid)'::regprocedure);EXECUTE replace(fn,'public.refs_read_unit_transfer_pair_370(','public.refs_read_unit_transfer_pair(')||';';
- fn:=pg_get_functiondef('refs_guard_unit_transfer_journal_transition_370()'::regprocedure);EXECUTE replace(fn,'public.refs_guard_unit_transfer_journal_transition_370()','public.refs_guard_unit_transfer_journal_transition()')||';';
  fn:=pg_get_functiondef('refs_protect_unit_transfer_unit_370()'::regprocedure);EXECUTE replace(fn,'public.refs_protect_unit_transfer_unit_370()','public.refs_protect_unit_transfer_unit()')||';';
 END$$;
 DROP FUNCTION refs_post_unit_transfer_pair_370(uuid,uuid,uuid,bigint,bigint,bigint,text,text);
 DROP FUNCTION refs_read_unit_transfer_pair_370(uuid,uuid,uuid);
-DROP FUNCTION refs_guard_unit_transfer_journal_transition_370();
 DROP FUNCTION refs_protect_unit_transfer_unit_370();
 
 REVOKE ALL ON FUNCTION refs_create_unit_transfer_reversal_pair_hash(uuid,uuid,uuid,bigint,bigint,bigint,date,text,text,text),refs_create_unit_transfer_reversal_pair(uuid,uuid,uuid,bigint,bigint,bigint,date,text,text,text,text,text),refs_unit_transfer_reversal_transition_hash(uuid,uuid,uuid,uuid,text,bigint,bigint,bigint,text),refs_transition_unit_transfer_reversal_pair(uuid,uuid,uuid,uuid,text,bigint,bigint,bigint,text,text,text),refs_unit_transfer_reversal_cancel_hash(uuid,uuid,uuid,uuid,bigint,bigint,bigint,text),refs_cancel_unit_transfer_reversal_pair(uuid,uuid,uuid,uuid,bigint,bigint,bigint,text,text,text),refs_unit_transfer_reversal_post_hash(uuid,uuid,uuid,uuid,bigint,bigint,bigint),refs_post_unit_transfer_reversal_pair(uuid,uuid,uuid,uuid,bigint,bigint,bigint,text,text),refs_read_unit_transfer_reversal_pair(uuid,uuid,uuid,uuid) FROM refs_app;
@@ -35,6 +34,7 @@ DROP FUNCTION refs_protect_unit_transfer_reversal_pair();
 DROP FUNCTION refs_guard_unit_transfer_reversal_source_link();
 DROP FUNCTION refs_guard_unit_transfer_reversal_line();
 DROP FUNCTION refs_guard_unit_transfer_create_against_reversal();
+DROP FUNCTION refs_guard_unit_transfer_paired_reversal_journal_transition();
 DROP FUNCTION refs_create_unit_transfer_reversal_pair(uuid,uuid,uuid,bigint,bigint,bigint,date,text,text,text,text,text);
 DROP FUNCTION refs_create_unit_transfer_reversal_pair_hash(uuid,uuid,uuid,bigint,bigint,bigint,date,text,text,text);
 DROP FUNCTION refs_unit_transfer_can_reverse(uuid,unit_transfer_pair,unit_transfer_unit_control);

@@ -18,10 +18,21 @@ function fakePool(identity){
 
 test('down safety uses the actual connected database rather than the runtime URL',async()=>{
   const pool=fakePool({database_name:'refs_production',current_user:'refs_migrator',session_user:'refs_migrator'});
-  const prior=process.env.MIGRATION_DATABASE_URL;
-  process.env.MIGRATION_DATABASE_URL='postgresql://refs_migrator:strong-test-only@localhost/refs_production';
+  // runtimeConfig() rejects the four role URLs unless they agree on endpoint and
+  // database, so overriding MIGRATION_DATABASE_URL alone made this test throw
+  // "must target the same database endpoint" and never reach the down guard
+  // whenever the process already carried a real database environment - which is
+  // exactly the configuration production and the fresh gate run under.
+  const roleUrls={
+    DATABASE_URL:'postgresql://refs_runtime:strong-test-only@localhost/refs_production',
+    MIGRATION_DATABASE_URL:'postgresql://refs_migrator:strong-test-only@localhost/refs_production',
+    CONTEXT_ISSUER_DATABASE_URL:'postgresql://refs_context_issuer:strong-test-only@localhost/refs_production',
+    GRANT_SYNC_DATABASE_URL:'postgresql://refs_grant_sync:strong-test-only@localhost/refs_production'
+  };
+  const prior=Object.fromEntries(Object.keys(roleUrls).map(key=>[key,process.env[key]]));
+  Object.assign(process.env,roleUrls);
   try{await assert.rejects(()=>migrateDown(pool,{all:true}),error=>error.code==='DB_DOWN_FORBIDDEN');}
-  finally{if(prior===undefined)delete process.env.MIGRATION_DATABASE_URL;else process.env.MIGRATION_DATABASE_URL=prior;}
+  finally{for(const [key,value] of Object.entries(prior)){if(value===undefined)delete process.env[key];else process.env[key]=value;}}
   assert.ok(pool.queries.some(query=>query.includes('pg_advisory_lock')));
   assert.ok(pool.queries.some(query=>query.includes('pg_advisory_unlock')));
   assert.ok(pool.queries.some(query=>query.includes("set_config('statement_timeout','0',false)")));

@@ -183,7 +183,13 @@ test('Unit Transfer reversal attempts retain ordered history while allowing one 
 
 test('Unit Transfer reversal down migration refuses retained evidence and restores 370 guards',()=>{
  assert.match(reversalDown,/Refusing to remove retained Unit Transfer reversal evidence/i);
- assert.match(reversalDown,/pg_get_functiondef\('refs_guard_unit_transfer_journal_transition_370\(\)'::regprocedure\)/i);
+ // up/371 never shadow-copies the journal transition guard (no _370 copy is
+ // created anywhere in the chain), so the down body must not try to restore one:
+ // that reference made down/371 die with 42883 on first contact. What up/371
+ // does add is the paired-reversal journal guard, and the down must remove it.
+ assert.doesNotMatch(reversalDown,/refs_guard_unit_transfer_journal_transition_370/i);
+ assert.match(reversalDown,/DROP TRIGGER IF EXISTS unit_transfer_paired_reversal_journal_guard ON journal_entry/i);
+ assert.match(reversalDown,/DROP FUNCTION refs_guard_unit_transfer_paired_reversal_journal_transition\(\)/i);
  assert.match(reversalDown,/pg_get_functiondef\('refs_protect_unit_transfer_unit_370\(\)'::regprocedure\)/i);
  assert.match(reversalDown,/DROP TABLE unit_transfer_elimination_reversal_basis/i);
  assert.match(reversalDown,/DROP TABLE unit_transfer_reversal_pair/i);

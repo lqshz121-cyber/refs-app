@@ -679,11 +679,22 @@ export function CloseMgmt({ctx}) {
 // ===== Interactive charts (Chart.js via CDN, graceful fallback) =====
 function useChart(build, sig){
   const ref = useRef(null);
+  const [chartReady, setChartReady] = useState(()=>typeof window!=='undefined' && !!window.Chart);
+  useEffect(()=>{
+    // Chart.js is loaded async (index.html) so the app never waits on the CDN.
+    // If it is not here yet, wake up once when the script tag reports load.
+    if (typeof window==='undefined' || window.Chart) return;
+    const tag = document.querySelector('script[data-refs-chartjs]');
+    if (!tag) return;
+    const onLoad = ()=>setChartReady(!!window.Chart);
+    tag.addEventListener('load', onLoad, {once:true});
+    return ()=>tag.removeEventListener('load', onLoad);
+  }, []);
   useEffect(()=>{
     if (typeof window==='undefined' || !window.Chart || !ref.current) return;
     const c = build(ref.current.getContext('2d'));
     return ()=>c && c.destroy();
-  }, [sig]);
+  }, [sig, chartReady]);
   return ref;
 }
 function PLChart({jes, entity}){

@@ -376,7 +376,7 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({"name":"368_rule_register_read.sql","up":"8dfc60e9af2b153f21749c1f1204f78a1f6907f10f20a704ae0f8b99802131c5","down":"4d704d12221507fbc95cac982293078987438e7ad619d32c2b311535eb6b98de"}),
   Object.freeze({"name":"369_recurring_transaction_register_read.sql","up":"c1a669a87cd661651e7a43fcab24d64cb8274ec5f3e072235e47fba6e22b0bd9","down":"e0e2585ac735554270587e4a8c06059b0d65ec3385aeaecb002c59ef918e1730"}),
   Object.freeze({"name":"370_unit_transfer_authoritative.sql","up":"ad20fc04bb707152a1acb40c53d3240ebcaaacf86a008913f0a10795f4e28e1f","down":"a4b7c599804e3caf1b16e20b877205d727e5536c7cd9be50573b65748af18055"}),
-  Object.freeze({"name":"371_unit_transfer_paired_reversal.sql","up":"26f635f64cfaa13eeb9efca16079fd83fbd72b401fd5efa5e001fa98a5bc6aec","down":"ed3b985622795eab8d45ff438177ed1f7164f6288c0e4031107625a3049fd765"}),
+  Object.freeze({"name":"371_unit_transfer_paired_reversal.sql","up":"26f635f64cfaa13eeb9efca16079fd83fbd72b401fd5efa5e001fa98a5bc6aec","down":"e5fd5621277ab504711e09b01fb099a4a4c17f7179eb419fac6554d16002d11a"}),
   Object.freeze({"name":"372_fixed_asset_post_impairment_ai_parity.sql","up":"97113df4324e1036d9af8e70c769408b28481a366f33b317c87c16b3555a5197","down":"519b95215227f06e069e22b109d83eba38c5390e312d3661f311fc30ffb66036"}),
   Object.freeze({"name":"373_intercompany_elimination_authoritative.sql","up":"ee0d5f2eac729f9a3ddc06e655dadd9238a07337fa18d5550ab636ad7421cd97","down":"64a1ad2857258ca1748a8e6e1fcc94f59b37f58f786eda998fdd244c3fc6c123"}),
   Object.freeze({"name":"374_accounting_settings_authoritative.sql","up":"b325c1076db94580c4ca7a97813bd3f1f63f5aecbb79cf27b9685c2b846647c4","down":"8220b8e41af8227f45716bf94f1502335f4a2713a21cb17771820b7a19f02093"}),
@@ -426,4 +426,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"419_internal_test_bank_cash_master.sql",up:"b91fa9f5bb1f5ed9dbf0cff109011e9f75ced9af71c09a127eefe6cee39548fd",down:"a16320da0bba284297441e4e67ef703f79ab9fee99d559cca8461da202b7addd"}),
   Object.freeze({name:"420_internal_test_bank_cash_master_v2.sql",up:"dff10813483aec86540623e322246c3f6e09ebef66beb846ab10e4ed589708f0",down:"f3b44d05e494fc75473aae79bc3d2e211f896990d016b471c1ca2062b1d7b59e"}),
   Object.freeze({name:"421_internal_test_cash_transfer_evidence.sql",up:"ab194b10ea49243835720bd4bb2d0535f03aff9b17b2505d35977996f6638ea4",down:"a055bfdffa075153c80adf028e9438c37643185bde8bc4616aa8bf9e1358b5ab"}),
+  Object.freeze({name:"422_accounting_settings_workflow_alias_fix.sql",up:"a3663856c59af7f980f027424b2f2ac4a29b8c4ca9c58091de6133c6aa853db3",down:"b3c9e291db04375d8cb3b682111c904044182deb612c1c43b66108e78edd77f6"}),
 ]);

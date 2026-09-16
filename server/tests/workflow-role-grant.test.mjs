@@ -187,7 +187,11 @@ test('every executable legacy grant entry attests before OIDC, automatic reconci
   const cli=await readFile(new URL('../tools/stage1-bootstrap.mjs',import.meta.url),'utf8');
   assert.ok(cli.indexOf('await assertStagingDeploymentTarget(')<cli.indexOf('await grantStage1AuthenticatedReadAccess('));
   const startup=await readFile(new URL('../runtime/start-accounting-server.mjs',import.meta.url),'utf8');
-  const guarded=startup.indexOf('if(grantSyncPool)await assertStagingDeploymentTarget(');assert.ok(guarded>0);
+  // Assert the invariant (the staging-target guard runs inside the grantSyncPool
+  // branch, before any grant reconciliation or listen) instead of one exact source
+  // line, so inserting startup bookkeeping into that branch cannot fake a pass.
+  const guard=/if\(grantSyncPool\)\s*\{?[^{}]*?await assertStagingDeploymentTarget\(/.exec(startup);
+  assert.ok(guard&&guard.index>0);const guarded=guard.index;
   for(const operation of ['await reconcileWbsTestImportActorGrants(','await reconcileControlledTestAiWorkflowActorGrants(','server.listen('])assert.ok(guarded<startup.indexOf(operation));
 });
 

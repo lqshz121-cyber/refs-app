@@ -100,6 +100,6 @@ test('repository HTTP and OpenAPI expose real proposal approve view and trace op
   const openapi=read(join(root,'api','openapi-accounting.json'));
   for(const method of ['createWbsInsurancePcMappingProposal','approveWbsInsurancePcMappingProposal','getWbsInsurancePcMappingProposal','getWbsInsurancePcMappingTrace'])contains(repository,`async ${method}(`);
   for(const segment of ['pc-mapping-proposals','pc-company-mappings'])contains(http,segment);
-  for(const operation of ['createWbsInsurancePcMappingProposal','approveWbsInsurancePcMappingProposal','getWbsInsurancePcMappingProposal','getWbsInsurancePcMappingTrace'])contains(openapi,`"operationId":"${operation}"`);
+  for(const operation of ['createWbsInsurancePcMappingProposal','approveWbsInsurancePcMappingProposal','getWbsInsurancePcMappingProposal','getWbsInsurancePcMappingTrace'])assert.match(openapi,new RegExp(`"operationId"\\s*:\\s*"${operation}"`));
   assert.match(http,/cache-control['"]?\s*:\s*['"]no-store/i);
 });

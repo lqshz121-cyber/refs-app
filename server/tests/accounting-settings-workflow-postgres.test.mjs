@@ -72,7 +72,11 @@ async function seedScope({tenantId=randomUUID(),entityId=randomUUID(),entityCode
 }
 
 async function issueKernel(scope,actorId,pool=runtimePool){
-  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId})});
+  // The issuer requires a tenant-scoped principal (context-issuer.mjs
+  // trustedPrincipal): an authenticated actor without tenant scope is refused
+  // with AUTHENTICATED_PRINCIPAL_REQUIRED before any SQL runs. The fixture must
+  // present the same shape the HTTP middleware presents.
+  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId,tenantId:scope.tenantId})});
   return new PostgresAccountingKernel(pool,{sessionProvider:()=>issuer.issue({tenantId:scope.tenantId})});
 }
 
@@ -155,7 +159,7 @@ async function cloneApprovedChild(scope,sourceId,mutate,version){
   const source=(await adminPool.query('SELECT * FROM setting_snapshot WHERE setting_snapshot_id=$1',[sourceId])).rows[0];
   const snapshot=structuredClone(source.snapshot);mutate(snapshot);
   const settingSnapshotId=randomUUID(),snapshotHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[snapshot])).rows[0].hash;
-  await adminPool.query("INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at) VALUES($1,$2,$3,$4,'ENTITY',$3::text,$5,$6,$7,'APPROVED',$8::jsonb,$9,'parity-maker','parity-approver',now())",
+  await adminPool.query("INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at) VALUES($1,$2,$3::uuid,$4,'ENTITY',($3::uuid)::text,$5,$6,$7,'APPROVED',$8::jsonb,$9,'parity-maker','parity-approver',now())",
     [settingSnapshotId,scope.tenantId,scope.entityId,source.family,version,source.effective_from,source.effective_to,snapshot,snapshotHash]);
   return settingSnapshotId;
 }
@@ -196,7 +200,7 @@ pgTest('accounting settings uses five legal VIEW plus single-authority actors an
   assert.deepEqual(stored,{status:'RETIRED',effective_from:'2026-07-01',effective_to:'2026-08-01',retired_by:'settings-happy-activator'});
   await assert.rejects(actors.activator.inSession(client=>client.query('SELECT refs_validate_accounting_settings_activation_snapshot($1,$2,$3)',[scope.tenantId,scope.entityId,august.periodId])),error=>error.code==='42501');
   await assert.rejects(actors.activator.inSession(client=>client.query('SELECT refs_validate_accounting_settings_selected_bundle($1,$2,$3,$4::jsonb,$5::jsonb,false)',[scope.tenantId,scope.entityId,august.periodId,workflow.canonical_parent_snapshot,workflow.child_setting_snapshot_ids])),error=>error.code==='42501');
-  const helperPrivileges=(await adminPool.query("SELECT has_function_privilege('PUBLIC','refs_validate_accounting_settings_selected_bundle(uuid,uuid,uuid,jsonb,jsonb,boolean)','EXECUTE') public_execute,has_function_privilege('refs_app','refs_validate_accounting_settings_selected_bundle(uuid,uuid,uuid,jsonb,jsonb,boolean)','EXECUTE') app_execute")).rows[0];
+  const helperPrivileges=(await adminPool.query("SELECT has_function_privilege('public','refs_validate_accounting_settings_selected_bundle(uuid,uuid,uuid,jsonb,jsonb,boolean)','EXECUTE') public_execute,has_function_privilege('refs_app','refs_validate_accounting_settings_selected_bundle(uuid,uuid,uuid,jsonb,jsonb,boolean)','EXECUTE') app_execute")).rows[0];
   assert.deepEqual(helperPrivileges,{public_execute:false,app_execute:false});
   const aiReader=await syncPermissions(scope,'settings-ai-reader',['AI.ACCOUNTING.SETTINGS.VIEW'],'READ');
   const readback=await aiReader.readApprovedWbsAiEntityPeriodSettings({tenantId:scope.tenantId,entityId:scope.entityId,periodId:august.periodId,readOnly:true});
@@ -816,12 +820,12 @@ pgTest('a later ACTIVE workflow blocks stale Draft Submitted and Reviewed transi
   assert.equal(later.status,'ACTIVE');
 
   for(const item of prepared){
-    const before=(await adminPool.query("SELECT status,revision::int revision,(SELECT count(*)::int FROM accounting_settings_workflow_history WHERE accounting_settings_workflow_id=$1) history,(SELECT count(*)::int FROM outbox_event WHERE aggregate_id=$1) outbox",[item.workflow.accounting_settings_workflow_id])).rows[0];
+    const before=(await adminPool.query("SELECT status,revision::int revision,(SELECT count(*)::int FROM accounting_settings_workflow_history WHERE accounting_settings_workflow_id=$1) history,(SELECT count(*)::int FROM outbox_event WHERE aggregate_id=$1) outbox FROM accounting_settings_workflow WHERE accounting_settings_workflow_id=$1",[item.workflow.accounting_settings_workflow_id])).rows[0];
     const visible=await item.actors[item.actor].readAccountingSettingsWorkflow({tenantId:scope.tenantId,entityId:scope.entityId,workflowId:item.workflow.accounting_settings_workflow_id});
     assert.deepEqual(visible.action_flags,{can_submit:false,can_review:false,can_approve:false,can_activate:false},item.label);
     const key=`${item.prefix}-${item.action.toLowerCase()}-after-later-active`;
     await assert.rejects(item.actors[item.actor].transitionAccountingSettingsWorkflow({tenantId:scope.tenantId,entityId:scope.entityId,workflowId:item.workflow.accounting_settings_workflow_id,action:item.action,expectedRevision:Number(item.workflow.revision),reason:reason(item.action),idempotencyKey:key}),error=>error.code==='55000'&&/strictly later than all retained (?:parent|workflow) history/i.test(error.message),item.label);
-    const after=(await adminPool.query("SELECT status,revision::int revision,(SELECT count(*)::int FROM accounting_settings_workflow_history WHERE accounting_settings_workflow_id=$1) history,(SELECT count(*)::int FROM audit_event WHERE idempotency_key=$2) failed_audit,(SELECT count(*)::int FROM outbox_event WHERE aggregate_id=$1) outbox,(SELECT count(*)::int FROM idempotency_receipt WHERE idempotency_key=$2) failed_receipt",[item.workflow.accounting_settings_workflow_id,key])).rows[0];
+    const after=(await adminPool.query("SELECT status,revision::int revision,(SELECT count(*)::int FROM accounting_settings_workflow_history WHERE accounting_settings_workflow_id=$1) history,(SELECT count(*)::int FROM audit_event WHERE idempotency_key=$2) failed_audit,(SELECT count(*)::int FROM outbox_event WHERE aggregate_id=$1) outbox,(SELECT count(*)::int FROM idempotency_receipt WHERE idempotency_key=$2) failed_receipt FROM accounting_settings_workflow WHERE accounting_settings_workflow_id=$1",[item.workflow.accounting_settings_workflow_id,key])).rows[0];
     assert.deepEqual(after,{...before,failed_audit:0,failed_receipt:0},item.label);
   }
 });
@@ -947,7 +951,7 @@ pgTest('all ten selected child families are deeply validated before Draft eviden
     const source=(await adminPool.query('SELECT * FROM setting_snapshot WHERE setting_snapshot_id=$1',[validIds[key]])).rows[0];
     const snapshot=structuredClone(source.snapshot);mutate(snapshot);
     const badId=randomUUID(),hash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[snapshot])).rows[0].hash;
-    await adminPool.query("INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at) VALUES($1,$2,$3,$4,'ENTITY',$3::text,$5,$6,$7,'APPROVED',$8::jsonb,$9,'deep-maker','deep-approver',now())",
+    await adminPool.query("INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at) VALUES($1,$2,$3::uuid,$4,'ENTITY',($3::uuid)::text,$5,$6,$7,'APPROVED',$8::jsonb,$9,'deep-maker','deep-approver',now())",
       [badId,scope.tenantId,scope.entityId,source.family,ordinal++,source.effective_from,source.effective_to,snapshot,hash]);
     const keyId='settings-deep-'+key.replaceAll('_','-');
     await assert.rejects(maker.createAccountingSettingsWorkflow({
@@ -1049,7 +1053,9 @@ pgTest('historical evidence survives current entity master drift and a later PRI
   const actors=await lifecycleActors(scope,'settings-master-drift');
   const draft=await createDraft(scope,target,fixture,actors,'settings-master-drift');
   await adminPool.query("UPDATE entity SET entity_code=$3,base_currency='EUR' WHERE tenant_id=$1 AND entity_id=$2",[scope.tenantId,scope.entityId,'DRIFT'+randomUUID().replaceAll('-','').slice(0,8).toUpperCase()]);
-  const overlap=period('2026-08-OVERLAP','2026-08-15','2026-09-14');
+  // period_code is constrained to YYYY-MM (001: accounting_period_period_code_check); the overlap under
+  // test is the date range, so a later valid code carrying an overlapping range is used.
+  const overlap=period('2026-09','2026-08-15','2026-09-14');
   await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status,ledger_code) VALUES($1,$2,$3,$4,$5,$6,'OPEN','PRIMARY')",[overlap.periodId,scope.tenantId,scope.entityId,overlap.code,overlap.start,overlap.end]);
   const evidence=await readWorkflowEvidence(actors.maker,scope,draft.accounting_settings_workflow_id);
   assert.equal(evidence.selected_child_snapshots.length,10);

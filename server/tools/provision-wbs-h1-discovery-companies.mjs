@@ -31,12 +31,19 @@ const extractJsonObject=(source,marker)=>{
   return JSON.parse(source.slice(start,end));
 };
 
-export function readFrozenWbsH1DiscoveryCatalog(source){
-  if(typeof source!=='string'||createHash('sha256').update(source,'utf8').digest('hex')!==EXPECTED_SHA256)throw new Error('The frozen WBS H1 discovery workbench hash does not match the reviewed artifact');
+// The frozen constants describe the reviewed production artifact. Tests pass a
+// synthetic artifact with its own hash and count through `expected` so the
+// extraction and drift logic can be exercised without the real (gitignored,
+// business-data-bearing) HTML ever entering the repository. Production callers
+// never pass `expected`, so the reviewed hash stays the only accepted one there.
+export function readFrozenWbsH1DiscoveryCatalog(source,{expected={sha256:EXPECTED_SHA256,companyCount:EXPECTED_COMPANY_COUNT}}={}){
+  const sha256=String(expected?.sha256||''),companyCount=Number(expected?.companyCount);
+  if(!/^[0-9a-f]{64}$/.test(sha256)||!Number.isSafeInteger(companyCount)||companyCount<1)throw new Error('The frozen WBS H1 discovery expectation is malformed');
+  if(typeof source!=='string'||createHash('sha256').update(source,'utf8').digest('hex')!==sha256)throw new Error('The frozen WBS H1 discovery workbench hash does not match the reviewed artifact');
   const data=extractJsonObject(source,'const DATA=');
-  if(!Array.isArray(data?.companies)||data.companies.length!==EXPECTED_COMPANY_COUNT)throw new Error('The frozen WBS H1 discovery roster must contain exactly 192 companies');
+  if(!Array.isArray(data?.companies)||data.companies.length!==companyCount)throw new Error(`The frozen WBS H1 discovery roster must contain exactly ${companyCount} companies`);
   const rows=data.companies.map(row=>({company_code:row.company_code,company_name:`WBS ${row.company_code}`}));
-  if(new Set(rows.map(row=>row.company_code)).size!==EXPECTED_COMPANY_COUNT)throw new Error('The frozen WBS H1 discovery roster repeats a company code');
+  if(new Set(rows.map(row=>row.company_code)).size!==companyCount)throw new Error('The frozen WBS H1 discovery roster repeats a company code');
   return Object.freeze(rows);
 }
 

@@ -25,7 +25,12 @@ const WBS_FINAL1_RETAIN_STATEMENT_TIMEOUT='120s';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class PostgresAccountingKernel{
-  constructor(pool,{sessionProvider,runtimeLoginAllowlist=['refs_runtime'],wbsSnapshotVerifier=null,wbsAutoRecTransitionContractVerifier=null,wbsSignedBankAdmissionVerifier=null}={}){
+  constructor(pool,{sessionProvider,sessionRevoker=null,runtimeLoginAllowlist=['refs_runtime'],wbsSnapshotVerifier=null,wbsAutoRecTransitionContractVerifier=null,wbsSignedBankAdmissionVerifier=null}={}){
+    // Optional: revokes the context an attempt issued when that attempt fails
+    // before commit (serialization retry, denial, statement error). Without it
+    // the row stays unrevoked-but-unbound until its TTL. Never called for the
+    // attempt that commits, so a bound token is untouched.
+    this.sessionRevoker=typeof sessionRevoker==='function'?sessionRevoker:null;
     if(typeof sessionProvider!=='function')throw new KernelError('SESSION_PROVIDER_REQUIRED','A trusted session provider is required');
     this.pool=pool;this.sessionProvider=sessionProvider;this.runtimeLoginAllowlist=new Set(runtimeLoginAllowlist);
     this.wbsSnapshotVerifier=wbsSnapshotVerifier;this.wbsAutoRecTransitionContractVerifier=wbsAutoRecTransitionContractVerifier;this.wbsSignedBankAdmissionVerifier=wbsSignedBankAdmissionVerifier;
@@ -41,6 +46,11 @@ export class PostgresAccountingKernel{
       // acquired and for every retry attempt; reusing it across transactions
       // would make later workflow commands lose their DB authorization.
       const session=assertTrustedSession(await this.sessionProvider());
+      // Everything after issuance runs under revokeOnFailure: if this attempt
+      // does not reach commit, the capability it issued is revoked (on the
+      // issuer login, in its own transaction) before the error propagates -
+      // including into withSerializableRetry's next attempt, which issues anew.
+      return await this.revokeOnFailure(session,async()=>{
       databaseStage='RUNTIME_IDENTITY';
       const identity=requireRow(await client.query(`SELECT session_user,current_user,
         COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname=session_user),false) AS is_superuser`),'DB_IDENTITY_MISSING','Database identity is unavailable');
@@ -52,9 +62,23 @@ export class PostgresAccountingKernel{
       await client.query('SELECT refs_bootstrap_context($1)',[session.contextToken]);
       databaseStage='DATABASE_OPERATION';
       return work(client,session);
+      });
     });
     }catch(error){
       if(error?.code==='57014'){try{error.accountingDatabaseStage=databaseStage;}catch{}}
+      throw error;
+    }
+  }
+
+  async revokeOnFailure(session,attempt){
+    try{return await attempt();}
+    catch(error){
+      if(this.sessionRevoker){
+        // Best effort and never masking the original error: a revoke failure is
+        // reported on the error object for diagnostics, not thrown.
+        try{await this.sessionRevoker(session,{reason:'Attempt failed before commit',code:error?.code||null});}
+        catch(revokeError){try{error.contextRevokeFailed=revokeError?.code||revokeError?.message||true;}catch{}}
+      }
       throw error;
     }
   }

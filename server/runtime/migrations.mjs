@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {databaseName,runtimeConfig} from './config.mjs';
 import {KernelError,withTransaction} from './db.mjs';
 import {MIGRATION_MANIFEST} from './migration-manifest.mjs';
-import {observeMigration} from './migration-observability.mjs';
+import {emitMigrationEvent,observeMigration} from './migration-observability.mjs';
 
 const here=dirname(fileURLToPath(import.meta.url));
 const migrationRoot=resolve(here,'..','db','migrations');
@@ -25,6 +25,36 @@ async function acquireMigrationLock(client){
     await client.query("SELECT set_config('statement_timeout',$1,false),set_config('lock_timeout',$2,false)",[prior.statement_timeout,prior.lock_timeout]);
   }
   return locked;
+}
+
+// A down migration is an irreversibility barrier when a DO block raises
+// unconditionally - a RAISE EXCEPTION that sits at IF/CASE depth zero, so it
+// fires on an empty database too. 401_native_settlement_bank_account_control
+// is the canonical case: it protects migration 305 as retained historical
+// evidence. Forty-odd down files carry such a barrier by design.
+//
+// Only DO blocks are inspected. A down body that restores an old function
+// definition legitimately contains RAISE statements inside that function, and
+// those are not refusals. String literals and comments are stripped first so a
+// message text cannot open or close a block, and DDL "IF [NOT] EXISTS" is not
+// a PL/pgSQL IF.
+export function downMigrationRefusesUnconditionally(sql){
+  const blocks=[...String(sql).matchAll(/\bDO\s+(\$[A-Za-z_]*\$)([\s\S]*?)\1/g)];
+  for(const [,,rawBody] of blocks){
+    const body=rawBody
+      .replace(/--[^\n]*/g,' ')
+      .replace(/\/\*[\s\S]*?\*\//g,' ')
+      .replace(/'(?:[^']|'')*'/g,"''")
+      .replace(/\b(?:DROP|CREATE|ALTER)\b[^;]*?\bIF\s+(?:NOT\s+)?EXISTS\b/gi,m=>m.replace(/\bIF\b/i,'__'));
+    let depth=0;
+    for(const token of body.matchAll(/\bEND\s+IF\b|\bEND\s+CASE\b|\bELSIF\b|\bIF\b|\bCASE\b|\bRAISE\s+EXCEPTION\b/gi)){
+      const t=token[0].toUpperCase().replace(/\s+/g,' ');
+      if(t==='END IF'||t==='END CASE')depth=Math.max(0,depth-1);
+      else if(t==='IF'||t==='CASE')depth+=1;
+      else if(t==='RAISE EXCEPTION'&&depth===0)return true;
+    }
+  }
+  return false;
 }
 
 function bodyWithoutOuterTransaction(sql){
@@ -118,6 +148,22 @@ export async function migrateDown(pool,{all=false,...observation}={}){
     await assertMigrationConnection(client,{destructive:true});
     await ensureMetadata(client);
     const applied=(await client.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name DESC')).rows.map(row=>row.migration_name);
+    if(all){
+      // Fail before the first down runs, not twenty downs in. A reset that
+      // reaches an irreversibility barrier mid-way leaves the schema partly
+      // torn down; refusing up front leaves it exactly as it was and names the
+      // barrier and the recovery path instead of surfacing a bare P0001.
+      for(const name of applied){
+        const down=await migrationFile(downRoot,name);
+        assertChecksum(down,'down');
+        if(downMigrationRefusesUnconditionally(down.sql)){
+          const details={schema_head:applied[0],applied_count:applied.length,first_irreversible_migration:name,
+            recovery:'Reset is only for test databases that have not crossed an irreversible migration. Recover a database that has crossed one by restoring an approved backup and applying forward fixes with db:up; do not roll back.'};
+          emitMigrationEvent(observation.onEvent,{event:'migration_reset_blocked',...details});
+          throw new KernelError('MIGRATION_RESET_BLOCKED',`Reset cannot pass irreversible migration ${name}`,details);
+        }
+      }
+    }
     const selected=all?applied:applied.slice(0,1);
     for(const name of selected){
       await observeMigration(name,'down',async()=>{

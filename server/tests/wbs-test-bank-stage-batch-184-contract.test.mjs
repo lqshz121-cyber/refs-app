@@ -64,7 +64,22 @@ test('migration 184 keeps helpers private and down removes only its functions',a
   assert.doesNotMatch(down,/DROP TABLE|DELETE FROM|UPDATE /i);
 });
 
-test('enabled WBS TEST_ONLY readiness pins all five Bank stage batch commands',async()=>{
+test('enabled WBS TEST_ONLY readiness pins every Bank stage batch command after the 276 SoD split',async()=>{
+  // Migration 276 separated the combined post_clear command into post and clear
+  // so that posting and clearing are distinct acts. Readiness must pin the six
+  // commands that survive the split; pinning the pre-split five made this test
+  // fail while the SoD separation it should be protecting was in place.
   const server=await readFile(new URL('../runtime/accounting-server.mjs',import.meta.url),'utf8');
-  for(const name of ['draft','submit','review','approve','post_clear'])assert.match(server,new RegExp(`to_regprocedure\\('refs_wbs_test_bank_adjustment_${name}_batch`));
+  for(const name of ['draft','submit','review','approve','post','clear'])assert.match(server,new RegExp(`to_regprocedure\\('refs_wbs_test_bank_adjustment_${name}_batch`));
+  assert.doesNotMatch(server,/to_regprocedure\('refs_wbs_test_bank_adjustment_post_clear_batch/);
+});
+
+test('the pre-split combined post_clear command is retained but no longer executable by refs_app',async()=>{
+  // 276 keeps the old definition as historical evidence rather than dropping it,
+  // so the only thing standing between refs_app and a single call that posts and
+  // clears in one act is the REVOKE. Pin it: losing that line would silently
+  // reopen the separation 276 exists to create.
+  const sod=await readFile(new URL('../db/migrations/276_wbs_test_bank_sod_boundaries.sql',import.meta.url),'utf8');
+  assert.match(sod,/REVOKE ALL ON FUNCTION[^;]*refs_wbs_test_bank_adjustment_post_clear_batch\([^;]*\)[^;]*FROM PUBLIC,refs_app;/);
+  for(const name of ['post','clear'])assert.match(sod,new RegExp(`CREATE FUNCTION refs_wbs_test_bank_adjustment_${name}_batch\\(`));
 });

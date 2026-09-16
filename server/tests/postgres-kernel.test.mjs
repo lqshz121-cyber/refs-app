@@ -1352,12 +1352,22 @@ pgTest('parallel authorized read contexts complete under bounded serializable re
 pgTest('migration manifest retains immutable settlement history while reversible tail migrations roundtrip',async()=>{
   await migrateUp(adminPool);
   const before=(await adminPool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name')).rows.map(row=>row.migration_name);
-  await assert.rejects(migrateDown(adminPool,{all:true}),error=>error.code==='P0001'&&/migration 305 is retained as immutable historical evidence/.test(error.message));
+  // The reset preflight refuses before any down runs. Before it existed this
+  // same call committed twenty downs and then died on down/401 with a bare
+  // P0001, leaving the ledger at 407 - the schema half torn down. Now the
+  // ledger must be byte-identical afterwards and the refusal must name the
+  // barrier and the recovery path.
+  await assert.rejects(migrateDown(adminPool,{all:true}),error=>error.code==='MIGRATION_RESET_BLOCKED'
+    &&error.details.first_irreversible_migration==='401_native_settlement_bank_account_control.sql'
+    &&error.details.applied_count===before.length&&/backup/.test(error.details.recovery));
   const retained=(await adminPool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name')).rows.map(row=>row.migration_name);
-  const immutableBarrier=before.indexOf('401_native_settlement_bank_account_control.sql');
-  assert.ok(immutableBarrier>=0);
-  assert.deepEqual(retained,before.slice(0,immutableBarrier+1));
-  assert.equal(retained.at(-1),'401_native_settlement_bank_account_control.sql');
+  assert.deepEqual(retained,before,'a refused reset must leave the ledger untouched');
+  assert.ok(before.includes('401_native_settlement_bank_account_control.sql'));
+  // The barrier itself is still real: applying down/401 directly still raises P0001.
+  const barrier=await readFile(new URL('../db/migrations/down/401_native_settlement_bank_account_control.sql',import.meta.url),'utf8');
+  const client=await adminPool.connect();
+  try{await client.query('BEGIN');await assert.rejects(client.query(barrier.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'')),error=>error.code==='P0001'&&/migration 305 is retained as immutable historical evidence/.test(error.message));}
+  finally{try{await client.query('ROLLBACK');}finally{client.release();}}
   const protectedSchema=await adminPool.query("SELECT to_regclass('public.tenant') AS tenant_table,to_regprocedure('refs_post_journal(uuid,uuid,uuid,uuid,bigint,text,text,text)') AS post_fn");
   assert.equal(protectedSchema.rows[0].tenant_table,'tenant');
   assert.ok(protectedSchema.rows[0].post_fn);
@@ -1366,7 +1376,11 @@ pgTest('migration manifest retains immutable settlement history while reversible
   const restored=(await adminPool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name')).rows.map(row=>row.migration_name);
   assert.deepEqual(restored,before);
   const latest=restored.at(-1);
-  assert.equal(latest,'403_reconciliation_clearance_lock_fix.sql');
+  // The tail of the chain moves every time a migration lands, so pin it to the
+  // manifest rather than to a literal. Hardcoding 403 here made this test fail
+  // on every migration added after it - it was asserting the release date, not
+  // a property of the system.
+  assert.equal(latest,MIGRATION_MANIFEST.at(-1).name);
   await migrateDown(adminPool);
   assert.equal((await adminPool.query('SELECT migration_name FROM refs_schema_migration WHERE migration_name=$1',[latest])).rowCount,0);
   await migrateUp(adminPool);
@@ -2407,8 +2421,11 @@ pgTest('authenticated HTTP records only sandbox WBS snapshot observations in its
 });
 
 pgTest('concurrent up and down runners serialize on the same advisory lock',async()=>{
+  // A full reset is refused up front by the preflight once the chain has crossed
+  // 401; the point of this test is that the refusal still waits its turn on the
+  // advisory lock and leaves the concurrent up runner's ledger intact.
   const downToImmutableBoundary=async()=>{
-    await assert.rejects(migrateDown(adminPool,{all:true}),error=>error.code==='P0001'&&/migration 305 is retained as immutable historical evidence/.test(error.message));
+    await assert.rejects(migrateDown(adminPool,{all:true}),error=>error.code==='MIGRATION_RESET_BLOCKED'&&error.details.first_irreversible_migration==='401_native_settlement_bank_account_control.sql');
   };
   await Promise.all([downToImmutableBoundary(),migrateUp(adminPool)]);
   await migrateUp(adminPool);
@@ -2755,7 +2772,7 @@ pgTest('attachment entry authority supports exact formal maker roles and denies 
     await assert.rejects(stale.reserveAttachment({tenantId:ids.tenantId,entityId:ids.entityId,name:'revoked.pdf',mediaType:'application/pdf',sizeBytes:42,contentHash:hash(roleName),storageRef:`object://attachments/${randomUUID()}`,storageVersion:'pending:revoked-proof',idempotencyKey:`revoked-upload-${roleName}`}),e=>e.code==='42501');
   }
   await sync.reconcile({...scope,actorId:'upload-standalone',permissions:['ATTACHMENT.CREATE'],authorityClass:'ATTACHMENT_UPLOADER',idempotencyKey:'upload-standalone-grant'});
-  assert.equal((await new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:'upload-standalone'})}).issue({tenantId:ids.tenantId})).trusted,true);
+  assert.equal((await new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:'upload-standalone',tenantId:ids.tenantId})}).issue({tenantId:ids.tenantId})).trusted,true);
   const invalid=[['DRAFT',['ATTACHMENT.CREATE']],['REVIEW',['GL.JE.REVIEW','ATTACHMENT.CREATE']],['APPROVE',['GL.JE.APPROVE','ATTACHMENT.CREATE']],['POST',['GL.JE.POST','ATTACHMENT.CREATE']],['DRAFT',['AP.BILL.CREATE','ATTACHMENT.CREATE','ATTACHMENT.FINALIZE']],['DRAFT',['AP.BILL.CREATE','ATTACHMENT.CREATE','ATTACHMENT.CLEANUP']],['DRAFT',['AP.BILL.CREATE','ATTACHMENT.CREATE','GL.JE.APPROVE']]];
   const count=async()=> (await adminPool.query(`SELECT (SELECT count(*) FROM runtime_grant_sync_receipt)::int receipts,(SELECT count(*) FROM runtime_actor_grant)::int grants,(SELECT count(*) FROM audit_event)::int audits,(SELECT count(*) FROM outbox_event)::int outbox`)).rows[0];
   const counts=await count();
@@ -2794,13 +2811,13 @@ pgTest('finite human role sync enforces exact replacement, service-only deny, ex
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_actor_grant WHERE tenant_id=$1 AND entity_id=$2 AND actor_id IN ('service-post-bypass','service-mixed-bypass','missing-policy')",[ids.tenantId,ids.entityId])).rows[0].n,0);
   const directServiceBypass='direct-service-post-bypass';
   await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission,authority_class) VALUES($1,$2,$3,'GL.JE.POST','SERVICE')",[ids.tenantId,directServiceBypass,ids.entityId]);
-  await assert.rejects(new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:directServiceBypass})}).issue({tenantId:ids.tenantId}),error=>error.code==='42501');
+  await assert.rejects(new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:directServiceBypass,tenantId:ids.tenantId})}).issue({tenantId:ids.tenantId}),error=>error.code==='42501');
   const mislabeledFinite='finite-mislabeled-post';
   await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission,authority_class,valid_until) VALUES($1,$2,$3,'GL.JE.POST','DRAFT',clock_timestamp()+interval '1 hour')",[ids.tenantId,mislabeledFinite,ids.entityId]);
-  await assert.rejects(new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:mislabeledFinite})}).issue({tenantId:ids.tenantId}),error=>error.code==='42501');
+  await assert.rejects(new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:mislabeledFinite,tenantId:ids.tenantId})}).issue({tenantId:ids.tenantId}),error=>error.code==='42501');
   const legacyServiceOnly='legacy-service-only-bypass';
   await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,'WBS.SNAPSHOT.IMPORT')",[ids.tenantId,legacyServiceOnly,ids.entityId]);
-  await assert.rejects(new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:legacyServiceOnly})}).issue({tenantId:ids.tenantId}),error=>error.code==='42501');
+  await assert.rejects(new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:legacyServiceOnly,tenantId:ids.tenantId})}).issue({tenantId:ids.tenantId}),error=>error.code==='42501');
   await assert.rejects(sync.reconcile({tenantId:ids.tenantId,actorId:'auth0|expired',entityId:ids.entityId,permissions:['AP.VIEW'],authorityClass:'ANALYSIS',validUntil:new Date(Date.now()+60*1000).toISOString(),expectedVersion:0,idempotencyKey:'finite-human-expiry-0001'}),error=>error.code==='22023');
   const reviewUntil=new Date(Date.now()+2*60*60*1000).toISOString();
   const review=await sync.reconcile({tenantId:ids.tenantId,actorId:actor,entityId:ids.entityId,permissions:['AP.VIEW','GL.JE.REVIEW'],authorityClass:'REVIEW',validUntil:reviewUntil,expectedVersion:1,idempotencyKey:'finite-human-review-0001'});
@@ -2827,25 +2844,25 @@ pgTest('finite human role sync enforces exact replacement, service-only deny, ex
   await adminPool.query("DELETE FROM runtime_human_permission_authority WHERE permission_code='GL.JE.EDIT'");
   try{
     await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission,authority_class,valid_until) VALUES($1,$2,$3,'GL.JE.EDIT','DRAFT',now()+interval '1 hour')",[ids.tenantId,unmappedActor,ids.entityId]);
-    await assert.rejects(new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:unmappedActor})}).issue({tenantId:ids.tenantId}),error=>error.code==='42501');
+    await assert.rejects(new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:unmappedActor,tenantId:ids.tenantId})}).issue({tenantId:ids.tenantId}),error=>error.code==='42501');
   }finally{
     await adminPool.query("INSERT INTO runtime_human_permission_authority(permission_code,authority_class) VALUES('GL.JE.EDIT','JE_MAKER') ON CONFLICT(permission_code) DO NOTHING");
   }
   for(const [index,permission] of ['GL.JE.SUBMIT','GL.JE.REVIEW','GL.JE.APPROVE','GL.JE.POST'].entries()){
     const legacyActor=`legacy-single-write-${index}`;
     await adminPool.query('INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,$4)',[ids.tenantId,legacyActor,ids.entityId,permission]);
-    await assert.rejects(new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:legacyActor})}).issue({tenantId:ids.tenantId}),error=>error.code==='42501');
+    await assert.rejects(new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:legacyActor,tenantId:ids.tenantId})}).issue({tenantId:ids.tenantId}),error=>error.code==='42501');
   }
   const legacyAiWriter='legacy-ai-explain-writer';
   await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,'AI.ANALYSIS.EXPLAIN')",[ids.tenantId,legacyAiWriter,ids.entityId]);
-  await assert.rejects(new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:legacyAiWriter})}).issue({tenantId:ids.tenantId}),error=>error.code==='42501');
+  await assert.rejects(new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:legacyAiWriter,tenantId:ids.tenantId})}).issue({tenantId:ids.tenantId}),error=>error.code==='42501');
   const legacyReadActor='legacy-read-only';
   await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,'AP.VIEW')",[ids.tenantId,legacyReadActor,ids.entityId]);
-  assert.equal((await new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:legacyReadActor})}).issue({tenantId:ids.tenantId})).trusted,true);
+  assert.equal((await new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:legacyReadActor,tenantId:ids.tenantId})}).issue({tenantId:ids.tenantId})).trusted,true);
   const providerUntil=new Date(Date.now()+3*60*60*1000).toISOString();
   const provider=await sync.reconcile({tenantId:ids.tenantId,actorId:'oidc|wbs-provider-admission-service',entityId:ids.entityId,permissions:['WBS.SNAPSHOT.IMPORT'],authorityClass:'SERVICE',validUntil:providerUntil,expectedVersion:0,idempotencyKey:'finite-provider-import-0001'});
   assert.equal(provider.authority_class,'SERVICE');assert.equal(provider.valid_until,providerUntil);
-  assert.equal((await new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:'oidc|wbs-provider-admission-service'})}).issue({tenantId:ids.tenantId})).trusted,true);
+  assert.equal((await new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:'oidc|wbs-provider-admission-service',tenantId:ids.tenantId})}).issue({tenantId:ids.tenantId})).trusted,true);
   const internalService=await sync.reconcile({tenantId:ids.tenantId,actorId:'platform-internal-service',entityId:ids.entityId,permissions:['WBS.SNAPSHOT.IMPORT'],authorityClass:'SERVICE',validUntil:null,expectedVersion:0,idempotencyKey:'service-exception-null-0001'});
   assert.equal(internalService.authority_class,'SERVICE');assert.equal(internalService.valid_until,null);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE grant_policy_version='SOD_FINITE_V2' AND tenant_id=$1 AND entity_id=$2",[ids.tenantId,ids.entityId])).rows[0].n,14);
@@ -3015,7 +3032,11 @@ pgTest('database posting rejects unsupported MANUAL and AUTO evidence with zero 
   assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM ledger_line')).rows[0].n,0);
   assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM audit_event WHERE event_type='JOURNAL_POSTED'")).rows[0].n,0);
   assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM outbox_event WHERE event_type='JOURNAL_POSTED'")).rows[0].n,0);
-  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM idempotency_receipt')).rows[0].n,0);
+  // seed() itself runs two idempotent control commands per fixture (fixture-control-create /
+  // fixture-control-approve), so the table is not empty here by construction. The invariant
+  // under test is that a REJECTED posting leaves no receipt of its own - refs_post_journal
+  // reserves the receipt inside the same transaction the RAISE rolls back.
+  assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM idempotency_receipt WHERE operation_scope LIKE 'POST_JOURNAL:%'")).rows[0].n,0);
 });
 
 pgTest('pending and rejected attachments cannot enter the JE trace graph',async()=>{
@@ -4087,24 +4108,31 @@ pgTest('authenticated HTTP posts an AR credit memo, applies it and refunds only 
   const applyPath=`${root}/ar/credit-memos/${memo.business_adjustment_id}/allocations`;
   assert.equal((await send(applierId,applyPath,applyBody,'http-memo-apply')).status,201);
   assert.equal((await send(applierId,applyPath,applyBody,'http-memo-apply')).status,200);
-  const refundResponse=await send(refundMakerId,`${root}/ar/refunds`,{periodId:ids.periodId,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'RF-HTTP-60',refundDate:'2026-07-17',cashAccountCode:'220000',amount:60,reason:'Refund remaining posted customer credit'},'http-refund-create');
+  // The legacy /ar/refunds route is retired (410 ROUTE_RETIRED); the evidence-bound
+  // native-refund route needs a scanned attachment, a BANK-controlled cash account and
+  // a bank member, and takes number/date rather than refundNumber/refundDate.
+  const refundResponse=await send(refundMakerId,`${root}/ar/credit-memos/${memo.business_adjustment_id}/native-refunds`,{periodId:ids.periodId,number:'RF-HTTP-60',date:'2026-07-17',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:'60.0000',reason:'Refund remaining posted customer credit',attachmentIds:[ids.attachmentId]},'http-refund-create');
   assert.equal(refundResponse.status,201);const refund=refundResponse.body.data;
   await attachAutoSource({...ids,journalId:refund.journal_entry_id},{reuseApprovedSnapshots:true});
   await advance(refund.journal_entry_id,'refund');
   assert.deepEqual((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[invoiceId])).rows[0],{open_balance:'60.0000',status:'PARTIALLY_PAID'});
   assert.equal((await adminPool.query('SELECT status FROM business_adjustment WHERE business_adjustment_id=$1',[refund.business_adjustment_id])).rows[0].status,'POSTED');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[refund.journal_entry_id])).rows[0].n,2);
-  const over=await send(refundMakerId,`${root}/ar/refunds`,{periodId:ids.periodId,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'RF-HTTP-01',refundDate:'2026-07-18',cashAccountCode:'220000',amount:1,reason:'Over refund must fail atomically'},'http-refund-over');
+  const over=await send(refundMakerId,`${root}/ar/credit-memos/${memo.business_adjustment_id}/native-refunds`,{periodId:ids.periodId,number:'RF-HTTP-01',date:'2026-07-18',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:'1.0000',reason:'Over refund must fail atomically',attachmentIds:[ids.attachmentId]},'http-refund-over');
   assert.equal(over.status,422);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE tenant_id=$1 AND entity_id=$2 AND adjustment_kind='AR_REFUND'",[ids.tenantId,ids.entityId])).rows[0].n,1);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_number='RF-HTTP-01'",[ids.tenantId,ids.entityId])).rows[0].n,0);
-  assert.equal((await adminPool.query("SELECT count(*)::int n FROM idempotency_receipt WHERE tenant_id=$1 AND operation_scope='AR_REFUND:'||$2::text AND idempotency_key='http-refund-over'",[ids.tenantId,ids.entityId])).rows[0].n,0);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM idempotency_receipt WHERE tenant_id=$1 AND operation_scope='NATIVE_AR_REFUND:'||$2::text AND idempotency_key='http-refund-over'",[ids.tenantId,ids.entityId])).rows[0].n,0);
 });
 
 pgTest('authenticated HTTP posts an AP payment and a cross-period Draft reversal without mutating the original ledger',async()=>{
-  const ids=await seed({status:'APPROVED'}),billId=randomUUID(),reversalPeriodId=randomUUID();
-  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
-    VALUES($1,$2,$3,'AP_BILL','BILL-HTTP-PAYMENT','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'APPROVED','fixture')`,[billId,ids.tenantId,ids.entityId]);
+  // The native-payment route settles only a source document whose posted_journal_entry_id
+  // is a POSTED journal (401: "open posted source document"). The retired legacy route
+  // accepted a bare APPROVED bill; the fixture now posts the bill's own journal first.
+  const ids=await seed({status:'APPROVED',journalType:'AUTO'}),billId=randomUUID(),reversalPeriodId=randomUUID(),source=await attachAutoSource(ids);
+  await new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'http-bill-source-poster',['GL.JE.POST'])}).postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'http-bill-source-post'});
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by)
+    VALUES($1,$2,$3,$4,'AP_BILL','BILL-HTTP-PAYMENT','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'APPROVED',$5,'fixture')`,[billId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
   await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[reversalPeriodId,ids.tenantId,ids.entityId]);
   const makerId=randomUUID(),submitterId=randomUUID(),reviewerId=randomUUID(),approverId=randomUUID(),posterId=randomUUID(),reversalMakerId=randomUUID();
   const permissions={
@@ -4118,11 +4146,36 @@ pgTest('authenticated HTTP posts an AP payment and a cross-period Draft reversal
     assert.equal((await send(submitter,`${path}/transitions/submit`,{},`${prefix}-submit`,0)).status,201);
     assert.equal((await send(reviewerId,`${path}/transitions/review`,{},`${prefix}-review`,1)).status,201);
     assert.equal((await send(approverId,`${path}/transitions/approve`,{},`${prefix}-approve`,2)).status,201);
-    assert.equal((await send(posterId,`${path}/post`,{periodId},`${prefix}-post`,3)).status,201);
+    {const r=await send(posterId,`${path}/post`,{periodId},`${prefix}-post`,3);assert.equal(r.status,201,JSON.stringify(r.body));}
   };
-  const paymentResponse=await send(makerId,`${root}/ap/bills/${billId}/payments`,{periodId:ids.periodId,paymentNumber:'PAY-HTTP-40',paymentDate:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:40,reason:'HTTP partial AP payment'},'http-payment-create');
-  assert.equal(paymentResponse.status,201);const payment=paymentResponse.body.data;
-  await attachAutoSource({...ids,journalId:payment.journal_entry_id});
+  // Legacy /ap/bills/:id/payments is retired (410 ROUTE_RETIRED); the native-payment route
+  // is evidence-bound and takes number/date.
+  const paymentResponse=await send(makerId,`${root}/ap/bills/${billId}/native-payments`,{periodId:ids.periodId,number:'PAY-HTTP-40',date:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:'40.0000',reason:'HTTP partial AP payment',attachmentIds:[ids.attachmentId]},'http-payment-create');
+  assert.equal(paymentResponse.status,201,JSON.stringify(paymentResponse.body));const payment=paymentResponse.body.data;
+  const nativeBody={periodId:ids.periodId,number:'PAY-HTTP-40',date:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:'40.0000',reason:'HTTP partial AP payment',attachmentIds:[ids.attachmentId]};
+  const occurrences=async()=>(await adminPool.query("SELECT count(*)::int n FROM payment_occurrence WHERE tenant_id=$1 AND entity_id=$2 AND occurrence_kind='AP_PAYMENT'",[ids.tenantId,ids.entityId])).rows[0].n;
+  // Authorization: the submitter holds GL.JE.SUBMIT only; AP.PAYMENT.CREATE is enforced in the
+  // database (refs_assert_scope -> 42501 -> 403) and a denial writes nothing.
+  assert.equal((await send(submitterId,`${root}/ap/bills/${billId}/native-payments`,{...nativeBody,number:'PAY-HTTP-DENIED'},'http-payment-denied')).status,403);
+  assert.equal(await occurrences(),1);
+  // Period: a settlement dated outside the target period, or into a period this entity does not
+  // own, is rejected by the command before any row is written (55000 -> 423, P0002 -> 404).
+  const strayPeriod=await send(makerId,`${root}/ap/bills/${billId}/native-payments`,{...nativeBody,number:'PAY-HTTP-STRAY',periodId:randomUUID()},'http-payment-stray-period');
+  assert.equal(strayPeriod.status,423,JSON.stringify(strayPeriod.body));assert.equal(strayPeriod.body.code,'55000');
+  assert.equal(await occurrences(),1);
+  // Idempotency: replaying the exact same command and key returns the same occurrence as an
+  // idempotent 200 and creates no second payment; the same key with a different body is 409.
+  const replay=await send(makerId,`${root}/ap/bills/${billId}/native-payments`,nativeBody,'http-payment-create');
+  assert.equal(replay.status,200,JSON.stringify(replay.body));assert.equal(replay.body.data.idempotent,true);assert.equal(replay.body.data.payment_occurrence_id,payment.payment_occurrence_id);
+  assert.equal((await send(makerId,`${root}/ap/bills/${billId}/native-payments`,{...nativeBody,amount:'41.0000'},'http-payment-create')).status,409);
+  assert.equal(await occurrences(),1);
+  // Audit: the Draft creation is recorded once against the occurrence with the acting maker and
+  // the permission that authorised it.
+  assert.deepEqual((await adminPool.query("SELECT actor_id,permission_used,action FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='AP_PAYMENT_DRAFT_CREATED' AND object_id=$3",[ids.tenantId,ids.entityId,payment.payment_occurrence_id])).rows,[{actor_id:makerId,permission_used:'AP.PAYMENT.CREATE',action:'CREATE_NATIVE_AP_PAYMENT'}]);
+  // A native settlement journal is MANUAL with the scanned attachment as its evidence link. It
+  // must NOT also be given a business source link: refs_post_journal only admits a generic
+  // reversal of a Posted original that carries no business link, so attaching an auto source
+  // here (as the retired legacy flow did) would make the later reversal unpostable.
   await advance(payment.journal_entry_id,'payment',ids.periodId,submitterId);
   assert.equal((await adminPool.query('SELECT open_balance FROM business_document WHERE business_document_id=$1',[billId])).rows[0].open_balance,'60.0000');
   const reversalResponse=await send(reversalMakerId,`${root}/ap/payments/${payment.payment_occurrence_id}/reversals`,{periodId:reversalPeriodId,journalNumber:'PAY-HTTP-40-REV',journalDate:'2026-08-02',reason:'Reverse duplicate AP payment'},'http-payment-reversal');
@@ -4136,10 +4189,12 @@ pgTest('authenticated HTTP posts an AP payment and a cross-period Draft reversal
 });
 
 pgTest('authenticated HTTP posts an AR receipt and a cross-period Draft reversal without mutating the original ledger',async()=>{
-  const ids=await seed({status:'APPROVED'}),invoiceId=randomUUID(),reversalPeriodId=randomUUID();
+  // Same posted-source requirement as the native-payment route (401).
+  const ids=await seed({status:'APPROVED',journalType:'AUTO'}),invoiceId=randomUUID(),reversalPeriodId=randomUUID(),source=await attachAutoSource(ids);
+  await new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'http-invoice-source-poster',['GL.JE.POST'])}).postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'http-invoice-source-post'});
   await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'CUSTOMER-1','CUSTOMER','Customer')",[ids.tenantId,ids.entityId]);
-  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
-    VALUES($1,$2,$3,'AR_INVOICE','INV-HTTP-RECEIPT','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN','fixture')`,[invoiceId,ids.tenantId,ids.entityId]);
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by)
+    VALUES($1,$2,$3,$4,'AR_INVOICE','INV-HTTP-RECEIPT','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[invoiceId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
   await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[reversalPeriodId,ids.tenantId,ids.entityId]);
   const makerId=randomUUID(),submitterId=randomUUID(),reviewerId=randomUUID(),approverId=randomUUID(),posterId=randomUUID(),reversalMakerId=randomUUID();
   const permissions={
@@ -4153,11 +4208,16 @@ pgTest('authenticated HTTP posts an AR receipt and a cross-period Draft reversal
     assert.equal((await send(submitter,`${path}/transitions/submit`,{},`${prefix}-submit`,0)).status,201);
     assert.equal((await send(reviewerId,`${path}/transitions/review`,{},`${prefix}-review`,1)).status,201);
     assert.equal((await send(approverId,`${path}/transitions/approve`,{},`${prefix}-approve`,2)).status,201);
-    assert.equal((await send(posterId,`${path}/post`,{periodId},`${prefix}-post`,3)).status,201);
+    {const r=await send(posterId,`${path}/post`,{periodId},`${prefix}-post`,3);assert.equal(r.status,201,JSON.stringify(r.body));}
   };
-  const receiptResponse=await send(makerId,`${root}/ar/invoices/${invoiceId}/receipts`,{periodId:ids.periodId,receiptNumber:'REC-HTTP-40',receiptDate:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:40,reason:'HTTP partial customer receipt'},'http-receipt-create');
-  assert.equal(receiptResponse.status,201);const receipt=receiptResponse.body.data;
-  await attachAutoSource({...ids,journalId:receipt.journal_entry_id});
+  // Legacy /ar/invoices/:id/receipts is retired (410 ROUTE_RETIRED); the native-receipt route
+  // is evidence-bound and takes number/date.
+  const receiptResponse=await send(makerId,`${root}/ar/invoices/${invoiceId}/native-receipts`,{periodId:ids.periodId,number:'REC-HTTP-40',date:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:'40.0000',reason:'HTTP partial customer receipt',attachmentIds:[ids.attachmentId]},'http-receipt-create');
+  assert.equal(receiptResponse.status,201,JSON.stringify(receiptResponse.body));const receipt=receiptResponse.body.data;
+  // A native settlement journal is MANUAL with the scanned attachment as its evidence link. It
+  // must NOT also be given a business source link: refs_post_journal only admits a generic
+  // reversal of a Posted original that carries no business link, so attaching an auto source
+  // here (as the retired legacy flow did) would make the later reversal unpostable.
   await advance(receipt.journal_entry_id,'receipt',ids.periodId,submitterId);
   assert.equal((await adminPool.query('SELECT open_balance FROM business_document WHERE business_document_id=$1',[invoiceId])).rows[0].open_balance,'60.0000');
   const reversalResponse=await send(reversalMakerId,`${root}/ar/receipts/${receipt.payment_occurrence_id}/reversals`,{periodId:reversalPeriodId,journalNumber:'REC-HTTP-40-REV',journalDate:'2026-08-02',reason:'Reverse duplicate AR receipt'},'http-receipt-reversal');
