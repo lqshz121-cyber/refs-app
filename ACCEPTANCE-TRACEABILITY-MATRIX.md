@@ -15,7 +15,7 @@ Rules of this file: a row is **DONE** only when code, an executable test, the ex
 | A3 | down/371 symmetric with up/371 | `server/db/migrations/down/371_*.sql` | `migration-down-symmetry.test.mjs` | `6a757d79` | up→down→up cycle exit 0 | n/a | EVIDENCED | ☐ |
 | A4 | Migration 422 only disambiguates PL/pgSQL names in 374 (no semantic change) | `server/db/migrations/422_accounting_settings_workflow_alias_fix.sql` | `server/tests/accounting-settings-workflow-postgres.test.mjs` (T04) | `6a757d79` | tenant/approval/closed-period/SQLSTATE read-backs in T01 receipt | not run | EVIDENCED | ☐ |
 | A5 | Older build cannot start in front of newer schema (rollback is forward-only, enforced) | `migrations.mjs` `MIGRATION_LEDGER_AHEAD` | `server/tests/migration-ledger-ahead-preflight.test.mjs`; `server/PRODUCTION-RECOVERY-RUNBOOK.md`; `RELEASE-GATES.md` §1a | `76cc6c9d` | PG16: foreign ledger row → `db:up` exit 1, 0 statements, ledger 429 unchanged | not run | EVIDENCED | ☐ |
-| A6 | Pages deploy only after same-SHA kernel gate on main | `.github/workflows/deploy.yml` | `verify-release-deploy-gate.mjs` | ff163552 | exit 0 | GitHub Actions history — **Owner** | PARTIAL (G3 `workflow_dispatch` bypass) | ☐ |
+| A6 | Pages deploy only after same-SHA kernel gate on main | `.github/workflows/deploy.yml` | `verify-release-deploy-gate.mjs` (now also pins main-only dispatch) | S14 `035d34b2` | exit 0; unconditional dispatch removed | GitHub Actions history — **Owner** | EVIDENCED | ☐ |
 | A7 | Render services manual-deploy only, secrets `sync:false`, `preDeployCommand: db:up`, `/health/ready` gate | `render.yaml`, `render.integrations.yaml` | N35 receipt §1; T13 `RELEASE-GATES.md` | ff163552 | file audit | Render dashboard — **Owner** | EVIDENCED | ☐ |
 | A8 | Branch protection on `main`, `github-pages` environment approval | GitHub settings (not in repo) | — | — | impossible offline | **Owner**: `gh api repos/:o/:r/branches/main/protection` | BLOCKED | ☐ |
 | A9 | Production Blueprint exists | — (`render.yaml` defines staging / internal-test only) | N35 G7 | — | — | — | GAP — Owner decision | ☐ |
@@ -89,5 +89,5 @@ Rules of this file: a row is **DONE** only when code, an executable test, the ex
 4. A8 — confirm `main` branch protection and Pages environment approval (screenshot or `gh api` output).
 5. A9 — who defines the production Render Blueprint; until then no "production rollback" claim is valid.
 6. A11/E6 — introduce build provenance attestation and CodeQL (both free)?
-7. A6 — remove `workflow_dispatch` from `deploy.yml` or restrict it to main?
+7. ~~A6~~ — done in S14: dispatch restricted to `main`.
 8. D2/D3 — provide (via Codex) a WBS MCP tool schema or one sanitized sample response so fakes and the N31 workbook match the real contract; no secrets needed.
