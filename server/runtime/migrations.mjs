@@ -111,24 +111,34 @@ async function assertMigrationConnection(client,{destructive=false}={}){
 
 const pinnedClientPool=client=>({connect:async()=>({query:(...args)=>client.query(...args),release:()=>{}})});
 
-export async function migrateUp(pool,observation={}){
+export async function migrateUp(pool,{until=null,...observation}={}){
   const client=await pool.connect();
   let locked=false;
   try{
     locked=await acquireMigrationLock(client);
-    await assertMigrationConnection(client);
+    const identity=await assertMigrationConnection(client);
     await ensureMetadata(client);
-    const files=await filesAt(migrationRoot);
-    assertManifest(files);
+    const allFiles=await filesAt(migrationRoot);
+    assertManifest(allFiles);
+    // `until` builds a historical schema head on a *test* database so a test can
+    // exercise one migration's down/up without walking the live chain back
+    // through irreversible barriers (S18). It is never a deployment option: the
+    // ledger-ahead check below still runs against the full file list, and the
+    // database name must end in _test.
+    if(until!==null){
+      if(!String(identity.database_name||'').endsWith('_test'))throw new KernelError('MIGRATION_UNTIL_FORBIDDEN','migrateUp({until}) is only allowed on a _test database',{database:identity.database_name});
+      if(!allFiles.includes(until))throw new KernelError('MIGRATION_UNTIL_UNKNOWN',`until target is not a manifest migration: ${until}`,{until});
+    }
+    const files=until===null?allFiles:allFiles.filter(name=>name<=until);
     // A release that is older than the database must not start. Render's
     // "rollback to previous deploy" re-runs this command with the previous
     // code; without this check every known file is 'skipped' and the ledger
     // rows written by the newer release are silently ignored, so old code
     // serves a newer schema. Refuse up front and name the recovery path.
-    const known=new Set(files);
+    const known=new Set(allFiles);
     const ahead=(await client.query('SELECT migration_name,checksum FROM refs_schema_migration ORDER BY migration_name')).rows.filter(row=>!known.has(row.migration_name));
     if(ahead.length){
-      const details={schema_head:ahead[ahead.length-1].migration_name,release_head:files[files.length-1],unknown_migrations:ahead.map(row=>row.migration_name),
+      const details={schema_head:ahead[ahead.length-1].migration_name,release_head:allFiles[allFiles.length-1],unknown_migrations:ahead.map(row=>row.migration_name),
         recovery:'The database has been migrated by a newer release than this build. Application rollback is forward-only: redeploy a build that contains these migrations, or restore the approved pre-migration backup (including refs_schema_migration) before starting older code.'};
       emitMigrationEvent(observation.onEvent,{event:'migration_ledger_ahead',...details});
       throw new KernelError('MIGRATION_LEDGER_AHEAD',`Database holds ${ahead.length} migration(s) unknown to this release`,details);

@@ -139,6 +139,7 @@
     "test:postgres:journal-lifecycle": "node --test tests/journal-lifecycle-contract-postgres.test.mjs",
     "test:postgres:concurrency": "node --test tests/concurrency-optimistic-lock-postgres.test.mjs",
     "test:postgres:wbs-evidence": "node --test tests/wbs-evidence-immutability-postgres.test.mjs",
+    "test:postgres:historical-head": "node --test tests/migration-historical-head-postgres.test.mjs",
     "test:postgres:ap-bill-void": "node --test tests/ap-bill-void-reachability-postgres.test.mjs"
   },
   "dependencies": {

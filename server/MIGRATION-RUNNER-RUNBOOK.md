@@ -89,3 +89,7 @@ from `server` exercises deadline isolation, validation before connections,
 fixed-order/checksum checks, transaction commit/rollback and redacted logs with
 fake pools (no database writes). Full PostgreSQL fresh/upgrade gates remain the
 proof for actual SQL execution and schema compatibility.
+
+## Test-only: historical heads
+
+`migrateUp(pool,{until})` exists for tests only (database name must end in `_test`); see `MIGRATION-BARRIER-TEST-DESIGN.md`. It is not reachable from `npm run db:up`.
