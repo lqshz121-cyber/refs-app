@@ -1,5 +1,6 @@
-import React from 'react';
+import React,{useEffect,useState} from 'react';
 import {StateBlock} from './ui.jsx';
+import {refreshEntityEvidenceSummary} from './accounting-api.js';
 
 // These failures mean the browser cannot establish a trustworthy authoritative
 // read for the current scope. Transport and service failures intentionally
@@ -68,4 +69,15 @@ export function AuthoritativeScopeEmpty({subject='records',requiresPosted=false,
     <p>The authenticated API returned 0 {subject} for the current entity and period scope.</p>
     <p>{prerequisite}</p>
   </StateBlock>;
+}
+
+// O04: shared hook — only while a POSTED-only read returned nothing, ask the API whether anything was ever imported
+// for this entity/period so the empty state can say NO_EVIDENCE_IMPORTED / EVIDENCE_WITHOUT_POSTINGS instead of
+// an ambiguous blank. Any failure (403 without GL.REPORT.VIEW, 404 on an older API) yields null → generic copy.
+export function useEntityEvidenceWhenEmpty({config,fetcher,empty}){
+  const [evidence,setEvidence]=useState(null);
+  useEffect(()=>{let current=true;if(!empty){setEvidence(null);return ()=>{current=false;};}
+    Promise.resolve().then(()=>refreshEntityEvidenceSummary({config,fetcher})).then(result=>{if(current)setEvidence(result?.ok?result.row:null);}).catch(()=>{if(current)setEvidence(null);});
+    return ()=>{current=false;};},[empty,config,fetcher]);
+  return evidence;
 }
