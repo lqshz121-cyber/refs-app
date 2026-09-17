@@ -29679,10 +29679,275 @@
         }
       }
     },
-    "/entities/{entityId}/wbs/auto-reconciliation/executions": {"post":{"operationId":"executeWbsAutoRecExecution","summary":"Reserve or release an AutoRec candidate","parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
-    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/reverse-request": {"post":{"operationId":"requestWbsAutoRecReverse","summary":"Request G11 reversal","parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
-    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/reverse-drafts/{eventType}": {"post":{"operationId":"createWbsAutoRecReverseDraft","summary":"Create AutoRec reversal Draft","parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
-    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/reverse-complete": {"post":{"operationId":"completeWbsAutoRecReverse","summary":"Complete G11 reversal","parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}}
+    "/entities/{entityId}/wbs/auto-reconciliation/executions": {
+      "post": {
+        "operationId": "executeWbsAutoRecExecution",
+        "summary": "Reserve or release an AutoRec candidate",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CommandReplay"
+          },
+          "201": {
+            "$ref": "#/components/responses/CommandCreated"
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/reverse-request": {
+      "post": {
+        "operationId": "requestWbsAutoRecReverse",
+        "summary": "Request G11 reversal",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CommandReplay"
+          },
+          "201": {
+            "$ref": "#/components/responses/CommandCreated"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/reverse-drafts/{eventType}": {
+      "post": {
+        "operationId": "createWbsAutoRecReverseDraft",
+        "summary": "Create AutoRec reversal Draft",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CommandReplay"
+          },
+          "201": {
+            "$ref": "#/components/responses/CommandCreated"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/reverse-complete": {
+      "post": {
+        "operationId": "completeWbsAutoRecReverse",
+        "summary": "Complete G11 reversal",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CommandReplay"
+          },
+          "201": {
+            "$ref": "#/components/responses/CommandCreated"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/access/self-service-wbs-read-grant/upgrade": {
+      "post": {
+        "operationId": "upgradeStage1WbsReadAccess",
+        "deprecated": true,
+        "summary": "Retired: use finite workflow role grants",
+        "description": "Retired self-upgrade boundary (410 ROUTE_RETIRED). Kept in the contract so clients and reviewers can see the retirement; the server returns 410 with zero kernel calls.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "410": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/ap/bills/{businessDocumentId}/payments": {
+      "post": {
+        "operationId": "createLegacyApPayment",
+        "deprecated": true,
+        "summary": "Retired: use native-payments",
+        "description": "Legacy AP payment creation is retired (410 ROUTE_RETIRED). Use POST /entities/{entityId}/ap/bills/{businessDocumentId}/native-payments, which requires verified attachment evidence, an approved bank account control pair and a POSTED source document.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "businessDocumentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "410": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/ar/invoices/{businessDocumentId}/receipts": {
+      "post": {
+        "operationId": "createLegacyArReceipt",
+        "deprecated": true,
+        "summary": "Retired: use native-receipts",
+        "description": "Legacy AR receipt creation is retired (410 ROUTE_RETIRED). Use POST /entities/{entityId}/ar/invoices/{businessDocumentId}/native-receipts.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "businessDocumentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "410": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/ar/refunds": {
+      "post": {
+        "operationId": "createLegacyArRefund",
+        "deprecated": true,
+        "summary": "Retired: use credit-memo native-refunds",
+        "description": "Legacy AR refund creation is retired (410 ROUTE_RETIRED). Use POST /entities/{entityId}/ar/credit-memos/{businessDocumentId}/native-refunds.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "410": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    }
   },
   "components": {
     "securitySchemes": {
