@@ -82,6 +82,7 @@ import {projectAuthoritativeApprovalControls} from '../runtime/authoritative-app
 import {projectAuthoritativeMaterialityPolicy} from '../runtime/authoritative-materiality-policy.mjs';
 import {assertWbsH1PayableAccountingProposal,assertWbsH1PayableReclassDraftReceipt} from '../runtime/wbs-h1-payable-accounting-proposal.mjs';
 import {assertWbsH1AccountingControlPopulation,assertWbsH1AccountingControlPopulationList} from '../runtime/wbs-h1-accounting-control-read.mjs';
+import {InternalTestIdentityRouteError} from '../runtime/internal-test-identity-router.mjs';
 import {assertWbsH1AccountingControlReconciliation,assertWbsH1AccountingControlReconciliationList,assertWbsH1AccountingControlReconciliationReceipt} from '../runtime/wbs-h1-accounting-control-reconciliation.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -308,6 +309,8 @@ const aiConstructionLoanEntryProposalDto=value=>({ai_construction_loan_entry_pro
 const isRevisionPrecondition=error=>error?.code==='40001'&&/(revision conflict|Accounting settings status conflict|Accounting settings source evidence changed|version conflict|period changed during transition|staging source changed during journal creation|lease is absent, stale, or owned|AI finding resolution requires an open exact action, finding hash, reason, and revision|^Unit Transfer |^Unit ownership |^Cash Transfer )/i.test(String(error.message||''));
 const AI_POPULATION_INCOMPLETE_CODES=Object.freeze(['AI_MANUAL_JOURNAL_POPULATION_INCOMPLETE','AI_BANK_DUPLICATE_PAYMENT_POPULATION_INCOMPLETE','AI_AP_AGING_FINDING_POPULATION_INCOMPLETE','AI_BALANCE_SHEET_AGING_FINDING_POPULATION_INCOMPLETE','AI_BANK_GL_RECONCILIATION_FINDING_POPULATION_INCOMPLETE','AI_VENDOR_ANOMALY_POPULATION_INCOMPLETE','AI_VENDOR_FREQUENCY_POPULATION_INCOMPLETE','AI_VENDOR_AMOUNT_DROP_POPULATION_INCOMPLETE','AI_VENDOR_NEAR_DUPLICATE_POPULATION_INCOMPLETE','AI_NEW_VENDOR_MATERIAL_POPULATION_INCOMPLETE','AI_INVOICE_CLASSIFICATION_POPULATION_INCOMPLETE','AI_ADMITTED_SOURCE_UNBOOKED_POPULATION_INCOMPLETE','AI_ACCOUNTING_DECISION_POPULATION_INCOMPLETE','AI_ACCOUNTING_DECISION_POPULATION_DRIFT','AI_ACCOUNTING_DECISION_POPULATION_DUPLICATE','AI_ACCRUAL_HISTORY_POPULATION_INCOMPLETE']);
 function statusFor(error){
+  // Internal-test identity routing: a command the controlled workflow does not admit is a policy denial (403), a broken actor map is a deployment fault (503); neither is an internal error.
+  if(error instanceof InternalTestIdentityRouteError)return error.code==='INTERNAL_TEST_COMMAND_NOT_ADMITTED'?403:503;
   if(error instanceof ControlledTestAiWorkflowError)return error.code==='CONTROLLED_TEST_AI_SCOPE_DENIED'?403:/CONFIG_INVALID|UNAVAILABLE/.test(error.code)?503:/RESULT_INVALID|WORKFLOW_INVALID/.test(error.code)?500:422;
   if(error instanceof ControlledTestBankWorkflowError)return error.code==='CONTROLLED_TEST_BANK_SCOPE_DENIED'?403:/CONFIG_INVALID|UNAVAILABLE/.test(error.code)?503:/RESULT_INVALID|SNAPSHOT_INVALID|ITEM_INVALID|ADJUSTMENT_INVALID/.test(error.code)?500:422;
   if(error instanceof ControlledTestBankMatchError)return /CONFIG_INVALID|FIXTURE_UNAVAILABLE/.test(error.code)?503:/RESULT_INVALID|PAYMENT_INVALID|WORKFLOW_INVALID|CANDIDATE_INVALID/.test(error.code)?500:422;

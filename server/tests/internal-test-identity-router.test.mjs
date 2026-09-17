@@ -26,3 +26,13 @@ test('internal full-test router rejects unadmitted writes and invalid actor conf
   assert.throws(()=>route('POST',`/api/v1/entities/${entity}/wbs/test-import/bank-transactions`),error=>error instanceof InternalTestIdentityRouteError&&error.code==='INTERNAL_TEST_COMMAND_NOT_ADMITTED');
   assert.throws(()=>internalTestWorkflowActors({...env,REFS_INTERNAL_TEST_POSTER_ACTOR_ID:env.REFS_INTERNAL_TEST_APPROVER_ACTOR_ID}),error=>error instanceof InternalTestIdentityRouteError&&error.code==='INTERNAL_TEST_ACTOR_CONFIG_INVALID');
 });
+
+test('an un-admitted internal-test command surfaces as 403, and a broken actor map as 503, through the HTTP problem mapping (UI-FULL-RUN D3)',async()=>{
+  const {createAccountingApi}=await import('../api/accounting-http.mjs');
+  const api=createAccountingApi({authenticate:async()=>{throw new InternalTestIdentityRouteError('INTERNAL_TEST_COMMAND_NOT_ADMITTED','This internal-test command is not admitted to the controlled workflow');},kernelFactory:async()=>({})});
+  const denied=await api({method:'POST',url:'/api/v1/entities/11111111-1111-4111-8111-111111111111/journal-entries',body:{},headers:{}});
+  assert.equal(denied.status,403);assert.equal(denied.body.code,'INTERNAL_TEST_COMMAND_NOT_ADMITTED');
+  const broken=createAccountingApi({authenticate:async()=>{throw new InternalTestIdentityRouteError('INTERNAL_TEST_ACTOR_CONFIG_INVALID','actor map broken');},kernelFactory:async()=>({})});
+  const fault=await broken({method:'POST',url:'/api/v1/entities/11111111-1111-4111-8111-111111111111/journal-entries',body:{},headers:{}});
+  assert.equal(fault.status,503);assert.notEqual(fault.status,500);
+});
