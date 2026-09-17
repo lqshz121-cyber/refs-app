@@ -137,6 +137,9 @@ export function createWbsTestImportService({pilotService,kernelForActor,authoriz
     const resolved=resolveScope===null?scope:await resolveScope({tenantId,entityId,companyCode});
     assertConfiguration({...resolved,actors});
     if(resolved.tenantId!==tenantId||resolved.entityId!==entityId||resolved.companyCode!==companyCode||resolved.tenantId!==scope.tenantId)fail('WBS_TEST_IMPORT_SCOPE_DENIED','The selected entity is not the authoritative WBS company scope.');
+    // H07: the deployment pins exactly one test-import entity and company (REFS_WBS_TEST_IMPORT_ENTITY_ID / _COMPANY_CODE).
+    // A database-resolved scope may narrow that pin but never replace it with another entity or company.
+    if(resolved.entityId!==scope.entityId||resolved.companyCode!==scope.companyCode)fail('WBS_TEST_IMPORT_SCOPE_DENIED','The selected entity is not the configured test-import entity.');
     return Object.freeze({...resolved,actors});
   };
   // A company month imports only the rows whose accounting_date belongs to
