@@ -2396,6 +2396,10 @@ export class PostgresAccountingKernel{
       return row;
     });
   }
+  // O11: who changed this entity's name/binding/active and when — hashes only, never names.
+  async readEntityIdentityChanges({tenantId,entityId,limit=50,offset=0}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_entity_identity_changes($1,$2,$3,$4) AS result',[tenantId,entityId,limit,offset]),'ENTITY_IDENTITY_CHANGES_MISSING','Entity identity changes were not returned').result);
+  }
   async getJournalWorkflowCapabilities({tenantId,entityId}){
     return this.inSession(async client=>{
       await client.query("SELECT refs_assert_scope($1,$2,'GL.JE.VIEW')",[tenantId,entityId]);

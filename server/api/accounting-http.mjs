@@ -937,6 +937,16 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!artifact||!validJournalUploadRows(rows))throw new AccountingApiError(502,'JOURNAL_UPLOAD_EXPORT_RESPONSE_INVALID','The approved Journal population could not be safely exported');
         return {status:200,headers:{'content-type':artifact.content_type,'content-disposition':`attachment; filename="${artifact.filename}"`,'cache-control':'no-store','etag':`"${artifact.content_hash}"`,'x-journal-upload-export-hash':artifact.content_hash,'x-journal-upload-row-count':String(artifact.row_count)},rawBody:artifact.content};
       }
+      if(method==='GET'&&parts.length===5&&parts[4]==='identity-changes'){
+        // O11: entity identity change history (name hash / binding / active), GL.REPORT.VIEW scope, hashes only.
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Identity change reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit','offset']);const limit=optionalReadLimit(parsedUrl.searchParams.get('limit')),offset=optionalReadOffset(parsedUrl.searchParams.get('offset'));
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readEntityIdentityChanges!=='function')throw new AccountingApiError(503,'ENTITY_IDENTITY_CHANGES_UNAVAILABLE','Entity identity changes are unavailable');
+        result=await kernel.readEntityIdentityChanges({tenantId:principal.tenantId,entityId,limit,offset});
+        if(!result||result.schema_version!=='ENTITY_IDENTITY_CHANGES_V1'||result.entity_id!==entityId||!Array.isArray(result.rows)||JSON.stringify(result).includes('"name_after":'))throw new AccountingApiError(502,'ENTITY_IDENTITY_CHANGES_PROTOCOL','Entity identity changes did not match the closed read contract');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===6&&parts[4]==='internal-test'&&parts[5]==='workflow-readiness'){
         // O05: internal-test only. Outside the FULL_WORKFLOW internal-test profile the route does not exist.
         if(typeof internalTestWorkflowReadinessServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');

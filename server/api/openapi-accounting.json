@@ -30251,6 +30251,132 @@
           "Internal test"
         ]
       }
+    },
+    "/entities/{entityId}/identity-changes": {
+      "get": {
+        "operationId": "readEntityIdentityChanges",
+        "summary": "Entity identity change history (name hash, source binding, active) — who/when, never names",
+        "description": "Append-only history recorded by a database trigger for every change of entity.name, source_system/source_entity_id or active, plus a BASELINE fingerprint taken by migration 427. Requires GL.REPORT.VIEW. Exposes sha256 and length of names, never the text.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ENTITY_IDENTITY_CHANGES_V1 envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "entity_id",
+                        "limit",
+                        "offset",
+                        "total",
+                        "rows"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "type": "string",
+                          "enum": [
+                            "ENTITY_IDENTITY_CHANGES_V1"
+                          ]
+                        },
+                        "entity_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        },
+                        "offset": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "rows": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "423": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "tags": [
+          "Entities"
+        ]
+      }
     }
   },
   "components": {
