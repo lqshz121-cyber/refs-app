@@ -819,13 +819,6 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         result=await kernel.getWbsInsurancePcMappingTrace({tenantId:principal.tenantId,entityId,pcCode:requirePcCode(parsedUrl.searchParams.get('pcCode')),accountingDate:requireIsoDate(parsedUrl.searchParams.get('accountingDate'),'accountingDate')});assertInsurancePcMappingDto(result,{approved:true,trace:true});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
-      if(method==='GET'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='provider-signed'&&parts[6]==='final1'&&parts[7]==='orphans'){
-        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null||body!==null)throw new AccountingApiError(400,'READ_REQUEST_INVALID','Orphan lifecycle reads accept no body or command headers');
-        requireExactQuery(parsedUrl.searchParams,['admissionId']);
-        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readWbsProviderFinal1OrphanLifecycle!=='function')throw new AccountingApiError(503,'WBS_FINAL1_ORPHAN_READ_UNAVAILABLE','Final-1 orphan lifecycle read is unavailable');
-        result=await kernel.readWbsProviderFinal1OrphanLifecycle({tenantId:principal.tenantId,entityId,admissionId:parsedUrl.searchParams.has('admissionId')?requireUuid(parsedUrl.searchParams.get('admissionId'),'admissionId'):null});
-        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
-      }
       if(method==='POST'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='property-rent-pickup'&&parts[7]==='reviews'){
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['periodId','expectedEvidenceHash','reason']);
         const expectedRevision=requireRevision(headers);

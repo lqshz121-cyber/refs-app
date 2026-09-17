@@ -8,17 +8,20 @@
 // source, collects every `kernel.<name>` it references, and checks each against
 // PostgresAccountingKernel.prototype - the real kernel, not a stub.
 //
-// Known gap, recorded rather than hidden: GET .../wbs/provider-signed/final1/orphans
-// (accounting-http.mjs ~:822) calls readWbsProviderFinal1OrphanLifecycle, which no
-// kernel implements and no OpenAPI path documents. Removing the route or adding
-// the method must update KNOWN_UNIMPLEMENTED so the list never grows silently.
+// S08 disposition (2026-09-16): the last known gap, GET .../wbs/provider-signed/final1/orphans,
+// was removed rather than stubbed. It dispatched to readWbsProviderFinal1OrphanLifecycle, which no
+// kernel implemented, no OpenAPI path documented, no client or UI called, and no table backed -
+// Final-1 orphan lifecycle is persisted only as object-lock markers in evidence storage
+// (attachment-storage.putOrphanLifecycleMarker), never in the database. The route was therefore a
+// permanent 503 with nothing behind it. KNOWN_UNIMPLEMENTED is now empty and must stay empty:
+// a new entry means a route was shipped ahead of its kernel method.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
 
-const KNOWN_UNIMPLEMENTED=Object.freeze(['readWbsProviderFinal1OrphanLifecycle']);
+const KNOWN_UNIMPLEMENTED=Object.freeze([]);
 
 test('every kernel method referenced by the HTTP router exists on PostgresAccountingKernel, except the recorded known gaps',async()=>{
   const src=await readFile(new URL('../api/accounting-http.mjs',import.meta.url),'utf8');
@@ -46,4 +49,15 @@ test('every OpenAPI operation has a unique operationId and every path is served 
   assert.equal(new Set(ids).size,ids.length,'operationIds must be unique');
   assert.ok(ids.every(id=>typeof id==='string'&&id.length>0),'every operation needs an operationId');
   assert.deepEqual(unserved,[],'OpenAPI documents a path with a literal segment the router never dispatches on');
+});
+
+test('the retired Final-1 orphan lifecycle route is not reintroduced without a kernel method behind it',async()=>{
+  const src=await readFile(new URL('../api/accounting-http.mjs',import.meta.url),'utf8');
+  assert.equal(/parts\[7\]==='orphans'/.test(src),false,'the final1/orphans dispatch clause is retired - do not reintroduce it without a kernel implementation and an OpenAPI path');
+  assert.equal(src.includes('WBS_FINAL1_ORPHAN_READ_UNAVAILABLE'),false,'the retired orphan read error code must not survive its route');
+  assert.equal(src.includes('readWbsProviderFinal1OrphanLifecycle'),false,'the router must not reference an unimplemented orphan lifecycle kernel method');
+});
+
+test('KNOWN_UNIMPLEMENTED is empty - every router dispatch has a real kernel method',()=>{
+  assert.deepEqual([...KNOWN_UNIMPLEMENTED],[],'a router route without a kernel method is a permanent 503; implement it or remove it rather than recording it here');
 });
