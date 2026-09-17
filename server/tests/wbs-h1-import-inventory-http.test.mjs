@@ -17,3 +17,9 @@ test('WBS H1 inventory is an exact no-store GET and rejects anti-mock action dri
   const deniedApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'reader'}),kernelFactory:async()=>({readWbsH1ImportInventory:async()=>{const error=new Error('permission denied');error.code='42501';throw error;}})});
   response=await deniedApi({method:'GET',url:path,body:null,headers:{}});assert.equal(response.status,403);assert.equal(response.body.code,'WBS_READ_ACCESS_REQUIRED');assert.equal(response.body.message,'Forbidden');
 });
+
+test('a non-WBS entity (kernel P0002) is 404 WBS_H1_COMPANY_SCOPE_NOT_FOUND, not a 502 protocol failure (H01-F2)',async()=>{
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'reader'}),kernelFactory:async()=>({readWbsH1ImportInventory:async()=>{const error=new Error('WBS H1 company scope is unavailable');error.code='P0002';throw error;}})});
+  const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/wbs/h1-import-inventory?limit=5`,body:null,headers:{}});
+  assert.equal(response.status,404);assert.equal(response.body.code,'WBS_H1_COMPANY_SCOPE_NOT_FOUND');assert.equal(response.headers['cache-control'],'no-store');
+});

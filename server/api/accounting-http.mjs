@@ -639,7 +639,7 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         const limit=optionalReadLimit(parsedUrl.searchParams.get('limit')),offset=optionalReadOffset(parsedUrl.searchParams.get('offset'));
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readWbsH1ImportInventory!=='function')throw new AccountingApiError(503,'WBS_H1_IMPORT_INVENTORY_UNAVAILABLE','WBS H1 import inventory is unavailable');
         try{result=assertWbsH1ImportInventory(await kernel.readWbsH1ImportInventory({tenantId:principal.tenantId,entityId,limit,offset}),{limit,offset});}
-        catch(error){if(error?.code==='42501')throw new AccountingApiError(403,'WBS_READ_ACCESS_REQUIRED','WBS read access is required for this company');throw new AccountingApiError(502,'WBS_H1_IMPORT_INVENTORY_PROTOCOL','WBS H1 import inventory did not match the closed read contract');}
+        catch(error){if(error?.code==='42501')throw new AccountingApiError(403,'WBS_READ_ACCESS_REQUIRED','WBS read access is required for this company');if(error?.code==='P0002')throw new AccountingApiError(404,'WBS_H1_COMPANY_SCOPE_NOT_FOUND','This company is not a WBS-bound entity with a 2026 H1 import scope');throw new AccountingApiError(502,'WBS_H1_IMPORT_INVENTORY_PROTOCOL','WBS H1 import inventory did not match the closed read contract');}
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='h1-accounting-control-population'){
