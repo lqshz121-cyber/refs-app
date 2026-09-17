@@ -21,6 +21,7 @@ export const EVENT_CATALOG=Object.freeze([
   {event:'migration_runner_completed',level:'info',fields:[],alert:'absence within the deploy window after runner_started -> abort deploy'},
   {event:'migration_failed',level:'error',fields:['migration_name','direction','code','position','where'],alert:'any occurrence -> abort deploy, page release owner'},
   {event:'migration_runner_failed',level:'error',fields:['code'],alert:'any occurrence -> abort deploy'},
+  {event:'database_idle_client_error',level:'warn',fields:['code'],alert:'> 10 per hour -> managed Postgres is dropping idle connections faster than the pool recycles them; check idle timeout / keepalive. Any occurrence proves the pool error listener is doing its job (the process must NOT exit).'},
   {event:'migration_ledger_ahead',level:'error',fields:['schema_head','release_head','unknown_migrations'],alert:'any occurrence -> a build older than the database was deployed (rollback past a migration); do not start it, redeploy the newer build or restore the pre-migration backup'},
   {event:'migration_reset_blocked',level:'warn',fields:['schema_head','applied_count','first_irreversible_migration'],alert:'any occurrence outside a test database -> someone ran reset against a real database, investigate'},
   // ---- authentication / authorization --------------------------------------

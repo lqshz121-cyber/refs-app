@@ -10,13 +10,24 @@ export async function createPool(options={}){
   catch(error){throw new KernelError('PG_DRIVER_UNAVAILABLE','Install server dependencies before starting the PostgreSQL kernel',{cause:error.message});}
   const config=runtimeConfig();
   const Pool=pg.default?.Pool||pg.Pool;
-  return new Pool({
+  const pool=new Pool({
     connectionString:options.databaseUrl||config.databaseUrl,
     max:options.max||10,
     application_name:options.applicationName||'refs-accounting-kernel',
     statement_timeout:options.statementTimeoutMs||config.statementTimeoutMs,
     lock_timeout:options.lockTimeoutMs||config.lockTimeoutMs
   });
+  // pg emits 'error' on the pool for any *idle* client whose backend goes away
+  // (managed Postgres closes idle connections; network partitions). Without a
+  // listener Node treats it as an unhandled 'error' event, dumps the Client
+  // object and exits 1 — observed on refs-accounting-api-staging as repeated
+  // "Instance failed: exited with status 1" (S32 read-back, 2026-09-17). The
+  // pool already discards the broken client; we only need to record it safely.
+  pool.on('error',error=>{
+    const code=/^[0-9A-Z]{5}$/.test(error?.code||'')?error.code:(typeof error?.code==='string'&&/^[A-Z_]{2,40}$/.test(error.code)?error.code:'UNKNOWN');
+    (options.onEvent||(event=>console.error(JSON.stringify(event))))({event:'database_idle_client_error',code});
+  });
+  return pool;
 }
 
 export async function withTransaction(pool,work,{isolation='SERIALIZABLE'}={}){

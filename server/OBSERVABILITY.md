@@ -25,3 +25,7 @@ these.
 Where to wire a SaaS later: ship stdout to the log sink; map `level` to
 severity; implement `DB_METRICS` as scheduled queries; the alert strings are the
 rules. Until then the contract is local and versioned with the code.
+
+## database_idle_client_error (added 2026-09-17)
+
+Staging read-back showed the API process exiting with status 1 whenever managed Postgres closed an idle pooled connection (pg emits `error` on the Pool; no listener → Node exits). `createPool` now records `{event:'database_idle_client_error',code}` and continues. Alert on rate (> 10/h), never on presence.
