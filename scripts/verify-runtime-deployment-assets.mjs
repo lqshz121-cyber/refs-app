@@ -20,6 +20,20 @@ for(const asset of assets){
   read(`dist/${asset}`);
 }
 
+// --- cache key coherence --------------------------------------------------
+// bundle.js is the only published asset that is neither no-store (render.yaml
+// marks index.html, refs-build.js, refs-runtime-config.js and the lock no-store)
+// nor content-hashed, so its <script> tag must carry the build's cache key. All
+// keyed tags must carry the SAME key: a mixed set means a partially rewritten
+// document, which is how a stale bundle ends up running beside a fresh shell.
+const cacheKeyedAssets=['refs-build.js','refs-runtime-config.js','bundle.js'];
+const cacheKeys=cacheKeyedAssets.map(asset=>{
+  const match=new RegExp(`src="\\./${asset.replace('.','\\.')}\\?b=(\\d+)"`).exec(index);
+  assert.ok(match,`dist/index.html must load ./${asset} with a ?b= cache key on its script src`);
+  return match[1];
+});
+assert.equal(new Set(cacheKeys).size,1,'every cache-keyed asset must carry the same build cache key');
+
 const build=read('dist/refs-build.js'),lock=read('dist/refs-runtime-lock.js'),config=read('dist/refs-runtime-config.js');
 const channel=resolveRuntimeChannel(process.env);
 const mock=channel===DEMONSTRATION_CHANNEL;
