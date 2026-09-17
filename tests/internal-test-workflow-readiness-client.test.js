@@ -10,7 +10,7 @@ const cfgStaging=accountingApiConfig({__REFS_ACCOUNTING_API__:{...base,deploymen
 assert.equal(cfgInternal.internalTestNoLogin,true);assert.equal(cfgStaging.internalTestNoLogin,false);
 const readiness={schema_version:'INTERNAL_TEST_WORKFLOW_READINESS_V1',entity_id:entityId,profile:'FULL_WORKFLOW',test_only:true,grants_widened:false,can_grant:false,master_data:{OPEN_PERIOD:true,BANK:true,VENDOR:true,CUSTOMER:false},
   roles:{submitter:{permissions:{'GL.JE.SUBMIT':true},ready:true,missing:[]},reviewer:{permissions:{'GL.JE.REVIEW':true},ready:true,missing:[]},approver:{permissions:{'GL.JE.APPROVE':true},ready:true,missing:[]},poster:{permissions:{'GL.JE.POST':false},ready:false,missing:['GL.JE.POST']}},
-  workflows:Object.fromEntries(['JOURNAL_ENTRY','AP_BILL','AP_PAYMENT','AP_PAYMENT_REVERSAL','AP_BILL_VOID','AR_INVOICE','AR_RECEIPT','AR_RECEIPT_REVERSAL','BANK_RECONCILE'].map(k=>[k,{ready:k!=='AP_BILL_VOID',blocking:k==='AP_BILL_VOID'?[{kind:'GRANT',role:'reversalMaker',permission:'AP.BILL.VOID.CREATE'}]:[]}]))};
+  workflows:Object.fromEntries(['JOURNAL_ENTRY','AP_BILL','AP_PAYMENT','AP_PAYMENT_REVERSAL','AP_BILL_VOID','AR_INVOICE','AR_RECEIPT','AR_RECEIPT_REVERSAL','BANK_RECONCILE'].map(k=>[k,{ready:k!=='AP_BILL_VOID',blocking:k==='AP_BILL_VOID'?[{kind:'GRANT',role:'voidMaker',permission:'AP.BILL.VOID.CREATE'}]:[]}]))};
 const calls=[];
 const fetcher=async(url,init)=>{calls.push(url);const ok=body=>({ok:true,status:200,headers:{get:()=>'application/json'},json:async()=>({ok:true,data:body})});
   if(/journal-workflow\/capabilities$/.test(url))return ok({entity_id:entityId,can_submit:false,can_review:false,can_approve:false,can_post:false});

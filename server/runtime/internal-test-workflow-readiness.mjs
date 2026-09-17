@@ -13,7 +13,8 @@
 // — no new SQL privilege, no grant table exposure — and it never widens any
 // grant: a missing prerequisite is reported, not fixed.  Actor identifiers are
 // not echoed; roles are.
-const ROLE_KEYS=Object.freeze(['reader','maker','expenseMaker','paymentMaker','receiptMaker','salesReceiptMaker','reversalMaker','adjustmentMaker','refundMaker','allocator','submitter','reviewer','approver','poster','reconciliationStarter','clearer','unmatcher','reopener','periodCloser','periodReopener','cashTransferReconciler','recurringRunner']);
+const ROLE_KEYS=Object.freeze(['reader','maker','expenseMaker','paymentMaker','receiptMaker','salesReceiptMaker','reversalMaker','adjustmentMaker','refundMaker','allocator','submitter','reviewer','approver','poster','reconciliationStarter','clearer','unmatcher','reopener','periodCloser','periodReopener','cashTransferReconciler','recurringRunner','voidMaker']);
+const OPTIONAL_ROLE_KEYS=new Set(['voidMaker']);
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // Required roles → permissions, and master data, per workflow the internal-test UI exposes.
@@ -22,7 +23,7 @@ export const INTERNAL_TEST_WORKFLOWS=Object.freeze({
   AP_BILL:Object.freeze({roles:Object.freeze({maker:['AP.BILL.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST']}),master:Object.freeze(['OPEN_PERIOD','VENDOR'])}),
   AP_PAYMENT:Object.freeze({roles:Object.freeze({paymentMaker:['AP.PAYMENT.CREATE']}),master:Object.freeze(['OPEN_PERIOD','VENDOR','BANK'])}),
   AP_PAYMENT_REVERSAL:Object.freeze({roles:Object.freeze({reversalMaker:['AP.PAYMENT.REVERSE']}),master:Object.freeze(['OPEN_PERIOD'])}),
-  AP_BILL_VOID:Object.freeze({roles:Object.freeze({reversalMaker:['AP.BILL.VOID.CREATE']}),master:Object.freeze(['OPEN_PERIOD'])}),
+  AP_BILL_VOID:Object.freeze({roles:Object.freeze({voidMaker:['AP.BILL.VOID.CREATE']}),master:Object.freeze(['OPEN_PERIOD'])}),
   AR_INVOICE:Object.freeze({roles:Object.freeze({maker:['AR.INVOICE.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST']}),master:Object.freeze(['OPEN_PERIOD','CUSTOMER'])}),
   AR_RECEIPT:Object.freeze({roles:Object.freeze({receiptMaker:['AR.RECEIPT.CREATE']}),master:Object.freeze(['OPEN_PERIOD','CUSTOMER','BANK'])}),
   AR_RECEIPT_REVERSAL:Object.freeze({roles:Object.freeze({reversalMaker:['AR.RECEIPT.REVERSE']}),master:Object.freeze(['OPEN_PERIOD'])}),
@@ -35,7 +36,7 @@ const fail=(code,message)=>{throw new InternalTestWorkflowReadinessError(code,me
 
 export function createInternalTestWorkflowReadinessService({tenantId,actors,kernelForActor}={}){
   if(!UUID.test(tenantId||''))fail('INTERNAL_TEST_READINESS_CONFIG_INVALID','Internal-test tenant is invalid.');
-  if(!actors||typeof actors!=='object'||ROLE_KEYS.some(role=>typeof actors[role]!=='string'||!actors[role].trim()))fail('INTERNAL_TEST_READINESS_CONFIG_INVALID','Internal-test actors are incomplete.');
+  if(!actors||typeof actors!=='object'||ROLE_KEYS.some(role=>OPTIONAL_ROLE_KEYS.has(role)?!(actors[role]===null||actors[role]===undefined||(typeof actors[role]==='string'&&actors[role].trim())):(typeof actors[role]!=='string'||!actors[role].trim())))fail('INTERNAL_TEST_READINESS_CONFIG_INVALID','Internal-test actors are incomplete.');
   if(typeof kernelForActor!=='function')fail('INTERNAL_TEST_READINESS_CONFIG_INVALID','Internal-test kernel factory is unavailable.');
   const permissionsByRole=new Map();
   for(const [workflow,spec] of Object.entries(INTERNAL_TEST_WORKFLOWS))for(const [role,perms] of Object.entries(spec.roles)){if(!ROLE_KEYS.includes(role))fail('INTERNAL_TEST_READINESS_CONFIG_INVALID',`${workflow} names an unknown role ${role}`);const set=permissionsByRole.get(role)||new Set();for(const p of perms)set.add(p);permissionsByRole.set(role,set);}
@@ -44,6 +45,7 @@ export function createInternalTestWorkflowReadinessService({tenantId,actors,kern
       if(!UUID.test(entityId||''))fail('INTERNAL_TEST_READINESS_SCOPE_INVALID','entityId must be a UUID.');
       const roles={};
       for(const [role,set] of permissionsByRole){
+        if(!actors[role]){roles[role]=Object.freeze({permissions:Object.fromEntries([...set].sort().map(p=>[p,false])),ready:false,missing:[...set].sort(),actor_configured:false});continue;}
         const kernel=kernelForActor(actors[role].trim());
         if(!kernel||typeof kernel.readEntityPermissionFlags!=='function')fail('INTERNAL_TEST_READINESS_CONFIG_INVALID','Actor kernel cannot read permission flags.');
         let flags;

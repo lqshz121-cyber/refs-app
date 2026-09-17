@@ -810,6 +810,12 @@ export class PostgresAccountingKernel{
     ),'CASH_TRANSFER_BANK_ACCOUNT_CONTROLS_MISSING','Cash Transfer bank-account controls unavailable').result);
   }
 
+  // O06: INTERNAL TEST ONLY customer member (AR chains); same maker scope and receipt discipline as the bank/cash master.
+  async ensureInternalTestCustomerMaster({tenantId,entityId,idempotencyKey}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_ensure_internal_test_customer_master($1,$2,$3) AS result',[tenantId,entityId,idempotencyKey]
+    ),'INTERNAL_TEST_CUSTOMER_MASTER_UNAVAILABLE','Internal test customer master could not be prepared').result);
+  }
   async ensureInternalTestBankCashMaster({tenantId,entityId,idempotencyKey}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_ensure_internal_test_bank_cash_master($1,$2,$3) AS result',[tenantId,entityId,idempotencyKey]

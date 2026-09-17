@@ -1,7 +1,8 @@
 import {KernelError} from './db.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const ROLES=Object.freeze(['reader','maker','expenseMaker','paymentMaker','receiptMaker','salesReceiptMaker','reversalMaker','adjustmentMaker','refundMaker','allocator','submitter','reviewer','approver','poster','reconciliationStarter','clearer','unmatcher','reopener','periodCloser','periodReopener','cashTransferReconciler','recurringRunner']);
+const ROLES=Object.freeze(['reader','maker','expenseMaker','paymentMaker','receiptMaker','salesReceiptMaker','reversalMaker','adjustmentMaker','refundMaker','allocator','submitter','reviewer','approver','poster','reconciliationStarter','clearer','unmatcher','reopener','periodCloser','periodReopener','cashTransferReconciler','recurringRunner','voidMaker']);
+const OPTIONAL_ROLES=new Set(['voidMaker']);
 const READ=Object.freeze(['AP.VIEW','AR.VIEW','BANK.VIEW','GL.JE.VIEW','GL.REPORT.VIEW','WBS.AUTOREC.VIEW']);
 
 // These bundles must conform to the live database authority matrix.  The
@@ -29,14 +30,20 @@ export const INTERNAL_TEST_WORKFLOW_GRANT_BUNDLES=Object.freeze({
   periodCloser:Object.freeze([...READ,'GL.PERIOD.CLOSE']),
   periodReopener:Object.freeze([...READ,'GL.PERIOD.REOPEN']),
   cashTransferReconciler:Object.freeze([...READ,'CASH.TRANSFER.VIEW','CASH.TRANSFER.RECONCILE']),
-  recurringRunner:Object.freeze([...READ,'RECURRING.SCHEDULE.RUN'])
+  recurringRunner:Object.freeze([...READ,'RECURRING.SCHEDULE.RUN']),
+  // O06: AP bill void is a CRITICAL AP_ADJUSTMENT_MAKER-class permission; it needs its own actor (optional, see router).
+  voidMaker:Object.freeze([...READ,'AP.BILL.VOID.CREATE'])
 });
 
-const AUTHORITY=Object.freeze({reader:'READ',maker:'DRAFT',expenseMaker:'DRAFT',paymentMaker:'PAYMENT',receiptMaker:'RECEIPT',salesReceiptMaker:'DRAFT',reversalMaker:'REVERSAL',adjustmentMaker:'ADJUSTMENT',refundMaker:'REFUND',allocator:'ALLOCATION',submitter:'SUBMIT',reviewer:'REVIEW',approver:'APPROVE',poster:'POST',reconciliationStarter:'DRAFT',clearer:'DRAFT',unmatcher:'UNMATCH',reopener:'REOPEN',periodCloser:'CLOSE',periodReopener:'REOPEN',cashTransferReconciler:'JE_REVIEW',recurringRunner:'SCHEDULE'});
+const AUTHORITY=Object.freeze({reader:'READ',maker:'DRAFT',expenseMaker:'DRAFT',paymentMaker:'PAYMENT',receiptMaker:'RECEIPT',salesReceiptMaker:'DRAFT',reversalMaker:'REVERSAL',adjustmentMaker:'ADJUSTMENT',refundMaker:'REFUND',allocator:'ALLOCATION',submitter:'SUBMIT',reviewer:'REVIEW',approver:'APPROVE',poster:'POST',reconciliationStarter:'DRAFT',clearer:'DRAFT',unmatcher:'UNMATCH',reopener:'REOPEN',periodCloser:'CLOSE',periodReopener:'REOPEN',cashTransferReconciler:'JE_REVIEW',recurringRunner:'SCHEDULE',voidMaker:'AP_ADJUSTMENT_MAKER'});
 
 function assertScope(scope){
   if(!UUID.test(scope?.tenantId||'')||!UUID.test(scope?.entityId||''))throw new KernelError('INTERNAL_TEST_GRANT_CONFIG_INVALID','Internal-test scope must use canonical UUIDs');
-  if(!scope?.actors||typeof scope.actors!=='object'||Object.keys(scope.actors).sort().join('\0')!==[...ROLES].sort().join('\0')||ROLES.some(role=>typeof scope.actors[role]!=='string'||scope.actors[role].trim().length<3)||new Set(ROLES.map(role=>scope.actors[role].trim())).size!==ROLES.length)throw new KernelError('INTERNAL_TEST_GRANT_CONFIG_INVALID','Internal-test workflow actors must be complete and distinct');
+  const actors=scope?.actors;
+  const required=ROLES.filter(role=>!OPTIONAL_ROLES.has(role));
+  if(!actors||typeof actors!=='object'||Object.keys(actors).filter(role=>!OPTIONAL_ROLES.has(role)).sort().join('\0')!==[...required].sort().join('\0'))throw new KernelError('INTERNAL_TEST_GRANT_CONFIG_INVALID','Internal-test actors must name every required workflow role (optional roles may be null or absent)');
+  const present=ROLES.filter(role=>!(OPTIONAL_ROLES.has(role)&&(actors[role]===null||actors[role]===undefined)));
+  if(present.some(role=>typeof actors[role]!=='string'||actors[role].trim().length<3)||new Set(present.map(role=>actors[role].trim())).size!==present.length)throw new KernelError('INTERNAL_TEST_GRANT_CONFIG_INVALID','Internal-test actors must be distinct configured identities');
 }
 
 export async function reconcileInternalTestWorkflowActorGrants({grantSync,scope}={}){
@@ -44,6 +51,7 @@ export async function reconcileInternalTestWorkflowActorGrants({grantSync,scope}
   assertScope(scope);
   const validUntil=new Date(Date.now()+23*60*60*1000).toISOString();
   for(const role of ROLES){
+    if(scope.actors[role]===null||scope.actors[role]===undefined)continue; // optional actor not configured
     const actorId=scope.actors[role].trim();
     for(let attempt=0;attempt<2;attempt++){
       const expectedVersion=await grantSync.currentVersion({tenantId:scope.tenantId,entityId:scope.entityId,actorId});

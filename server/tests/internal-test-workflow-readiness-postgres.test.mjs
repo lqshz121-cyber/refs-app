@@ -32,7 +32,7 @@ pgTest('permission flags answer per session actor; master-data readiness reflect
   await admin.query("INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency) VALUES($1,$2,$3,'WBS',$3,'O05 readiness entity','USD')",[entityId,tenantId,code]);
   await admin.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-07','2026-07-01','2026-07-31','OPEN')",[periodId,tenantId,entityId]);
   await admin.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'INTERNAL_TEST_BANK','BANK','Test bank'),($1,$2,'WBS_TEST_VENDOR','VENDOR','Test vendor')",[tenantId,entityId]);
-  const actors=Object.fromEntries(ROLES.map(r=>[r,`o05-${r.toLowerCase()}-${code}`]));
+  const actors=Object.fromEntries(ROLES.map(r=>[r,r==='voidMaker'?null:`o05-${r.toLowerCase()}-${code}`]));
   // grant the reader + the JE chain only; leave reversalMaker without AP.BILL.VOID.CREATE and everything else ungranted
   for(const role of ['reader','maker','submitter','reviewer','approver','poster','paymentMaker','reversalMaker','reconciliationStarter','clearer','reopener','receiptMaker'])for(const p of INTERNAL_TEST_WORKFLOW_GRANT_BUNDLES[role])await grant(ids,actors[role],p);
   const maker=kernelFor(ids,actors.maker);
@@ -46,7 +46,7 @@ pgTest('permission flags answer per session actor; master-data readiness reflect
   const before=(await admin.query('SELECT count(*)::int n FROM runtime_actor_grant WHERE tenant_id=$1',[tenantId])).rows[0].n;
   const r=await service.read({entityId});
   assert.equal(r.workflows.JOURNAL_ENTRY.ready,true);assert.equal(r.workflows.AP_BILL.ready,true);assert.equal(r.workflows.AP_PAYMENT.ready,true);assert.equal(r.workflows.BANK_RECONCILE.ready,true);
-  assert.equal(r.workflows.AP_BILL_VOID.ready,false);assert.deepEqual(r.workflows.AP_BILL_VOID.blocking,[{kind:'GRANT',role:'reversalMaker',permission:'AP.BILL.VOID.CREATE'}]);
+  assert.equal(r.workflows.AP_BILL_VOID.ready,false);assert.deepEqual(r.workflows.AP_BILL_VOID.blocking,[{kind:'GRANT',role:'voidMaker',permission:'AP.BILL.VOID.CREATE'}]);
   assert.deepEqual(r.workflows.AR_INVOICE.blocking,[{kind:'MASTER_DATA',key:'CUSTOMER'}]);assert.deepEqual(r.workflows.AR_RECEIPT.blocking,[{kind:'MASTER_DATA',key:'CUSTOMER'}]);
   assert.equal((await admin.query('SELECT count(*)::int n FROM runtime_actor_grant WHERE tenant_id=$1',[tenantId])).rows[0].n,before,'a readiness read never writes grants');
   assert.equal((await admin.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type LIKE '%GRANT%'",[tenantId])).rows[0].n,0);

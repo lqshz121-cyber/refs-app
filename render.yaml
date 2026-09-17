@@ -363,6 +363,9 @@ services:
         value: refs-internal-payment-maker
       - key: REFS_INTERNAL_TEST_REVERSAL_MAKER_ACTOR_ID
         value: refs-internal-reversal-maker
+      # O06: optional; holds AP.BILL.VOID.CREATE (AP_ADJUSTMENT_MAKER class) which no other test actor may mix with.
+      - key: REFS_INTERNAL_TEST_VOID_MAKER_ACTOR_ID
+        value: refs-internal-void-maker
       - key: REFS_INTERNAL_TEST_ALLOCATOR_ACTOR_ID
         value: refs-internal-allocator
       - key: REFS_INTERNAL_TEST_REVIEWER_ACTOR_ID

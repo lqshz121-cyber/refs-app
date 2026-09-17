@@ -8,9 +8,15 @@ export class InternalTestIdentityRouteError extends Error{
   constructor(code,message){super(message);this.name='InternalTestIdentityRouteError';this.code=code;}
 }
 
+// O06: optional actors. Absent → the routed command is refused as NOT_ADMITTED instead of failing startup, so a
+// deployment can add the env var and redeploy without a crash window. `voidMaker` holds AP.BILL.VOID.CREATE, whose
+// SoD authority class (AP_ADJUSTMENT_MAKER) no other internal-test actor may mix with.
+export const OPTIONAL_ACTOR_KEYS=Object.freeze(['voidMaker']);
 export function internalTestWorkflowActors(environment={}){
-  const actors=Object.fromEntries(ACTOR_KEYS.map(key=>[key,String(environment[`REFS_INTERNAL_TEST_${key.replace(/[A-Z]/g,letter=>`_${letter}`).toUpperCase()}_ACTOR_ID`]||'').trim()]));
+  const envKey=key=>`REFS_INTERNAL_TEST_${key.replace(/[A-Z]/g,letter=>`_${letter}`).toUpperCase()}_ACTOR_ID`;
+  const actors=Object.fromEntries(ACTOR_KEYS.map(key=>[key,String(environment[envKey(key)]||'').trim()]));
   if(Object.values(actors).some(value=>!safeActor(value))||new Set(Object.values(actors)).size!==ACTOR_KEYS.length)throw new InternalTestIdentityRouteError('INTERNAL_TEST_ACTOR_CONFIG_INVALID','Internal full-test workflow actors must be present, safe, and distinct');
+  for(const key of OPTIONAL_ACTOR_KEYS){const value=String(environment[envKey(key)]||'').trim();if(!value){actors[key]=null;continue;}if(!safeActor(value)||Object.values(actors).includes(value))throw new InternalTestIdentityRouteError('INTERNAL_TEST_ACTOR_CONFIG_INVALID',`Internal full-test optional actor ${key} must be safe and distinct`);actors[key]=value;}
   return Object.freeze(actors);
 }
 
@@ -52,7 +58,7 @@ const writeActor=(method,pathname,body)=>{
   }
   if(domain==='ap'){
     if(resource==='bills'&&parts.length===6)return 'maker';
-    if(resource==='bills'&&next==='voids')return 'reversalMaker';
+    if(resource==='bills'&&next==='voids')return 'voidMaker';
     if(resource==='bills'&&next==='native-payments')return 'paymentMaker';
     if(resource==='expenses'&&parts.length===6)return 'expenseMaker';
     if(resource==='payments'&&next==='reversals')return 'reversalMaker';
@@ -107,5 +113,6 @@ export function routeInternalTestPrincipal({method,url,body,principal,actors}={}
   if(method==='GET'||method==='HEAD')return Object.freeze({...principal,actorId:actors.reader,internalTest:true});
   const actorKey=writeActor(method,pathname,body);
   if(!actorKey)throw new InternalTestIdentityRouteError('INTERNAL_TEST_COMMAND_NOT_ADMITTED','This internal-test command is not admitted to the controlled workflow');
+  if(!actors[actorKey])throw new InternalTestIdentityRouteError('INTERNAL_TEST_COMMAND_NOT_ADMITTED',`This internal-test command requires the optional ${actorKey} actor, which is not configured`);
   return Object.freeze({...principal,actorId:actors[actorKey],internalTest:true,internalTestActorRole:actorKey});
 }

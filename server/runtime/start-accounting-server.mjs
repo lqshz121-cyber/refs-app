@@ -180,6 +180,9 @@ export async function startAccountingServer({env=process.env,fetcher=globalThis.
         const masterKernel=server.internalTestKernelFactory?.(config.internalTest.actors.maker);
         if(!masterKernel||typeof masterKernel.ensureInternalTestBankCashMaster!=='function')throw new Error('Internal test bank/cash bootstrap kernel is unavailable');
         await masterKernel.ensureInternalTestBankCashMaster({tenantId:config.internalTest.tenantId,entityId,idempotencyKey:`internal-test-bank-cash-master-v2-${entityId}`});
+        startupStage='INTERNAL_TEST_CUSTOMER_MASTER';
+        if(typeof masterKernel.ensureInternalTestCustomerMaster!=='function')throw new Error('Internal test customer bootstrap kernel is unavailable');
+        await masterKernel.ensureInternalTestCustomerMaster({tenantId:config.internalTest.tenantId,entityId,idempotencyKey:`internal-test-customer-master-v1-${entityId}`});
         startupStage='INTERNAL_TEST_CASH_CONTROLS';
         await bootstrapInternalTestCashControls({makerKernel:masterKernel,approverKernel:server.internalTestKernelFactory?.(config.internalTest.actors.approver),tenantId:config.internalTest.tenantId,entityId});
         startupStage='INTERNAL_TEST_CASH_TRANSFER_EVIDENCE';

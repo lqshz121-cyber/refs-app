@@ -6,7 +6,7 @@ import {INTERNAL_TEST_WORKFLOW_GRANT_BUNDLES} from '../runtime/internal-test-wor
 import {createAccountingApi} from '../api/accounting-http.mjs';
 
 const ROLES=Object.keys(INTERNAL_TEST_WORKFLOW_GRANT_BUNDLES);
-const actors=Object.fromEntries(ROLES.map(r=>[r,`refs-internal-${r.toLowerCase()}`]));
+const actors=Object.fromEntries(ROLES.map(r=>[r,r==='voidMaker'?null:`refs-internal-${r.toLowerCase()}`]));
 const tenantId=randomUUID(),entityId=randomUUID();
 // A fake kernel per actor that answers permission flags from the configured grant bundle — i.e. the world the
 // startup reconciliation produces — with an optional override for master data and per-role withheld permissions.
@@ -22,7 +22,7 @@ test('readiness reflects the configured bundles: AP bill void is blocked by a mi
   const calls=[];const service=createInternalTestWorkflowReadinessService({tenantId,actors,kernelForActor:fakeKernelFactory({calls})});
   const r=assertInternalTestWorkflowReadiness(await service.read({entityId}),{entityId});
   assert.equal(r.workflows.JOURNAL_ENTRY.ready,true);assert.equal(r.workflows.AP_BILL.ready,true);assert.equal(r.workflows.AP_PAYMENT.ready,true);assert.equal(r.workflows.AP_PAYMENT_REVERSAL.ready,true);assert.equal(r.workflows.BANK_RECONCILE.ready,true);
-  assert.equal(r.workflows.AP_BILL_VOID.ready,false);assert.deepEqual(r.workflows.AP_BILL_VOID.blocking,[{kind:'GRANT',role:'reversalMaker',permission:'AP.BILL.VOID.CREATE'}]);
+  assert.equal(r.workflows.AP_BILL_VOID.ready,false);assert.deepEqual(r.workflows.AP_BILL_VOID.blocking,[{kind:'GRANT',role:'voidMaker',permission:'AP.BILL.VOID.CREATE'}]);assert.equal(r.roles.voidMaker.actor_configured,false);
   assert.equal(r.workflows.AR_INVOICE.ready,false);assert.deepEqual(r.workflows.AR_INVOICE.blocking,[{kind:'MASTER_DATA',key:'CUSTOMER'}]);
   assert.deepEqual(r.workflows.AR_RECEIPT.blocking,[{kind:'MASTER_DATA',key:'CUSTOMER'}]);
   assert.equal(r.grants_widened,false);assert.equal(r.can_grant,false);

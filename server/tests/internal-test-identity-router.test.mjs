@@ -36,3 +36,16 @@ test('an un-admitted internal-test command surfaces as 403, and a broken actor m
   const fault=await broken({method:'POST',url:'/api/v1/entities/11111111-1111-4111-8111-111111111111/journal-entries',body:{},headers:{}});
   assert.equal(fault.status,503);assert.notEqual(fault.status,500);
 });
+
+test('O06: AP bill void routes to the optional voidMaker; without the env var the command is refused as NOT_ADMITTED and startup still succeeds',()=>{
+  assert.equal(actors.voidMaker,null,'no REFS_INTERNAL_TEST_VOID_MAKER_ACTOR_ID in this fixture');
+  assert.throws(()=>route('POST',`/api/v1/entities/${entity}/ap/bills/${id}/voids`,{}),e=>e instanceof InternalTestIdentityRouteError&&e.code==='INTERNAL_TEST_COMMAND_NOT_ADMITTED'&&/voidMaker/.test(e.message));
+  const withVoid=internalTestWorkflowActors({...env,REFS_INTERNAL_TEST_VOID_MAKER_ACTOR_ID:'void-maker-actor-99'});
+  assert.equal(withVoid.voidMaker,'void-maker-actor-99');
+  const routed=routeInternalTestPrincipal({method:'POST',url:`https://internal.example/api/v1/entities/${entity}/ap/bills/${id}/voids`,body:{},principal,actors:withVoid});
+  assert.equal(routed.actorId,'void-maker-actor-99');assert.equal(routed.internalTestActorRole,'voidMaker');
+  // the void maker must be distinct from every other actor
+  assert.throws(()=>internalTestWorkflowActors({...env,REFS_INTERNAL_TEST_VOID_MAKER_ACTOR_ID:env.REFS_INTERNAL_TEST_REVERSAL_MAKER_ACTOR_ID}),e=>e.code==='INTERNAL_TEST_ACTOR_CONFIG_INVALID');
+  // reversalMaker never receives the void command any more
+  assert.notEqual(routed.actorId,withVoid.reversalMaker);
+});
