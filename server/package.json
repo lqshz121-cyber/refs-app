@@ -142,7 +142,8 @@
     "test:postgres:wbs-evidence": "node --test tests/wbs-evidence-immutability-postgres.test.mjs",
     "test:postgres:historical-head": "node --test tests/migration-historical-head-postgres.test.mjs",
     "test:postgres:evidence-summary": "node --test tests/entity-evidence-summary-postgres.test.mjs",
-    "test:postgres:ap-bill-void": "node --test tests/ap-bill-void-reachability-postgres.test.mjs"
+    "test:postgres:ap-bill-void": "node --test tests/ap-bill-void-reachability-postgres.test.mjs",
+    "test:postgres:ap-lifecycle": "node --test tests/ap-lifecycle-state-machine-postgres.test.mjs"
   },
   "dependencies": {
     "pg": "^8.13.1"
