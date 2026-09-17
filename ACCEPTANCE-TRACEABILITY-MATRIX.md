@@ -89,7 +89,7 @@ Rules of this file: a row is **DONE** only when code, an executable test, the ex
 | E2 | Static client CSP: no inline script, SRI on remote scripts, identical headers on all static services | `render.yaml`, `index.html` | `tests/frontend-security-surface.test.mjs` (4/4) | `039c271f` | negative run on ff163552 fails 2/4 (internal-test lacked CSP) | Render headers — **Owner** curl after deploy | EVIDENCED | ☐ |
 | E3 | Secrets never committed; prod deps 0 vulnerabilities | — | `frontend-security-surface` test 4; `npm audit --omit=dev` | `039c271f` | 0/0 root+server; 3 placeholder hits allow-listed | n/a | EVIDENCED | ☐ |
 | E4 | Key events / metrics / alert thresholds defined as local contract | `server/runtime/observability-contract.mjs`, `server/OBSERVABILITY.md` | `server/tests/observability-contract.test.mjs` | `76cc6c9d` | catalog ⊆ emitted events; MISSING_EVENTS listed | no SaaS — contract only | EVIDENCED | ☐ |
-| E5 | Route surface ⇄ kernel ⇄ OpenAPI closed | `accounting-http.mjs`, `server/api/openapi-accounting.json` | `server/tests/router-kernel-surface-contract.test.mjs` (KNOWN_UNIMPLEMENTED = final1/orphans); N33 342/357 mechanical + 15 manual | `6a757d79` | dead route pinned | — | PARTIAL (T16 G-1 no bidirectional gate) | ☐ |
+| E5 | Route surface ⇄ kernel ⇄ OpenAPI closed (both directions) | `accounting-http.mjs`, `server/api/openapi-accounting.json` | `server/tests/router-kernel-surface-contract.test.mjs` (KNOWN_UNIMPLEMENTED empty) + `server/tests/router-openapi-surface-contract.test.mjs` (R02 router→OpenAPI gate, wired into server `posttest`) | `39377d92` + R02 commit | R02 census: 335 dispatch alternatives vs 363 documented operations, 0 undocumented non-guard routes, 0 router dispatches without a kernel method; 1 gap found and closed (POST `/access/self-service-read-grant/activate` was live but undocumented); both directions mutation-proved (see receipt) | not run | EVIDENCED (offline; bidirectional gate now exists — R02) | ☐ |
 | E6 | SAST | — | N37 S3 | — | — | — | Owner decision (CodeQL free) | ☐ |
 
 ## F. Integration status of this work
@@ -99,6 +99,7 @@ Rules of this file: a row is **DONE** only when code, an executable test, the ex
 | Cumulative T01–T18 patch | applies clean to ff163552 (N03 verified, session e952882a); one HIGH regression (`ai-financial-variance-policy-contract` cwd) fixed in `987c77c8` |
 | Pre-existing red on ff163552 | `test:visual` (N03 F2) — not introduced by this work |
 | Branch | `claude/2026-09-16-n-batch-9c9cd162` = ff163552 + `6a757d79` + `76cc6c9d` + `039c271f` + `987c77c8` (+ this matrix). pushed by Owner 2026-09-17 (remote = 320bcbad); later commits ac298053+ pending push |
+| R02 WBS `final1/orphans` dead route | disposition confirmed on `39377d92`: route, error code and kernel reference absent; deletion is the shipped state and is pinned by two gates. R02 added the missing router→OpenAPI direction (`server/tests/router-openapi-surface-contract.test.mjs`); receipt filed in the shared repo root as CLAUDE-TO-CODEX-2026-09-17-R02-claude-wd-b9c306a4 |
 | PR #582 | untouched, unmerged |
 | Shared dirty tree 98dcb137 | untouched |
 

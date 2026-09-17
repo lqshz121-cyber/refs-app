@@ -12,7 +12,11 @@ test('credit history and direct record GET paths declare concrete resolvable pat
 });
 assert.deepEqual(contract.components.schemas.AuthoritativeScopeReadRow.properties.period_status.enum,['OPEN','SOFT_CLOSED','CLOSED'],'authoritative scope status must match the PostgreSQL period_status enum');
 const operations=Object.values(contract.paths).flatMap(path=>path.post?[path.post]:[]);
-const accountingCommands=operations.filter(operation=>!['explainAiAccountingAnalysis','runAiFullControllerModel'].includes(operation.operationId));
+// activateStage1SelfServiceReadAccess is an access bootstrap, not an accounting command: it writes no
+// accounting evidence, carries no revision/ETag and never replays with 200 or degrades to 503 - it
+// answers 201 on both first call and idempotent repeat, or 404 when the deployment configures no
+// self-service grant service. It is held to its own contract assertions below (R02).
+const accountingCommands=operations.filter(operation=>!['explainAiAccountingAnalysis','runAiFullControllerModel','activateStage1SelfServiceReadAccess'].includes(operation.operationId));
 const propertyRentOperations=operations.filter(operation=>['reviewWbsPropertyRentPickup','createWbsPropertyRentPickupDraft','reviewInsurancePrepaidAmortization','createInsurancePrepaidAmortizationDraft'].includes(operation.operationId));
 operations.splice(0,operations.length,...operations.filter(operation=>!propertyRentOperations.includes(operation)));
 const insuranceResumeOperations=operations.filter(operation=>operation.operationId==='resumeProviderSignedWbsFinal1InsuranceAdmission');
@@ -625,4 +629,20 @@ test('import/export history, recurring schedules, and custom reports are closed 
   assert.ok(report.parameters.find(parameter=>parameter.name==='reportType').schema.enum.includes('DIMENSION_PNL'));
   assert.equal(contract.components.schemas.CustomReport.properties.action_flags.properties.can_post.const,false);
   assert.ok(contract.components.schemas.ReportSavedViewInput.properties.reportType.enum.includes('DIMENSION_PNL'));
+});
+
+test('the Stage 1 self-service read activation contract matches the route it documents (R02)',()=>{
+  const operation=contract.paths['/entities/{entityId}/access/self-service-read-grant/activate'].post;
+  assert.equal(operation.operationId,'activateStage1SelfServiceReadAccess');
+  assert.equal(operation.deprecated,undefined);
+  assert.deepEqual(Object.keys(operation.responses).sort(),['201','400','401','404','default']);
+  assert.equal(operation.responses['201'].headers['Cache-Control'].schema.const,'no-store');
+  const schema=operation.responses['201'].content['application/json'].schema;
+  assert.equal(schema.additionalProperties,false);
+  assert.deepEqual(schema.required,['ok','data']);
+  assert.equal(schema.properties.data.additionalProperties,false);
+  assert.deepEqual(schema.properties.data.required,['activated','idempotent','permission_count']);
+  // The request body must stay empty: the caller may not name a subject, a role or a permission.
+  assert.equal(operation.requestBody.content['application/json'].schema.maxProperties,0);
+  assert.equal(operation.requestBody.content['application/json'].schema.additionalProperties,false);
 });

@@ -29794,6 +29794,95 @@
         }
       }
     },
+    "/entities/{entityId}/access/self-service-read-grant/activate": {
+      "post": {
+        "operationId": "activateStage1SelfServiceReadAccess",
+        "summary": "Activate the fixed Stage 1 read-only grant for the signed-in principal",
+        "description": "Stage 1 bootstrap command. The server derives the actor from the authenticated principal and the entity from the path; the request carries no fields, so the caller cannot name a subject, a role or a permission and cannot obtain anything beyond the fixed read-only set. Repeating the call with the same Idempotency-Key replays the same activation. A deployment that configures no self-service grant service answers 404 ROUTE_NOT_FOUND and creates nothing.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 0
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The fixed read-only permission set is active for the signed-in principal",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "activated",
+                        "idempotent",
+                        "permission_count"
+                      ],
+                      "properties": {
+                        "activated": {
+                          "const": true
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        },
+                        "permission_count": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/entities/{entityId}/access/self-service-wbs-read-grant/upgrade": {
       "post": {
         "operationId": "upgradeStage1WbsReadAccess",
