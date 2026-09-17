@@ -1,0 +1,25 @@
+# O12 / E6: SAST via CodeQL. Manual dispatch only until the Owner confirms code scanning is available for this
+# repository (GitHub Advanced Security is required for private repositories); it must never become a required
+# check before that, or every PR would be blocked by a job that cannot run.
+name: CodeQL (manual)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  security-events: write
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
