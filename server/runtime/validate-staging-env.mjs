@@ -12,15 +12,32 @@ const backendRequired=[
 ];
 const attachmentRequired=['S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','VIRUS_SCANNER_ENDPOINT','VIRUS_SCANNER_TOKEN','VIRUS_SCANNER_SERVER_NAME','ATTACHMENT_SCANNER_ACTOR_ID'];
 const signedIngestRequired=['WBS_SNAPSHOT_ED25519_PUBLIC_KEYS','WBS_PROVIDER_SIGNED_TRUST','WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID','S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','REFS_WBS_EVIDENCE_RETENTION_DAYS'];
+const livePilotRequired=['WBS_CF_ACCESS_CLIENT_ID','WBS_CF_ACCESS_CLIENT_SECRET','WBS_REFS_AUTH'];
 const publicKeys=[
   'REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE',
   'REFS_PUBLIC_OIDC_ISSUER','REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT','REFS_PUBLIC_OIDC_TOKEN_ENDPOINT',
   'REFS_PUBLIC_OIDC_REDIRECT_URI','REFS_PUBLIC_OIDC_CLIENT_ID','REFS_PUBLIC_OIDC_AUDIENCE','REFS_PUBLIC_OIDC_SCOPE'
 ];
+// Single source of truth for the staging handoff checklist. `.env.staging.example`
+// and `staging-secrets-required.md` are validated against this inventory by
+// tests/external-dependency-env-contract.test.mjs so an operator-facing list can
+// never silently drift from what this validator (and server boot) actually demand.
+export const stagingEnvironmentKeys=Object.freeze({
+  backendRequired:Object.freeze([...backendRequired]),
+  attachmentRequired:Object.freeze([...attachmentRequired,'VIRUS_SCANNER_CA_PEM','VIRUS_SCANNER_CA_FILE']),
+  signedIngestRequired:Object.freeze([...signedIngestRequired,'REFS_HTTP_MAX_BODY_BYTES']),
+  livePilotRequired:Object.freeze([...livePilotRequired]),
+  publicKeys:Object.freeze([...publicKeys])
+});
 const present=value=>typeof value==='string'&&value.trim().length>0;
 const integrationMode=(environment,key)=>{
   const mode=String(environment[key]||'').trim().toUpperCase();
   if(!['REQUIRED','DISABLED'].includes(mode))throw new Error(`staging-env: ${key} must be REQUIRED or DISABLED`);
+  return mode;
+};
+const livePilotMode=environment=>{
+  const mode=String(environment.REFS_WBS_LIVE_PILOT_MODE||'DISABLED').trim().toUpperCase();
+  if(!['ENABLED','DISABLED'].includes(mode))throw new Error('staging-env: REFS_WBS_LIVE_PILOT_MODE must be ENABLED or DISABLED');
   return mode;
 };
 const httpsUrl=(value,name)=>{
@@ -51,6 +68,15 @@ export function validateStagingEnvironment(environment=process.env){
   if(missing.length)throw new Error(`staging-env: missing ${missing.join(', ')}`);
   const attachmentMode=integrationMode(environment,'REFS_ATTACHMENT_MODE');
   const wbsIngestMode=integrationMode(environment,'REFS_WBS_INGEST_MODE');
+  // REFS_WBS_LIVE_PILOT_MODE=ENABLED is a distinct external dependency (provider
+  // gateway behind Cloudflare Access). start-accounting-server.mjs requires these
+  // three headers at boot, so the pre-deploy checklist must fail here instead of
+  // letting the service crash after the secrets are already applied.
+  const wbsLivePilotMode=livePilotMode(environment);
+  if(wbsLivePilotMode==='ENABLED'){
+    const livePilotMissing=livePilotRequired.filter(key=>!present(environment[key]));
+    if(livePilotMissing.length)throw new Error(`staging-env: WBS live pilot integration missing ${livePilotMissing.join(', ')}`);
+  }
   if(attachmentMode==='REQUIRED'){
     const attachmentMissing=attachmentRequired.filter(key=>!present(environment[key]));
     if(attachmentMissing.length)throw new Error(`staging-env: attachment integration missing ${attachmentMissing.join(', ')}`);
@@ -84,7 +110,7 @@ export function validateStagingEnvironment(environment=process.env){
     if(api.origin!==apiBaseUrl)throw new Error('staging-env: public API origin must equal REFS_STAGING_API_BASE_URL');
     if(redirect.origin!==webOrigin)throw new Error('staging-env: public OIDC redirect URI must use REFS_STAGING_WEB_ORIGIN');
   }
-  return {ok:true,apiBaseUrl,webOrigin,allowedOrigins,attachmentMode,wbsIngestMode,publicRuntimeConfigured:suppliedPublic.length===publicKeys.length};
+  return {ok:true,apiBaseUrl,webOrigin,allowedOrigins,attachmentMode,wbsIngestMode,wbsLivePilotMode,publicRuntimeConfigured:suppliedPublic.length===publicKeys.length};
 }
 
 if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])){

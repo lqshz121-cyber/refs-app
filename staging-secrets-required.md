@@ -18,6 +18,8 @@ This checklist contains names and operational requirements only. Supply values t
 | `REFS_HTTP_ALLOWED_ORIGINS` | Browser CORS allowlist | Exact staging web origin only. |
 | `REFS_ATTACHMENT_MODE` | Attachment integration boundary | `DISABLED` in Stage 1; `REQUIRED` only with accepted provider evidence. |
 | `REFS_WBS_INGEST_MODE` | WBS receipt integration boundary | `DISABLED` in Stage 1; `REQUIRED` only with an accepted keyring and signed receipt. |
+| `REFS_WBS_LIVE_PILOT_MODE` | Provider live-read pilot boundary | `DISABLED` unless the Cloudflare Access pilot is approved; `ENABLED` additionally requires the three live-pilot headers below. |
+| `REFS_HTTP_MAX_BODY_BYTES` | Total HTTP body limit | Exactly `10485760` when `REFS_WBS_INGEST_MODE=REQUIRED`; the base64 signed delivery does not fit the default. |
 
 ## Attachments and WBS receipts
 
@@ -66,6 +68,8 @@ both services are declared in the same Blueprint.
 | `WBS_SNAPSHOT_ED25519_PUBLIC_KEYS` | Trusted WBS receipt keyring | JSON key-id to public PEM map; public keys only. |
 | `WBS_PROVIDER_SIGNED_TRUST` | Provider delivery trust pin | Exact reviewed issuer, key id, Ed25519 public key, and canonical fingerprint. |
 | `WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID` | Provider admission service identity | Exact dedicated OIDC M2M token `sub`; never a human user or client display name. |
+| `REFS_WBS_EVIDENCE_RETENTION_DAYS` | Immutable WBS evidence retention | Integer 1..3650. Mandatory whenever `REFS_WBS_INGEST_MODE=REQUIRED`; boot and `validate:staging-env` both reject a missing or out-of-range value. |
+| `WBS_CF_ACCESS_CLIENT_ID`, `WBS_CF_ACCESS_CLIENT_SECRET`, `WBS_REFS_AUTH` | Provider live-read pilot credentials | Mandatory only when `REFS_WBS_LIVE_PILOT_MODE=ENABLED`. Read-only provider gateway scope; never exposed to the browser. |
 
 The dedicated service subject must have only `WBS.SNAPSHOT.IMPORT` for the
 approved tenant/entity. Human reviewer, attachment binder, Maker, Reviewer,
@@ -75,6 +79,8 @@ does not grant any of those roles.
 ## Static application configuration
 
 Set these as public deployment coordinates for the static site, never as secrets: `REFS_PUBLIC_ACCOUNTING_API_BASE_URL`, `REFS_PUBLIC_ENTITY_ID`, `REFS_PUBLIC_PERIOD_ID`, `REFS_PUBLIC_CASH_ACCOUNT_CODE`, `REFS_PUBLIC_OIDC_ISSUER`, `REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT`, `REFS_PUBLIC_OIDC_TOKEN_ENDPOINT`, `REFS_PUBLIC_OIDC_REDIRECT_URI`, `REFS_PUBLIC_OIDC_CLIENT_ID`, `REFS_PUBLIC_OIDC_AUDIENCE`, and `REFS_PUBLIC_OIDC_SCOPE`.
+
+Set these as the acceptance-harness coordinates for the API service and the local smoke run, never as secrets: `REFS_STAGING_API_BASE_URL` (exact HTTPS API origin) and `REFS_STAGING_WEB_ORIGIN` (exact HTTPS browser origin, which must also appear verbatim in `REFS_HTTP_ALLOWED_ORIGINS`).
 
 ## Acceptance commands
 
