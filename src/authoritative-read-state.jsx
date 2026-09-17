@@ -28,6 +28,11 @@ export const authoritativeReadFailureDiagnostic=failure=>{
     ACCOUNTING_API_SCOPE_INVALID:{status:'SCOPE_INVALID',title:'SCOPE_INVALID — the configured entity or period cannot be read',next:'Choose or configure a valid entity and period, then refresh.'},
     CONFIGURATION_REQUIRED:{status:'API_CONFIGURATION_REQUIRED',title:'API_CONFIGURATION_REQUIRED — the authoritative reader is not configured',next:'Ask the deployment owner to configure the authoritative API, then refresh.'},
     ACCOUNTING_API_PROTOCOL:{status:'API_PROTOCOL_ERROR',title:'API_PROTOCOL_ERROR — the server response cannot be used as accounting evidence',next:'Ask the API owner to correct the response contract, then refresh.'},
+    // O07: transport and service failures are named so a 5xx or an unreachable host is never read as "no data".
+    ACCOUNTING_API_UNREACHABLE:{status:'SERVICE_UNREACHABLE',title:'SERVICE_UNREACHABLE — the browser got no HTTP response from the accounting API',next:'Check network and service status, then retry. Nothing below is accounting evidence.'},
+    ACCOUNTING_API_SERVER_ERROR:{status:'SERVICE_ERROR',title:'SERVICE_ERROR — the accounting API failed to answer this read',next:'Retry the read; if it persists, ask the API owner to check service health and dependencies (database, external connectors).'},
+    ACCOUNTING_API_RATE_LIMITED:{status:'RATE_LIMITED',title:'RATE_LIMITED — the accounting API is throttling this client',next:'Wait a moment and retry.'},
+    ACCOUNTING_API_REQUEST_REJECTED:{status:'REQUEST_REJECTED',title:'REQUEST_REJECTED — the accounting API rejected this read request',next:'The request parameters or scope are not acceptable to the API; check the configured scope and filters, then retry.'},
   };
   return known[code]||{status:'API_ERROR',title:'API_ERROR — authoritative data could not be read',next:'Retry the read. If it continues, ask the API owner to check service health and this entity scope.'};
 };

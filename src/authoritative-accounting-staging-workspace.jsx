@@ -1,4 +1,5 @@
 import React,{useEffect,useMemo,useRef,useState} from 'react';
+import {AuthoritativeReadFailure,authoritativeReadFailurePhase} from './authoritative-read-state.jsx';
 import {readAccountingStagingJournal,readAccountingStagingRegister,readAccountingStagingSource} from './accounting-staging-register.js';
 import {AuthoritativeLineageDrill} from './authoritative-lineage-drill.jsx';
 import {AuthoritativeWorkspaceHeader,AuthoritativeWorkspaceView} from './authoritative-workbench-view.jsx';
@@ -8,7 +9,7 @@ const initial={phase:'LOADING',data:null,error:null};
 const label=value=>value.replaceAll('_',' ');
 export function AuthoritativeAccountingStagingWorkspace({config,access=null,fetcher=globalThis.fetch}){
   const [state,setState]=useState(initial),[refresh,setRefresh]=useState(0),[query,setQuery]=useState(''),[status,setStatus]=useState('ALL'),[detail,setDetail]=useState(null),[detailError,setDetailError]=useState(null),[busy,setBusy]=useState(false);const returnButton=useRef(null);
-  useEffect(()=>{let active=true;setState(initial);void readAccountingStagingRegister({config,fetcher}).then(result=>{if(active)setState(result.ok?{phase:'READY',data:result.data,error:null}:{phase:'ERROR',data:null,error:result.message});});return()=>{active=false;};},[config?.baseUrl,config?.entityId,config?.periodId,refresh,fetcher]);
+  useEffect(()=>{let active=true;setState(initial);void readAccountingStagingRegister({config,fetcher}).then(result=>{if(active)setState(result.ok?{phase:'READY',data:result.data,error:null}:{phase:authoritativeReadFailurePhase(result),data:null,error:result});});return()=>{active=false;};},[config?.baseUrl,config?.entityId,config?.periodId,refresh,fetcher]);
   const rows=useMemo(()=>state.data?.rows.filter(row=>{const needle=query.trim().toLowerCase();return(status==='ALL'||row.status===status)&&(!needle||[row.document_no,row.source_record_id,row.document_type,row.source_system,row.source_module,row.status,...row.exceptions.map(item=>item.exception_code)].filter(Boolean).some(value=>String(value).toLowerCase().includes(needle)));})||[],[state.data,query,status]);
   const statuses=useMemo(()=>[...new Set((state.data?.rows||[]).map(row=>row.status))].sort(),[state.data]);
   const open=async(kind,row,evidence,button)=>{if(busy)return;setBusy(true);setDetailError(null);returnButton.current=button;const result=kind==='SOURCE'?await readAccountingStagingSource({config,row,fetcher}):await readAccountingStagingJournal({config,evidence,fetcher});setBusy(false);if(result.ok)setDetail(kind==='SOURCE'?{kind,detail:result.detail,row}:{kind,journal:result.journal,row});else setDetailError(result.message);};
@@ -17,7 +18,7 @@ export function AuthoritativeAccountingStagingWorkspace({config,access=null,fetc
     <AuthoritativeWorkspaceHeader eyebrow="Source & staging" title="Accounting Staging" description="Inspect persisted source-to-staging state, exceptions, configuration evidence, and linked Journals for the selected period." status="Read-only register"/>
     <div className="filter-bar" role="search"><label>Search <input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Document, source, status, or exception"/></label><label>Status <select value={status} onChange={event=>setStatus(event.target.value)}><option value="ALL">All statuses</option>{statuses.map(value=><option key={value} value={value}>{label(value)}</option>)}</select></label><button type="button" className="btn" disabled={state.phase==='LOADING'} onClick={()=>setRefresh(value=>value+1)}>Refresh</button></div>
     {state.phase==='LOADING'?<StateBlock tone="loading" title="Loading Accounting Staging">Reading persisted staging items and immutable evidence links.</StateBlock>:null}
-    {state.phase==='ERROR'?<StateBlock tone="error" title="Could not load Accounting Staging">{state.error}<button type="button" className="btn" onClick={()=>setRefresh(value=>value+1)}>Try again</button></StateBlock>:null}
+    <AuthoritativeReadFailure state={state} onRetry={()=>setRefresh(value=>value+1)} retryLabel="Try again"/>
     {detailError?<p role="alert">{detailError}</p>:null}
     {state.phase==='READY'?<>
       <div className="authoritative-kpi-grid"><article><span>Staging items</span><strong>{state.data.row_count}</strong></article><article><span>Exceptions</span><strong>{state.data.exception_count}</strong></article><article><span>Ready for Draft</span><strong>{state.data.ready_for_draft_count}</strong></article><article><span>Draft or later</span><strong>{state.data.draft_or_later_count}</strong></article></div>

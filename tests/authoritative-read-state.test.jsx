@@ -15,13 +15,14 @@ assert.match(blocked,/Retry read-only evidence/);
 const serviceError=renderToStaticMarkup(<AuthoritativeReadFailure state={{phase:'ERROR',error:{code:'ACCOUNTING_API_UNREACHABLE',message:'Gateway unavailable.'}}} onRetry={()=>{}}/>);
 assert.match(serviceError,/ACCOUNTING_API_UNREACHABLE/);
 assert.match(serviceError,/Gateway unavailable\./);
-assert.match(serviceError,/API_ERROR — authoritative data could not be read/);
+assert.match(serviceError,/SERVICE_UNREACHABLE — the browser got no HTTP response from the accounting API/); // O07: transport failures are named, never generic
+assert.match(renderToStaticMarkup(<AuthoritativeReadFailure state={{phase:'ERROR',error:{code:'SOMETHING_UNKNOWN',message:'x'}}} onRetry={()=>{}}/>),/API_ERROR — authoritative data could not be read/);
 assert.match(serviceError,/Retry report read/);
 assert.doesNotMatch(serviceError,/NO_PERMISSION/);
 assert.equal(authoritativeReadFailureDiagnostic({code:'AUTHENTICATION_REQUIRED'}).status,'SIGN_IN_REQUIRED');
 assert.equal(authoritativeReadFailureDiagnostic({code:'ACCOUNTING_API_SCOPE_INVALID'}).status,'SCOPE_INVALID');
 assert.equal(authoritativeReadFailureDiagnostic({code:'ACCOUNTING_API_SCOPE_NOT_FOUND'}).status,'SCOPE_UNAVAILABLE');
-assert.equal(authoritativeReadFailureDiagnostic({code:'ACCOUNTING_API_SERVER_ERROR'}).status,'API_ERROR');
+assert.equal(authoritativeReadFailureDiagnostic({code:'ACCOUNTING_API_SERVER_ERROR'}).status,'SERVICE_ERROR');assert.equal(authoritativeReadFailureDiagnostic({code:'SOMETHING_UNKNOWN'}).status,'API_ERROR');
 
 const postedEmpty=renderToStaticMarkup(<AuthoritativeScopeEmpty subject="POSTED ledger lines" requiresPosted/>);
 assert.match(postedEmpty,/INGESTION_BLOCKED — no posted authoritative evidence/);

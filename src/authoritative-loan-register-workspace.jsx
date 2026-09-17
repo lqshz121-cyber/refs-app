@@ -1,4 +1,5 @@
 import React,{useEffect,useRef,useState} from 'react';
+import {AuthoritativeReadFailure,authoritativeReadFailurePhase} from './authoritative-read-state.jsx';
 import {readConstructionLoanJournal,readConstructionLoanRegister} from './construction-loan-register.js';
 import {AuthoritativeLineageDrill} from './authoritative-lineage-drill.jsx';
 import {AuthoritativeWorkspaceHeader,AuthoritativeWorkspaceView} from './authoritative-workbench-view.jsx';
@@ -8,7 +9,7 @@ const empty={phase:'LOADING',data:null,error:null};
 export function AuthoritativeLoanRegisterWorkspace({config,access=null,fetcher=globalThis.fetch,onBack=()=>{}}){
   const [state,setState]=useState(empty),[refresh,setRefresh]=useState(0),[detail,setDetail]=useState(null),[detailError,setDetailError]=useState(null),[busy,setBusy]=useState(false);
   const returnButton=useRef(null);
-  useEffect(()=>{let active=true;setState(empty);void readConstructionLoanRegister({config,fetcher}).then(result=>{if(active)setState(result.ok?{phase:'READY',data:result.data,error:null}:{phase:'ERROR',data:null,error:result.message});});return()=>{active=false;};},[config?.baseUrl,config?.entityId,config?.periodId,refresh,fetcher]);
+  useEffect(()=>{let active=true;setState(empty);void readConstructionLoanRegister({config,fetcher}).then(result=>{if(active)setState(result.ok?{phase:'READY',data:result.data,error:null}:{phase:authoritativeReadFailurePhase(result),data:null,error:result});});return()=>{active=false;};},[config?.baseUrl,config?.entityId,config?.periodId,refresh,fetcher]);
   const canReadJournal=access?.entity_id===config?.entityId&&access?.session_refresh_required===false&&access?.permissions?.includes('GL.JE.VIEW');
   const openJournal=async(row,button)=>{if(busy)return;setBusy(true);setDetailError(null);returnButton.current=button;try{const result=await readConstructionLoanJournal({config,journalEntryId:row.journal_entry_ids[0],currency:row.currency,fetcher});if(result.ok)setDetail(result.journal);else setDetailError(result.message);}finally{setBusy(false);}};
   if(detail)return <AuthoritativeLineageDrill config={config} fetcher={fetcher} initial={{kind:'JOURNAL',journal:detail,context:{entityId:config.entityId,periodId:config.periodId,journalId:detail.journal_entry_id,journalRevision:detail.revision,journalCurrency:detail.currency}}} onExit={()=>{setDetail(null);queueMicrotask(()=>returnButton.current?.focus());}}/>;
@@ -16,7 +17,7 @@ export function AuthoritativeLoanRegisterWorkspace({config,access=null,fetcher=g
     <AuthoritativeWorkspaceHeader eyebrow="Projects & Property" title="Loan Register" description="Review posted construction-loan balances tied to exact loan and lender source references." status="Read-only register"/>
     <div className="filter-bar"><button type="button" className="btn" onClick={onBack}>Back to construction loan</button><span>{config?.scopePresentation?.entityLabel||'Selected company'} · {config?.scopePresentation?.periodLabel||'Selected period'}</span><button type="button" className="btn" disabled={state.phase==='LOADING'} onClick={()=>setRefresh(value=>value+1)}>Refresh</button></div>
     {state.phase==='LOADING'?<StateBlock tone="loading" title="Loading Loan Register">Reading posted ledger, approved account mapping, loan source, lender, and immutable lineage references.</StateBlock>:null}
-    {state.phase==='ERROR'?<StateBlock tone="error" title="Could not load Loan Register">{state.error}<button type="button" className="btn" onClick={()=>setRefresh(value=>value+1)}>Try again</button></StateBlock>:null}
+    <AuthoritativeReadFailure state={state} onRetry={()=>setRefresh(value=>value+1)} retryLabel="Try again"/>
     {detailError?<p role="alert">{detailError}</p>:null}
     {state.phase==='READY'?<>
       <div className="authoritative-kpi-grid"><article><span>Loans</span><strong>{state.data.rows.length}</strong></article><article><span>Exact posted lines</span><strong>{state.data.exact_ledger_line_count}</strong></article><article><span>Blocked lines</span><strong>{state.data.blocked_ledger_line_count}</strong></article></div>
