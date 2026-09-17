@@ -489,6 +489,24 @@ const journalWorkflowCapabilities=(row,entityId)=>{
   return {...row};
 };
 
+const INTERNAL_TEST_READINESS_WORKFLOWS=['JOURNAL_ENTRY','AP_BILL','AP_PAYMENT','AP_PAYMENT_REVERSAL','AP_BILL_VOID','AR_INVOICE','AR_RECEIPT','AR_RECEIPT_REVERSAL','BANK_RECONCILE'];
+const internalTestWorkflowReadiness=(row,entityId)=>{
+  if(!row||row.schema_version!=='INTERNAL_TEST_WORKFLOW_READINESS_V1'||row.entity_id!==entityId||row.test_only!==true||row.grants_widened!==false||row.can_grant!==false||!row.roles||typeof row.roles!=='object'||!row.workflows||typeof row.workflows!=='object'||!row.master_data||typeof row.master_data!=='object')return null;
+  if(INTERNAL_TEST_READINESS_WORKFLOWS.some(key=>typeof row.workflows[key]?.ready!=='boolean'||!Array.isArray(row.workflows[key]?.blocking)))return null;
+  return {...row};
+};
+// O05: internal-test only. Which workflows the routed test actors + master data actually allow, with the exact blocker.
+export async function readInternalTestWorkflowReadiness({config,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function')return notConfigured();
+  if(config.internalTestNoLogin!==true)return {ok:false,code:'INTERNAL_TEST_ONLY',message:'Workflow readiness exists only on the internal-test site.'};
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/internal-test/workflow-readiness`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json'}});
+    if(!response.ok)return await failure(response,'INTERNAL_TEST_WORKFLOW_READINESS');
+    const body=await response.json(),readiness=body?.ok===true?internalTestWorkflowReadiness(body.data,config.entityId):null;
+    return readiness?{ok:true,readiness}:{ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid internal-test readiness envelope.'};
+  }catch{return unreachable('The browser could not read internal-test workflow readiness; no HTTP response was produced.');}
+}
+
 export async function readAuthoritativeJournalWorkflowCapabilities({config,fetcher=globalThis.fetch}={}){
   if(!config||typeof fetcher!=='function')return notConfigured();
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
@@ -496,7 +514,17 @@ export async function readAuthoritativeJournalWorkflowCapabilities({config,fetch
     const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/journal-workflow/capabilities`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
     if(!response.ok)return await failure(response,'JOURNAL_WORKFLOW_CAPABILITIES');
     const body=await response.json(),capabilities=body?.ok===true?journalWorkflowCapabilities(body.data,config.entityId):null;
-    return capabilities?{ok:true,capabilities}:{ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Journal workflow capability envelope.'};
+    if(!capabilities)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Journal workflow capability envelope.'};
+    // O05: on the anonymous internal-test site every read runs as the reader, so the reader's own flags are all
+    // false even though POST commands are routed to the pre-provisioned test actors. Overlay the routed actors'
+    // readiness (a test-only diagnostic read) so the UI enables exactly the steps that would actually succeed.
+    // Any failure of the overlay leaves the reader's honest "false" flags in place.
+    if(config.internalTestNoLogin===true){
+      const readiness=await readInternalTestWorkflowReadiness({config,fetcher});
+      if(readiness.ok){const roles=readiness.readiness.roles||{};const flag=(role,permission)=>roles[role]?.permissions?.[permission]===true;
+        return {ok:true,capabilities:{...capabilities,can_submit:flag('submitter','GL.JE.SUBMIT'),can_review:flag('reviewer','GL.JE.REVIEW'),can_approve:flag('approver','GL.JE.APPROVE'),can_post:flag('poster','GL.JE.POST')},internal_test_readiness:readiness.readiness};}
+    }
+    return {ok:true,capabilities};
   }catch{return unreachable('The browser could not read Journal workflow capabilities; no HTTP response was produced.');}
 }
 

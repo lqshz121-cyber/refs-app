@@ -30144,6 +30144,113 @@
           }
         }
       }
+    },
+    "/entities/{entityId}/internal-test/workflow-readiness": {
+      "get": {
+        "operationId": "readInternalTestWorkflowReadiness",
+        "summary": "Internal-test workflow readiness (FULL_WORKFLOW internal-test profile only)",
+        "description": "Reports, per business workflow, whether the routed internal-test actors hold the grants the command needs and whether the entity carries the master data (OPEN period, BANK/VENDOR/CUSTOMER members). Test-only diagnostic; never widens grants and never echoes actor identifiers. Outside the internal-test FULL_WORKFLOW profile the route does not exist (404).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "INTERNAL_TEST_WORKFLOW_READINESS_V1 envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "entity_id",
+                        "profile",
+                        "test_only",
+                        "roles",
+                        "master_data",
+                        "workflows",
+                        "grants_widened",
+                        "can_grant"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "type": "string",
+                          "enum": [
+                            "INTERNAL_TEST_WORKFLOW_READINESS_V1"
+                          ]
+                        },
+                        "entity_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "profile": {
+                          "type": "string",
+                          "enum": [
+                            "FULL_WORKFLOW"
+                          ]
+                        },
+                        "test_only": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ]
+                        },
+                        "roles": {
+                          "type": "object"
+                        },
+                        "master_data": {
+                          "type": "object"
+                        },
+                        "workflows": {
+                          "type": "object"
+                        },
+                        "grants_widened": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        },
+                        "can_grant": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "description": "Route absent outside the internal-test FULL_WORKFLOW profile"
+          },
+          "502": {
+            "description": "Readiness did not match the closed read contract"
+          }
+        },
+        "tags": [
+          "Internal test"
+        ]
+      }
     }
   },
   "components": {

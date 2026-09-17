@@ -2370,6 +2370,26 @@ export class PostgresAccountingKernel{
     });
   }
 
+  // O05: permission flags for the CURRENT session actor via the same database predicate the commands use.
+  async readEntityPermissionFlags({tenantId,entityId,permissions}){
+    if(!Array.isArray(permissions)||!permissions.length||permissions.length>64||permissions.some(p=>typeof p!=='string'||!/^[A-Z][A-Z0-9_.]{2,63}$/.test(p)))throw new KernelError('PERMISSION_FLAGS_INVALID','permissions must be 1..64 canonical permission codes');
+    return this.inSession(async client=>{
+      const row=requireRow(await client.query(`SELECT jsonb_object_agg(p,refs_entity_has_permission($1,p)) AS flags FROM unnest($2::text[]) AS p`,[entityId,permissions]),'PERMISSION_FLAGS_MISSING','Permission flags were not returned');
+      void tenantId;return row.flags||{};
+    });
+  }
+  // O05: master-data prerequisites for the internal-test workflows (reader session, tenant-scoped by session context).
+  async readInternalTestMasterDataReadiness({tenantId,entityId}){
+    return this.inSession(async client=>{
+      await client.query("SELECT refs_assert_scope($1,$2,'GL.JE.VIEW')",[tenantId,entityId]);
+      const row=requireRow(await client.query(`SELECT
+        EXISTS(SELECT 1 FROM accounting_period ap WHERE ap.tenant_id=$1 AND ap.entity_id=$2 AND ap.status='OPEN') AS "OPEN_PERIOD",
+        EXISTS(SELECT 1 FROM member_master m WHERE m.tenant_id=$1 AND m.entity_id=$2 AND m.member_type='BANK' AND m.active) AS "BANK",
+        EXISTS(SELECT 1 FROM member_master m WHERE m.tenant_id=$1 AND m.entity_id=$2 AND m.member_type='VENDOR' AND m.active) AS "VENDOR",
+        EXISTS(SELECT 1 FROM member_master m WHERE m.tenant_id=$1 AND m.entity_id=$2 AND m.member_type='CUSTOMER' AND m.active) AS "CUSTOMER"`,[tenantId,entityId]),'INTERNAL_TEST_MASTER_DATA_MISSING','Master data readiness was not returned');
+      return row;
+    });
+  }
   async getJournalWorkflowCapabilities({tenantId,entityId}){
     return this.inSession(async client=>{
       await client.query("SELECT refs_assert_scope($1,$2,'GL.JE.VIEW')",[tenantId,entityId]);
