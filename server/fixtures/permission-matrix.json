@@ -1,0 +1,1171 @@
+[
+ {
+  "permission_code": "AI.PROPOSAL.CREATE",
+  "domain": "AI",
+  "risk_class": "HIGH",
+  "sod_class": "AI_PROPOSAL_SERVICE",
+  "authority_class": null
+ },
+ {
+  "permission_code": "ACCOUNTING.SETTINGS.WORKFLOW.ACTIVATE",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "CRITICAL",
+  "sod_class": "ACCOUNTING_SETTINGS_ACTIVATE",
+  "authority_class": "POST"
+ },
+ {
+  "permission_code": "ACCOUNTING.SETTINGS.WORKFLOW.APPROVE",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "CRITICAL",
+  "sod_class": "ACCOUNTING_SETTINGS_APPROVE",
+  "authority_class": "APPROVE"
+ },
+ {
+  "permission_code": "ACCOUNTING.SETTINGS.WORKFLOW.CREATE",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "HIGH",
+  "sod_class": "ACCOUNTING_SETTINGS_DRAFT",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "ACCOUNTING.SETTINGS.WORKFLOW.REVIEW",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "HIGH",
+  "sod_class": "ACCOUNTING_SETTINGS_REVIEW",
+  "authority_class": "REVIEW"
+ },
+ {
+  "permission_code": "ACCOUNTING.SETTINGS.WORKFLOW.SUBMIT",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "HIGH",
+  "sod_class": "ACCOUNTING_SETTINGS_SUBMIT",
+  "authority_class": "SUBMIT"
+ },
+ {
+  "permission_code": "ACCOUNTING.SETTINGS.WORKFLOW.VIEW",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": "READ"
+ },
+ {
+  "permission_code": "AI.ACCOUNTING.SETTINGS.VIEW",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": null
+ },
+ {
+  "permission_code": "AI.ACCRUAL.PROPOSE",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "MEDIUM",
+  "sod_class": "PREPARER",
+  "authority_class": "PREPARER"
+ },
+ {
+  "permission_code": "AI.ACCRUAL.VIEW",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "LOW",
+  "sod_class": "VIEWER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "AI.AMORTIZATION.DRAFT",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "HIGH",
+  "sod_class": "AI_AMORTIZATION_DRAFTER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "AI.AMORTIZATION.PROPOSE",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "MEDIUM",
+  "sod_class": "PREPARER",
+  "authority_class": "PREPARE"
+ },
+ {
+  "permission_code": "AI.AMORTIZATION.VIEW",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "LOW",
+  "sod_class": "VIEWER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "AI.ANALYSIS.EXPLAIN",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": null
+ },
+ {
+  "permission_code": "AI.CAPITALIZATION.PROPOSE",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "MEDIUM",
+  "sod_class": "PREPARER",
+  "authority_class": "PREPARER"
+ },
+ {
+  "permission_code": "AI.CAPITALIZATION.VIEW",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "LOW",
+  "sod_class": "VIEWER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "AI.EXPENSE.PROPOSE",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "MEDIUM",
+  "sod_class": "PREPARER",
+  "authority_class": "PREPARER"
+ },
+ {
+  "permission_code": "AI.EXPENSE.VIEW",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "LOW",
+  "sod_class": "VIEWER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "AI.FINDING.ASSIGN",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "MEDIUM",
+  "sod_class": "CONTROLLER",
+  "authority_class": "ASSIGN"
+ },
+ {
+  "permission_code": "AI.FINDING.RESOLVE",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "MEDIUM",
+  "sod_class": "CONTROLLER",
+  "authority_class": "RESOLVE"
+ },
+ {
+  "permission_code": "AI.LOAN.CLASSIFY",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "MEDIUM",
+  "sod_class": "PREPARER",
+  "authority_class": "PREPARER"
+ },
+ {
+  "permission_code": "AI.LOAN.PROPOSE",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "MEDIUM",
+  "sod_class": "PREPARER",
+  "authority_class": "PREPARER"
+ },
+ {
+  "permission_code": "AI.LOAN.VIEW",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "LOW",
+  "sod_class": "VIEWER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "AI.TEST.WORKFLOW",
+  "domain": "AI_ACCOUNTING",
+  "risk_class": "HIGH",
+  "sod_class": "CONTROLLED_TEST_AI_SOURCE_DERIVER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "AP.BILL.CREATE",
+  "domain": "AP",
+  "risk_class": "HIGH",
+  "sod_class": "AP_BILL_MAKER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "AP.BILL.VOID.APPROVE",
+  "domain": "AP",
+  "risk_class": "CRITICAL",
+  "sod_class": "AP_ADJUSTMENT_APPROVE",
+  "authority_class": "AP_ADJUSTMENT_APPROVE"
+ },
+ {
+  "permission_code": "AP.BILL.VOID.CREATE",
+  "domain": "AP",
+  "risk_class": "CRITICAL",
+  "sod_class": "AP_ADJUSTMENT_MAKER",
+  "authority_class": "AP_ADJUSTMENT_MAKER"
+ },
+ {
+  "permission_code": "AP.EXPENSE.CREATE",
+  "domain": "AP",
+  "risk_class": "HIGH",
+  "sod_class": "AP_EXPENSE_MAKER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "AP.PAYMENT.CREATE",
+  "domain": "AP",
+  "risk_class": "HIGH",
+  "sod_class": "AP_PAYMENT_MAKER",
+  "authority_class": "PAYMENT"
+ },
+ {
+  "permission_code": "AP.PAYMENT.REVERSE",
+  "domain": "AP",
+  "risk_class": "CRITICAL",
+  "sod_class": "AP_REVERSAL_MAKER",
+  "authority_class": "REVERSAL"
+ },
+ {
+  "permission_code": "AP.VENDOR_CREDIT.APPLY",
+  "domain": "AP",
+  "risk_class": "HIGH",
+  "sod_class": "AP_ALLOCATION_MAKER",
+  "authority_class": "ALLOCATION"
+ },
+ {
+  "permission_code": "AP.VENDOR_CREDIT.CREATE",
+  "domain": "AP",
+  "risk_class": "HIGH",
+  "sod_class": "AP_ADJUSTMENT_MAKER",
+  "authority_class": "ADJUSTMENT"
+ },
+ {
+  "permission_code": "AP.VIEW",
+  "domain": "AP",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": null
+ },
+ {
+  "permission_code": "AR.CREDIT_MEMO.APPLY",
+  "domain": "AR",
+  "risk_class": "HIGH",
+  "sod_class": "AR_ALLOCATION_MAKER",
+  "authority_class": "ALLOCATION"
+ },
+ {
+  "permission_code": "AR.CREDIT_MEMO.CREATE",
+  "domain": "AR",
+  "risk_class": "HIGH",
+  "sod_class": "AR_ADJUSTMENT_MAKER",
+  "authority_class": "ADJUSTMENT"
+ },
+ {
+  "permission_code": "AR.INVOICE.CREATE",
+  "domain": "AR",
+  "risk_class": "HIGH",
+  "sod_class": "AR_INVOICE_MAKER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "AR.RECEIPT.CREATE",
+  "domain": "AR",
+  "risk_class": "HIGH",
+  "sod_class": "AR_RECEIPT_MAKER",
+  "authority_class": "RECEIPT"
+ },
+ {
+  "permission_code": "AR.RECEIPT.REVERSE",
+  "domain": "AR",
+  "risk_class": "CRITICAL",
+  "sod_class": "AR_REVERSAL_MAKER",
+  "authority_class": "REVERSAL"
+ },
+ {
+  "permission_code": "AR.REFUND.CREATE",
+  "domain": "AR",
+  "risk_class": "CRITICAL",
+  "sod_class": "AR_REFUND_MAKER",
+  "authority_class": "REFUND"
+ },
+ {
+  "permission_code": "AR.SALES_RECEIPT.CREATE",
+  "domain": "AR",
+  "risk_class": "HIGH",
+  "sod_class": "AR_SALES_RECEIPT_MAKER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "AR.VIEW",
+  "domain": "AR",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": null
+ },
+ {
+  "permission_code": "ATTACHMENT.CLEANUP",
+  "domain": "ATTACHMENT",
+  "risk_class": "HIGH",
+  "sod_class": "ATTACHMENT_CLEANER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "ATTACHMENT.CREATE",
+  "domain": "ATTACHMENT",
+  "risk_class": "MEDIUM",
+  "sod_class": "ATTACHMENT_UPLOADER",
+  "authority_class": "ATTACHMENT_UPLOADER"
+ },
+ {
+  "permission_code": "ATTACHMENT.FINALIZE",
+  "domain": "ATTACHMENT",
+  "risk_class": "HIGH",
+  "sod_class": "ATTACHMENT_SCANNER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "AUDIT.VIEW",
+  "domain": "AUDIT",
+  "risk_class": "MEDIUM",
+  "sod_class": "AUDIT_READER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "BANK.AUTOREC.G11.DRAFT",
+  "domain": "BANK",
+  "risk_class": "CRITICAL",
+  "sod_class": "WBS_AUTOREC_G11_DRAFT_MAKER",
+  "authority_class": "WBS_AUTOREC_G11_DRAFT_MAKER"
+ },
+ {
+  "permission_code": "BANK.AUTOREC.G11.INCUR",
+  "domain": "BANK",
+  "risk_class": "CRITICAL",
+  "sod_class": "WBS_AUTOREC_G11_FINALIZER",
+  "authority_class": "WBS_AUTOREC_G11_FINALIZER"
+ },
+ {
+  "permission_code": "BANK.AUTOREC.G11.REVERSE",
+  "domain": "BANK",
+  "risk_class": "CRITICAL",
+  "sod_class": "WBS_AUTOREC_G11_REVERSE",
+  "authority_class": null
+ },
+ {
+  "permission_code": "BANK.AUTOREC.G11.REVERSE_DRAFT",
+  "domain": "BANK",
+  "risk_class": "CRITICAL",
+  "sod_class": "WBS_AUTOREC_G11_REVERSE_DRAFT",
+  "authority_class": null
+ },
+ {
+  "permission_code": "BANK.AUTOREC.MANAGE",
+  "domain": "BANK",
+  "risk_class": "CRITICAL",
+  "sod_class": "AUTOREC_MANAGER",
+  "authority_class": "AUTOREC_MANAGER"
+ },
+ {
+  "permission_code": "BANK.AUTOREC.SYNC",
+  "domain": "BANK",
+  "risk_class": "HIGH",
+  "sod_class": "AUTOREC_SYNC",
+  "authority_class": null
+ },
+ {
+  "permission_code": "BANK.MATCH.CREATE",
+  "domain": "BANK",
+  "risk_class": "HIGH",
+  "sod_class": "BANK_MATCH_MAKER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "BANK.MATCH.REVIEW",
+  "domain": "BANK",
+  "risk_class": "HIGH",
+  "sod_class": "BANK_MATCH_REVIEWER",
+  "authority_class": "REVIEW"
+ },
+ {
+  "permission_code": "BANK.MATCH.UNMATCH",
+  "domain": "BANK",
+  "risk_class": "HIGH",
+  "sod_class": "BANK_MATCH_REVIEWER",
+  "authority_class": "UNMATCH"
+ },
+ {
+  "permission_code": "BANK.RECONCILIATION.ADJUSTMENT_DRAFT",
+  "domain": "BANK",
+  "risk_class": "HIGH",
+  "sod_class": "BANK_RECONCILIATION_MAKER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "BANK.RECONCILIATION.CLEAR",
+  "domain": "BANK",
+  "risk_class": "HIGH",
+  "sod_class": "BANK_RECONCILIATION_MAKER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "BANK.RECONCILIATION.REOPEN",
+  "domain": "BANK",
+  "risk_class": "CRITICAL",
+  "sod_class": "BANK_RECONCILIATION_REOPENER",
+  "authority_class": "REOPEN"
+ },
+ {
+  "permission_code": "BANK.RECONCILIATION.REVIEW",
+  "domain": "BANK",
+  "risk_class": "HIGH",
+  "sod_class": "BANK_RECONCILIATION_REVIEWER",
+  "authority_class": "REVIEW"
+ },
+ {
+  "permission_code": "BANK.RECONCILIATION.SIGN_OFF",
+  "domain": "BANK",
+  "risk_class": "CRITICAL",
+  "sod_class": "BANK_RECONCILIATION_APPROVER",
+  "authority_class": "APPROVE"
+ },
+ {
+  "permission_code": "BANK.RECONCILIATION.START",
+  "domain": "BANK",
+  "risk_class": "HIGH",
+  "sod_class": "BANK_RECONCILIATION_MAKER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "BANK.VIEW",
+  "domain": "BANK",
+  "risk_class": "LOW",
+  "sod_class": "BANK_READER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "CASH.TRANSFER.APPROVE",
+  "domain": "CASH",
+  "risk_class": "CRITICAL",
+  "sod_class": "CASH_TRANSFER_APPROVE",
+  "authority_class": "APPROVE"
+ },
+ {
+  "permission_code": "CASH.TRANSFER.CANCEL",
+  "domain": "CASH",
+  "risk_class": "HIGH",
+  "sod_class": "CASH_TRANSFER_CANCEL",
+  "authority_class": "JE_REVIEW"
+ },
+ {
+  "permission_code": "CASH.TRANSFER.CONFIGURE",
+  "domain": "CASH",
+  "risk_class": "HIGH",
+  "sod_class": "CASH_TRANSFER_CONFIG_DRAFT",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "CASH.TRANSFER.CONFIGURE.APPROVE",
+  "domain": "CASH",
+  "risk_class": "CRITICAL",
+  "sod_class": "CASH_TRANSFER_CONFIG_APPROVE",
+  "authority_class": "APPROVE"
+ },
+ {
+  "permission_code": "CASH.TRANSFER.CREATE",
+  "domain": "CASH",
+  "risk_class": "HIGH",
+  "sod_class": "CASH_TRANSFER_DRAFT",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "CASH.TRANSFER.POST",
+  "domain": "CASH",
+  "risk_class": "CRITICAL",
+  "sod_class": "CASH_TRANSFER_POST",
+  "authority_class": "POST"
+ },
+ {
+  "permission_code": "CASH.TRANSFER.RECONCILE",
+  "domain": "CASH",
+  "risk_class": "HIGH",
+  "sod_class": "CASH_TRANSFER_RECONCILE",
+  "authority_class": "JE_REVIEW"
+ },
+ {
+  "permission_code": "CASH.TRANSFER.REVIEW",
+  "domain": "CASH",
+  "risk_class": "HIGH",
+  "sod_class": "CASH_TRANSFER_REVIEW",
+  "authority_class": "REVIEW"
+ },
+ {
+  "permission_code": "CASH.TRANSFER.SUBMIT",
+  "domain": "CASH",
+  "risk_class": "HIGH",
+  "sod_class": "CASH_TRANSFER_SUBMIT",
+  "authority_class": "SUBMIT"
+ },
+ {
+  "permission_code": "CASH.TRANSFER.VIEW",
+  "domain": "CASH",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": null
+ },
+ {
+  "permission_code": "CONFIG.SNAPSHOT.RETIRE",
+  "domain": "CONFIG",
+  "risk_class": "CRITICAL",
+  "sod_class": "CONFIG_RETIRE",
+  "authority_class": "CONFIG_RETIRE"
+ },
+ {
+  "permission_code": "GROUP.CONSOLIDATION.CONFIG.APPROVE",
+  "domain": "CONSOLIDATION",
+  "risk_class": "CRITICAL",
+  "sod_class": "CONSOLIDATION_CONFIG_APPROVE",
+  "authority_class": "APPROVE"
+ },
+ {
+  "permission_code": "GROUP.CONSOLIDATION.CONFIG.CREATE",
+  "domain": "CONSOLIDATION",
+  "risk_class": "HIGH",
+  "sod_class": "CONSOLIDATION_CONFIG_DRAFT",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "GROUP.CONSOLIDATION.CONFIG.SUBMIT",
+  "domain": "CONSOLIDATION",
+  "risk_class": "HIGH",
+  "sod_class": "CONSOLIDATION_CONFIG_SUBMIT",
+  "authority_class": "SUBMIT"
+ },
+ {
+  "permission_code": "GROUP.CONSOLIDATION.CONFIG.VIEW",
+  "domain": "CONSOLIDATION",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": "READ"
+ },
+ {
+  "permission_code": "GROUP.INTERCOMPANY_ELIMINATION.APPROVE",
+  "domain": "CONSOLIDATION",
+  "risk_class": "CRITICAL",
+  "sod_class": "INTERCOMPANY_ELIMINATION_APPROVE",
+  "authority_class": "APPROVE"
+ },
+ {
+  "permission_code": "GROUP.INTERCOMPANY_ELIMINATION.CANCEL",
+  "domain": "CONSOLIDATION",
+  "risk_class": "HIGH",
+  "sod_class": "INTERCOMPANY_ELIMINATION_CANCEL",
+  "authority_class": "REVIEW"
+ },
+ {
+  "permission_code": "GROUP.INTERCOMPANY_ELIMINATION.CREATE",
+  "domain": "CONSOLIDATION",
+  "risk_class": "HIGH",
+  "sod_class": "INTERCOMPANY_ELIMINATION_DRAFT",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "GROUP.INTERCOMPANY_ELIMINATION.POST",
+  "domain": "CONSOLIDATION",
+  "risk_class": "CRITICAL",
+  "sod_class": "INTERCOMPANY_ELIMINATION_POST",
+  "authority_class": "POST"
+ },
+ {
+  "permission_code": "GROUP.INTERCOMPANY_ELIMINATION.REVIEW",
+  "domain": "CONSOLIDATION",
+  "risk_class": "HIGH",
+  "sod_class": "INTERCOMPANY_ELIMINATION_REVIEW",
+  "authority_class": "REVIEW"
+ },
+ {
+  "permission_code": "GROUP.INTERCOMPANY_ELIMINATION.SUBMIT",
+  "domain": "CONSOLIDATION",
+  "risk_class": "HIGH",
+  "sod_class": "INTERCOMPANY_ELIMINATION_SUBMIT",
+  "authority_class": "SUBMIT"
+ },
+ {
+  "permission_code": "GROUP.INTERCOMPANY_ELIMINATION.VIEW",
+  "domain": "CONSOLIDATION",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": "READ"
+ },
+ {
+  "permission_code": "FIXED_ASSET.ACQUISITION.DRAFT",
+  "domain": "FIXED_ASSET",
+  "risk_class": "HIGH",
+  "sod_class": "FIXED_ASSET_ACQUISITION_MAKER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "FIXED_ASSET.DEPRECIATION.DRAFT",
+  "domain": "FIXED_ASSET",
+  "risk_class": "HIGH",
+  "sod_class": "FIXED_ASSET_DEPRECIATION_MAKER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "FIXED_ASSET.DEPRECIATION.POLICY.REVIEW",
+  "domain": "FIXED_ASSET",
+  "risk_class": "HIGH",
+  "sod_class": "REVIEWER",
+  "authority_class": "REVIEWER"
+ },
+ {
+  "permission_code": "FIXED_ASSET.DISPOSAL.DRAFT",
+  "domain": "FIXED_ASSET",
+  "risk_class": "HIGH",
+  "sod_class": "FIXED_ASSET_DISPOSAL_MAKER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "FIXED_ASSET.DISPOSAL.REVIEW",
+  "domain": "FIXED_ASSET",
+  "risk_class": "HIGH",
+  "sod_class": "REVIEWER",
+  "authority_class": "REVIEWER"
+ },
+ {
+  "permission_code": "FIXED_ASSET.DISPOSAL.VIEW",
+  "domain": "FIXED_ASSET",
+  "risk_class": "LOW",
+  "sod_class": "VIEWER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "FIXED_ASSET.IMPAIRMENT.REVIEW",
+  "domain": "FIXED_ASSET",
+  "risk_class": "HIGH",
+  "sod_class": "REVIEWER",
+  "authority_class": "REVIEWER"
+ },
+ {
+  "permission_code": "FIXED_ASSET.IMPAIRMENT.VIEW",
+  "domain": "FIXED_ASSET",
+  "risk_class": "LOW",
+  "sod_class": "VIEWER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "FIXED_ASSET.REGISTER.REVIEW",
+  "domain": "FIXED_ASSET",
+  "risk_class": "HIGH",
+  "sod_class": "REVIEWER",
+  "authority_class": "REVIEWER"
+ },
+ {
+  "permission_code": "FIXED_ASSET.REGISTER.VIEW",
+  "domain": "FIXED_ASSET",
+  "risk_class": "LOW",
+  "sod_class": "VIEWER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "GL.SOURCE.PARSE",
+  "domain": "GENERAL_LEDGER",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": "READ"
+ },
+ {
+  "permission_code": "RECURRING.SCHEDULE.APPROVE",
+  "domain": "GENERAL_LEDGER",
+  "risk_class": "CRITICAL",
+  "sod_class": "RECURRING_APPROVE",
+  "authority_class": "APPROVE"
+ },
+ {
+  "permission_code": "RECURRING.SCHEDULE.CREATE",
+  "domain": "GENERAL_LEDGER",
+  "risk_class": "HIGH",
+  "sod_class": "RECURRING_DRAFT",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "RECURRING.SCHEDULE.MANAGE",
+  "domain": "GENERAL_LEDGER",
+  "risk_class": "HIGH",
+  "sod_class": "RECURRING_MANAGE",
+  "authority_class": "REVIEW"
+ },
+ {
+  "permission_code": "RECURRING.SCHEDULE.RUN",
+  "domain": "GENERAL_LEDGER",
+  "risk_class": "HIGH",
+  "sod_class": "RECURRING_RUN",
+  "authority_class": "SCHEDULE"
+ },
+ {
+  "permission_code": "RECURRING.SCHEDULE.SUBMIT",
+  "domain": "GENERAL_LEDGER",
+  "risk_class": "HIGH",
+  "sod_class": "RECURRING_SUBMIT",
+  "authority_class": "SUBMIT"
+ },
+ {
+  "permission_code": "RECURRING.SCHEDULE.VIEW",
+  "domain": "GENERAL_LEDGER",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": "READ"
+ },
+ {
+  "permission_code": "GL.JE.APPROVE",
+  "domain": "GL",
+  "risk_class": "CRITICAL",
+  "sod_class": "JE_APPROVE",
+  "authority_class": "APPROVE"
+ },
+ {
+  "permission_code": "GL.JE.AUTO.CREATE",
+  "domain": "GL",
+  "risk_class": "HIGH",
+  "sod_class": "JE_AUTO_MAKER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "GL.JE.CREATE",
+  "domain": "GL",
+  "risk_class": "HIGH",
+  "sod_class": "JE_MAKER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "GL.JE.EDIT",
+  "domain": "GL",
+  "risk_class": "HIGH",
+  "sod_class": "JE_MAKER",
+  "authority_class": "JE_MAKER"
+ },
+ {
+  "permission_code": "GL.JE.POST",
+  "domain": "GL",
+  "risk_class": "CRITICAL",
+  "sod_class": "JE_POST",
+  "authority_class": "POST"
+ },
+ {
+  "permission_code": "GL.JE.RECLASS",
+  "domain": "GL",
+  "risk_class": "CRITICAL",
+  "sod_class": "JE_RECLASS",
+  "authority_class": "JE_RECLASS"
+ },
+ {
+  "permission_code": "GL.JE.REJECT",
+  "domain": "GL",
+  "risk_class": "HIGH",
+  "sod_class": "JE_REVIEW",
+  "authority_class": "JE_REVIEW"
+ },
+ {
+  "permission_code": "GL.JE.REVERSE",
+  "domain": "GL",
+  "risk_class": "CRITICAL",
+  "sod_class": "JE_REVERSAL",
+  "authority_class": "JE_REVERSAL"
+ },
+ {
+  "permission_code": "GL.JE.REVIEW",
+  "domain": "GL",
+  "risk_class": "HIGH",
+  "sod_class": "JE_REVIEW",
+  "authority_class": "REVIEW"
+ },
+ {
+  "permission_code": "GL.JE.SUBMIT",
+  "domain": "GL",
+  "risk_class": "HIGH",
+  "sod_class": "JE_MAKER",
+  "authority_class": "SUBMIT"
+ },
+ {
+  "permission_code": "GL.JE.VIEW",
+  "domain": "GL",
+  "risk_class": "LOW",
+  "sod_class": "JE_READER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "GL.PERIOD.CLOSE",
+  "domain": "GL",
+  "risk_class": "CRITICAL",
+  "sod_class": "PERIOD_CLOSE",
+  "authority_class": "CLOSE"
+ },
+ {
+  "permission_code": "GL.PERIOD.REOPEN",
+  "domain": "GL",
+  "risk_class": "CRITICAL",
+  "sod_class": "PERIOD_REOPEN",
+  "authority_class": "REOPEN"
+ },
+ {
+  "permission_code": "GL.REPORT.SNAPSHOT.APPROVE",
+  "domain": "GL",
+  "risk_class": "CRITICAL",
+  "sod_class": "GL_REPORT_SNAPSHOT_APPROVER",
+  "authority_class": "APPROVE"
+ },
+ {
+  "permission_code": "GL.REPORT.SNAPSHOT.PREPARE",
+  "domain": "GL",
+  "risk_class": "HIGH",
+  "sod_class": "GL_REPORT_SNAPSHOT_PREPARER",
+  "authority_class": "PREPARE"
+ },
+ {
+  "permission_code": "GL.REPORT.VIEW",
+  "domain": "GL",
+  "risk_class": "LOW",
+  "sod_class": "GL_REPORT_READER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "DATA.EXCHANGE.HISTORY.VIEW",
+  "domain": "INTEGRATION",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": "READ"
+ },
+ {
+  "permission_code": "DATA.EXCHANGE.POSTED_LEDGER.EXPORT",
+  "domain": "INTEGRATION",
+  "risk_class": "MEDIUM",
+  "sod_class": "POSTED_LEDGER_EXPORT",
+  "authority_class": "EXPORT"
+ },
+ {
+  "permission_code": "INTEGRATION.WEBHOOK.APPROVE",
+  "domain": "INTEGRATION",
+  "risk_class": "CRITICAL",
+  "sod_class": "WEBHOOK_SUBSCRIPTION_APPROVE",
+  "authority_class": "APPROVE"
+ },
+ {
+  "permission_code": "INTEGRATION.WEBHOOK.CREATE",
+  "domain": "INTEGRATION",
+  "risk_class": "HIGH",
+  "sod_class": "WEBHOOK_SUBSCRIPTION_DRAFT",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "INTEGRATION.WEBHOOK.SUBMIT",
+  "domain": "INTEGRATION",
+  "risk_class": "HIGH",
+  "sod_class": "WEBHOOK_SUBSCRIPTION_SUBMIT",
+  "authority_class": "SUBMIT"
+ },
+ {
+  "permission_code": "INTEGRATION.WEBHOOK.SUSPEND",
+  "domain": "INTEGRATION",
+  "risk_class": "HIGH",
+  "sod_class": "WEBHOOK_SUBSCRIPTION_SUSPEND",
+  "authority_class": "JE_REVIEW"
+ },
+ {
+  "permission_code": "INTEGRATION.WEBHOOK.VIEW",
+  "domain": "INTEGRATION",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": "READ"
+ },
+ {
+  "permission_code": "MASTER.COUNTERPARTY.APPROVE",
+  "domain": "MASTER",
+  "risk_class": "HIGH",
+  "sod_class": "COUNTERPARTY_APPROVER",
+  "authority_class": "APPROVE"
+ },
+ {
+  "permission_code": "MASTER.COUNTERPARTY.PROPOSE",
+  "domain": "MASTER",
+  "risk_class": "HIGH",
+  "sod_class": "COUNTERPARTY_MAKER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "OUTBOX.DISPATCH",
+  "domain": "PLATFORM",
+  "risk_class": "HIGH",
+  "sod_class": "OUTBOX_WORKER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "PREPAID.AMORTIZATION.DRAFT",
+  "domain": "PREPAID",
+  "risk_class": "HIGH",
+  "sod_class": "PREPAID_AMORTIZATION_DRAFTER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "PREPAID.AMORTIZATION.REVIEW",
+  "domain": "PREPAID",
+  "risk_class": "HIGH",
+  "sod_class": "PREPAID_AMORTIZATION_REVIEWER",
+  "authority_class": "REVIEW"
+ },
+ {
+  "permission_code": "REAL_ESTATE.UNIT_TRANSFER.APPROVE",
+  "domain": "REAL_ESTATE",
+  "risk_class": "CRITICAL",
+  "sod_class": "UNIT_TRANSFER_APPROVE",
+  "authority_class": "APPROVE"
+ },
+ {
+  "permission_code": "REAL_ESTATE.UNIT_TRANSFER.CANCEL",
+  "domain": "REAL_ESTATE",
+  "risk_class": "HIGH",
+  "sod_class": "UNIT_TRANSFER_CANCEL",
+  "authority_class": "JE_REVIEW"
+ },
+ {
+  "permission_code": "REAL_ESTATE.UNIT_TRANSFER.CREATE",
+  "domain": "REAL_ESTATE",
+  "risk_class": "HIGH",
+  "sod_class": "UNIT_TRANSFER_DRAFT",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "REAL_ESTATE.UNIT_TRANSFER.POST",
+  "domain": "REAL_ESTATE",
+  "risk_class": "CRITICAL",
+  "sod_class": "UNIT_TRANSFER_POST",
+  "authority_class": "POST"
+ },
+ {
+  "permission_code": "REAL_ESTATE.UNIT_TRANSFER.REJECT",
+  "domain": "REAL_ESTATE",
+  "risk_class": "HIGH",
+  "sod_class": "UNIT_TRANSFER_REJECT",
+  "authority_class": "JE_REVIEW"
+ },
+ {
+  "permission_code": "REAL_ESTATE.UNIT_TRANSFER.REVERSE",
+  "domain": "REAL_ESTATE",
+  "risk_class": "CRITICAL",
+  "sod_class": "UNIT_TRANSFER_REVERSAL",
+  "authority_class": "REVERSAL"
+ },
+ {
+  "permission_code": "REAL_ESTATE.UNIT_TRANSFER.REVIEW",
+  "domain": "REAL_ESTATE",
+  "risk_class": "HIGH",
+  "sod_class": "UNIT_TRANSFER_REVIEW",
+  "authority_class": "REVIEW"
+ },
+ {
+  "permission_code": "REAL_ESTATE.UNIT_TRANSFER.SUBMIT",
+  "domain": "REAL_ESTATE",
+  "risk_class": "HIGH",
+  "sod_class": "UNIT_TRANSFER_SUBMIT",
+  "authority_class": "SUBMIT"
+ },
+ {
+  "permission_code": "REAL_ESTATE.UNIT_TRANSFER.VIEW",
+  "domain": "REAL_ESTATE",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": null
+ },
+ {
+  "permission_code": "REPORT.CUSTOM.VIEW",
+  "domain": "REPORTING",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": "READ"
+ },
+ {
+  "permission_code": "REPORT.FORECAST.APPROVE",
+  "domain": "REPORTING",
+  "risk_class": "CRITICAL",
+  "sod_class": "FORECAST_APPROVE",
+  "authority_class": "APPROVE"
+ },
+ {
+  "permission_code": "REPORT.FORECAST.CREATE",
+  "domain": "REPORTING",
+  "risk_class": "HIGH",
+  "sod_class": "FORECAST_DRAFT",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "REPORT.FORECAST.SUBMIT",
+  "domain": "REPORTING",
+  "risk_class": "HIGH",
+  "sod_class": "FORECAST_SUBMIT",
+  "authority_class": "SUBMIT"
+ },
+ {
+  "permission_code": "REPORT.FORECAST.VIEW",
+  "domain": "REPORTING",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": "READ"
+ },
+ {
+  "permission_code": "REPORT.SAVED_VIEW.CREATE",
+  "domain": "REPORTING",
+  "risk_class": "LOW",
+  "sod_class": "REPORT_SAVED_VIEW_MAINTAIN",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "REPORT.SAVED_VIEW.SHARE",
+  "domain": "REPORTING",
+  "risk_class": "MEDIUM",
+  "sod_class": "REPORT_SAVED_VIEW_SHARE",
+  "authority_class": "REVIEW"
+ },
+ {
+  "permission_code": "REPORT.SAVED_VIEW.UPDATE",
+  "domain": "REPORTING",
+  "risk_class": "LOW",
+  "sod_class": "REPORT_SAVED_VIEW_MAINTAIN",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "REPORT.SAVED_VIEW.VIEW",
+  "domain": "REPORTING",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": "READ"
+ },
+ {
+  "permission_code": "WBS.AUTOREC.VIEW",
+  "domain": "WBS",
+  "risk_class": "MEDIUM",
+  "sod_class": "WBS_AUTOREC_READER",
+  "authority_class": null
+ },
+ {
+  "permission_code": "WBS.BANK.ADMIT",
+  "domain": "WBS",
+  "risk_class": "HIGH",
+  "sod_class": "WBS_INGEST_SERVICE",
+  "authority_class": null
+ },
+ {
+  "permission_code": "WBS.COMPANY.CATALOG.APPROVE",
+  "domain": "WBS",
+  "risk_class": "CRITICAL",
+  "sod_class": "WBS_COMPANY_CATALOG_APPROVER",
+  "authority_class": "WBS_COMPANY_CATALOG_APPROVER"
+ },
+ {
+  "permission_code": "WBS.COMPANY.CATALOG.CLASSIFY",
+  "domain": "WBS",
+  "risk_class": "HIGH",
+  "sod_class": "WBS_COMPANY_CATALOG_CLASSIFIER",
+  "authority_class": "WBS_COMPANY_CATALOG_CLASSIFIER"
+ },
+ {
+  "permission_code": "WBS.COMPANY.CATALOG.RETAIN",
+  "domain": "WBS",
+  "risk_class": "HIGH",
+  "sod_class": "WBS_COMPANY_CATALOG_RETAINER",
+  "authority_class": "WBS_COMPANY_CATALOG_RETAINER"
+ },
+ {
+  "permission_code": "WBS.COMPANY.CATALOG.VIEW",
+  "domain": "WBS",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": null
+ },
+ {
+  "permission_code": "WBS.COST.CWIP.DRAFT",
+  "domain": "WBS",
+  "risk_class": "HIGH",
+  "sod_class": "WBS_COST_CWIP_DRAFTER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "WBS.COST.CWIP.REVIEW",
+  "domain": "WBS",
+  "risk_class": "HIGH",
+  "sod_class": "WBS_COST_CWIP_REVIEWER",
+  "authority_class": "WBS_COST_CWIP_REVIEWER"
+ },
+ {
+  "permission_code": "WBS.H1.ACCOUNTING.RECONCILE",
+  "domain": "WBS",
+  "risk_class": "HIGH",
+  "sod_class": "RECONCILER",
+  "authority_class": "RECONCILE"
+ },
+ {
+  "permission_code": "WBS.H1.PAYABLE.DRAFT",
+  "domain": "WBS",
+  "risk_class": "HIGH",
+  "sod_class": "WBS_H1_PAYABLE_DRAFTER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "WBS.H1.SETTINGS.DECIDE",
+  "domain": "WBS",
+  "risk_class": "CRITICAL",
+  "sod_class": "WBS_H1_SETTINGS_CONTROLLER",
+  "authority_class": "WBS_H1_SETTINGS_CONTROLLER"
+ },
+ {
+  "permission_code": "WBS.INSURANCE.PC_MAPPING.APPROVE",
+  "domain": "WBS",
+  "risk_class": "CRITICAL",
+  "sod_class": "WBS_INSURANCE_PC_MAPPING_APPROVER",
+  "authority_class": "WBS_INSURANCE_PC_MAPPING_APPROVER"
+ },
+ {
+  "permission_code": "WBS.INSURANCE.PC_MAPPING.PROPOSE",
+  "domain": "WBS",
+  "risk_class": "HIGH",
+  "sod_class": "WBS_INSURANCE_PC_MAPPING_PROPOSER",
+  "authority_class": "WBS_INSURANCE_PC_MAPPING_PROPOSER"
+ },
+ {
+  "permission_code": "WBS.INSURANCE.PC_MAPPING.VIEW",
+  "domain": "WBS",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": null
+ },
+ {
+  "permission_code": "WBS.PAYABLE.OPERATOR_ATTEST",
+  "domain": "WBS",
+  "risk_class": "HIGH",
+  "sod_class": "WBS_PAYABLE_OPERATOR_ATTESTER",
+  "authority_class": "ATTEST"
+ },
+ {
+  "permission_code": "WBS.PAYABLE.REVIEW",
+  "domain": "WBS",
+  "risk_class": "HIGH",
+  "sod_class": "WBS_PAYABLE_REVIEWER",
+  "authority_class": "REVIEW"
+ },
+ {
+  "permission_code": "WBS.PROPERTY.RENT.DRAFT",
+  "domain": "WBS",
+  "risk_class": "HIGH",
+  "sod_class": "WBS_PROPERTY_RENT_DRAFTER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "WBS.PROPERTY.RENT.REVIEW",
+  "domain": "WBS",
+  "risk_class": "HIGH",
+  "sod_class": "WBS_PROPERTY_RENT_REVIEWER",
+  "authority_class": "WBS_PROPERTY_RENT_REVIEWER"
+ },
+ {
+  "permission_code": "WBS.PROPERTY.REVIEW",
+  "domain": "WBS",
+  "risk_class": "HIGH",
+  "sod_class": "WBS_PROPERTY_REVIEWER",
+  "authority_class": "WBS_PROPERTY_REVIEWER"
+ },
+ {
+  "permission_code": "WBS.SNAPSHOT.IMPORT",
+  "domain": "WBS",
+  "risk_class": "HIGH",
+  "sod_class": "WBS_INGEST_SERVICE",
+  "authority_class": null
+ },
+ {
+  "permission_code": "WBS.TEST.IMPORT",
+  "domain": "WBS",
+  "risk_class": "HIGH",
+  "sod_class": "WBS_TEST_IMPORTER",
+  "authority_class": null
+ }
+]
