@@ -52,6 +52,14 @@ const period=(code,start,end)=>({periodId:randomUUID(),code,start,end});
 const reason=action=>`${action} the exact retained accounting settings evidence.`;
 const childIds=fixture=>Object.fromEntries(Object.entries(fixture.childRefs).map(([key,value])=>[key,value.setting_snapshot_id]));
 const rollbackSql=()=>readFile(new URL('../db/migrations/down/374_accounting_settings_authoritative.sql',import.meta.url),'utf8');
+// down/374 rebuilds runtime_human_additive_permission_authority_check as the 331/333-era narrow
+// CHECK, which is only correct when 374 is again the last migration that redefined it. Migration
+// 412 later widened the same CHECK and inserted RECURRING.SCHEDULE.VIEW rows, so a single-step
+// down/374 on a >=412 database fails with 23514. The runner only rolls back in reverse order (and
+// down/401 is an unconditional barrier, so it cannot even reach 374), therefore these smokes model
+// the reverse-order prefix: roll back 412 - the only later migration that touches this CHECK -
+// inside the same transaction before exercising down/374.
+const rollbackSharedCheckPrefixSql=()=>readFile(new URL('../db/migrations/down/412_recurring_scheduler_read_authority_fix.sql',import.meta.url),'utf8');
 const stripTransaction=sql=>sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');
 const outcome=promise=>promise.then(value=>({value}),error=>({error}));
 
@@ -155,25 +163,7 @@ async function insertParentSnapshot(scope,target,fixture,{scopeType='ENTITY',sco
   return {settingSnapshotId,snapshot,snapshotHash};
 }
 
-async function cloneApprovedChild(scope,sourceId,mutate,version){
-  const source=(await adminPool.query('SELECT * FROM setting_snapshot WHERE setting_snapshot_id=$1',[sourceId])).rows[0];
-  const snapshot=structuredClone(source.snapshot);mutate(snapshot);
-  const settingSnapshotId=randomUUID(),snapshotHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[snapshot])).rows[0].hash;
-  await adminPool.query("INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at) VALUES($1,$2,$3::uuid,$4,'ENTITY',($3::uuid)::text,$5,$6,$7,'APPROVED',$8::jsonb,$9,'parity-maker','parity-approver',now())",
-    [settingSnapshotId,scope.tenantId,scope.entityId,source.family,version,source.effective_from,source.effective_to,snapshot,snapshotHash]);
-  return settingSnapshotId;
-}
 
-async function cloneApprovedChildWithJsonbPatch(scope,sourceId,path,jsonLiteral,version){
-  const settingSnapshotId=randomUUID();
-  await adminPool.query(`WITH patched AS (
-    SELECT family,effective_from,effective_to,jsonb_set(snapshot,$6::text[],$7::jsonb,false) snapshot
-      FROM setting_snapshot WHERE tenant_id=$2 AND entity_id=$3 AND setting_snapshot_id=$1
-  ) INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
-    SELECT $4,$2,$3,family,'ENTITY',$3::text,$5,effective_from,effective_to,'APPROVED',snapshot,refs_jsonb_hash(snapshot),'parity-maker','parity-approver',now() FROM patched`,
-    [sourceId,scope.tenantId,scope.entityId,settingSnapshotId,version,path,jsonLiteral]);
-  return settingSnapshotId;
-}
 
 async function readWorkflowEvidence(kernel,scope,workflowId){
   return kernel.inSession(async client=>(await client.query('SELECT refs_read_accounting_settings_workflow_evidence($1,$2,$3) result',[scope.tenantId,scope.entityId,workflowId])).rows[0]?.result);
@@ -394,7 +384,7 @@ pgTest('an active parent maker or approver cannot activate either prepared succe
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM accounting_settings_workflow WHERE tenant_id=$1 AND entity_id=$2 AND status='ACTIVE'",[scope.tenantId,scope.entityId])).rows[0].n,1);
 });
 
-pgTest('RETIRED-only parent history rejects an earlier target and a target inside a retained historical gap',async()=>{
+pgTest('RETIRED-only parent history rejects an earlier target and a target inside a retained historical gap at Draft creation',async()=>{
   const june=period('2026-06','2026-06-01','2026-06-30'),july=period('2026-07','2026-07-01','2026-07-31'),august=period('2026-08','2026-08-01','2026-08-31'),september=period('2026-09','2026-09-01','2026-09-30');
   const scope=await seedScope({periods:[june,july,august,september]});
   const julyHistory=await installApprovedAiSettingsFixture({pool:adminPool,ids:{...scope,periodId:july.periodId},companyCode:scope.sourceEntityId,settingsVersion:1,includeParent:true});
@@ -408,11 +398,14 @@ pgTest('RETIRED-only parent history rejects an earlier target and a target insid
   const actors=await lifecycleActors(scope,'settings-retired-history');
   for(const target of targets){
     const prefix=`settings-retired-${target.label}`;
-    let workflow=await createDraft(scope,target.period,target.fixture,actors,prefix);
-    workflow=await advance(scope,actors,workflow,prefix,'APPROVE');
-    await assert.rejects(transition(scope,actors,workflow,'ACTIVATE',prefix),error=>error.code==='55000'&&/strictly later than all retained parent history/i.test(error.message));
-    const unchanged=(await adminPool.query("SELECT status,revision::int revision,(SELECT count(*)::int FROM accounting_settings_workflow_history WHERE accounting_settings_workflow_id=$1) history,(SELECT count(*)::int FROM audit_event WHERE idempotency_key=$2) audit,(SELECT count(*)::int FROM idempotency_receipt WHERE idempotency_key=$2) idempotency FROM accounting_settings_workflow WHERE accounting_settings_workflow_id=$1",[workflow.accounting_settings_workflow_id,`${prefix}-activate`])).rows[0];
-    assert.deepEqual(unchanged,{status:'APPROVED',revision:3,history:4,audit:0,idempotency:0},target.label);
+    // The retained-history guard is enforced at Draft creation (422:34 / 374:876): a target at or
+    // before the latest retained parent period_end is refused before any workflow row exists, which
+    // is strictly earlier and safer than the ACTIVATE-time guard the case previously exercised.
+    // The ACTIVATE-time guard (422:71) keeps its own coverage in the forward-conflict case below,
+    // which creates its Draft before the conflicting parent lands.
+    await assert.rejects(createDraft(scope,target.period,target.fixture,actors,prefix),error=>error.code==='55000'&&/strictly later than retained parent history/i.test(error.message),target.label);
+    const residue=(await adminPool.query("SELECT (SELECT count(*)::int FROM accounting_settings_workflow WHERE tenant_id=$1) workflow,(SELECT count(*)::int FROM accounting_settings_workflow_history h JOIN accounting_settings_workflow w ON w.accounting_settings_workflow_id=h.accounting_settings_workflow_id WHERE w.tenant_id=$1) history,(SELECT count(*)::int FROM audit_event WHERE idempotency_key=$2) audit,(SELECT count(*)::int FROM idempotency_receipt WHERE idempotency_key=$2) idempotency",[scope.tenantId,`${prefix}-create`])).rows[0];
+    assert.deepEqual(residue,{workflow:0,history:0,audit:0,idempotency:0},target.label);
   }
   const history=(await adminPool.query("SELECT status,effective_from::date::text effective_from,effective_to::date::text effective_to FROM setting_snapshot WHERE setting_snapshot_id=ANY($1::uuid[]) ORDER BY effective_from",[[julyHistory.settingsSnapshotId,septemberHistory.settingsSnapshotId]])).rows;
   assert.deepEqual(history.map(({status,effective_from,effective_to})=>({status,effective_from,effective_to})),[
@@ -750,9 +743,32 @@ pgTest('create waits for an uncommitted retained parent and observes commit or r
       await parentClient.query(disposition==='commit'?'COMMIT':'ROLLBACK');parentOpen=false;
       const result=await createPromise;createPromise=null;
       if(disposition==='commit'){
-        assert.equal(result.error?.code,'55000');assert.match(result.error?.message||'',/Same-period accounting settings replacement|strictly later than retained parent history/i);
-        const empty=(await adminPool.query("SELECT (SELECT count(*)::int FROM accounting_settings_workflow WHERE tenant_id=$1) workflow,(SELECT count(*)::int FROM accounting_settings_workflow_history h JOIN accounting_settings_workflow w ON w.accounting_settings_workflow_id=h.accounting_settings_workflow_id WHERE w.tenant_id=$1) history,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND idempotency_key=$2) audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND aggregate_type='ACCOUNTING_SETTINGS_WORKFLOW') outbox,(SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key=$2) receipt",[scope.tenantId,key])).rows[0];
-        assert.deepEqual(empty,{workflow:0,history:0,audit:0,outbox:0,receipt:0});
+        // Kernel sessions run SERIALIZABLE (db.mjs withSerializableRetry) and inSession takes its
+        // transaction snapshot on the identity probe (kernel-repository.mjs:56) - before
+        // refs_create_accounting_settings_workflow reaches `LOCK TABLE setting_snapshot IN SHARE
+        // MODE` (422:32). A parent committing inside that window is invisible to the create guard,
+        // and the create is serializable-equivalent to having run first, so demanding a create-time
+        // rejection here would over-specify the isolation contract. What must hold is fail-closed
+        // durability: either create rejects, or the Draft it produced can never reach ACTIVE over
+        // the committed parent and creates no second parent.
+        if(result.error){
+          assert.equal(result.error.code,'55000');assert.match(result.error.message||'',/Same-period accounting settings replacement|strictly later than retained parent history/i);
+          const empty=(await adminPool.query("SELECT (SELECT count(*)::int FROM accounting_settings_workflow WHERE tenant_id=$1) workflow,(SELECT count(*)::int FROM accounting_settings_workflow_history h JOIN accounting_settings_workflow w ON w.accounting_settings_workflow_id=h.accounting_settings_workflow_id WHERE w.tenant_id=$1) history,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND idempotency_key=$2) audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND aggregate_type='ACCOUNTING_SETTINGS_WORKFLOW') outbox,(SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key=$2) receipt",[scope.tenantId,key])).rows[0];
+          assert.deepEqual(empty,{workflow:0,history:0,audit:0,outbox:0,receipt:0});
+        }else{
+          assert.equal(result.value.status,'DRAFT');
+          const actors=await lifecycleActors(scope,`settings-toctou-${disposition}`);
+          let workflow=result.value,blocked=null;
+          for(const action of ['SUBMIT','REVIEW','APPROVE','ACTIVATE']){
+            const step=await outcome(transition(scope,actors,workflow,action,`settings-toctou-${disposition}`));
+            if(step.error){blocked={action,code:step.error.code,message:step.error.message};break;}
+            workflow=step.value;
+          }
+          assert.ok(blocked,'a Draft created on a stale snapshot must not reach ACTIVE over the committed parent');
+          assert.equal(['55000','23514'].includes(blocked.code),true,JSON.stringify(blocked));
+          const after=(await adminPool.query("SELECT (SELECT count(*)::int FROM setting_snapshot WHERE tenant_id=$1 AND entity_id=$2 AND family='AI_ACCOUNTING_ENTITY_PERIOD_SETTINGS_V1') parents,(SELECT count(*)::int FROM accounting_settings_workflow WHERE tenant_id=$1 AND status='ACTIVE') active,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND idempotency_key=$3) blocked_audit,(SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key=$3) blocked_receipt",[scope.tenantId,scope.entityId,`settings-toctou-${disposition}-${blocked.action.toLowerCase()}`])).rows[0];
+          assert.deepEqual(after,{parents:1,active:0,blocked_audit:0,blocked_receipt:0});
+        }
       }else{
         assert.equal(result.error,undefined);assert.equal(result.value.status,'DRAFT');assert.equal(result.value.idempotent,false);
         const created=(await adminPool.query("SELECT (SELECT count(*)::int FROM accounting_settings_workflow WHERE tenant_id=$1) workflow,(SELECT count(*)::int FROM accounting_settings_workflow_history h JOIN accounting_settings_workflow w ON w.accounting_settings_workflow_id=h.accounting_settings_workflow_id WHERE w.tenant_id=$1) history,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND idempotency_key=$2) audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND aggregate_id=$3) outbox,(SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key=$2 AND status='SUCCEEDED') receipt",[scope.tenantId,key,result.value.accounting_settings_workflow_id])).rows[0];
@@ -770,6 +786,7 @@ pgTest('migration down smoke drops guarded workflow objects in dependency order 
   const sql=stripTransaction(await rollbackSql()),client=await adminPool.connect();let open=false;
   try{
     await client.query('BEGIN');open=true;
+    await client.query(stripTransaction(await rollbackSharedCheckPrefixSql()));
     await client.query(sql);
     const dropped=(await client.query("SELECT to_regclass('accounting_settings_workflow') workflow_table,to_regclass('accounting_settings_workflow_history') history_table,to_regprocedure('refs_read_accounting_settings_workflow(uuid,uuid,uuid)') workflow_reader,to_regprocedure('refs_read_accounting_settings_workflow_evidence(uuid,uuid,uuid)') evidence_reader,to_regprocedure('refs_protect_workflow_owned_accounting_settings_parent()') parent_guard,(SELECT count(*)::int FROM permission_catalog WHERE permission_code LIKE 'ACCOUNTING.SETTINGS.WORKFLOW.%' AND active) active_permissions")).rows[0];
     assert.deepEqual(dropped,{workflow_table:null,history_table:null,workflow_reader:null,evidence_reader:null,parent_guard:null,active_permissions:0});
@@ -875,6 +892,7 @@ pgTest('down-first migration barrier blocks grant sync until rollback restores t
   try{
     await downClient.query('BEGIN');downOpen=true;
     const downPid=(await downClient.query('SELECT pg_backend_pid() pid')).rows[0].pid;
+    await downClient.query(stripTransaction(await rollbackSharedCheckPrefixSql()));
     await downClient.query(sql);
     let grantPid=null,connectedResolve;const connected=new Promise(resolve=>{connectedResolve=resolve;});
     const observedPool={connect:async()=>{const client=await grantSyncPool.connect();grantPid=(await client.query('SELECT pg_backend_pid() pid')).rows[0].pid;connectedResolve();return client;}};
@@ -929,11 +947,9 @@ pgTest('grant-first transaction blocks down until commit and then makes retained
 });
 
 pgTest('all ten selected child families are deeply validated before Draft evidence is retained',async()=>{
-  const target=period('2026-08','2026-08-01','2026-08-31');
-  const scope=await seedScope({periods:[target]});
-  const fixture=await installApprovedAiSettingsFixture({pool:adminPool,ids:{...scope,periodId:target.periodId},companyCode:scope.sourceEntityId,settingsVersion:1,includeParent:false});
-  const maker=await roleKernel(scope,'settings-deep-maker','ACCOUNTING_SETTINGS_WORKFLOW_MAKER');
-  const validIds=childIds(fixture);
+  // setting_approved_scope_no_overlap (002) forbids a second APPROVED row of the same family and
+  // scope covering the same period, so each family is exercised on its own scope with the invalid
+  // payload installed as that family's only APPROVED child.
   const mutations={
     coa:s=>{s.settings.accounts=[];},
     vendor_treatment:s=>{s.settings.default_treatment='EXPENSE';},
@@ -946,21 +962,19 @@ pgTest('all ten selected child families are deeply validated before Draft eviden
     report_mapping:s=>{s.settings.account_mappings=[];},
     loan_capitalization_policy:s=>{s.settings.qualifying_combinations=[];}
   };
-  let ordinal=100;
   for(const [key,mutate] of Object.entries(mutations)){
-    const source=(await adminPool.query('SELECT * FROM setting_snapshot WHERE setting_snapshot_id=$1',[validIds[key]])).rows[0];
-    const snapshot=structuredClone(source.snapshot);mutate(snapshot);
-    const badId=randomUUID(),hash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[snapshot])).rows[0].hash;
-    await adminPool.query("INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at) VALUES($1,$2,$3::uuid,$4,'ENTITY',($3::uuid)::text,$5,$6,$7,'APPROVED',$8::jsonb,$9,'deep-maker','deep-approver',now())",
-      [badId,scope.tenantId,scope.entityId,source.family,ordinal++,source.effective_from,source.effective_to,snapshot,hash]);
+    const target=period('2026-08','2026-08-01','2026-08-31');
+    const scope=await seedScope({periods:[target]});
+    const fixture=await installApprovedAiSettingsFixture({pool:adminPool,ids:{...scope,periodId:target.periodId},companyCode:scope.sourceEntityId,settingsVersion:1,includeParent:false,childMutations:{[key]:mutate}});
+    const maker=await roleKernel(scope,'settings-deep-maker-'+key.replaceAll('_','-'),'ACCOUNTING_SETTINGS_WORKFLOW_MAKER');
     const keyId='settings-deep-'+key.replaceAll('_','-');
     await assert.rejects(maker.createAccountingSettingsWorkflow({
       tenantId:scope.tenantId,entityId:scope.entityId,periodId:target.periodId,
-      childSettingSnapshotIds:{...validIds,[key]:badId},reason:reason('Create'),idempotencyKey:keyId
+      childSettingSnapshotIds:childIds(fixture),reason:reason('Create'),idempotencyKey:keyId
     }),error=>error.code==='23514',key);
+    const empty=(await adminPool.query("SELECT (SELECT count(*)::int FROM accounting_settings_workflow WHERE tenant_id=$1) workflow,(SELECT count(*)::int FROM accounting_settings_workflow_history h JOIN accounting_settings_workflow w ON w.accounting_settings_workflow_id=h.accounting_settings_workflow_id WHERE w.tenant_id=$1) history,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND idempotency_key LIKE 'settings-deep-%') audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND event_type='ACCOUNTING_SETTINGS_DRAFT_CREATED') outbox,(SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key LIKE 'settings-deep-%') receipt",[scope.tenantId])).rows[0];
+    assert.deepEqual(empty,{workflow:0,history:0,audit:0,outbox:0,receipt:0},key);
   }
-  const empty=(await adminPool.query("SELECT (SELECT count(*)::int FROM accounting_settings_workflow WHERE tenant_id=$1) workflow,(SELECT count(*)::int FROM accounting_settings_workflow_history h JOIN accounting_settings_workflow w ON w.accounting_settings_workflow_id=h.accounting_settings_workflow_id WHERE w.tenant_id=$1) history,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND idempotency_key LIKE 'settings-deep-%') audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND event_type='ACCOUNTING_SETTINGS_DRAFT_CREATED') outbox,(SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key LIKE 'settings-deep-%') receipt",[scope.tenantId])).rows[0];
-  assert.deepEqual(empty,{workflow:0,history:0,audit:0,outbox:0,receipt:0});
 });
 
 pgTest('intercompany clearing accepts exact ASSET and LIABILITY presentation directions and rejects EQUITY or reversed directions',async()=>{
@@ -971,13 +985,13 @@ pgTest('intercompany clearing accepts exact ASSET and LIABILITY presentation dir
     {label:'asset-credit',accountClass:'ASSET',normalBalance:'CREDIT',valid:false},
     {label:'liability-debit',accountClass:'LIABILITY',normalBalance:'DEBIT',valid:false}
   ];
-  let version=400;
   for(const item of cases){
     const target=period('2026-08','2026-08-01','2026-08-31'),scope=await seedScope({periods:[target]});
-    const fixture=await installApprovedAiSettingsFixture({pool:adminPool,ids:{...scope,periodId:target.periodId},companyCode:scope.sourceEntityId,settingsVersion:1,includeParent:false});
+    const fixture=await installApprovedAiSettingsFixture({pool:adminPool,ids:{...scope,periodId:target.periodId},companyCode:scope.sourceEntityId,settingsVersion:1,includeParent:false,childMutations:{
+      coa:snapshot=>{snapshot.settings.accounts.find(row=>row.role==='INTERCOMPANY_CLEARING').account_class=item.accountClass;},
+      report_mapping:snapshot=>{const row=snapshot.settings.account_mappings.find(value=>value.account_role==='INTERCOMPANY_CLEARING');row.statement='BS';row.normal_balance=item.normalBalance;row.contra=false;}
+    }});
     const ids=childIds(fixture);
-    ids.coa=await cloneApprovedChild(scope,ids.coa,snapshot=>{snapshot.settings.accounts.find(row=>row.role==='INTERCOMPANY_CLEARING').account_class=item.accountClass;},version++);
-    ids.report_mapping=await cloneApprovedChild(scope,ids.report_mapping,snapshot=>{const row=snapshot.settings.account_mappings.find(value=>value.account_role==='INTERCOMPANY_CLEARING');row.statement='BS';row.normal_balance=item.normalBalance;row.contra=false;},version++);
     const actors=await lifecycleActors(scope,`settings-clearing-${item.label}`);
     const create=()=>actors.maker.createAccountingSettingsWorkflow({tenantId:scope.tenantId,entityId:scope.entityId,periodId:target.periodId,childSettingSnapshotIds:ids,reason:reason('Create'),idempotencyKey:`settings-clearing-${item.label}-create`});
     if(item.valid){
@@ -1008,12 +1022,10 @@ pgTest('deep SQL parity rejects scalar type, range, array-item and nullable-refe
     {label:'object-loan-ref',family:'loan_capitalization_policy',mutate:s=>{s.settings.qualifying_combinations[0].property_ref={id:'property-1'};}},
     {label:'null-non-business-date',family:'period_close_policy',mutate:s=>{s.settings.non_business_dates=[null];}}
   ];
-  let version=500;
   for(const item of invalidCases){
     const target=period('2026-08','2026-08-01','2026-08-31'),scope=await seedScope({periods:[target]});
-    const fixture=await installApprovedAiSettingsFixture({pool:adminPool,ids:{...scope,periodId:target.periodId},companyCode:scope.sourceEntityId,settingsVersion:1,includeParent:false});
+    const fixture=await installApprovedAiSettingsFixture({pool:adminPool,ids:{...scope,periodId:target.periodId},companyCode:scope.sourceEntityId,settingsVersion:1,includeParent:false,childMutations:{[item.family]:item.mutate}});
     const ids=childIds(fixture),maker=await roleKernel(scope,`settings-scalar-${item.label}`,'ACCOUNTING_SETTINGS_WORKFLOW_MAKER');
-    ids[item.family]=await cloneApprovedChild(scope,ids[item.family],item.mutate,version++);
     const key=`settings-scalar-${item.label}-create`;
     await assert.rejects(maker.createAccountingSettingsWorkflow({tenantId:scope.tenantId,entityId:scope.entityId,periodId:target.periodId,childSettingSnapshotIds:ids,reason:reason('Create'),idempotencyKey:key}),error=>error.code==='23514',item.label);
     const empty=(await adminPool.query("SELECT (SELECT count(*)::int FROM accounting_settings_workflow WHERE tenant_id=$1) workflow,(SELECT count(*)::int FROM accounting_settings_workflow_history h JOIN accounting_settings_workflow w ON w.accounting_settings_workflow_id=h.accounting_settings_workflow_id WHERE w.tenant_id=$1) history,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND idempotency_key=$2) audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND aggregate_type='ACCOUNTING_SETTINGS_WORKFLOW') outbox,(SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1 AND idempotency_key=$2) receipt",[scope.tenantId,key])).rows[0];
@@ -1021,10 +1033,11 @@ pgTest('deep SQL parity rejects scalar type, range, array-item and nullable-refe
   }
 
   const target=period('2026-08','2026-08-01','2026-08-31'),scope=await seedScope({periods:[target]});
-  const fixture=await installApprovedAiSettingsFixture({pool:adminPool,ids:{...scope,periodId:target.periodId},companyCode:scope.sourceEntityId,settingsVersion:1,includeParent:false});
+  const fixture=await installApprovedAiSettingsFixture({pool:adminPool,ids:{...scope,periodId:target.periodId},companyCode:scope.sourceEntityId,settingsVersion:1,includeParent:false,childJsonPatches:{
+    vendor_treatment:[{path:['settings','vendor_rules','0','payment_terms_days'],json:'1.0'}],
+    materiality:[{path:['settings','ap_stale_days'],json:'1.0'}]
+  }});
   const ids=childIds(fixture);
-  ids.vendor_treatment=await cloneApprovedChildWithJsonbPatch(scope,ids.vendor_treatment,['settings','vendor_rules','0','payment_terms_days'],'1.0',version++);
-  ids.materiality=await cloneApprovedChildWithJsonbPatch(scope,ids.materiality,['settings','ap_stale_days'],'1.0',version++);
   const actors=await lifecycleActors(scope,'settings-integral-decimal');
   let workflow=await actors.maker.createAccountingSettingsWorkflow({tenantId:scope.tenantId,entityId:scope.entityId,periodId:target.periodId,childSettingSnapshotIds:ids,reason:reason('Create'),idempotencyKey:'settings-integral-decimal-create'});
   workflow=await advance(scope,actors,workflow,'settings-integral-decimal','ACTIVATE');

@@ -4,7 +4,7 @@ import {canonicalRequestHash} from '../../runtime/request-hash.mjs';
 const ROLES=['ACCUMULATED_AMORTIZATION','ACCUMULATED_DEPRECIATION','ACCRUED_LIABILITY','AP','AR','CASH','CWIP','CUSTOMER_DEPOSIT_LIABILITY','DEFERRED_REVENUE','EQUITY','ESCROW','EXPENSE','FIXED_ASSET','INTERCOMPANY_CLEARING','INTERCOMPANY_DUE_FROM','INTERCOMPANY_DUE_TO','INTERCOMPANY_ELIMINATION','INTEREST','LOAN','PREPAID','RETAINED_EARNINGS','REVENUE','SECURITY_DEPOSIT_ASSET','TAX_PAYABLE'];
 const coaClass=role=>['EXPENSE','INTEREST'].includes(role)?'EXPENSE':role==='REVENUE'?'REVENUE':['EQUITY','RETAINED_EARNINGS','INTERCOMPANY_ELIMINATION'].includes(role)?'EQUITY':['AP','ACCRUED_LIABILITY','LOAN','DEFERRED_REVENUE','TAX_PAYABLE','CUSTOMER_DEPOSIT_LIABILITY','INTERCOMPANY_DUE_TO'].includes(role)?'LIABILITY':'ASSET';
 
-export async function installApprovedAiSettingsFixture({pool,ids,companyCode='WBPA',settingsVersion=1,includeParent=true,openEndedParent=false}={}){
+export async function installApprovedAiSettingsFixture({pool,ids,companyCode='WBPA',settingsVersion=1,includeParent=true,openEndedParent=false,childMutations={},childJsonPatches={}}={}){
   const period=(await pool.query('SELECT period_code,starts_on::text AS starts_on,ends_on::text AS ends_on FROM accounting_period WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3',[ids.tenantId,ids.entityId,ids.periodId])).rows[0];
   const hashJson=async value=>(await pool.query('SELECT refs_jsonb_hash($1::jsonb) value',[JSON.stringify(value)])).rows[0].value;
   const accounts=ROLES.map((role,index)=>({role,account_code:role==='EXPENSE'?'610000':role==='AP'?'291001':String(710000+index).padStart(6,'0'),account_class:coaClass(role),account_type:'CURRENT',dimension_requirements:role==='AP'?['MEMBER']:[],effective_from:'2026-01-01',effective_to:null,status:'ACTIVE',posting_allowed:true}));
@@ -23,8 +23,22 @@ export async function installApprovedAiSettingsFixture({pool,ids,companyCode='WB
   children.loan_capitalization_policy={family:'AI_ACCOUNTING_LOAN_CAPITALIZATION_POLICY_V1',snapshot:{schema_version:'AI_ACCOUNTING_LOAN_CAPITALIZATION_POLICY_V1',settings:{currency:'USD',loan_purpose:'QUALIFYING_ASSET_ONLY',capitalization_start_policy:'WHEN_QUALIFYING_ACTIVITY_STARTS',suspension_policy:'PAUSE_DURING_EXTENDED_SUSPENSION',cessation_policy:'ON_READY_FOR_INTENDED_USE',eligible_interest_policy:'ACTUAL_INTEREST',eligible_fee_policy:'DIRECT_FEES_ONLY',expense_account_role:'EXPENSE',cwip_account_role:'CWIP',fixed_asset_account_role:'FIXED_ASSET',materiality_amount:'100.0000',qualifying_combinations:[{project_ref:'project-1',property_ref:null,asset_ref:null,effective_from:'2026-01-01',effective_to:null}],required_evidence:['loan_agreement','interest_statement'],effective_from:'2026-01-01',effective_to:null}}};
   const refs={};
   for(const [key,entry] of Object.entries(children)){
-    const id=randomUUID(),snapshotHash=await hashJson(entry.snapshot);refs[key]={setting_snapshot_id:id,version:settingsVersion,snapshot_hash:snapshotHash};
-    await pool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at) VALUES($1,$2,$3,$4,'ENTITY',$3::uuid::text,$5,$6::date,($7::date+1), 'APPROVED',$8::jsonb,$9,'settings-maker','settings-approver',now())`,[id,ids.tenantId,ids.entityId,entry.family,settingsVersion,period.starts_on,period.ends_on,JSON.stringify(entry.snapshot),snapshotHash]);
+    // childMutations / childJsonPatches install the variant AS the single APPROVED child of its family.
+    // setting_approved_scope_no_overlap (002) makes a second APPROVED/RETIRED row of the same
+    // family+scope covering the same period impossible, so a deep-validation fixture must replace
+    // the valid child rather than stage a competing one. childJsonPatches keeps raw JSON literals
+    // (e.g. integral decimal 1.0) that JavaScript cannot represent distinctly.
+    if(childMutations[key])childMutations[key](entry.snapshot);
+    const patches=childJsonPatches[key]||[];
+    let snapshotText=JSON.stringify(entry.snapshot),snapshotHash=null;
+    if(patches.length){
+      let patchExpression='$1::jsonb';const patchParams=[snapshotText];
+      for(const patch of patches){patchExpression=`jsonb_set(${patchExpression},$${patchParams.length+1}::text[],$${patchParams.length+2}::jsonb,false)`;patchParams.push(patch.path,patch.json);}
+      const prepared=(await pool.query(`SELECT value::text snapshot,refs_jsonb_hash(value) hash FROM (SELECT ${patchExpression} value) source`,patchParams)).rows[0];
+      snapshotText=prepared.snapshot;snapshotHash=prepared.hash;
+    }else snapshotHash=await hashJson(entry.snapshot);
+    const id=randomUUID();refs[key]={setting_snapshot_id:id,version:settingsVersion,snapshot_hash:snapshotHash};
+    await pool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at) VALUES($1,$2,$3,$4,'ENTITY',$3::uuid::text,$5,$6::date,($7::date+1), 'APPROVED',$8::jsonb,$9,'settings-maker','settings-approver',now())`,[id,ids.tenantId,ids.entityId,entry.family,settingsVersion,period.starts_on,period.ends_on,snapshotText,snapshotHash]);
   }
   const snapshot={schema_version:'AI_ACCOUNTING_ENTITY_PERIOD_SETTINGS_SNAPSHOT_V1',company_code:companyCode,period_id:ids.periodId,period_code:period.period_code,period_start:period.starts_on,period_end:period.ends_on,currency:'USD',...refs},hash=await hashJson(snapshot),id=includeParent?randomUUID():null;
   if(includeParent)await pool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at) VALUES($1,$2,$3,'AI_ACCOUNTING_ENTITY_PERIOD_SETTINGS_V1','ENTITY',$3::uuid::text,$4,$5::date,CASE WHEN $9::boolean THEN NULL ELSE ($6::date+1) END,'APPROVED',$7::jsonb,$8,'settings-maker','settings-approver',now())`,[id,ids.tenantId,ids.entityId,settingsVersion,period.starts_on,period.ends_on,JSON.stringify(snapshot),hash,openEndedParent]);

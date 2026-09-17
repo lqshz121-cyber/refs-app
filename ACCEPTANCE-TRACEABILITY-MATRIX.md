@@ -38,6 +38,7 @@ Rules of this file: a row is **DONE** only when code, an executable test, the ex
 | B4 | Failed SSI retry leaves no unbound context; success token binding intact | `kernel-repository.mjs` `revokeOnFailure`, `accounting-server.mjs` | `server/tests/context-retry-revocation-postgres.test.mjs` | `6a757d79` | 16-way concurrency, zero cross-tenant leak (T06) | not run | EVIDENCED | ☐ |
 | B5 | Base reconciliation transition still granted to `refs_app` | migration grants | T10 receipt | ff163552 | `has_function_privilege` read-back | — | GAP — revoke proposal awaiting Owner | ☐ |
 | B6 | Self-service grant activation endpoint undocumented in OpenAPI | `accounting-http.mjs:359` | N33 F1, T16 M-1 | ff163552 | source audit (two sessions) | — | GAP — document or retire, Owner | ☐ |
+| B7 | Accounting settings workflow PostgreSQL gate is green: create/transition success and rejection paths, deep child validation, and down smoke all pass on a fresh PG 16.4 database with no direct-insert or constraint bypass | `server/db/migrations/374_*.sql`, `422_*.sql` (unchanged) | `server/tests/accounting-settings-workflow-postgres.test.mjs` 34/34 (was 27/34) | `9c5b8fdf` | 34/34 fresh-DB run; 68/68 settings contract/HTTP/OpenAPI/migration-contract/fixture tests | not run | EVIDENCED — test-side fixture and modelling fixes only, three product questions still open (R01 receipt) | ☐ |
 
 ## C. Sub-ledgers and GL
 
