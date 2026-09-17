@@ -14,6 +14,7 @@ import {reconcileWbsTestImportActorGrants} from './wbs-test-import-service.mjs';
 import {assertStagingDeploymentTarget} from './workflow-role-grant.mjs';
 import {reconcileControlledTestAiWorkflowActorGrants} from './controlled-test-ai-workflow-service.mjs';
 import {safeRuntimeFailureLog} from './safe-runtime-log.mjs';
+import {installProcessGuards,gracefulClose} from './process-guards.mjs';
 import {internalTestWorkflowActors,routeInternalTestPrincipal} from './internal-test-identity-router.mjs';
 import {reconcileInternalTestWorkflowActorGrants} from './internal-test-workflow-grants.mjs';
 import {bootstrapInternalTestCashControls} from './internal-test-cash-control-bootstrap.mjs';
@@ -192,7 +193,8 @@ export async function startAccountingServer({env=process.env,fetcher=globalThis.
     startupStage='HTTP_LISTENER';
     await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(config.port,config.host,resolve);});
   }catch(error){error.startupStage=error.startupStage||startupStage;await Promise.allSettled([runtimePool?.end(),issuerPool?.end(),grantSyncPool?.end()]);throw error;}
-  let stopping=false;const stop=async signal=>{if(stopping)return;stopping=true;logger.info?.(JSON.stringify({event:'accounting_server_stopping',signal}));await new Promise(resolve=>server.close(resolve));await Promise.allSettled([runtimePool.end(),issuerPool.end(),grantSyncPool?.end()]);};
+  let stopping=false;const stop=async signal=>{if(stopping)return;stopping=true;logger.info?.(JSON.stringify({event:'accounting_server_stopping',signal}));await gracefulClose(server,{timeoutMs:10_000});await Promise.allSettled([runtimePool.end(),issuerPool.end(),grantSyncPool?.end()]);};
+  installProcessGuards({logger,stop:()=>stop('process_guard')});
   for(const signal of ['SIGTERM','SIGINT'])process.once(signal,()=>{stop(signal).catch(()=>logger.error?.(safeRuntimeFailureLog('accounting_server_stop_failed','ACCOUNTING_SERVER_STOP_FAILED')));});
   logger.info?.(JSON.stringify({event:'accounting_server_started',host:config.host,port:config.port}));return {server,runtimePool,issuerPool,stop,config};
 }
