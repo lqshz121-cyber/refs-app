@@ -46,7 +46,21 @@ export function AuthoritativeReadFailure({state,onRetry,retryLabel='Retry report
 // A successful empty API response is a scope result, not a financial
 // conclusion. Keeping this component separate from failures prevents a zero
 // count from being presented as either an access error or a zero balance.
-export function AuthoritativeScopeEmpty({subject='records',requiresPosted=false}){
+export function AuthoritativeScopeEmpty({subject='records',requiresPosted=false,evidence=null}){
+  // P0-F6: when the API's evidence summary says nothing was ever imported for this
+  // entity/period, say so instead of presenting an empty query as accounting state.
+  if(evidence?.evidence_state==='NO_EVIDENCE_IMPORTED'){
+    return <StateBlock tone="empty" title="NO_EVIDENCE_IMPORTED — nothing has been imported for this entity and period">
+      <p>The authenticated API found 0 journals, 0 raw WBS events, 0 staging items and 0 source documents for this scope. Nothing was ever imported here; this is not a zero balance and no figures were substituted.</p>
+      <p>Next step: an authorised import must admit source evidence for this entity (staging keeps WBS ingestion disabled unless the Owner enables it). Choose another entity or period to review existing evidence.</p>
+    </StateBlock>;
+  }
+  if(evidence?.evidence_state==='EVIDENCE_WITHOUT_POSTINGS'&&requiresPosted){
+    return <StateBlock tone="empty" title="EVIDENCE_WITHOUT_POSTINGS — imported evidence exists but nothing is posted yet">
+      <p>The authenticated API found {evidence.journal_count} journal{evidence.journal_count===1?'':'s'} (0 posted), {evidence.raw_event_count} raw events and {evidence.staging_item_count} staging items for this scope.</p>
+      <p>Next step: complete review and post the pending Journal entries. Reports and GL read posted evidence only.</p>
+    </StateBlock>;
+  }
   const prerequisite=requiresPosted
     ? 'Next step: admit a signed source, complete review, and post its Journal entry. Reports and GL read posted evidence only.'
     : 'This is a successful query for the current scope. It does not prove that an upstream source is empty. It is not evidence of a zero balance.';

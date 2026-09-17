@@ -2423,6 +2423,13 @@ export class PostgresAccountingKernel{
     ),'AUTHORITATIVE_SCOPE_NOT_FOUND','Authoritative entity and period scope is unavailable'));
   }
 
+  async readEntityEvidenceSummary({tenantId,entityId,periodId}){
+    return this.inSession(async client=>{
+      const row=requireRow(await client.query('SELECT * FROM refs_read_entity_evidence_summary($1,$2,$3)',[tenantId,entityId,periodId]),'ENTITY_EVIDENCE_SUMMARY_UNAVAILABLE','Entity evidence summary is unavailable');
+      return Object.freeze({schema_version:'ENTITY_EVIDENCE_SUMMARY_V1',entity_id:row.entity_id,period_id:row.period_id,journal_count:Number(row.journal_count),posted_journal_count:Number(row.posted_journal_count),raw_event_count:Number(row.raw_event_count),staging_item_count:Number(row.staging_item_count),source_document_count:Number(row.source_document_count),last_raw_event_at:row.last_raw_event_at?new Date(row.last_raw_event_at).toISOString():null,evidence_state:row.evidence_state});
+    });
+  }
+
   async readCurrentActorAccess({tenantId,entityId}){
     return this.inSession(async client=>{
       const row=requireRow(await client.query(

@@ -1192,6 +1192,21 @@ export async function refreshAuthoritativeScope({config,fetcher=globalThis.fetch
   }catch{return unreachable('The browser could not complete the authoritative scope read; no HTTP response was produced.');}
 }
 
+const EVIDENCE_STATES=Object.freeze(['NO_EVIDENCE_IMPORTED','EVIDENCE_WITHOUT_POSTINGS','POSTED_EVIDENCE']);
+const EVIDENCE_COUNTS=Object.freeze(['journal_count','posted_journal_count','raw_event_count','staging_item_count','source_document_count']);
+// P0-F6: distinguishes "nothing was ever imported for this entity/period" from a real zero.
+export async function refreshEntityEvidenceSummary({config,fetcher=globalThis.fetch}={}){
+  if(!config||!UUID.test(config.entityId||'')||!UUID.test(config.periodId||''))return notConfigured();
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/evidence-summary?${new URLSearchParams({periodId:config.periodId})}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response,'ENTITY_EVIDENCE_SUMMARY');
+    const body=await response.json(),row=body?.data;
+    if(body?.ok!==true||!row||row.schema_version!=='ENTITY_EVIDENCE_SUMMARY_V1'||row.entity_id!==config.entityId||row.period_id!==config.periodId||!EVIDENCE_STATES.includes(row.evidence_state)||EVIDENCE_COUNTS.some(k=>!Number.isSafeInteger(row[k])||row[k]<0)||!(row.last_raw_event_at===null||typeof row.last_raw_event_at==='string'))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid entity evidence summary.'};
+    return {ok:true,row};
+  }catch{return unreachable('The browser could not complete the evidence summary read; no HTTP response was produced.');}
+}
+
 const AUTHORITATIVE_SCOPE_CATALOG_FIELDS=['base_currency','entity_code','entity_id','entity_name','period_code','period_end','period_id','period_start','period_status','source_entity_id'];
 
 export async function refreshAuthoritativeScopeCatalog({config,fetcher=globalThis.fetch}={}){

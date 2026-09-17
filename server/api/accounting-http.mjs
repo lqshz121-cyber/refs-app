@@ -1353,6 +1353,18 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         result=await kernel.readAuthoritativeScope({tenantId:principal.tenantId,entityId,periodId});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===5&&parts[4]==='evidence-summary'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','If-Match is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId']);
+        const periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readEntityEvidenceSummary!=='function')throw new AccountingApiError(503,'ENTITY_EVIDENCE_SUMMARY_UNAVAILABLE','Entity evidence summary is unavailable');
+        result=await kernel.readEntityEvidenceSummary({tenantId:principal.tenantId,entityId,periodId});
+        const EVIDENCE_STATES=['NO_EVIDENCE_IMPORTED','EVIDENCE_WITHOUT_POSTINGS','POSTED_EVIDENCE'];
+        if(!exactKeys(result,['entity_id','evidence_state','journal_count','last_raw_event_at','period_id','posted_journal_count','raw_event_count','schema_version','source_document_count','staging_item_count'])||result.schema_version!=='ENTITY_EVIDENCE_SUMMARY_V1'||result.entity_id!==entityId||result.period_id!==periodId||!EVIDENCE_STATES.includes(result.evidence_state)||['journal_count','posted_journal_count','raw_event_count','staging_item_count','source_document_count'].some(k=>!Number.isSafeInteger(result[k])||result[k]<0)||!(result.last_raw_event_at===null||safeAuditTimestamp(result.last_raw_event_at)))throw new AccountingApiError(502,'ENTITY_EVIDENCE_SUMMARY_INVALID','Entity evidence summary failed its response contract');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===6&&parts[4]==='access'&&parts[5]==='self'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
         if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','If-Match is not used by read operations');

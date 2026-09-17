@@ -29947,6 +29947,114 @@
           }
         }
       }
+    },
+    "/entities/{entityId}/evidence-summary": {
+      "get": {
+        "operationId": "readEntityEvidenceSummary",
+        "summary": "Evidence summary for one entity and period (read-only)",
+        "description": "Counts of journals, posted journals, raw WBS events, staging items and source documents for the entity/period, plus evidence_state: NO_EVIDENCE_IMPORTED (nothing was ever imported — distinguishes an honest empty list from a real zero), EVIDENCE_WITHOUT_POSTINGS, POSTED_EVIDENCE. Requires GL.REPORT.VIEW. Writes nothing.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "periodId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Evidence summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schema_version",
+                        "entity_id",
+                        "period_id",
+                        "journal_count",
+                        "posted_journal_count",
+                        "raw_event_count",
+                        "staging_item_count",
+                        "source_document_count",
+                        "last_raw_event_at",
+                        "evidence_state"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "ENTITY_EVIDENCE_SUMMARY_V1"
+                        },
+                        "entity_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "period_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "journal_count": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "posted_journal_count": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "raw_event_count": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "staging_item_count": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "source_document_count": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "last_raw_event_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        },
+                        "evidence_state": {
+                          "type": "string",
+                          "enum": [
+                            "NO_EVIDENCE_IMPORTED",
+                            "EVIDENCE_WITHOUT_POSTINGS",
+                            "POSTED_EVIDENCE"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
     }
   },
   "components": {
