@@ -37,6 +37,8 @@ export const EVENT_CATALOG=Object.freeze([
   {event:'outbox_dispatch_start_failed',level:'error',fields:['code'],alert:'any -> consumer down'},
   {event:'outbox_dispatch_stop_failed',level:'warn',fields:['code'],alert:'any -> possible lease leak, check reclaim on next start'},
   {event:'outbox_dispatch_unhealthy',level:'error',fields:['reason'],alert:'2 consecutive -> page'},
+  {event:'outbox_dispatch_cycle_timeout',level:'error',fields:['cycleTimeoutMs','scopeCount'],alert:'any -> dispatch stalled on a claim/publish/completion, check database locks and the publisher; repeats -> page'},
+  {event:'outbox_dispatch_stop_timeout',level:'error',fields:['stopTimeoutMs','scopeCount'],alert:'any -> shutdown abandoned a hung cycle, leases stay held until they expire; page if it repeats on every deploy'},
   {event:'attachment_cleanup_scope_failed',level:'error',fields:['scope','code'],alert:'any -> orphaned objects accumulate; retention breach risk'}
 ]);
 

@@ -220,6 +220,10 @@ services:
         value: "30000"
       - key: OUTBOX_DISPATCH_MAX_CONSECUTIVE_ERRORS
         value: "6"
+      - key: OUTBOX_DISPATCH_CYCLE_TIMEOUT_MS
+        value: "120000"
+      - key: OUTBOX_DISPATCH_STOP_TIMEOUT_MS
+        value: "15000"
   - type: web
     name: refs-app
     runtime: static

@@ -18,11 +18,11 @@ export function outboxDispatchHealthResponse(worker){
 }
 
 export class OutboxDispatchWorker{
-  constructor({service,principal,scopes,readinessProbe=null,batchSize=100,intervalMs=5000,maxBackoffMs=300000,concurrency=2,maxConsecutiveErrors=6,healthFreshnessMs=Math.max(30000,intervalMs*3),logger=console,sleeper=delay,clock=()=>Date.now()}={}){
+  constructor({service,principal,scopes,readinessProbe=null,batchSize=100,intervalMs=5000,maxBackoffMs=300000,concurrency=2,maxConsecutiveErrors=6,healthFreshnessMs=Math.max(30000,intervalMs*3),cycleTimeoutMs=Math.max(60000,intervalMs*6),stopTimeoutMs=Math.max(10000,intervalMs*2),logger=console,sleeper=delay,clock=()=>Date.now()}={}){
     if(!service||!principal?.trusted||!principal.actorId||!Array.isArray(scopes)||scopes.length===0||scopes.length>100||scopes.some(scope=>!scope.tenantId||!scope.entityId)||new Set(scopes.map(scope=>`${scope.tenantId}/${scope.entityId}`)).size!==scopes.length)throw new Error('Outbox worker requires unique tenant/entity scopes');
-    if(!Number.isInteger(batchSize)||batchSize<1||batchSize>500||!Number.isInteger(concurrency)||concurrency<1||concurrency>16||!Number.isInteger(maxConsecutiveErrors)||maxConsecutiveErrors<1||maxConsecutiveErrors>100||!Number.isInteger(healthFreshnessMs)||healthFreshnessMs<1000||healthFreshnessMs>86400000)throw new Error('Outbox worker limits are invalid');
+    if(!Number.isInteger(batchSize)||batchSize<1||batchSize>500||!Number.isInteger(concurrency)||concurrency<1||concurrency>16||!Number.isInteger(maxConsecutiveErrors)||maxConsecutiveErrors<1||maxConsecutiveErrors>100||!Number.isInteger(healthFreshnessMs)||healthFreshnessMs<1000||healthFreshnessMs>86400000||!Number.isInteger(cycleTimeoutMs)||cycleTimeoutMs<100||cycleTimeoutMs>3600000||!Number.isInteger(stopTimeoutMs)||stopTimeoutMs<100||stopTimeoutMs>600000)throw new Error('Outbox worker limits are invalid');
     if(readinessProbe!==null&&typeof readinessProbe!=='function')throw new Error('Outbox readiness probe must be a function');
-    this.service=service;this.principal=Object.freeze({...principal});this.scopes=scopes.map(scope=>Object.freeze({tenantId:scope.tenantId,entityId:scope.entityId}));this.readinessProbe=readinessProbe;this.readiness=null;this.dispatchScopes=[];this.batchSize=batchSize;this.intervalMs=intervalMs;this.maxBackoffMs=maxBackoffMs;this.concurrency=concurrency;this.maxConsecutiveErrors=maxConsecutiveErrors;this.healthFreshnessMs=healthFreshnessMs;this.logger=logger;this.sleeper=sleeper;this.clock=clock;this.running=false;this.stopping=false;this.backingOff=false;this.loopPromise=null;this.abort=null;this.metrics={cycles:0,claimed:0,published:0,retried:0,deadLettered:0,cycleErrors:0,consecutiveErrors:0,lastCycleStartedAt:null,lastCycleFinishedAt:null,lastSuccessAt:null,lastErrorAt:null,lastReadinessCheckAt:null};
+    this.service=service;this.principal=Object.freeze({...principal});this.scopes=scopes.map(scope=>Object.freeze({tenantId:scope.tenantId,entityId:scope.entityId}));this.readinessProbe=readinessProbe;this.readiness=null;this.dispatchScopes=[];this.batchSize=batchSize;this.intervalMs=intervalMs;this.maxBackoffMs=maxBackoffMs;this.concurrency=concurrency;this.maxConsecutiveErrors=maxConsecutiveErrors;this.healthFreshnessMs=healthFreshnessMs;this.cycleTimeoutMs=cycleTimeoutMs;this.stopTimeoutMs=stopTimeoutMs;this.logger=logger;this.sleeper=sleeper;this.clock=clock;this.running=false;this.stopping=false;this.backingOff=false;this.loopPromise=null;this.abort=null;this.cycleTimer=null;this.metrics={cycles:0,claimed:0,published:0,retried:0,deadLettered:0,cycleErrors:0,cycleTimeouts:0,forcedStops:0,consecutiveErrors:0,lastCycleStartedAt:null,lastCycleFinishedAt:null,lastSuccessAt:null,lastErrorAt:null,lastReadinessCheckAt:null};
   }
   health(){
     const now=this.clock(),readinessAt=safeTime(this.readiness?.checked_at),successAt=safeTime(this.metrics.lastSuccessAt),readinessAge=readinessAt===null?null:now-readinessAt,successAge=successAt===null?null:now-successAt,fresh=readinessAge!==null&&successAge!==null&&readinessAge>=0&&successAge>=0&&readinessAge<=this.healthFreshnessMs&&successAge<=this.healthFreshnessMs;
@@ -44,16 +44,41 @@ export class OutboxDispatchWorker{
       this.dispatchScopes=[...grouped].map(([tenantId,scopes])=>Object.freeze({tenantId,scopes:Object.freeze(scopes)}));this.readiness=evidence;this.metrics.lastReadinessCheckAt=new Date(this.clock()).toISOString();return evidence;
     }catch(error){this.readiness=null;this.dispatchScopes=[];this.metrics.lastErrorAt=new Date(this.clock()).toISOString();throw error;}
   }
+  // A hung claim, publish, or completion must never pin the dispatch loop.
+  // dispatchCycle() carries the real work; runCycle() bounds it with a deadline
+  // so a stall degrades into an ordinary cycle error and still reaches backoff,
+  // the consecutive-error budget and the process supervisor.  An abandoned
+  // cycle keeps its database leases until they expire, which is the same
+  // recovery path a reclaiming worker already relies on.
+  async dispatchCycle(){
+    await this.checkReadiness();let cursor=0,failed=false;const results=[];const consume=async()=>{while(!failed&&cursor<this.dispatchScopes.length){const scope=this.dispatchScopes[cursor++];try{const batch=await this.service.runOnce(this.principal,{...scope,limit:this.batchSize});this.metrics.claimed+=batch.length;for(const result of batch){if(result.status==='PUBLISHED')this.metrics.published++;else if(result.status==='PENDING')this.metrics.retried++;else this.metrics.deadLettered++;}results.push(...batch);}catch(error){failed=true;this.logger.error?.(JSON.stringify({event:'outbox_dispatch_scope_failed',scopeCount:scope.scopes.length,errorCode:/^[A-Z0-9_]{3,80}$/.test(error?.code||'')?error.code:'OUTBOX_DISPATCH_INTERNAL'}));throw error;}}};const settled=await Promise.allSettled(Array.from({length:Math.min(this.concurrency,this.dispatchScopes.length)},consume));const rejection=settled.find(result=>result.status==='rejected');if(rejection)throw rejection.reason;
+    return results;
+  }
   async runCycle(){
     this.metrics.lastCycleStartedAt=new Date(this.clock()).toISOString();
+    let timer=null;
     try{
-      // Stop scheduling after a peer fails, then drain every active delivery.
-      // Backoff and shutdown must never race work from the previous cycle.
-      await this.checkReadiness();let cursor=0,failed=false;const results=[];const consume=async()=>{while(!failed&&cursor<this.dispatchScopes.length){const scope=this.dispatchScopes[cursor++];try{const batch=await this.service.runOnce(this.principal,{...scope,limit:this.batchSize});this.metrics.claimed+=batch.length;for(const result of batch){if(result.status==='PUBLISHED')this.metrics.published++;else if(result.status==='PENDING')this.metrics.retried++;else this.metrics.deadLettered++;}results.push(...batch);}catch(error){failed=true;this.logger.error?.(JSON.stringify({event:'outbox_dispatch_scope_failed',scopeCount:scope.scopes.length,errorCode:/^[A-Z0-9_]{3,80}$/.test(error?.code||'')?error.code:'OUTBOX_DISPATCH_INTERNAL'}));throw error;}}};const settled=await Promise.allSettled(Array.from({length:Math.min(this.concurrency,this.dispatchScopes.length)},consume));const rejection=settled.find(result=>result.status==='rejected');if(rejection)throw rejection.reason;this.metrics.cycles++;this.metrics.consecutiveErrors=0;this.metrics.lastSuccessAt=new Date(this.clock()).toISOString();this.backingOff=false;return results;
-    }catch(error){this.metrics.cycleErrors++;this.metrics.consecutiveErrors++;this.metrics.lastErrorAt=new Date(this.clock()).toISOString();throw error;}
-    finally{this.metrics.lastCycleFinishedAt=new Date(this.clock()).toISOString();}
+      const work=this.dispatchCycle();work.catch(()=>{});
+      // The deadline stays referenced so a stalled cycle always fails on time;
+      // it is cleared when the cycle settles and when a forced stop gives up on it.
+      const results=await Promise.race([work,new Promise((_,reject)=>{timer=this.cycleTimer=setTimeout(()=>reject(Object.assign(new Error('Outbox dispatch cycle exceeded its deadline'),{code:'OUTBOX_DISPATCH_CYCLE_TIMEOUT'})),this.cycleTimeoutMs);})]);
+      this.metrics.cycles++;this.metrics.consecutiveErrors=0;this.metrics.lastSuccessAt=new Date(this.clock()).toISOString();this.backingOff=false;return results;
+    }catch(error){if(error?.code==='OUTBOX_DISPATCH_CYCLE_TIMEOUT'){this.metrics.cycleTimeouts++;this.logger.error?.(JSON.stringify({event:'outbox_dispatch_cycle_timeout',cycleTimeoutMs:this.cycleTimeoutMs,scopeCount:this.scopes.length}));}this.metrics.cycleErrors++;this.metrics.consecutiveErrors++;this.metrics.lastErrorAt=new Date(this.clock()).toISOString();throw error;}
+    finally{clearTimeout(timer);if(this.cycleTimer===timer)this.cycleTimer=null;this.metrics.lastCycleFinishedAt=new Date(this.clock()).toISOString();}
   }
   start(){if(this.loopPromise)return this.loopPromise;this.running=true;this.stopping=false;this.backingOff=false;this.abort=new AbortController();this.loopPromise=this.loop(this.abort.signal).finally(()=>{this.running=false;this.backingOff=false;this.loopPromise=null;});return this.loopPromise;}
   async loop(signal){let backoff=this.intervalMs;while(!signal.aborted){try{await this.runCycle();backoff=this.intervalMs;}catch(error){this.backingOff=true;if(this.metrics.consecutiveErrors>=this.maxConsecutiveErrors)throw Object.assign(new Error('Outbox dispatcher exceeded its consecutive error budget'),{code:'OUTBOX_DISPATCH_UNHEALTHY',cause:error});backoff=Math.min(this.maxBackoffMs,Math.max(this.intervalMs,backoff*2));}try{await this.sleeper(backoff,undefined,{signal});}catch(error){if(!signal.aborted)throw error;}}}
-  async stop(){if(!this.loopPromise)return;this.stopping=true;this.abort.abort();await this.loopPromise;}
+  // Shutdown must be bounded too: awaiting a hung loop would keep SIGTERM
+  // pending until the platform SIGKILLs the process, leaving pools open and
+  // leases held for their full window.
+  async stop(){
+    if(!this.loopPromise)return;
+    this.stopping=true;this.abort.abort();
+    const pending=this.loopPromise;pending.catch(()=>{});
+    let timer=null;
+    const outcome=await Promise.race([pending.then(()=>({settled:true,error:null}),error=>({settled:true,error})),new Promise(resolve=>{timer=setTimeout(()=>resolve({settled:false,error:null}),this.stopTimeoutMs);})]);
+    clearTimeout(timer);
+    if(!outcome.settled){clearTimeout(this.cycleTimer);this.cycleTimer=null;this.metrics.forcedStops++;this.running=false;this.backingOff=false;this.logger.error?.(JSON.stringify({event:'outbox_dispatch_stop_timeout',stopTimeoutMs:this.stopTimeoutMs,scopeCount:this.scopes.length}));return;}
+    if(outcome.error)throw outcome.error;
+  }
 }
