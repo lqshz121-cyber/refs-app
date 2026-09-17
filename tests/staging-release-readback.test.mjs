@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readback,parseStamp} from '../tools/staging-release-readback.mjs';
+const fake=map=>async url=>({status:map[url]?.status??200,text:async()=>map[url]?.body??''});
+const S=[{name:'api',url:'a',kind:'health'},{name:'web',url:'b',kind:'build'}];
+test('consistent surfaces -> CONSISTENT exit 0',async()=>{const r=await readback({surfaces:S,fetcher:fake({a:{body:'{"ok":true,"status":"ready","release":"'+'1'.repeat(40)+'"}'},b:{body:'window.__BUILD={"sha":"'+'1'.repeat(40)+'"}'}})});assert.equal(r.decision,'CONSISTENT');assert.equal(r.exit,0);});
+test('different SHAs -> DRIFT exit 3 (the RELEASE_MISMATCH the client would fail closed on)',async()=>{const r=await readback({surfaces:S,fetcher:fake({a:{body:'{"ok":true,"status":"ready","release":"'+'1'.repeat(40)+'"}'},b:{body:'window.__BUILD={"sha":"'+'2'.repeat(40)+'"}'}})});assert.equal(r.decision,'DRIFT');assert.equal(r.exit,3);});
+test('a 503 or network error -> UNREACHABLE exit 2, never CONSISTENT',async()=>{const r=await readback({surfaces:S,fetcher:fake({a:{status:503,body:'{"ok":false}'},b:{body:'window.__BUILD={"sha":"'+'1'.repeat(40)+'"}'}})});assert.equal(r.decision,'UNREACHABLE');assert.deepEqual(r.unreachable,['api']);});
+test('--expect pins the candidate SHA',async()=>{const r=await readback({surfaces:S,expect:'3'.repeat(40),fetcher:fake({a:{body:'{"ok":true,"status":"ready","release":"'+'1'.repeat(40)+'"}'},b:{body:'window.__BUILD={"sha":"'+'1'.repeat(40)+'"}'}})});assert.equal(r.decision,'DRIFT');});
+test('parseStamp rejects a dev build stamp only as a value, not a crash',()=>{assert.equal(parseStamp('build','window.__BUILD={"sha":"dev"}').sha,'dev');assert.equal(parseStamp('health','{"ok":true,"status":"ready","release":"x"}').ready,true);});
