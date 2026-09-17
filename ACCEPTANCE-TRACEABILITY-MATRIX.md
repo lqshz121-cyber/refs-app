@@ -21,6 +21,7 @@ Rules of this file: a row is **DONE** only when code, an executable test, the ex
 | A9 | Production Blueprint exists | — (`render.yaml` defines staging / internal-test only) | N35 G7 | — | — | — | GAP — Owner decision | ☐ |
 | A10 | Backup / restore drill incl. `refs_schema_migration` | `server/runtime/test-backup-restore-drill.mjs` | `server/BACKUP-RESTORE-DRILL.md` (T15) | `6a757d79` | local drill exit 0 (Docker path documented; embedded PG path run) | production drill **plan only** | PARTIAL | ☐ |
 | A11 | Release signing / provenance / SBOM | — | N35 G5 | — | — | — | GAP — Owner decision | ☐ |
+| A12 | Staging read-back (2026-09-17): API 98e3431 ready but crash-looping on idle pg client errors; internal-test-api same; outbox worker suspended since 09-02; static app 12e6a31 (SHA drift); Node 26 runtime; PG 18 | `server/runtime/db.mjs` (pool error listener fix) | `server/tests/db-pool-idle-error.test.mjs`; S31 receipt | fix commit on branch | unit 1/1; posting-sod 7/7 | **run** via Owner's Chrome, read-only | PARTIAL — NO-GO until fix deployed | ☐ |
 
 ## B. Authority, SoD, period control
 
