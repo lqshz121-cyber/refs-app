@@ -69,6 +69,7 @@ const INFRASTRUCTURE_BOUND_SERVER_SUITES=Object.freeze([
   'test:postgres:fixture:signed-bank-same-source-close',
   'test:postgres:fixture:signed-wbs-payable-post',
   'test:postgres:fixtures:closure',
+  'test:restore:logical', // Requires a fresh PostgreSQL cluster: Docker-free logical restore drill (S24).
   'test:postgres:historical-head', // Requires a fresh _test cluster: proves migrateUp({until}) (S18).
   'test:postgres:ap-bill-void', // Requires the fresh gate database: pins T11-G1 (native AP bill posts OPEN; void requires APPROVED).
   'test:postgres:barriers', // Requires the fresh gate database: probes down/401 and down/414 inside rolled-back transactions.
