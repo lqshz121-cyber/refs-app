@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {createAccountingApi} from '../api/accounting-http.mjs';
+const tenantId=randomUUID(),entityId=randomUUID(),periodId=randomUUID();
+const data={schema_version:'AP_CONTROL_MEMBER_OPEN_ITEMS_V1',entity_id:entityId,period_id:null,account_code:'291001',limit:50,offset:0,totals:{member_count:1,control_net:'700.0000',open_balance:'700.0000',difference:'0.0000',tied_count:1,exception_count:0},rows:[{member_ref:'VENDOR-1',state:'TIED',control_net:'700.0000',open_balance:'700.0000',difference:'0.0000',ledger_line_count:2,open_document_count:1,document_count:1,last_posting_date:'2026-07-16',oldest_open_due_date:'2026-08-09'}],accounting_authority:'NONE',can_clear:false,can_post:false};
+test('P04: member-open-items is a bodyless no-store AP read with optional periodId, exact paging, 403 on 42501, 400 on foreign period, 502 on a contract breach',async()=>{
+  const observed=[];let answer=data;
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'viewer'}),kernelFactory:async()=>({readApControlMemberOpenItems:async args=>(observed.push(args),answer)})});
+  const path=`/api/v1/entities/${entityId}/ap/member-open-items`;
+  let r=await api({method:'GET',url:`${path}?limit=50&offset=0`,body:null,headers:{}});
+  assert.equal(r.status,200);assert.equal(r.headers['cache-control'],'no-store');assert.deepEqual(r.body.data,data);assert.deepEqual(observed[0],{tenantId,entityId,periodId:null,limit:50,offset:0});
+  r=await api({method:'GET',url:`${path}?periodId=${periodId}`,body:null,headers:{}});assert.equal(r.status,200);assert.equal(observed[1].periodId,periodId);
+  for(const req of [{url:path,body:{}},{url:`${path}?x=1`,body:null},{url:`${path}?periodId=nope`,body:null},{url:`${path}?limit=201`,body:null}])assert.equal((await api({method:'GET',url:req.url,body:req.body,headers:{}})).status,400,req.url);
+  assert.equal((await api({method:'GET',url:path,body:null,headers:{'idempotency-key':'x'}})).status,400);
+  answer={...data,can_clear:true};assert.equal((await api({method:'GET',url:path,body:null,headers:{}})).status,502);
+  const denied=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'viewer'}),kernelFactory:async()=>({readApControlMemberOpenItems:async()=>{const e=new Error('denied');e.code='42501';throw e;}})});
+  assert.equal((await denied({method:'GET',url:path,body:null,headers:{}})).status,403);
+  const foreign=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'viewer'}),kernelFactory:async()=>({readApControlMemberOpenItems:async()=>{const e=new Error('period');e.code='22023';throw e;}})});
+  assert.equal((await foreign({method:'GET',url:`${path}?periodId=${periodId}`,body:null,headers:{}})).status,400);
+});

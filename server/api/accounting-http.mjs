@@ -937,6 +937,17 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!artifact||!validJournalUploadRows(rows))throw new AccountingApiError(502,'JOURNAL_UPLOAD_EXPORT_RESPONSE_INVALID','The approved Journal population could not be safely exported');
         return {status:200,headers:{'content-type':artifact.content_type,'content-disposition':`attachment; filename="${artifact.filename}"`,'cache-control':'no-store','etag':`"${artifact.content_hash}"`,'x-journal-upload-export-hash':artifact.content_hash,'x-journal-upload-row-count':String(artifact.row_count)},rawBody:artifact.content};
       }
+      if(method==='GET'&&parts.length===6&&parts[4]==='ap'&&parts[5]==='member-open-items'){
+        // P04: member-level 291001 open items, AP.VIEW, optional periodId, exact paging.
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Member open-item reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId','limit','offset']);
+        const rawPeriod=parsedUrl.searchParams.get('periodId'),periodId=rawPeriod===null?null:requireUuid(rawPeriod,'periodId'),limit=optionalReadLimit(parsedUrl.searchParams.get('limit')),offset=optionalReadOffset(parsedUrl.searchParams.get('offset'));
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readApControlMemberOpenItems!=='function')throw new AccountingApiError(503,'AP_CONTROL_MEMBER_OPEN_ITEMS_UNAVAILABLE','AP member open items are unavailable');
+        try{result=await kernel.readApControlMemberOpenItems({tenantId:principal.tenantId,entityId,periodId,limit,offset});}catch(error){if(error?.code==='42501')throw new AccountingApiError(403,'AP_READ_ACCESS_REQUIRED','AP read access is required for this company');if(error?.code==='22023')throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','periodId must belong to this company');throw error;}
+        if(!result||result.schema_version!=='AP_CONTROL_MEMBER_OPEN_ITEMS_V1'||result.entity_id!==entityId||result.account_code!=='291001'||!Array.isArray(result.rows)||result.can_post!==false||result.can_clear!==false)throw new AccountingApiError(502,'AP_CONTROL_MEMBER_OPEN_ITEMS_PROTOCOL','AP member open items did not match the closed read contract');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===5&&parts[4]==='identity-changes'){
         // O11: entity identity change history (name hash / binding / active), GL.REPORT.VIEW scope, hashes only.
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Identity change reads do not accept command headers');

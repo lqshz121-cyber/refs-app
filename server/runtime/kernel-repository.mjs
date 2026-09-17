@@ -2400,6 +2400,10 @@ export class PostgresAccountingKernel{
   async readEntityIdentityChanges({tenantId,entityId,limit=50,offset=0}){
     return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_entity_identity_changes($1,$2,$3,$4) AS result',[tenantId,entityId,limit,offset]),'ENTITY_IDENTITY_CHANGES_MISSING','Entity identity changes were not returned').result);
   }
+  // P04: member-level 291001 open items (control net vs sub-ledger open balance per vendor member), exceptions first.
+  async readApControlMemberOpenItems({tenantId,entityId,periodId=null,limit=50,offset=0}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_ap_control_member_open_items($1,$2,$3,$4,$5) AS result',[tenantId,entityId,periodId,limit,offset]),'AP_CONTROL_MEMBER_OPEN_ITEMS_MISSING','AP member open items were not returned').result);
+  }
   async getJournalWorkflowCapabilities({tenantId,entityId}){
     return this.inSession(async client=>{
       await client.query("SELECT refs_assert_scope($1,$2,'GL.JE.VIEW')",[tenantId,entityId]);

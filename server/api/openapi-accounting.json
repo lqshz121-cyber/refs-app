@@ -30377,6 +30377,157 @@
           "Entities"
         ]
       }
+    },
+    "/entities/{entityId}/ap/member-open-items": {
+      "get": {
+        "operationId": "readApControlMemberOpenItems",
+        "summary": "AP control (291001) member-level open items — POSTED control net vs sub-ledger open balance per vendor member, exceptions first",
+        "description": "Read-only (AP.VIEW). Per vendor member: control_net (POSTED 291001 credit−debit), open_balance (AP documents), difference and a state (TIED / CLEARED / MISMATCH / DOCUMENT_WITHOUT_POSTING / POSTING_WITHOUT_DOCUMENT / CONTROL_WITHOUT_MEMBER). Optional periodId bounds the ledger by journal_date and documents by accounting_date. Never clears or posts.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "periodId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AP_CONTROL_MEMBER_OPEN_ITEMS_V1 envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "entity_id",
+                        "account_code",
+                        "limit",
+                        "offset",
+                        "totals",
+                        "rows",
+                        "accounting_authority",
+                        "can_clear",
+                        "can_post"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "type": "string",
+                          "enum": [
+                            "AP_CONTROL_MEMBER_OPEN_ITEMS_V1"
+                          ]
+                        },
+                        "entity_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "account_code": {
+                          "type": "string",
+                          "enum": [
+                            "291001"
+                          ]
+                        },
+                        "totals": {
+                          "type": "object"
+                        },
+                        "rows": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          }
+                        },
+                        "can_clear": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        },
+                        "can_post": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "423": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "tags": [
+          "AP"
+        ]
+      }
     }
   },
   "components": {
