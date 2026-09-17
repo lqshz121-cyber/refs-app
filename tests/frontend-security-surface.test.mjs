@@ -43,7 +43,7 @@ test('all static Render services carry identical security headers and never cach
   const headersOf=body=>[...body.matchAll(/- path: (\S+)\n\s+name: ([\w-]+)\n\s+value: "?([^"\n]+)"?/g)].map(m=>`${m[1]} ${m[2]}=${m[3]}`).sort();
   const [first,...rest]=staticServices;
   for(const svc of rest)assert.deepEqual(headersOf(svc.body),headersOf(first.body),`${svc.name} headers differ from ${first.name}`);
-  for(const path of ['/refs-runtime-lock.js','/refs-runtime-config.js','/refs-build.js','/index.html','/'])assert.ok(headersOf(first.body).includes(`${path} Cache-Control=no-store`),path);
+  for(const path of ['/refs-runtime-lock.js','/refs-runtime-config.js','/refs-build.js','/refs-boot-guard.js','/index.html','/'])assert.ok(headersOf(first.body).includes(`${path} Cache-Control=no-store`),path);
   for(const h of ['X-Frame-Options=SAMEORIGIN','X-Content-Type-Options=nosniff','Referrer-Policy=strict-origin-when-cross-origin'])assert.ok(headersOf(first.body).some(x=>x.endsWith(h)),h);
 });
 

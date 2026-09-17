@@ -288,6 +288,9 @@ services:
       - path: /refs-build.js
         name: Cache-Control
         value: no-store
+      - path: /refs-boot-guard.js
+        name: Cache-Control
+        value: no-store
       - path: /index.html
         name: Cache-Control
         value: no-store
@@ -464,6 +467,9 @@ services:
         name: Cache-Control
         value: no-store
       - path: /refs-build.js
+        name: Cache-Control
+        value: no-store
+      - path: /refs-boot-guard.js
         name: Cache-Control
         value: no-store
       - path: /index.html
