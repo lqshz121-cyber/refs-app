@@ -428,4 +428,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"421_internal_test_cash_transfer_evidence.sql",up:"ab194b10ea49243835720bd4bb2d0535f03aff9b17b2505d35977996f6638ea4",down:"a055bfdffa075153c80adf028e9438c37643185bde8bc4616aa8bf9e1358b5ab"}),
   Object.freeze({name:"422_accounting_settings_workflow_alias_fix.sql",up:"a3663856c59af7f980f027424b2f2ac4a29b8c4ca9c58091de6133c6aa853db3",down:"b3c9e291db04375d8cb3b682111c904044182deb612c1c43b66108e78edd77f6"}),
   Object.freeze({name:"423_ap_bill_open_status_unification.sql",up:"083ab0fcb0758d0c3e24d4b4779a621ec4d0dca4baf5dab8c5cab39c19992a12",down:"0bc2402eab246cedc089a71ecc46ff6a2bc6cbd781206268fb41de369a71dce0"}),
+  Object.freeze({name:"424_recurring_scheduler_retry_exception_idempotency.sql",up:"c30602381520da0d6155b81e1c0d7990fc814781393a6917bbc9996b55b1d796",down:"474f4a3eee55c59bd304c6d2ee26b0fe2052948b1da0176f2da6c3201e460b2d"}),
 ]);

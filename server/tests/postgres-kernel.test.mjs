@@ -7449,6 +7449,31 @@ pgTest('recurring scheduler separates creation approval and due-run, creates one
   const rerun=await runner.runDueRecurringSchedules({...ids,asOfDate:'2026-07-31',limit:1,idempotencyKey:'recurring-run-001'});assert.equal(rerun.idempotent,true);assert.equal((await adminPool.query('SELECT count(*)::int n FROM recurring_schedule_run WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,1);assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='RECURRING_SCHEDULE_DRAFT_CREATED'",[ids.tenantId])).rows[0].n,1);assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE tenant_id=$1 AND event_type='RECURRING_SCHEDULE_DRAFT_CREATED'",[ids.tenantId])).rows[0].n,1);
 });
 
+pgTest('recurring scheduler retries a failed due-run without poisoning the batch and stops at ends_on',async()=>{
+  const ids=await seed({status:'DRAFT',extraAccounts:[{accountCode:'610000',accountName:'Recurring expense'}]});
+  const maker=await formalWorkflowRoleKernel(ids,'recurring-retry-maker','RECURRING_SCHEDULE_MAKER');
+  const submitter=await formalWorkflowRoleKernel(ids,'recurring-retry-submitter','RECURRING_SCHEDULE_SUBMITTER');
+  const approver=await formalWorkflowRoleKernel(ids,'recurring-retry-approver','RECURRING_SCHEDULE_APPROVER');
+  const runner=await formalWorkflowRoleKernel(ids,'recurring-retry-runner','RECURRING_SCHEDULE_RUNNER');
+  const lines=[{lineNo:1,accountCode:'610000',debitAmount:'25.0000',creditAmount:'0.0000',memberRef:null,description:'Recurring expense',dimensions:{}},{lineNo:2,accountCode:'291001',debitAmount:'0.0000',creditAmount:'25.0000',memberRef:'VENDOR-1',description:'Recurring payable',dimensions:{}}];
+  const created=await maker.createRecurringSchedule({tenantId:ids.tenantId,entityId:ids.entityId,name:'Closed period recurring fixture',journalPrefix:'RECURX',currency:'USD',frequency:'MONTHLY',nextDueOn:'2026-09-30',endsOn:'2026-09-30',lines,reason:'Create a recurring schedule whose due date has no open period.',idempotencyKey:'recurring-retry-create-001'});
+  await submitter.transitionRecurringSchedule({...ids,scheduleId:created.recurring_schedule_id,action:'SUBMIT',expectedRevision:0,reason:'Independent submitter sends the retry fixture.',idempotencyKey:'recurring-retry-submit-001'});
+  await approver.transitionRecurringSchedule({...ids,scheduleId:created.recurring_schedule_id,action:'APPROVE',expectedRevision:1,reason:'Independent approver activates the retry fixture.',idempotencyKey:'recurring-retry-approve-001'});
+  const first=await runner.runDueRecurringSchedules({...ids,asOfDate:'2026-09-30',limit:5,idempotencyKey:'recurring-retry-run-001'});
+  assert.deepEqual({attempted:first.attempted_count,drafts:first.draft_created_count,failed:first.failed_count},{attempted:'1',drafts:'0',failed:'1'});
+  assert.equal(first.runs[0].status,'FAILED');assert.equal(first.runs[0].attempt_count,'1');assert.equal(first.runs[0].failure_code,'RECURRING_DRAFT_MATERIALIZATION_FAILED');assert.equal(first.runs[0].journal_entry_id,null);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1 AND journal_type=$2',[ids.tenantId,'AUTO'])).rows[0].n,0);
+  const second=await runner.runDueRecurringSchedules({...ids,asOfDate:'2026-09-30',limit:5,idempotencyKey:'recurring-retry-run-002'});
+  assert.deepEqual({attempted:second.attempted_count,drafts:second.draft_created_count,failed:second.failed_count},{attempted:'1',drafts:'0',failed:'1'});
+  assert.equal(second.runs[0].attempt_count,'2','a second failed attempt must increment attempt_count on the same run row');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM recurring_schedule_run WHERE tenant_id=$1 AND recurring_schedule_id=$2',[ids.tenantId,created.recurring_schedule_id])).rows[0].n,1);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM recurring_schedule_exception x JOIN recurring_schedule_run r ON r.recurring_schedule_run_id=x.recurring_schedule_run_id WHERE r.recurring_schedule_id=$1',[created.recurring_schedule_id])).rows[0].n,1,'a repeated identical failure must not duplicate retained exception evidence');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='RECURRING_SCHEDULE_DRAFT_FAILED'",[ids.tenantId])).rows[0].n,2,'every attempt must retain its own audit event');
+  const schedule=(await adminPool.query("SELECT status,to_char(next_due_on,'YYYY-MM-DD') next_due_on,last_run_at FROM recurring_schedule WHERE recurring_schedule_id=$1",[created.recurring_schedule_id])).rows[0];
+  assert.deepEqual({status:schedule.status,next_due_on:schedule.next_due_on,ran:schedule.last_run_at!==null},{status:'ACTIVE',next_due_on:'2026-09-30',ran:false},'a failed run must not advance the schedule or record a run timestamp');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);
+});
+
 pgTest('kernel issues a fresh one-transaction capability for every sequential operation',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null}),actor='sequential-capability-reader';
   const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor,tenantId:ids.tenantId})});
