@@ -26,7 +26,7 @@ Rules of this file: a row is **DONE** only when code, an executable test, the ex
 | A14 | Static asset cache/CSP headers on staging | `render.yaml` | L04 receipt; `tests/frontend-security-surface.test.mjs` | 320bcbad (+ `ac298053` boot-guard no-store) | 4/4 | **run**: refs-app no-store + CSP ✅; boot-guard s-maxage=300 (fixed in candidate, not yet deployed); refs-internal-test still 98e3431 without CSP | PARTIAL | ☐ |
 | A15 | OIDC / auth boundary on staging | `accounting-http.mjs` | L08 receipt | 320bcbad | posting-sod 7/7 | **run**: 401 no/malformed/tampered token, 403 unauthorised entity, 405 GET retired route; 1 h token, no refresh | EVIDENCED (logout/expiry not exercised) | ☐ |
 | A16 | Staging DB network exposure | Render DB settings | L10 receipt | — | — | **run**: inbound `0.0.0.0/0` | GAP — Owner to restrict | ☐ |
-| A17 | Outbox worker health | `runtime/start-outbox-dispatch-worker.mjs` | L02 receipt | — | S23 52/52 | **run**: Suspended since 09-02; consumer endpoint 404 | BLOCKED — consumer absent / secrets unknown | ☐ |
+| A17 | Outbox worker health | `server/runtime/start-outbox-dispatch-worker.mjs` | L02 receipt | — | S23 52/52 | **run**: Suspended since 09-02; consumer endpoint 404 | BLOCKED — consumer absent / secrets unknown | ☐ |
 
 ## B. Authority, SoD, period control
 
