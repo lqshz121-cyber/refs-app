@@ -1,6 +1,7 @@
 import { AuthoritativeFixedAssetsWorkspace } from './authoritative-fixed-assets-workspace.jsx';
 import {CounterpartyRegisterWorkspace} from './counterparty-register-workspace.jsx';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AuthoritativeRouteBoundary } from './authoritative-route-boundary.jsx';
 import { accountingApiConfig, refreshAuthoritativeChartOfAccounts, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries, refreshAuthoritativeScope, refreshAuthoritativeScopeCatalog, refreshCurrentActorAccess } from './accounting-api.js';
 import { AuthoritativeSourceDocumentsWorkspace } from './authoritative-source-documents-workspace.jsx';
 import { BrowserOidcClient, RENEWAL_MIN_INTERVAL_MS, oidcRuntimeConfig, silentRenewalSchedule } from './oidc-client.js';
@@ -747,6 +748,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
           {scopeCatalogStatus==='LOADING'&&<span role="status">Loading companies…</span>}
           {scopeCatalogStatus==='ERROR'&&<span role="status">Company list could not load. <button type="button" className="link-btn" onClick={()=>setScopeCatalogRetry(value=>value+1)}>Retry company list</button></span>}
         </section>
+        <AuthoritativeRouteBoundary key={route} route={route}>
         {(sessionExpired || renewalFailure) && <RuntimeErrorPanel
           code={sessionExpired ? 'OIDC_SESSION_EXPIRED' : 'OIDC_SESSION_EXPIRING'}
           detail={renewalFailure ? `${renewalFailure.code}: ${renewalFailure.message}` : undefined}
@@ -801,6 +803,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'master-data' && <AuthoritativeMasterDataWorkspace key={`master-data-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'bank-accounts' && <AuthoritativeBankAccountsWorkspace key={`bank-accounts-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onOpenTransactions={openBankTransactionsForAccount} onOpenReconciliation={openReconciliationForAccount}/>}
         {phase === 'READY' && !['vendors','customers','overview','approvals','payables','receivables','bill-payments','bank-batch-pipeline','bank','reconciliation','rules','checks-payments','recurring-transactions','revenue-recognition','wbs-payable-review','staging','mapping-exceptions','receipts','integration-transactions','ai-audit','ai-je-workbench','accounting-analysis-report','wbs-autorec-evidence','integration-hub','reports','project-cost-cwip','unit-cost-ledger','unit-transfer','cash-transfer','property-ops-pickup','construction-loan','loan-register','amortization','fixed-assets','intercompany','consolidation','journals','source-documents','chart-of-accounts','account-inquiry','subsidiary-ledger','general-ledger','accruals','closing-accounting','month-end-close','period-management','audit-log','settings','mapping','master-data','bank-accounts'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
+        </AuthoritativeRouteBoundary>
       </main>
     </div>
   </div>;
