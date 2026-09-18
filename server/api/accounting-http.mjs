@@ -277,6 +277,9 @@ const assertAccountingScopeCatalog=value=>{
 const requireIdempotency=headers=>{const value=header(headers,'idempotency-key');if(typeof value!=='string'||value.length<8||value.length>200)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_REQUIRED','Idempotency-Key must be 8-200 characters');return value;};
 const requireRevision=headers=>{const raw=header(headers,'if-match');if(raw==null)throw new AccountingApiError(428,'IF_MATCH_REQUIRED','If-Match is required');const value=String(raw).trim();if(value.startsWith('W/'))throw new AccountingApiError(412,'WEAK_IF_MATCH_REJECTED','If-Match must use a strong revision validator');const match=/^"(\d+)"$/.exec(value);if(!match)throw new AccountingApiError(400,'INVALID_IF_MATCH','If-Match must be a quoted non-negative strong revision');const revision=Number(match[1]);if(!Number.isSafeInteger(revision))throw new AccountingApiError(400,'INVALID_IF_MATCH','If-Match must contain a safe non-negative revision');return revision;};
 const requireIfMatch=requireRevision;
+const PROJECT_REF=/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const requireProjectRef=(value,name)=>{if(typeof value!=='string'||!PROJECT_REF.test(value))throw new AccountingApiError(400,'INVALID_REFERENCE',`${name} must be a canonical 1-64 character reference`);return value;};
+const requireMasterName=(value,name)=>{if(typeof value!=='string'||value!==value.trim()||value.length<1||value.length>200||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_TEXT',`${name} must be canonical text of 1-200 characters`);return value;};
 const requireReviewReason=value=>{if(typeof value!=='string'||value!==value.trim()||value.length<8||value.length>2000||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_REASON','reason must be a canonical 8-2000 character review explanation');return value;};
 const requireDecimalAmount=(value,name)=>{if(typeof value!=='string'||!/^-?(?:0|[1-9]\d{0,15})(?:\.\d{1,4})?$/.test(value))throw new AccountingApiError(400,'INVALID_AMOUNT',`${name} must be a canonical decimal string with at most four fractional digits`);return value;};
 const requireAiConfidence=value=>{if(typeof value!=='number'||!Number.isFinite(value)||value<0||value>1||Math.round(value*10000)!==value*10000)throw new AccountingApiError(400,'INVALID_AI_CONFIDENCE','confidence must be a finite number from 0 to 1 with at most four decimal places');return value;};
@@ -2561,8 +2564,78 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         result=await kernel.getAgingSnapshotDetail({tenantId:principal.tenantId,entityId,documentKind:parts[4]==='ap'?'AP_BILL':'AR_INVOICE',periodId:requireUuid(parsedUrl.searchParams.get('periodId'),'periodId'),asOfDate:requireIsoDate(parsedUrl.searchParams.get('asOf'),'asOf'),counterpartyRef:requireAgingPartyText(parsedUrl.searchParams.get('counterpartyRef'),'counterpartyRef',128),counterpartyName:requireAgingPartyText(parsedUrl.searchParams.get('counterpartyName'),'counterpartyName',255),currency:requireCurrency(parsedUrl.searchParams.get('currency')),limit:optionalReadLimit(parsedUrl.searchParams.get('limit')),offset:optionalReadOffset(parsedUrl.searchParams.get('offset'))});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result.rows,scope:result.scope}};
       }
+      if(method==='GET'&&parts.length===5&&parts[4]==='projects'){
+        // P05: project / cost code / unit masters (PROJECT.MASTER.VIEW). Masters only; no amounts.
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Project master reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readProjectMasters!=='function')throw new AccountingApiError(503,'PROJECT_MASTERS_UNAVAILABLE','Project masters are unavailable');
+        try{result=await kernel.readProjectMasters({tenantId:principal.tenantId,entityId});}catch(error){if(error?.code==='42501')throw new AccountingApiError(403,'PROJECT_MASTER_VIEW_REQUIRED','Project master view access is required for this company');throw error;}
+        if(!result||result.schema_version!=='PROJECT_MASTERS_V1'||result.accounting_authority!=='NONE'||!Array.isArray(result.projects))throw new AccountingApiError(502,'PROJECT_MASTERS_PROTOCOL','Project masters did not match the closed read contract');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===7&&parts[4]==='projects'&&parts[6]==='cost-layers'){
+        // P05: derived cost layers for one project_ref (GL.REPORT.VIEW); CWIP only by approved mapping; never a capitalisation conclusion.
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Cost layer reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId']);
+        const projectRef=decodeURIComponent(parts[5]);if(!PROJECT_REF.test(projectRef))throw new AccountingApiError(400,'INVALID_PATH_PARAMETER','projectRef must be a canonical 1-64 character reference');
+        const rawPeriod=parsedUrl.searchParams.get('periodId'),periodId=rawPeriod===null?null:requireUuid(rawPeriod,'periodId').toLowerCase();
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readProjectCostLayers!=='function')throw new AccountingApiError(503,'PROJECT_COST_LAYERS_UNAVAILABLE','Project cost layers are unavailable');
+        try{result=await kernel.readProjectCostLayers({tenantId:principal.tenantId,entityId,projectRef,periodId});}catch(error){if(error?.code==='42501')throw new AccountingApiError(403,'REPORT_READ_ACCESS_REQUIRED','Report read access is required for this company');if(error?.code==='22023')throw new AccountingApiError(400,'INVALID_PERIOD','periodId must belong to this company');throw error;}
+        if(!result||result.schema_version!=='PROJECT_COST_LAYERS_V1'||result.accounting_authority!=='NONE'||result.can_capitalize!==false||result.can_transfer!==false||result.can_post!==false||result.project_ref!==projectRef||!Array.isArray(result.layers)||typeof result.totals!=='object')throw new AccountingApiError(502,'PROJECT_COST_LAYERS_PROTOCOL','Project cost layers did not match the closed read contract');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method!=='POST')throw new AccountingApiError(405,'METHOD_NOT_ALLOWED','Only POST commands and supported GET reads are available');
       const idempotencyKey=requireIdempotency(headers);
+      if(parts.length===5&&parts[4]==='projects'){
+        // P05: create a DRAFT project master (PROJECT.MASTER.CREATE). Approval is a separate actor's command.
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','A new project master has no revision');
+        const fields=['projectRef','projectName','projectType','capitalizationPolicy','reason'];allowOnly(payload,fields);for(const field of fields)if(!Object.hasOwn(payload,field))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${field} is required`);
+        const projectRef=requireProjectRef(payload.projectRef,'projectRef'),projectName=requireMasterName(payload.projectName,'projectName');
+        if(!['DEVELOPMENT','RENTAL','LAND','OTHER'].includes(payload.projectType))throw new AccountingApiError(400,'INVALID_PROJECT_TYPE','projectType must be DEVELOPMENT, RENTAL, LAND or OTHER');
+        if(!['CWIP_UNTIL_COMPLETION','EXPENSE_AS_INCURRED'].includes(payload.capitalizationPolicy))throw new AccountingApiError(400,'INVALID_CAPITALIZATION_POLICY','capitalizationPolicy must be CWIP_UNTIL_COMPLETION or EXPENSE_AS_INCURRED');
+        const reason=requireReviewReason(payload.reason);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.createProjectMaster!=='function')throw new AccountingApiError(503,'PROJECT_MASTER_CREATE_UNAVAILABLE','Project master creation is unavailable');
+        result=await kernel.createProjectMaster({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),projectRef,projectName,projectType:payload.projectType,capitalizationPolicy:payload.capitalizationPolicy,reason,idempotencyKey});
+        if(!result||result.schema_version!=='PROJECT_MASTER_V1'||result.status!=='DRAFT'||result.revision!==0||typeof result.idempotent!=='boolean'||!UUID.test(result.project_id||''))throw new AccountingApiError(502,'PROJECT_MASTER_RECEIPT_INVALID','Project master returned an invalid receipt');
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store','etag':'"0"'},body:{ok:true,data:result}};
+      }
+      if(parts.length===7&&parts[4]==='projects'&&['cost-codes','units'].includes(parts[6])){
+        // P05: cost code / unit under an APPROVED project (PROJECT.MASTER.CREATE).
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','A new project master object has no revision');
+        const projectId=requireUuid(parts[5],'projectId').toLowerCase(),reason=requireReviewReason(payload.reason);
+        const kernel=await kernelFactory(principal);
+        if(parts[6]==='cost-codes'){
+          const fields=['costCodeRef','costCodeName','costCategory','capitalizable','reason'];allowOnly(payload,fields);for(const field of fields)if(!Object.hasOwn(payload,field))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${field} is required`);
+          if(!['LAND','HARD','SOFT','FINANCING','MARKETING','OTHER'].includes(payload.costCategory))throw new AccountingApiError(400,'INVALID_COST_CATEGORY','costCategory must be LAND, HARD, SOFT, FINANCING, MARKETING or OTHER');
+          if(typeof payload.capitalizable!=='boolean')throw new AccountingApiError(400,'INVALID_CAPITALIZABLE','capitalizable must be a boolean');
+          if(!kernel||typeof kernel.createProjectCostCode!=='function')throw new AccountingApiError(503,'PROJECT_COST_CODE_CREATE_UNAVAILABLE','Project cost code creation is unavailable');
+          result=await kernel.createProjectCostCode({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),projectId,costCodeRef:requireProjectRef(payload.costCodeRef,'costCodeRef'),costCodeName:requireMasterName(payload.costCodeName,'costCodeName'),costCategory:payload.costCategory,capitalizable:payload.capitalizable,reason,idempotencyKey});
+          if(!result||result.schema_version!=='PROJECT_COST_CODE_V1'||result.status!=='DRAFT'||result.project_id!==projectId||!UUID.test(result.cost_code_id||''))throw new AccountingApiError(502,'PROJECT_COST_CODE_RECEIPT_INVALID','Project cost code returned an invalid receipt');
+        }else{
+          const fields=['unitRef','unitName','allocationBasis','allocationWeight','reason'];allowOnly(payload,fields);for(const field of fields)if(!Object.hasOwn(payload,field))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${field} is required`);
+          if(!['AREA','EQUAL','SPECIFIC_IDENTIFICATION'].includes(payload.allocationBasis))throw new AccountingApiError(400,'INVALID_ALLOCATION_BASIS','allocationBasis must be AREA, EQUAL or SPECIFIC_IDENTIFICATION');
+          if(typeof payload.allocationWeight!=='string'||!/^(?:0|[1-9]\d{0,15})\.\d{4}$/.test(payload.allocationWeight)||BigInt(payload.allocationWeight.replace('.',''))<=0n)throw new AccountingApiError(400,'INVALID_ALLOCATION_WEIGHT','allocationWeight must be a positive canonical four-decimal amount');
+          if(!kernel||typeof kernel.createProjectUnit!=='function')throw new AccountingApiError(503,'PROJECT_UNIT_CREATE_UNAVAILABLE','Project unit creation is unavailable');
+          result=await kernel.createProjectUnit({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),projectId,unitRef:requireProjectRef(payload.unitRef,'unitRef'),unitName:requireMasterName(payload.unitName,'unitName'),allocationBasis:payload.allocationBasis,allocationWeight:payload.allocationWeight,reason,idempotencyKey});
+          if(!result||result.schema_version!=='PROJECT_UNIT_V1'||result.status!=='DRAFT'||result.project_id!==projectId||!UUID.test(result.unit_id||''))throw new AccountingApiError(502,'PROJECT_UNIT_RECEIPT_INVALID','Project unit returned an invalid receipt');
+        }
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store','etag':'"0"'},body:{ok:true,data:result}};
+      }
+      if(parts.length===8&&parts[4]==='project-masters'&&['projects','cost-codes','units'].includes(parts[5])&&parts[7]==='transitions'){
+        // P05: APPROVED / RETIRED transition (PROJECT.MASTER.APPROVE), SoD maker≠approver, If-Match revision CAS.
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const objectType={projects:'PROJECT','cost-codes':'COST_CODE',units:'UNIT'}[parts[5]],objectId=requireUuid(parts[6],'objectId').toLowerCase();
+        const fields=['event','reason'];allowOnly(payload,fields);for(const field of fields)if(!Object.hasOwn(payload,field))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${field} is required`);
+        if(!['APPROVED','RETIRED'].includes(payload.event))throw new AccountingApiError(400,'INVALID_TRANSITION_EVENT','event must be APPROVED or RETIRED');
+        const expectedRevision=requireRevision(headers),reason=requireReviewReason(payload.reason);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.transitionProjectMaster!=='function')throw new AccountingApiError(503,'PROJECT_MASTER_TRANSITION_UNAVAILABLE','Project master transitions are unavailable');
+        try{result=await kernel.transitionProjectMaster({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),objectType,objectId,expectedRevision,event:payload.event,reason,idempotencyKey});}
+        catch(error){if(error?.code==='40001'&&error.message==='Project master revision is stale')throw new AccountingApiError(412,'PRECONDITION_FAILED','The project master changed. Refresh it before transitioning');throw error;}
+        if(!result||result.schema_version!=='PROJECT_MASTER_TRANSITION_V1'||result.status!==payload.event||!Number.isSafeInteger(result.revision))throw new AccountingApiError(502,'PROJECT_MASTER_TRANSITION_RECEIPT_INVALID','Project master transition returned an invalid receipt');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store','etag':`"${result.revision}"`},body:{ok:true,data:result}};
+      }
       if(parts.length===5&&parts[4]==='cash-transfers'){
         requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','A new Cash Transfer Draft has no revision');
         const fields=['periodId','date','number','currency','sourceCashAccountCode','sourceBankMemberRef','destinationCashAccountCode','destinationBankMemberRef','amount','attachmentIds','reason'];allowOnly(payload,fields);for(const field of fields)if(!Object.hasOwn(payload,field))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${field} is required`);

@@ -1167,5 +1167,26 @@
   "risk_class": "HIGH",
   "sod_class": "WBS_TEST_IMPORTER",
   "authority_class": null
+ },
+ {
+  "permission_code": "PROJECT.MASTER.VIEW",
+  "domain": "PROJECT",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": null
+ },
+ {
+  "permission_code": "PROJECT.MASTER.CREATE",
+  "domain": "PROJECT",
+  "risk_class": "HIGH",
+  "sod_class": "PROJECT_MASTER_MAKER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "PROJECT.MASTER.APPROVE",
+  "domain": "PROJECT",
+  "risk_class": "HIGH",
+  "sod_class": "PROJECT_MASTER_APPROVER",
+  "authority_class": "APPROVE"
  }
 ]

@@ -2404,6 +2404,40 @@ export class PostgresAccountingKernel{
   async readApControlMemberOpenItems({tenantId,entityId,periodId=null,limit=50,offset=0}){
     return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_ap_control_member_open_items($1,$2,$3,$4,$5) AS result',[tenantId,entityId,periodId,limit,offset]),'AP_CONTROL_MEMBER_OPEN_ITEMS_MISSING','AP member open items were not returned').result);
   }
+  async createProjectMaster({tenantId,entityId,projectRef,projectName,projectType,capitalizationPolicy,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,projectRef,projectName,projectType,capitalizationPolicy,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_create_project_master_hash($1,$2,$3,$4,$5,$6,$7) request_hash',args),'PROJECT_MASTER_HASH_FAILED','Project master hash missing').request_hash;
+      return requireRow(await client.query('SELECT refs_create_project_master($1,$2,$3,$4,$5,$6,$7,$8,$9) result',[...args,idempotencyKey,requestHash]),'PROJECT_MASTER_CREATE_FAILED','Project master receipt missing').result;
+    });
+  }
+  async createProjectCostCode({tenantId,entityId,projectId,costCodeRef,costCodeName,costCategory,capitalizable,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,projectId,costCodeRef,costCodeName,costCategory,capitalizable,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_create_project_cost_code_hash($1,$2,$3,$4,$5,$6,$7::boolean,$8) request_hash',args),'PROJECT_COST_CODE_HASH_FAILED','Project cost code hash missing').request_hash;
+      return requireRow(await client.query('SELECT refs_create_project_cost_code($1,$2,$3,$4,$5,$6,$7::boolean,$8,$9,$10) result',[...args,idempotencyKey,requestHash]),'PROJECT_COST_CODE_CREATE_FAILED','Project cost code receipt missing').result;
+    });
+  }
+  async createProjectUnit({tenantId,entityId,projectId,unitRef,unitName,allocationBasis,allocationWeight,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,projectId,unitRef,unitName,allocationBasis,allocationWeight,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_create_project_unit_hash($1,$2,$3,$4,$5,$6,$7::numeric,$8) request_hash',args),'PROJECT_UNIT_HASH_FAILED','Project unit hash missing').request_hash;
+      return requireRow(await client.query('SELECT refs_create_project_unit($1,$2,$3,$4,$5,$6,$7::numeric,$8,$9,$10) result',[...args,idempotencyKey,requestHash]),'PROJECT_UNIT_CREATE_FAILED','Project unit receipt missing').result;
+    });
+  }
+  async transitionProjectMaster({tenantId,entityId,objectType,objectId,expectedRevision,event,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,objectType,objectId,expectedRevision,event,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_transition_project_master_hash($1,$2,$3,$4,$5::integer,$6,$7) request_hash',args),'PROJECT_MASTER_TRANSITION_HASH_FAILED','Project master transition hash missing').request_hash;
+      return requireRow(await client.query('SELECT refs_transition_project_master($1,$2,$3,$4,$5::integer,$6,$7,$8,$9) result',[...args,idempotencyKey,requestHash]),'PROJECT_MASTER_TRANSITION_FAILED','Project master transition receipt missing').result;
+    });
+  }
+  async readProjectMasters({tenantId,entityId}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_project_masters($1,$2) AS result',[tenantId,entityId]),'PROJECT_MASTERS_MISSING','Project masters were not returned').result);
+  }
+  async readProjectCostLayers({tenantId,entityId,projectRef,periodId=null}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_project_cost_layers($1,$2,$3,$4) AS result',[tenantId,entityId,projectRef,periodId]),'PROJECT_COST_LAYERS_MISSING','Project cost layers were not returned').result);
+  }
   async getJournalWorkflowCapabilities({tenantId,entityId}){
     return this.inSession(async client=>{
       await client.query("SELECT refs_assert_scope($1,$2,'GL.JE.VIEW')",[tenantId,entityId]);

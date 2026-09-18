@@ -30528,6 +30528,1115 @@
           "AP"
         ]
       }
+    },
+    "/entities/{entityId}/projects": {
+      "get": {
+        "operationId": "readProjectMasters",
+        "summary": "Project, cost code and unit masters (P05)",
+        "description": "Read-only (PROJECT.MASTER.VIEW). Every project with its cost codes and units, status/revision/approver; no amounts. accounting_authority is always NONE.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PROJECT_MASTERS_V1 envelope",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "accounting_authority",
+                        "projects"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "PROJECT_MASTERS_V1"
+                        },
+                        "accounting_authority": {
+                          "const": "NONE"
+                        },
+                        "projects": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createProjectMaster",
+        "summary": "Create a DRAFT project master (PROJECT.MASTER.CREATE)",
+        "description": "Idempotent by Idempotency-Key. Approval is a separate command by a different actor (SoD).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "projectRef",
+                  "projectName",
+                  "projectType",
+                  "capitalizationPolicy",
+                  "reason"
+                ],
+                "properties": {
+                  "projectRef": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                  },
+                  "projectName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "projectType": {
+                    "enum": [
+                      "DEVELOPMENT",
+                      "RENTAL",
+                      "LAND",
+                      "OTHER"
+                    ]
+                  },
+                  "capitalizationPolicy": {
+                    "enum": [
+                      "CWIP_UNTIL_COMPLETION",
+                      "EXPENSE_AS_INCURRED"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 2000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "PROJECT_MASTER_V1 receipt",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "project_id",
+                        "status",
+                        "revision",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "type": "string"
+                        },
+                        "project_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "enum": [
+                            "DRAFT",
+                            "APPROVED",
+                            "RETIRED"
+                          ]
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        },
+                        "snapshot_hash": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent replay",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "project_id",
+                        "status",
+                        "revision",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "type": "string"
+                        },
+                        "project_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "enum": [
+                            "DRAFT",
+                            "APPROVED",
+                            "RETIRED"
+                          ]
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        },
+                        "snapshot_hash": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/projects/{projectRef}/cost-layers": {
+      "get": {
+        "operationId": "readProjectCostLayers",
+        "summary": "Derived project cost layers by cost code / unit / account (P05)",
+        "description": "Read-only (GL.REPORT.VIEW). POSTED ledger lines carrying dimensions.project_ref grouped by cost_code_ref, unit_ref and account; layer_class CWIP only when an APPROVED CWIP_ACCOUNT_CLASSIFICATION mapping classifies the exact account as of the period end. Unregistered or unapproved refs are exception_code rows sorted first. Never a capitalisation, transfer or posting conclusion: can_capitalize/can_transfer/can_post are always false.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "projectRef",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+            }
+          },
+          {
+            "name": "periodId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PROJECT_COST_LAYERS_V1 envelope",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "accounting_authority",
+                        "can_capitalize",
+                        "can_transfer",
+                        "can_post",
+                        "project_ref",
+                        "layers",
+                        "totals"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "PROJECT_COST_LAYERS_V1"
+                        },
+                        "accounting_authority": {
+                          "const": "NONE"
+                        },
+                        "can_capitalize": {
+                          "const": false
+                        },
+                        "can_transfer": {
+                          "const": false
+                        },
+                        "can_post": {
+                          "const": false
+                        },
+                        "project_ref": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                        },
+                        "project_id": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "uuid"
+                        },
+                        "project_status": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "layers": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "account_code",
+                              "layer_class",
+                              "net_amount",
+                              "exception_code"
+                            ],
+                            "properties": {
+                              "cost_code_ref": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "unit_ref": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "account_code": {
+                                "type": "string"
+                              },
+                              "layer_class": {
+                                "enum": [
+                                  "CWIP",
+                                  "NON_CWIP"
+                                ]
+                              },
+                              "debit_total": {
+                                "type": "number"
+                              },
+                              "credit_total": {
+                                "type": "number"
+                              },
+                              "net_amount": {
+                                "type": "number"
+                              },
+                              "exception_code": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "enum": [
+                                  null,
+                                  "PROJECT_NOT_REGISTERED",
+                                  "PROJECT_NOT_APPROVED",
+                                  "COST_CODE_MISSING",
+                                  "COST_CODE_NOT_APPROVED",
+                                  "UNIT_NOT_APPROVED",
+                                  "CWIP_ON_NON_CAPITALIZABLE_CODE"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "totals": {
+                          "type": "object"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/projects/{projectId}/cost-codes": {
+      "post": {
+        "operationId": "createProjectCostCode",
+        "summary": "Create a DRAFT cost code under an APPROVED project (PROJECT.MASTER.CREATE)",
+        "description": "Idempotent by Idempotency-Key; 422 when the project is not APPROVED.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "costCodeRef",
+                  "costCodeName",
+                  "costCategory",
+                  "capitalizable",
+                  "reason"
+                ],
+                "properties": {
+                  "costCodeRef": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                  },
+                  "costCodeName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "costCategory": {
+                    "enum": [
+                      "LAND",
+                      "HARD",
+                      "SOFT",
+                      "FINANCING",
+                      "MARKETING",
+                      "OTHER"
+                    ]
+                  },
+                  "capitalizable": {
+                    "type": "boolean"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 2000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "PROJECT_COST_CODE_V1 receipt",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "cost_code_id",
+                        "project_id",
+                        "status",
+                        "revision",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "PROJECT_COST_CODE_V1"
+                        },
+                        "cost_code_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "project_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent replay",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "cost_code_id",
+                        "project_id",
+                        "status",
+                        "revision",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "PROJECT_COST_CODE_V1"
+                        },
+                        "cost_code_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "project_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/projects/{projectId}/units": {
+      "post": {
+        "operationId": "createProjectUnit",
+        "summary": "Create a DRAFT unit under an APPROVED project (PROJECT.MASTER.CREATE)",
+        "description": "Idempotent by Idempotency-Key; 422 when the project is not APPROVED.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "unitRef",
+                  "unitName",
+                  "allocationBasis",
+                  "allocationWeight",
+                  "reason"
+                ],
+                "properties": {
+                  "unitRef": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                  },
+                  "unitName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "allocationBasis": {
+                    "enum": [
+                      "AREA",
+                      "EQUAL",
+                      "SPECIFIC_IDENTIFICATION"
+                    ]
+                  },
+                  "allocationWeight": {
+                    "type": "string",
+                    "pattern": "^(?:0|[1-9]\\d{0,15})\\.\\d{4}$"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 2000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "PROJECT_UNIT_V1 receipt",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "unit_id",
+                        "project_id",
+                        "status",
+                        "revision",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "PROJECT_UNIT_V1"
+                        },
+                        "unit_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "project_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent replay",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "unit_id",
+                        "project_id",
+                        "status",
+                        "revision",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "PROJECT_UNIT_V1"
+                        },
+                        "unit_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "project_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/project-masters/{objectKind}/{objectId}/transitions": {
+      "post": {
+        "operationId": "transitionProjectMaster",
+        "summary": "Approve or retire a project master object (PROJECT.MASTER.APPROVE)",
+        "description": "If-Match carries the expected revision (CAS → 412). APPROVED requires DRAFT and an approver different from the creator (403). RETIRED requires APPROVED; a project cannot retire while APPROVED cost codes or units remain (422). Append-only lineage in project_master_event.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "objectKind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "projects",
+                "cost-codes",
+                "units"
+              ]
+            }
+          },
+          {
+            "name": "objectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "event",
+                  "reason"
+                ],
+                "properties": {
+                  "event": {
+                    "enum": [
+                      "APPROVED",
+                      "RETIRED"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 2000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PROJECT_MASTER_TRANSITION_V1 receipt",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "status",
+                        "revision",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "PROJECT_MASTER_TRANSITION_V1"
+                        },
+                        "status": {
+                          "enum": [
+                            "APPROVED",
+                            "RETIRED"
+                          ]
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        },
+                        "approved_by": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "retired_by": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
     }
   },
   "components": {
