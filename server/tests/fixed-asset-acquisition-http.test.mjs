@@ -29,7 +29,10 @@ test('acquisition HTTP rejects injected authority, amounts, stale-format version
  assert.equal(calls.length,0);
 });
 test('acquisition HTTP preserves database denial and presents missing original evidence as a conflict',async()=>{
- for(const [code,status] of [['42501',403],['55006',500],['23514',422],['23505',409],['40001',503]]){
+ // P11: an unrecognised 55006 used to fall through statusFor() to 500, while the two recognised
+ // messages below already answered 409. object_in_use is a conflict whichever message carries it,
+ // so the generic case is now 409 too and the inline handling only refines the problem code.
+ for(const [code,status] of [['42501',403],['55006',409],['23514',422],['23505',409],['40001',503]]){
   const {api}=setup(async()=>{throw Object.assign(new Error('Database denied command'),{code});});assert.equal((await api(request)).status,status);
  }
  for(const [code,message,status,responseCode] of [
