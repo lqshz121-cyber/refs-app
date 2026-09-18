@@ -2918,6 +2918,21 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
           result=await kernel.postUnitTransferReversal(shared);if(!validUnitTransferReversalPostReceipt(result,{pairId,reversalPairId}))throw new AccountingApiError(502,'UNIT_TRANSFER_REVERSAL_POST_INVALID','Unit Transfer returned an invalid reversal Post receipt');
         }
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store','etag':`"${result.revision}"`},body:{ok:true,data:result}};
+      }else if(parts.length===8&&parts[4]==='fixed-assets'&&parts[5]==='impairment-assessments'&&parts[7]==='drafts'){
+        // P08: the impairment posting path 242/243 assumed but nobody could produce. The loss comes from the reviewed assessment.
+        requireExactQuery(parsedUrl.searchParams,[]);
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Use expectedAssessmentHash when creating an impairment Draft');
+        const fields=['journalNumber','journalDate','expectedAssessmentHash','attachmentIds','reason'];allowOnly(payload,fields);for(const field of fields)if(!Object.hasOwn(payload,field))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${field} is required`);
+        const assessmentId=requireUuid(parts[6],'impairmentAssessmentEvidenceId').toLowerCase(),journalDate=requireIsoDate(payload.journalDate,'journalDate');
+        const {journalNumber,expectedAssessmentHash}=payload;
+        if(typeof journalNumber!=='string'||journalNumber!==journalNumber.trim()||journalNumber.length<1||journalNumber.length>100||/[\u0000-\u001f\u007f]/.test(journalNumber))throw new AccountingApiError(400,'INVALID_JOURNAL_NUMBER','Enter a journal number of 1-100 characters');
+        if(typeof expectedAssessmentHash!=='string'||!/^sha256:[0-9a-f]{64}$/.test(expectedAssessmentHash))throw new AccountingApiError(400,'INVALID_ASSESSMENT_HASH','expectedAssessmentHash must be the sha256 digest of the reviewed assessment');
+        const attachmentIds=requireAttachmentIds(requireAttachmentIds(payload.attachmentIds).map(id=>id.toLowerCase())),reason=requireReviewReason(payload.reason);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.createFixedAssetImpairmentDraft!=='function')throw new AccountingApiError(503,'FIXED_ASSET_IMPAIRMENT_DRAFT_UNAVAILABLE','Fixed asset impairment Draft creation is unavailable');
+        try{result=await kernel.createFixedAssetImpairmentDraft({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),impairmentAssessmentEvidenceId:assessmentId,journalNumber,journalDate,expectedAssessmentHash,reason,attachmentIds,idempotencyKey});}
+        catch(error){if(error?.code==='40001')throw new AccountingApiError(412,'PRECONDITION_FAILED','The impairment assessment changed. Re-read it before creating the Draft');throw error;}
+        if(!result||result.schema_version!=='FIXED_ASSET_IMPAIRMENT_DRAFT_V1'||result.status!=='DRAFT'||result.impairment_assessment_evidence_id!==assessmentId||result.impairment_assessment_hash!==expectedAssessmentHash||!UUID.test(result.journal_entry_id||'')||!UUID.test(result.fixed_asset_impairment_draft_binding_id||''))throw new AccountingApiError(502,'FIXED_ASSET_IMPAIRMENT_DRAFT_RECEIPT_INVALID','Fixed asset impairment Draft returned an invalid receipt');
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store','etag':'"0"'},body:{ok:true,data:result}};
       }else if(parts.length===8&&parts[4]==='fixed-assets'&&parts[5]==='register'&&parts[7]==='acquisitions'){
         requireExactQuery(parsedUrl.searchParams,[]);
         if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Use expectedSourceVersion when creating an acquisition Draft');

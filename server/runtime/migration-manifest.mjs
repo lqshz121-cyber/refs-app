@@ -436,4 +436,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"429_project_cost_master.sql",up:"c636793e4c75519cbd0298e64ea6072dbd543c4516c17007eb24a35bc96a86b8",down:"fb68dc142ef260f6ed8597b62f7cff2d9df5ea700952fe0502edb1ba0bca3a7a"}),
   Object.freeze({name:"430_unit_sale_closeout.sql",up:"7774ea826d280580928c2ae7a2d20417e37485dfeffbb6e51c6468aecebb162d",down:"fd16a790982f2e7deba2b62a4e3a925e2716ef85bcc43a23e5fa802f4a0b51cb"}),
   Object.freeze({name:"431_loan_master_interest.sql",up:"64e94cc354452c271d45344253453b995b79aa6ac955b5d96801667f9c7de6f9",down:"573ba7b818f4d1f41774c2d466e25d9bc85e058ecc8ee68f09fd9370443a2b9e"}),
+  Object.freeze({name:"432_fixed_asset_impairment_draft.sql",up:"d644a2f2e1cb574ccd59c0fbfe4f19c41813c44df14c0ea25fc4a02089d8de1a",down:"649119c2a8156d0ea7dc752fbf03830d078471e86cc3a15a6409973366d29621"}),
 ]);

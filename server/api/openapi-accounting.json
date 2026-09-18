@@ -33260,6 +33260,267 @@
           }
         }
       }
+    },
+    "/entities/{entityId}/fixed-assets/impairment-assessments/{impairmentAssessmentEvidenceId}/drafts": {
+      "post": {
+        "operationId": "createFixedAssetImpairmentDraft",
+        "summary": "Book a reviewed impairment assessment as a Draft journal (P08)",
+        "description": "FIXED_ASSET.IMPAIRMENT.DRAFT + GL.JE.CREATE. Completes the path 242 (independent assessment) and 243 (posted reconciliation) already assumed: the journal carries dimensions.impairment_assessment_evidence_id so 243 can reconcile it. The loss comes from the reviewed assessment, never from the request; the maker echoes the assessment hash (412 on drift) and may not be the reviewer (403). Refused (422) when the assessment is not INDEPENDENTLY_REVIEWED, records no loss, belongs to a non-ACTIVE or disposed asset, or is already reflected in the Posted ledger. Produces a MANUAL Draft (Dr impairment expense / Cr accumulated impairment) and stops; one Draft per assessment.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "impairmentAssessmentEvidenceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "journalNumber",
+                  "journalDate",
+                  "expectedAssessmentHash",
+                  "attachmentIds",
+                  "reason"
+                ],
+                "properties": {
+                  "journalNumber": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "journalDate": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "expectedAssessmentHash": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  "attachmentIds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "$ref": "#/components/schemas/Uuid"
+                    }
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 2000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "FIXED_ASSET_IMPAIRMENT_DRAFT_V1 receipt",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "journal_entry_id",
+                        "fixed_asset_impairment_draft_binding_id",
+                        "impairment_assessment_evidence_id",
+                        "impairment_loss",
+                        "impairment_assessment_hash",
+                        "status",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "FIXED_ASSET_IMPAIRMENT_DRAFT_V1"
+                        },
+                        "journal_entry_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "fixed_asset_impairment_draft_binding_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "impairment_assessment_evidence_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "fixed_asset_register_evidence_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "impairment_loss": {
+                          "type": "string"
+                        },
+                        "impairment_assessment_hash": {
+                          "type": "string",
+                          "pattern": "^sha256:[0-9a-f]{64}$"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent replay",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "journal_entry_id",
+                        "fixed_asset_impairment_draft_binding_id",
+                        "impairment_assessment_evidence_id",
+                        "impairment_loss",
+                        "impairment_assessment_hash",
+                        "status",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "FIXED_ASSET_IMPAIRMENT_DRAFT_V1"
+                        },
+                        "journal_entry_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "fixed_asset_impairment_draft_binding_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "impairment_assessment_evidence_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "fixed_asset_register_evidence_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "impairment_loss": {
+                          "type": "string"
+                        },
+                        "impairment_assessment_hash": {
+                          "type": "string",
+                          "pattern": "^sha256:[0-9a-f]{64}$"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "423": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
     }
   },
   "components": {

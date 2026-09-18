@@ -2483,6 +2483,13 @@ export class PostgresAccountingKernel{
       return requireRow(await client.query('SELECT refs_create_loan_interest_draft($1,$2,$3,$4,$5,$6::date,$7,$8,$9::uuid[],$10,$11) result',[...args,idempotencyKey,requestHash]),'LOAN_INTEREST_DRAFT_FAILED','Loan interest receipt missing').result;
     });
   }
+  async createFixedAssetImpairmentDraft({tenantId,entityId,impairmentAssessmentEvidenceId,journalNumber,journalDate,expectedAssessmentHash,reason,attachmentIds,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,impairmentAssessmentEvidenceId,journalNumber,journalDate,expectedAssessmentHash,reason,attachmentIds];
+      const requestHash=requireRow(await client.query('SELECT refs_create_fixed_asset_impairment_draft_hash($1,$2,$3,$4,$5::date,$6,$7,$8::uuid[]) request_hash',args),'FIXED_ASSET_IMPAIRMENT_HASH_FAILED','Impairment Draft hash missing').request_hash;
+      return requireRow(await client.query('SELECT refs_create_fixed_asset_impairment_draft($1,$2,$3,$4,$5::date,$6,$7,$8::uuid[],$9,$10) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_IMPAIRMENT_DRAFT_FAILED','Impairment Draft receipt missing').result;
+    });
+  }
   async getJournalWorkflowCapabilities({tenantId,entityId}){
     return this.inSession(async client=>{
       await client.query("SELECT refs_assert_scope($1,$2,'GL.JE.VIEW')",[tenantId,entityId]);

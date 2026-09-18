@@ -1223,5 +1223,12 @@
   "risk_class": "HIGH",
   "sod_class": "LOAN_INTEREST_MAKER",
   "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "FIXED_ASSET.IMPAIRMENT.DRAFT",
+  "domain": "FIXED_ASSET",
+  "risk_class": "HIGH",
+  "sod_class": "FIXED_ASSET_IMPAIRMENT_MAKER",
+  "authority_class": "DRAFT"
  }
 ]
