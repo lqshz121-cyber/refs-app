@@ -144,7 +144,8 @@
     "test:postgres:evidence-summary": "node --test tests/entity-evidence-summary-postgres.test.mjs",
     "test:postgres:ap-bill-void": "node --test tests/ap-bill-void-reachability-postgres.test.mjs",
     "test:postgres:ap-lifecycle": "node --test tests/ap-lifecycle-state-machine-postgres.test.mjs",
-    "test:postgres:ar-lifecycle": "node --test tests/ar-lifecycle-state-machine-postgres.test.mjs"
+    "test:postgres:ar-lifecycle": "node --test tests/ar-lifecycle-state-machine-postgres.test.mjs",
+    "security:secret-scan": "node ../tools/secret-scan.mjs --range ${SECRET_SCAN_RANGE:-origin/main..HEAD}"
   },
   "dependencies": {
     "pg": "^8.13.1"
