@@ -2619,6 +2619,18 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!result||result.schema_version!=='LOAN_INTEREST_ACCRUAL_V1'||result.accounting_authority!=='NONE'||result.can_post!==false||result.can_draft!==false||result.loan_id!==loanId||typeof result.computation_hash!=='string'||!/^sha256:[0-9a-f]{64}$/.test(result.computation_hash))throw new AccountingApiError(502,'LOAN_INTEREST_ACCRUAL_PROTOCOL','Loan interest accrual did not match the closed read contract');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store','etag':`"${result.computation_hash}"`},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===6&&parts[4]==='ops'&&parts[5]==='outbox-health'){
+        // P10: operational visibility into the dispatch backlog (OPS.OUTBOX.VIEW). Counts, ages and hashes only; never a payload.
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Outbox health reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['staleMinutes']);
+        const raw=parsedUrl.searchParams.get('staleMinutes');let staleMinutes=15;
+        if(raw!==null){if(!/^[1-9][0-9]{0,4}$/.test(raw)||Number(raw)>10080)throw new AccountingApiError(400,'INVALID_STALE_MINUTES','staleMinutes must be an integer between 1 and 10080');staleMinutes=Number(raw);}
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readOutboxHealth!=='function')throw new AccountingApiError(503,'OUTBOX_HEALTH_UNAVAILABLE','Outbox health is unavailable');
+        try{result=await kernel.readOutboxHealth({tenantId:principal.tenantId,entityId,staleMinutes});}catch(error){if(error?.code==='42501')throw new AccountingApiError(403,'OUTBOX_VIEW_ACCESS_REQUIRED','Outbox operational read access is required for this company');if(error?.code==='22023')throw new AccountingApiError(400,'INVALID_STALE_MINUTES','staleMinutes must be an integer between 1 and 10080');throw error;}
+        if(!result||result.schema_version!=='OUTBOX_HEALTH_V1'||result.entity_id!==entityId||result.can_dispatch!==false||result.can_delete!==false||typeof result.totals!=='object'||!Array.isArray(result.oldest_unpublished)||JSON.stringify(result).includes('"payload":'))throw new AccountingApiError(502,'OUTBOX_HEALTH_PROTOCOL','Outbox health did not match the closed read contract');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method!=='POST')throw new AccountingApiError(405,'METHOD_NOT_ALLOWED','Only POST commands and supported GET reads are available');
       const idempotencyKey=requireIdempotency(headers);
       if(parts.length===5&&parts[4]==='loans'){

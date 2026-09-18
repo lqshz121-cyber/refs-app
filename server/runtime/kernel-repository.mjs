@@ -2490,6 +2490,9 @@ export class PostgresAccountingKernel{
       return requireRow(await client.query('SELECT refs_create_fixed_asset_impairment_draft($1,$2,$3,$4,$5::date,$6,$7,$8::uuid[],$9,$10) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_IMPAIRMENT_DRAFT_FAILED','Impairment Draft receipt missing').result;
     });
   }
+  async readOutboxHealth({tenantId,entityId,staleMinutes=15}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_outbox_health($1,$2,$3) AS result',[tenantId,entityId,staleMinutes]),'OUTBOX_HEALTH_MISSING','Outbox health was not returned').result);
+  }
   async getJournalWorkflowCapabilities({tenantId,entityId}){
     return this.inSession(async client=>{
       await client.query("SELECT refs_assert_scope($1,$2,'GL.JE.VIEW')",[tenantId,entityId]);

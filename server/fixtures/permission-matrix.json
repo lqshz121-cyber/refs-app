@@ -1230,5 +1230,12 @@
   "risk_class": "HIGH",
   "sod_class": "FIXED_ASSET_IMPAIRMENT_MAKER",
   "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "OPS.OUTBOX.VIEW",
+  "domain": "OPS",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": null
  }
 ]

@@ -33521,6 +33521,141 @@
           }
         }
       }
+    },
+    "/entities/{entityId}/ops/outbox-health": {
+      "get": {
+        "operationId": "readOutboxHealth",
+        "summary": "Dispatch backlog health for one company (P10)",
+        "description": "Read-only (OPS.OUTBOX.VIEW). Counts of pending / published / failed events, how many are due now vs deferred, how many are older than staleMinutes, attempt distribution, the oldest pending age, a per-event-type breakdown and the twenty oldest unpublished events by identity. Payloads are never returned, only their sha256 hash and a truncated last_error. backlog_state summarises the queue as DRAINED, PENDING_WITHIN_WINDOW, STALE_BACKLOG or FAILED_EVENTS_PRESENT. This read dispatches nothing and deletes nothing.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "staleMinutes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10080,
+              "default": 15
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OUTBOX_HEALTH_V1 envelope",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "accounting_authority",
+                        "can_dispatch",
+                        "can_delete",
+                        "entity_id",
+                        "totals",
+                        "by_event_type",
+                        "oldest_unpublished",
+                        "backlog_state"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "OUTBOX_HEALTH_V1"
+                        },
+                        "accounting_authority": {
+                          "const": "NONE"
+                        },
+                        "can_dispatch": {
+                          "const": false
+                        },
+                        "can_delete": {
+                          "const": false
+                        },
+                        "entity_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "observed_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "stale_minutes": {
+                          "type": "integer"
+                        },
+                        "totals": {
+                          "type": "object"
+                        },
+                        "by_event_type": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          }
+                        },
+                        "oldest_unpublished": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "description": "Identity, attempt count, timestamps, payload hash and a truncated last_error. Never the payload."
+                          }
+                        },
+                        "backlog_state": {
+                          "enum": [
+                            "DRAINED",
+                            "PENDING_WITHIN_WINDOW",
+                            "STALE_BACKLOG",
+                            "FAILED_EVENTS_PRESENT"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
     }
   },
   "components": {
