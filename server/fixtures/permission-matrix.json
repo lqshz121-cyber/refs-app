@@ -1188,5 +1188,12 @@
   "risk_class": "HIGH",
   "sod_class": "PROJECT_MASTER_APPROVER",
   "authority_class": "APPROVE"
+ },
+ {
+  "permission_code": "UNIT.COGS.RELEASE.DRAFT",
+  "domain": "PROJECT",
+  "risk_class": "HIGH",
+  "sod_class": "UNIT_COGS_RELEASE_MAKER",
+  "authority_class": "DRAFT"
  }
 ]

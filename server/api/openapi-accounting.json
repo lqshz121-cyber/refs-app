@@ -31637,6 +31637,485 @@
           }
         }
       }
+    },
+    "/entities/{entityId}/projects/{projectRef}/unit-sale-closeout": {
+      "get": {
+        "operationId": "readUnitSaleCloseout",
+        "summary": "Per-unit sale close-out: revenue, released COGS, remaining capitalised cost (P06)",
+        "description": "Read-only (GL.REPORT.VIEW). For each unit carrying the project dimension: capitalized_cost (net debit on CWIP-classified accounts), cogs_released (net debit on COGS-classified accounts), revenue_recognized (net credit on REVENUE-classified accounts) and gross_margin, all from POSTED ledger lines bounded by the period end. Account classes come only from APPROVED CWIP_ACCOUNT_CLASSIFICATION and UNIT_SALE_ACCOUNT_CLASSIFICATION mappings on the exact account; an unclassified line is reported, never guessed. States: UNSOLD, REVENUE_WITHOUT_COGS, COGS_WITHOUT_REVENUE, PARTIALLY_RELEASED, CLOSED_OUT. Exceptions sort first. Never releases or posts.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "projectRef",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+            }
+          },
+          {
+            "name": "periodId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "UNIT_SALE_CLOSEOUT_V1 envelope",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "accounting_authority",
+                        "can_release",
+                        "can_post",
+                        "project_ref",
+                        "units",
+                        "totals"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "UNIT_SALE_CLOSEOUT_V1"
+                        },
+                        "accounting_authority": {
+                          "const": "NONE"
+                        },
+                        "can_release": {
+                          "const": false
+                        },
+                        "can_post": {
+                          "const": false
+                        },
+                        "project_ref": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                        },
+                        "units": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "unit_ref",
+                              "capitalized_cost",
+                              "cogs_released",
+                              "revenue_recognized",
+                              "state",
+                              "exception_code"
+                            ],
+                            "properties": {
+                              "unit_ref": {
+                                "type": "string"
+                              },
+                              "unit_id": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "format": "uuid"
+                              },
+                              "unit_status": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "allocation_basis": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "capitalized_cost": {
+                                "type": "number"
+                              },
+                              "cogs_released": {
+                                "type": "number"
+                              },
+                              "revenue_recognized": {
+                                "type": "number"
+                              },
+                              "gross_margin": {
+                                "type": "number"
+                              },
+                              "state": {
+                                "enum": [
+                                  "UNSOLD",
+                                  "REVENUE_WITHOUT_COGS",
+                                  "COGS_WITHOUT_REVENUE",
+                                  "PARTIALLY_RELEASED",
+                                  "CLOSED_OUT"
+                                ]
+                              },
+                              "exception_code": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "enum": [
+                                  null,
+                                  "UNIT_NOT_REGISTERED",
+                                  "UNIT_NOT_APPROVED",
+                                  "ACCOUNT_CLASSIFICATION_MISSING",
+                                  "COGS_WITHOUT_REVENUE",
+                                  "COGS_NOT_RELEASED",
+                                  "CAPITALIZED_COST_REMAINING"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "totals": {
+                          "type": "object"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/project-units/{unitId}/cogs-releases": {
+      "post": {
+        "operationId": "createUnitCogsReleaseDraft",
+        "summary": "Release a specific-identification unit cost to COGS as a Draft journal (P06)",
+        "description": "UNIT.COGS.RELEASE.DRAFT + GL.JE.CREATE. Produces a MANUAL Draft journal debiting the approved COGS account and crediting the approved CWIP account with the unit dimensions; it never posts, so the unchanged Submit/Review/Approve/Post chain still applies. Refused (422) when the unit or project is not APPROVED, when the unit allocation basis is not SPECIFIC_IDENTIFICATION (allocation semantics undefined — Owner decision D-P06-1), when either account lacks exactly one approved classification, when no revenue has been POSTED for the unit, or when the amount exceeds the remaining capitalised cost net of releases already drafted and not yet posted.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "unitId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "periodId",
+                  "journalNumber",
+                  "journalDate",
+                  "cwipAccountCode",
+                  "cogsAccountCode",
+                  "amount",
+                  "attachmentIds",
+                  "reason"
+                ],
+                "properties": {
+                  "periodId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "journalNumber": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "journalDate": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "cwipAccountCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "cogsAccountCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^(?:0|[1-9]\\d{0,15})\\.\\d{4}$"
+                  },
+                  "attachmentIds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "$ref": "#/components/schemas/Uuid"
+                    }
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 2000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "UNIT_COGS_RELEASE_DRAFT_V1 receipt",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "journal_entry_id",
+                        "unit_cogs_release_binding_id",
+                        "unit_id",
+                        "amount",
+                        "status",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "UNIT_COGS_RELEASE_DRAFT_V1"
+                        },
+                        "journal_entry_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "unit_cogs_release_binding_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "unit_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "project_ref": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                        },
+                        "unit_ref": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                        },
+                        "cwip_account_code": {
+                          "type": "string"
+                        },
+                        "cogs_account_code": {
+                          "type": "string"
+                        },
+                        "amount": {
+                          "type": "string",
+                          "pattern": "^(?:0|[1-9]\\d{0,15})\\.\\d{4}$"
+                        },
+                        "available_before": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent replay",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "journal_entry_id",
+                        "unit_cogs_release_binding_id",
+                        "unit_id",
+                        "amount",
+                        "status",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "UNIT_COGS_RELEASE_DRAFT_V1"
+                        },
+                        "journal_entry_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "unit_cogs_release_binding_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "unit_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "project_ref": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                        },
+                        "unit_ref": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                        },
+                        "cwip_account_code": {
+                          "type": "string"
+                        },
+                        "cogs_account_code": {
+                          "type": "string"
+                        },
+                        "amount": {
+                          "type": "string",
+                          "pattern": "^(?:0|[1-9]\\d{0,15})\\.\\d{4}$"
+                        },
+                        "available_before": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "423": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
     }
   },
   "components": {

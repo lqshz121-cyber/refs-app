@@ -1,0 +1,11 @@
+BEGIN;
+DROP FUNCTION IF EXISTS refs_create_unit_cogs_release_draft(uuid,uuid,uuid,uuid,text,date,text,text,numeric,text,uuid[],text,text);
+DROP FUNCTION IF EXISTS refs_create_unit_cogs_release_draft_hash(uuid,uuid,uuid,uuid,text,date,text,text,numeric,text,uuid[]);
+DROP FUNCTION IF EXISTS refs_read_unit_sale_closeout(uuid,uuid,text,uuid);
+DROP FUNCTION IF EXISTS refs_cwip_account_class(uuid,uuid,text,date);
+DROP FUNCTION IF EXISTS refs_unit_sale_account_class(uuid,uuid,text,date);
+DROP TABLE IF EXISTS unit_cogs_release_binding;
+DROP INDEX IF EXISTS mapping_snapshot_unit_sale_account_read_idx;
+DELETE FROM runtime_human_permission_authority WHERE permission_code='UNIT.COGS.RELEASE.DRAFT';
+UPDATE permission_catalog SET active=false,effective_to=clock_timestamp() WHERE permission_code='UNIT.COGS.RELEASE.DRAFT';
+COMMIT;

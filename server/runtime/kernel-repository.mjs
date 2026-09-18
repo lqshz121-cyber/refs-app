@@ -2438,6 +2438,16 @@ export class PostgresAccountingKernel{
   async readProjectCostLayers({tenantId,entityId,projectRef,periodId=null}){
     return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_project_cost_layers($1,$2,$3,$4) AS result',[tenantId,entityId,projectRef,periodId]),'PROJECT_COST_LAYERS_MISSING','Project cost layers were not returned').result);
   }
+  async readUnitSaleCloseout({tenantId,entityId,projectRef,periodId=null}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_unit_sale_closeout($1,$2,$3,$4) AS result',[tenantId,entityId,projectRef,periodId]),'UNIT_SALE_CLOSEOUT_MISSING','Unit sale close-out was not returned').result);
+  }
+  async createUnitCogsReleaseDraft({tenantId,entityId,unitId,periodId,journalNumber,journalDate,cwipAccountCode,cogsAccountCode,amount,reason,attachmentIds,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,unitId,periodId,journalNumber,journalDate,cwipAccountCode,cogsAccountCode,amount,reason,attachmentIds];
+      const requestHash=requireRow(await client.query('SELECT refs_create_unit_cogs_release_draft_hash($1,$2,$3,$4,$5,$6::date,$7,$8,$9::numeric,$10,$11::uuid[]) request_hash',args),'UNIT_COGS_RELEASE_HASH_FAILED','Unit cost release hash missing').request_hash;
+      return requireRow(await client.query('SELECT refs_create_unit_cogs_release_draft($1,$2,$3,$4,$5,$6::date,$7,$8,$9::numeric,$10,$11::uuid[],$12,$13) result',[...args,idempotencyKey,requestHash]),'UNIT_COGS_RELEASE_FAILED','Unit cost release receipt missing').result;
+    });
+  }
   async getJournalWorkflowCapabilities({tenantId,entityId}){
     return this.inSession(async client=>{
       await client.query("SELECT refs_assert_scope($1,$2,'GL.JE.VIEW')",[tenantId,entityId]);

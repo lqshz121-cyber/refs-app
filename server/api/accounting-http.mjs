@@ -2586,8 +2586,37 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!result||result.schema_version!=='PROJECT_COST_LAYERS_V1'||result.accounting_authority!=='NONE'||result.can_capitalize!==false||result.can_transfer!==false||result.can_post!==false||result.project_ref!==projectRef||!Array.isArray(result.layers)||typeof result.totals!=='object')throw new AccountingApiError(502,'PROJECT_COST_LAYERS_PROTOCOL','Project cost layers did not match the closed read contract');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===7&&parts[4]==='projects'&&parts[6]==='unit-sale-closeout'){
+        // P06: per-unit revenue / released COGS / remaining capitalised cost (GL.REPORT.VIEW); derived from POSTED ledger only.
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Close-out reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId']);
+        const projectRef=decodeURIComponent(parts[5]);if(!PROJECT_REF.test(projectRef))throw new AccountingApiError(400,'INVALID_PATH_PARAMETER','projectRef must be a canonical 1-64 character reference');
+        const rawPeriod=parsedUrl.searchParams.get('periodId'),periodId=rawPeriod===null?null:requireUuid(rawPeriod,'periodId').toLowerCase();
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readUnitSaleCloseout!=='function')throw new AccountingApiError(503,'UNIT_SALE_CLOSEOUT_UNAVAILABLE','Unit sale close-out is unavailable');
+        try{result=await kernel.readUnitSaleCloseout({tenantId:principal.tenantId,entityId,projectRef,periodId});}catch(error){if(error?.code==='42501')throw new AccountingApiError(403,'REPORT_READ_ACCESS_REQUIRED','Report read access is required for this company');if(error?.code==='22023')throw new AccountingApiError(400,'INVALID_PERIOD','periodId must belong to this company');throw error;}
+        if(!result||result.schema_version!=='UNIT_SALE_CLOSEOUT_V1'||result.accounting_authority!=='NONE'||result.can_release!==false||result.can_post!==false||result.project_ref!==projectRef||!Array.isArray(result.units))throw new AccountingApiError(502,'UNIT_SALE_CLOSEOUT_PROTOCOL','Unit sale close-out did not match the closed read contract');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method!=='POST')throw new AccountingApiError(405,'METHOD_NOT_ALLOWED','Only POST commands and supported GET reads are available');
       const idempotencyKey=requireIdempotency(headers);
+      if(parts.length===7&&parts[4]==='project-units'&&parts[6]==='cogs-releases'){
+        // P06: release a specific-identification unit's capitalised cost to COGS as a Draft journal (UNIT.COGS.RELEASE.DRAFT + GL.JE.CREATE). Never posts.
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','A new release Draft has no revision');
+        const fields=['periodId','journalNumber','journalDate','cwipAccountCode','cogsAccountCode','amount','attachmentIds','reason'];allowOnly(payload,fields);for(const field of fields)if(!Object.hasOwn(payload,field))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${field} is required`);
+        const unitId=requireUuid(parts[5],'unitId').toLowerCase(),periodId=requireUuid(payload.periodId,'periodId').toLowerCase(),journalDate=requireIsoDate(payload.journalDate,'journalDate');
+        const {journalNumber}=payload;
+        if(typeof journalNumber!=='string'||journalNumber!==journalNumber.trim()||journalNumber.length<1||journalNumber.length>100||/[\u0000-\u001f\u007f]/.test(journalNumber))throw new AccountingApiError(400,'INVALID_JOURNAL_NUMBER','Enter a journal number of 1-100 characters');
+        const accountCode=(value,name)=>{if(typeof value!=='string'||value!==value.trim()||value.length<1||value.length>64||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_ACCOUNT_CODE',`${name} must be a canonical 1-64 character account code`);return value;};
+        if(typeof payload.amount!=='string'||!/^(?:0|[1-9]\d{0,15})\.\d{4}$/.test(payload.amount)||BigInt(payload.amount.replace('.',''))<=0n)throw new AccountingApiError(400,'INVALID_AMOUNT','amount must be a positive canonical four-decimal amount');
+        const cwipAccountCode=accountCode(payload.cwipAccountCode,'cwipAccountCode'),cogsAccountCode=accountCode(payload.cogsAccountCode,'cogsAccountCode');
+        if(cwipAccountCode===cogsAccountCode)throw new AccountingApiError(400,'RELEASE_ACCOUNTS_IDENTICAL','cwipAccountCode and cogsAccountCode must differ');
+        const attachmentIds=requireAttachmentIds(requireAttachmentIds(payload.attachmentIds).map(id=>id.toLowerCase())),reason=requireReviewReason(payload.reason);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.createUnitCogsReleaseDraft!=='function')throw new AccountingApiError(503,'UNIT_COGS_RELEASE_UNAVAILABLE','Unit cost release is unavailable');
+        result=await kernel.createUnitCogsReleaseDraft({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),unitId,periodId,journalNumber,journalDate,cwipAccountCode,cogsAccountCode,amount:payload.amount,reason,attachmentIds,idempotencyKey});
+        if(!result||result.schema_version!=='UNIT_COGS_RELEASE_DRAFT_V1'||result.status!=='DRAFT'||result.unit_id!==unitId||result.amount!==payload.amount||typeof result.idempotent!=='boolean'||!UUID.test(result.journal_entry_id||'')||!UUID.test(result.unit_cogs_release_binding_id||''))throw new AccountingApiError(502,'UNIT_COGS_RELEASE_RECEIPT_INVALID','Unit cost release returned an invalid receipt');
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store','etag':'"0"'},body:{ok:true,data:result}};
+      }
       if(parts.length===5&&parts[4]==='projects'){
         // P05: create a DRAFT project master (PROJECT.MASTER.CREATE). Approval is a separate actor's command.
         requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','A new project master has no revision');
