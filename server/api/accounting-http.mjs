@@ -2598,8 +2598,92 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!result||result.schema_version!=='UNIT_SALE_CLOSEOUT_V1'||result.accounting_authority!=='NONE'||result.can_release!==false||result.can_post!==false||result.project_ref!==projectRef||!Array.isArray(result.units))throw new AccountingApiError(502,'UNIT_SALE_CLOSEOUT_PROTOCOL','Unit sale close-out did not match the closed read contract');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===5&&parts[4]==='loans'){
+        // P07: loan masters with approved draws and outstanding principal (LOAN.MASTER.VIEW).
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Loan master reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readLoanMasters!=='function')throw new AccountingApiError(503,'LOAN_MASTERS_UNAVAILABLE','Loan masters are unavailable');
+        try{result=await kernel.readLoanMasters({tenantId:principal.tenantId,entityId});}catch(error){if(error?.code==='42501')throw new AccountingApiError(403,'LOAN_MASTER_VIEW_REQUIRED','Loan master view access is required for this company');throw error;}
+        if(!result||result.schema_version!=='LOAN_MASTERS_V1'||result.accounting_authority!=='NONE'||!Array.isArray(result.loans))throw new AccountingApiError(502,'LOAN_MASTERS_PROTOCOL','Loan masters did not match the closed read contract');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===7&&parts[4]==='loans'&&parts[6]==='interest-accrual'){
+        // P07: deterministic daily-simple-interest accrual for one loan and period (GL.REPORT.VIEW). Computation only; never a posting.
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Interest accrual reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId']);
+        const loanId=requireUuid(parts[5],'loanId').toLowerCase(),periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId').toLowerCase();
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readLoanInterestAccrual!=='function')throw new AccountingApiError(503,'LOAN_INTEREST_ACCRUAL_UNAVAILABLE','Loan interest accrual is unavailable');
+        try{result=await kernel.readLoanInterestAccrual({tenantId:principal.tenantId,entityId,loanId,periodId});}catch(error){if(error?.code==='42501')throw new AccountingApiError(403,'REPORT_READ_ACCESS_REQUIRED','Report read access is required for this company');if(error?.code==='22023')throw new AccountingApiError(400,'INVALID_PERIOD','periodId must belong to this company');throw error;}
+        if(!result||result.schema_version!=='LOAN_INTEREST_ACCRUAL_V1'||result.accounting_authority!=='NONE'||result.can_post!==false||result.can_draft!==false||result.loan_id!==loanId||typeof result.computation_hash!=='string'||!/^sha256:[0-9a-f]{64}$/.test(result.computation_hash))throw new AccountingApiError(502,'LOAN_INTEREST_ACCRUAL_PROTOCOL','Loan interest accrual did not match the closed read contract');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store','etag':`"${result.computation_hash}"`},body:{ok:true,data:result}};
+      }
       if(method!=='POST')throw new AccountingApiError(405,'METHOD_NOT_ALLOWED','Only POST commands and supported GET reads are available');
       const idempotencyKey=requireIdempotency(headers);
+      if(parts.length===5&&parts[4]==='loans'){
+        // P07: create a DRAFT loan master (LOAN.MASTER.CREATE). Approval is a separate actor's command.
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','A new loan master has no revision');
+        const fields=['loanRef','lenderMemberRef','facilityAmount','currency','annualRate','dayCountBasis','capitalizationStart','capitalizationEnd','projectRef','cwipAccountCode','interestExpenseAccountCode','accruedInterestAccountCode','reason'];
+        allowOnly(payload,fields);for(const field of ['loanRef','lenderMemberRef','facilityAmount','currency','annualRate','dayCountBasis','interestExpenseAccountCode','accruedInterestAccountCode','reason'])if(!Object.hasOwn(payload,field))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${field} is required`);
+        const accountCode=(value,name)=>{if(typeof value!=='string'||value!==value.trim()||value.length<1||value.length>64||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_ACCOUNT_CODE',`${name} must be a canonical 1-64 character account code`);return value;};
+        if(typeof payload.facilityAmount!=='string'||!/^(?:0|[1-9]\d{0,15})\.\d{4}$/.test(payload.facilityAmount)||BigInt(payload.facilityAmount.replace('.',''))<=0n)throw new AccountingApiError(400,'INVALID_AMOUNT','facilityAmount must be a positive canonical four-decimal amount');
+        if(typeof payload.annualRate!=='string'||!/^0\.\d{6}$/.test(payload.annualRate))throw new AccountingApiError(400,'INVALID_RATE','annualRate must be a six-decimal fraction below 1, for example 0.075000');
+        if(!['ACT_360','ACT_365'].includes(payload.dayCountBasis))throw new AccountingApiError(400,'INVALID_DAY_COUNT_BASIS','dayCountBasis must be ACT_360 or ACT_365');
+        const optionalDate=(value,name)=>value==null?null:requireIsoDate(value,name);
+        const capitalizationStart=optionalDate(payload.capitalizationStart,'capitalizationStart'),capitalizationEnd=optionalDate(payload.capitalizationEnd,'capitalizationEnd');
+        const projectRef=payload.projectRef==null?null:requireProjectRef(payload.projectRef,'projectRef'),cwipAccountCode=payload.cwipAccountCode==null?null:accountCode(payload.cwipAccountCode,'cwipAccountCode');
+        if((capitalizationStart!=null||cwipAccountCode!=null||projectRef!=null)&&(capitalizationStart==null||cwipAccountCode==null||projectRef==null))throw new AccountingApiError(400,'INCOMPLETE_CAPITALIZATION_WINDOW','A capitalisation window needs capitalizationStart, projectRef and cwipAccountCode together');
+        if(capitalizationStart!=null&&capitalizationEnd!=null&&capitalizationEnd<capitalizationStart)throw new AccountingApiError(400,'INVALID_CAPITALIZATION_WINDOW','capitalizationEnd must not precede capitalizationStart');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.createLoanMaster!=='function')throw new AccountingApiError(503,'LOAN_MASTER_CREATE_UNAVAILABLE','Loan master creation is unavailable');
+        result=await kernel.createLoanMaster({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),loanRef:requireProjectRef(payload.loanRef,'loanRef'),
+          lenderMemberRef:requireMasterName(payload.lenderMemberRef,'lenderMemberRef'),facilityAmount:payload.facilityAmount,currency:requireCurrency(payload.currency),
+          annualRate:payload.annualRate,dayCountBasis:payload.dayCountBasis,capitalizationStart,capitalizationEnd,projectRef,cwipAccountCode,
+          interestExpenseAccountCode:accountCode(payload.interestExpenseAccountCode,'interestExpenseAccountCode'),
+          accruedInterestAccountCode:accountCode(payload.accruedInterestAccountCode,'accruedInterestAccountCode'),reason:requireReviewReason(payload.reason),idempotencyKey});
+        if(!result||result.schema_version!=='LOAN_MASTER_V1'||result.status!=='DRAFT'||result.revision!==0||!UUID.test(result.loan_id||''))throw new AccountingApiError(502,'LOAN_MASTER_RECEIPT_INVALID','Loan master returned an invalid receipt');
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store','etag':'"0"'},body:{ok:true,data:result}};
+      }
+      if(parts.length===7&&parts[4]==='loans'&&parts[6]==='draws'){
+        // P07: record a DRAFT draw or repayment under an APPROVED loan (LOAN.MASTER.CREATE).
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','A new draw has no revision');
+        const fields=['drawRef','drawDate','amount','reason'];allowOnly(payload,fields);for(const field of fields)if(!Object.hasOwn(payload,field))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${field} is required`);
+        if(typeof payload.amount!=='string'||!/^-?(?:0|[1-9]\d{0,15})\.\d{4}$/.test(payload.amount)||BigInt(payload.amount.replace('.','').replace('-',''))===0n)throw new AccountingApiError(400,'INVALID_AMOUNT','amount must be a non-zero canonical four-decimal amount; negative records a principal repayment');
+        const loanId=requireUuid(parts[5],'loanId').toLowerCase();
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.createLoanDraw!=='function')throw new AccountingApiError(503,'LOAN_DRAW_CREATE_UNAVAILABLE','Loan draw creation is unavailable');
+        result=await kernel.createLoanDraw({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),loanId,drawRef:requireProjectRef(payload.drawRef,'drawRef'),
+          drawDate:requireIsoDate(payload.drawDate,'drawDate'),amount:payload.amount,reason:requireReviewReason(payload.reason),idempotencyKey});
+        if(!result||result.schema_version!=='LOAN_DRAW_V1'||result.status!=='DRAFT'||result.loan_id!==loanId||!UUID.test(result.loan_draw_id||''))throw new AccountingApiError(502,'LOAN_DRAW_RECEIPT_INVALID','Loan draw returned an invalid receipt');
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store','etag':'"0"'},body:{ok:true,data:result}};
+      }
+      if(parts.length===8&&parts[4]==='loan-masters'&&['loans','draws'].includes(parts[5])&&parts[7]==='transitions'){
+        // P07: APPROVED / RETIRED transition (LOAN.MASTER.APPROVE), SoD maker!=approver, If-Match revision CAS.
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const objectType=parts[5]==='loans'?'LOAN':'DRAW',objectId=requireUuid(parts[6],'objectId').toLowerCase();
+        const fields=['event','reason'];allowOnly(payload,fields);for(const field of fields)if(!Object.hasOwn(payload,field))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${field} is required`);
+        if(!['APPROVED','RETIRED'].includes(payload.event))throw new AccountingApiError(400,'INVALID_TRANSITION_EVENT','event must be APPROVED or RETIRED');
+        const expectedRevision=requireRevision(headers),reason=requireReviewReason(payload.reason);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.transitionLoanMaster!=='function')throw new AccountingApiError(503,'LOAN_MASTER_TRANSITION_UNAVAILABLE','Loan master transitions are unavailable');
+        try{result=await kernel.transitionLoanMaster({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),objectType,objectId,expectedRevision,event:payload.event,reason,idempotencyKey});}
+        catch(error){if(error?.code==='40001'&&error.message==='Loan master revision is stale')throw new AccountingApiError(412,'PRECONDITION_FAILED','The loan master changed. Refresh it before transitioning');throw error;}
+        if(!result||result.schema_version!=='LOAN_MASTER_TRANSITION_V1'||result.status!==payload.event||!Number.isSafeInteger(result.revision))throw new AccountingApiError(502,'LOAN_MASTER_TRANSITION_RECEIPT_INVALID','Loan master transition returned an invalid receipt');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store','etag':`"${result.revision}"`},body:{ok:true,data:result}};
+      }
+      if(parts.length===7&&parts[4]==='loans'&&parts[6]==='interest-drafts'){
+        // P07: create the interest accrual Draft from the reviewed computation (LOAN.INTEREST.DRAFT + GL.JE.CREATE). Amounts come from the computation, never the request.
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Use expectedComputationHash instead of If-Match');
+        const fields=['periodId','journalNumber','journalDate','expectedComputationHash','attachmentIds','reason'];allowOnly(payload,fields);for(const field of fields)if(!Object.hasOwn(payload,field))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${field} is required`);
+        const loanId=requireUuid(parts[5],'loanId').toLowerCase(),periodId=requireUuid(payload.periodId,'periodId').toLowerCase(),journalDate=requireIsoDate(payload.journalDate,'journalDate');
+        const {journalNumber,expectedComputationHash}=payload;
+        if(typeof journalNumber!=='string'||journalNumber!==journalNumber.trim()||journalNumber.length<1||journalNumber.length>100||/[\u0000-\u001f\u007f]/.test(journalNumber))throw new AccountingApiError(400,'INVALID_JOURNAL_NUMBER','Enter a journal number of 1-100 characters');
+        if(typeof expectedComputationHash!=='string'||!/^sha256:[0-9a-f]{64}$/.test(expectedComputationHash))throw new AccountingApiError(400,'INVALID_COMPUTATION_HASH','expectedComputationHash must be the sha256 digest returned by the accrual read');
+        const attachmentIds=requireAttachmentIds(requireAttachmentIds(payload.attachmentIds).map(id=>id.toLowerCase())),reason=requireReviewReason(payload.reason);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.createLoanInterestDraft!=='function')throw new AccountingApiError(503,'LOAN_INTEREST_DRAFT_UNAVAILABLE','Loan interest Draft creation is unavailable');
+        try{result=await kernel.createLoanInterestDraft({tenantId:principal.tenantId,entityId:entityId.toLowerCase(),loanId,periodId,journalNumber,journalDate,expectedComputationHash,reason,attachmentIds,idempotencyKey});}
+        catch(error){if(error?.code==='40001')throw new AccountingApiError(412,'PRECONDITION_FAILED','The interest computation changed. Re-read the accrual before creating the Draft');throw error;}
+        if(!result||result.schema_version!=='LOAN_INTEREST_DRAFT_V1'||result.status!=='DRAFT'||result.loan_id!==loanId||result.computation_hash!==expectedComputationHash||!UUID.test(result.journal_entry_id||'')||!UUID.test(result.loan_interest_draft_binding_id||''))throw new AccountingApiError(502,'LOAN_INTEREST_DRAFT_RECEIPT_INVALID','Loan interest Draft returned an invalid receipt');
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store','etag':'"0"'},body:{ok:true,data:result}};
+      }
       if(parts.length===7&&parts[4]==='project-units'&&parts[6]==='cogs-releases'){
         // P06: release a specific-identification unit's capitalised cost to COGS as a Draft journal (UNIT.COGS.RELEASE.DRAFT + GL.JE.CREATE). Never posts.
         requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','A new release Draft has no revision');

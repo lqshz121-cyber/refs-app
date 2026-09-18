@@ -2448,6 +2448,41 @@ export class PostgresAccountingKernel{
       return requireRow(await client.query('SELECT refs_create_unit_cogs_release_draft($1,$2,$3,$4,$5,$6::date,$7,$8,$9::numeric,$10,$11::uuid[],$12,$13) result',[...args,idempotencyKey,requestHash]),'UNIT_COGS_RELEASE_FAILED','Unit cost release receipt missing').result;
     });
   }
+  async createLoanMaster({tenantId,entityId,loanRef,lenderMemberRef,facilityAmount,currency,annualRate,dayCountBasis,capitalizationStart=null,capitalizationEnd=null,projectRef=null,cwipAccountCode=null,interestExpenseAccountCode,accruedInterestAccountCode,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,loanRef,lenderMemberRef,facilityAmount,currency,annualRate,dayCountBasis,capitalizationStart,capitalizationEnd,projectRef,cwipAccountCode,interestExpenseAccountCode,accruedInterestAccountCode,reason];
+      const cast='$1,$2,$3,$4,$5::numeric,$6,$7::numeric,$8,$9::date,$10::date,$11,$12,$13,$14,$15';
+      const requestHash=requireRow(await client.query(`SELECT refs_create_loan_master_hash(${cast}) request_hash`,args),'LOAN_MASTER_HASH_FAILED','Loan master hash missing').request_hash;
+      return requireRow(await client.query(`SELECT refs_create_loan_master(${cast},$16,$17) result`,[...args,idempotencyKey,requestHash]),'LOAN_MASTER_CREATE_FAILED','Loan master receipt missing').result;
+    });
+  }
+  async createLoanDraw({tenantId,entityId,loanId,drawRef,drawDate,amount,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,loanId,drawRef,drawDate,amount,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_create_loan_draw_hash($1,$2,$3,$4,$5::date,$6::numeric,$7) request_hash',args),'LOAN_DRAW_HASH_FAILED','Loan draw hash missing').request_hash;
+      return requireRow(await client.query('SELECT refs_create_loan_draw($1,$2,$3,$4,$5::date,$6::numeric,$7,$8,$9) result',[...args,idempotencyKey,requestHash]),'LOAN_DRAW_CREATE_FAILED','Loan draw receipt missing').result;
+    });
+  }
+  async transitionLoanMaster({tenantId,entityId,objectType,objectId,expectedRevision,event,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,objectType,objectId,expectedRevision,event,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_transition_loan_master_hash($1,$2,$3,$4,$5::integer,$6,$7) request_hash',args),'LOAN_MASTER_TRANSITION_HASH_FAILED','Loan master transition hash missing').request_hash;
+      return requireRow(await client.query('SELECT refs_transition_loan_master($1,$2,$3,$4,$5::integer,$6,$7,$8,$9) result',[...args,idempotencyKey,requestHash]),'LOAN_MASTER_TRANSITION_FAILED','Loan master transition receipt missing').result;
+    });
+  }
+  async readLoanMasters({tenantId,entityId}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_loan_masters($1,$2) AS result',[tenantId,entityId]),'LOAN_MASTERS_MISSING','Loan masters were not returned').result);
+  }
+  async readLoanInterestAccrual({tenantId,entityId,loanId,periodId}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_loan_interest_accrual($1,$2,$3,$4) AS result',[tenantId,entityId,loanId,periodId]),'LOAN_INTEREST_ACCRUAL_MISSING','Loan interest accrual was not returned').result);
+  }
+  async createLoanInterestDraft({tenantId,entityId,loanId,periodId,journalNumber,journalDate,expectedComputationHash,reason,attachmentIds,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,loanId,periodId,journalNumber,journalDate,expectedComputationHash,reason,attachmentIds];
+      const requestHash=requireRow(await client.query('SELECT refs_create_loan_interest_draft_hash($1,$2,$3,$4,$5,$6::date,$7,$8,$9::uuid[]) request_hash',args),'LOAN_INTEREST_HASH_FAILED','Loan interest hash missing').request_hash;
+      return requireRow(await client.query('SELECT refs_create_loan_interest_draft($1,$2,$3,$4,$5,$6::date,$7,$8,$9::uuid[],$10,$11) result',[...args,idempotencyKey,requestHash]),'LOAN_INTEREST_DRAFT_FAILED','Loan interest receipt missing').result;
+    });
+  }
   async getJournalWorkflowCapabilities({tenantId,entityId}){
     return this.inSession(async client=>{
       await client.query("SELECT refs_assert_scope($1,$2,'GL.JE.VIEW')",[tenantId,entityId]);

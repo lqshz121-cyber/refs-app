@@ -1195,5 +1195,33 @@
   "risk_class": "HIGH",
   "sod_class": "UNIT_COGS_RELEASE_MAKER",
   "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "LOAN.MASTER.VIEW",
+  "domain": "LOAN",
+  "risk_class": "LOW",
+  "sod_class": "READ",
+  "authority_class": null
+ },
+ {
+  "permission_code": "LOAN.MASTER.CREATE",
+  "domain": "LOAN",
+  "risk_class": "HIGH",
+  "sod_class": "LOAN_MASTER_MAKER",
+  "authority_class": "DRAFT"
+ },
+ {
+  "permission_code": "LOAN.MASTER.APPROVE",
+  "domain": "LOAN",
+  "risk_class": "HIGH",
+  "sod_class": "LOAN_MASTER_APPROVER",
+  "authority_class": "APPROVE"
+ },
+ {
+  "permission_code": "LOAN.INTEREST.DRAFT",
+  "domain": "LOAN",
+  "risk_class": "HIGH",
+  "sod_class": "LOAN_INTEREST_MAKER",
+  "authority_class": "DRAFT"
  }
 ]

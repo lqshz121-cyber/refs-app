@@ -32116,6 +32116,1150 @@
           }
         }
       }
+    },
+    "/entities/{entityId}/loans": {
+      "get": {
+        "operationId": "readLoanMasters",
+        "summary": "Loan masters with approved draws and outstanding principal (P07)",
+        "description": "Read-only (LOAN.MASTER.VIEW). Each loan carries lender, facility, rate, day-count basis, the approved capitalisation window, the declared CWIP / interest expense / accrued interest accounts, status, revision and the sum of APPROVED draws as outstanding_principal. accounting_authority is always NONE.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "LOAN_MASTERS_V1 envelope",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "accounting_authority",
+                        "loans"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "LOAN_MASTERS_V1"
+                        },
+                        "accounting_authority": {
+                          "const": "NONE"
+                        },
+                        "loans": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createLoanMaster",
+        "summary": "Create a DRAFT loan master (P07)",
+        "description": "LOAN.MASTER.CREATE. The lender must be an active scoped member and every declared account must exist and be active. A capitalisation window requires capitalizationStart, projectRef and cwipAccountCode together; without them all interest is expensed. Approval is a separate command by a different actor.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "loanRef",
+                  "lenderMemberRef",
+                  "facilityAmount",
+                  "currency",
+                  "annualRate",
+                  "dayCountBasis",
+                  "interestExpenseAccountCode",
+                  "accruedInterestAccountCode",
+                  "reason"
+                ],
+                "properties": {
+                  "loanRef": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                  },
+                  "lenderMemberRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "facilityAmount": {
+                    "type": "string",
+                    "pattern": "^(?:0|[1-9]\\d{0,15})\\.\\d{4}$"
+                  },
+                  "currency": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  },
+                  "annualRate": {
+                    "type": "string",
+                    "pattern": "^0\\.\\d{6}$",
+                    "description": "Annual nominal rate as a six-decimal fraction, e.g. 0.075000 for 7.5%"
+                  },
+                  "dayCountBasis": {
+                    "enum": [
+                      "ACT_360",
+                      "ACT_365"
+                    ]
+                  },
+                  "capitalizationStart": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date"
+                  },
+                  "capitalizationEnd": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date"
+                  },
+                  "projectRef": {
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "cwipAccountCode": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 64
+                  },
+                  "interestExpenseAccountCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "accruedInterestAccountCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 2000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "LOAN_MASTER_V1 receipt",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "loan_id",
+                        "status",
+                        "revision",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "LOAN_MASTER_V1"
+                        },
+                        "loan_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        },
+                        "snapshot_hash": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent replay",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "loan_id",
+                        "status",
+                        "revision",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "LOAN_MASTER_V1"
+                        },
+                        "loan_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        },
+                        "snapshot_hash": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/loans/{loanId}/draws": {
+      "post": {
+        "operationId": "createLoanDraw",
+        "summary": "Record a DRAFT draw or principal repayment (P07)",
+        "description": "LOAN.MASTER.CREATE. A positive amount is an advance, a negative amount a principal repayment. Refused (422) when the loan is not APPROVED, when the cumulative approved principal would exceed the facility, or when it would go negative. Approval re-checks both bounds.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "loanId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "drawRef",
+                  "drawDate",
+                  "amount",
+                  "reason"
+                ],
+                "properties": {
+                  "drawRef": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                  },
+                  "drawDate": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^-?(?:0|[1-9]\\d{0,15})\\.\\d{4}$"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 2000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "LOAN_DRAW_V1 receipt",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "loan_draw_id",
+                        "loan_id",
+                        "status",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "LOAN_DRAW_V1"
+                        },
+                        "loan_draw_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "loan_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent replay",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "loan_draw_id",
+                        "loan_id",
+                        "status",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "LOAN_DRAW_V1"
+                        },
+                        "loan_draw_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "loan_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/loan-masters/{objectKind}/{objectId}/transitions": {
+      "post": {
+        "operationId": "transitionLoanMaster",
+        "summary": "Approve or retire a loan or a draw (P07)",
+        "description": "LOAN.MASTER.APPROVE. If-Match carries the expected revision (412 on mismatch). APPROVED requires DRAFT and an approver different from the creator (403). A loan cannot retire while APPROVED draws remain (422).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "objectKind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "loans",
+                "draws"
+              ]
+            }
+          },
+          {
+            "name": "objectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "event",
+                  "reason"
+                ],
+                "properties": {
+                  "event": {
+                    "enum": [
+                      "APPROVED",
+                      "RETIRED"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 2000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "LOAN_MASTER_TRANSITION_V1 receipt",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "status",
+                        "revision",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "LOAN_MASTER_TRANSITION_V1"
+                        },
+                        "status": {
+                          "enum": [
+                            "APPROVED",
+                            "RETIRED"
+                          ]
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/loans/{loanId}/interest-accrual": {
+      "get": {
+        "operationId": "readLoanInterestAccrual",
+        "summary": "Deterministic interest accrual for one loan and period (P07)",
+        "description": "Read-only (GL.REPORT.VIEW). For each day of the period the outstanding principal is the sum of APPROVED draws dated on or before that day; interest for the day is outstanding x annualRate / basis days (360 or 365). Days inside the approved capitalisation window go to capitalized_amount, the rest to expensed_amount; each bucket is rounded once so the two always add to the total. The response carries the full computation and its sha256 hash, which the Draft command must echo. Never posts and never drafts.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "loanId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          },
+          {
+            "name": "periodId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "LOAN_INTEREST_ACCRUAL_V1 envelope",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "accounting_authority",
+                        "can_post",
+                        "can_draft",
+                        "loan_id",
+                        "capitalized_amount",
+                        "expensed_amount",
+                        "total_amount",
+                        "computation",
+                        "computation_hash"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "LOAN_INTEREST_ACCRUAL_V1"
+                        },
+                        "accounting_authority": {
+                          "const": "NONE"
+                        },
+                        "can_post": {
+                          "const": false
+                        },
+                        "can_draft": {
+                          "const": false
+                        },
+                        "loan_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "loan_ref": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                        },
+                        "loan_status": {
+                          "type": "string"
+                        },
+                        "currency": {
+                          "type": "string"
+                        },
+                        "capitalized_amount": {
+                          "type": "number"
+                        },
+                        "expensed_amount": {
+                          "type": "number"
+                        },
+                        "total_amount": {
+                          "type": "number"
+                        },
+                        "computation": {
+                          "type": "object"
+                        },
+                        "computation_hash": {
+                          "type": "string",
+                          "pattern": "^sha256:[0-9a-f]{64}$"
+                        },
+                        "existing_draft": {
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/loans/{loanId}/interest-drafts": {
+      "post": {
+        "operationId": "createLoanInterestDraft",
+        "summary": "Create the interest accrual Draft from the reviewed computation (P07)",
+        "description": "LOAN.INTEREST.DRAFT + GL.JE.CREATE. The amounts are taken from the recomputed accrual, never from the request; the maker echoes the computation hash they reviewed and the command refuses with 412 if any approved draw, rate or window changed since. Produces a MANUAL Draft journal (Dr CWIP for the capitalised part, Dr interest expense for the rest, Cr accrued interest against the lender member) and stops: the unchanged Submit/Review/Approve/Post chain still applies. One Draft per loan per period. Refused (422) when the loan is not APPROVED, when there is no interest, or when capitalised interest is requested and the CWIP account lacks one approved CWIP classification.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "loanId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "periodId",
+                  "journalNumber",
+                  "journalDate",
+                  "expectedComputationHash",
+                  "attachmentIds",
+                  "reason"
+                ],
+                "properties": {
+                  "periodId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "journalNumber": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "journalDate": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "expectedComputationHash": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  "attachmentIds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "$ref": "#/components/schemas/Uuid"
+                    }
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 2000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "LOAN_INTEREST_DRAFT_V1 receipt",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "journal_entry_id",
+                        "loan_interest_draft_binding_id",
+                        "loan_id",
+                        "capitalized_amount",
+                        "expensed_amount",
+                        "computation_hash",
+                        "status",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "LOAN_INTEREST_DRAFT_V1"
+                        },
+                        "journal_entry_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "loan_interest_draft_binding_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "loan_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "loan_ref": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                        },
+                        "capitalized_amount": {
+                          "type": "string",
+                          "pattern": "^(?:0|[1-9]\\d{0,15})\\.\\d{4}$"
+                        },
+                        "expensed_amount": {
+                          "type": "string",
+                          "pattern": "^(?:0|[1-9]\\d{0,15})\\.\\d{4}$"
+                        },
+                        "total_amount": {
+                          "type": "string",
+                          "pattern": "^(?:0|[1-9]\\d{0,15})\\.\\d{4}$"
+                        },
+                        "computation_hash": {
+                          "type": "string",
+                          "pattern": "^sha256:[0-9a-f]{64}$"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent replay",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "journal_entry_id",
+                        "loan_interest_draft_binding_id",
+                        "loan_id",
+                        "capitalized_amount",
+                        "expensed_amount",
+                        "computation_hash",
+                        "status",
+                        "idempotent"
+                      ],
+                      "properties": {
+                        "schema_version": {
+                          "const": "LOAN_INTEREST_DRAFT_V1"
+                        },
+                        "journal_entry_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "loan_interest_draft_binding_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "loan_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "loan_ref": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                        },
+                        "capitalized_amount": {
+                          "type": "string",
+                          "pattern": "^(?:0|[1-9]\\d{0,15})\\.\\d{4}$"
+                        },
+                        "expensed_amount": {
+                          "type": "string",
+                          "pattern": "^(?:0|[1-9]\\d{0,15})\\.\\d{4}$"
+                        },
+                        "total_amount": {
+                          "type": "string",
+                          "pattern": "^(?:0|[1-9]\\d{0,15})\\.\\d{4}$"
+                        },
+                        "computation_hash": {
+                          "type": "string",
+                          "pattern": "^sha256:[0-9a-f]{64}$"
+                        },
+                        "status": {
+                          "const": "DRAFT"
+                        },
+                        "revision": {
+                          "const": 0
+                        },
+                        "idempotent": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "423": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
     }
   },
   "components": {
