@@ -30,6 +30,12 @@
 | 回滚台账守卫 | `MIGRATION_LEDGER_AHEAD` 拒绝旧版本对新库启动 | `runtime/migrations.mjs:150` |
 | 破坏性操作守卫 | `DB_DOWN_FORBIDDEN`（非 `_test` 库拒绝 down/reset） | `runtime/migrations.mjs:107` |
 
+### 1.1b 完整服务端门禁（S-GATE-03 实跑，2026-09-20）
+**638 个测试文件全量执行：631 passed / 1 skipped / 6 failed；断言层 2911 项，2903 通过。**
+**候选引入失败 = 0** —— 六项失败为 2 既有（401 屏障红集 + 会计设置两条超时用例）、2 共享库残留（已在全新库上实证通过）、1 外部依赖缺失、1 未复验。
+migration ledger 439，head `433_outbox_health_read.sql`，PG16 实证。
+证据：`outputs/s-gate-03-2026-09-20-claude-9c9cd162/`（逐文件 JSON + 656 行控制台日志）。
+
 ### 1.2 业务 E2E（S34 实跑，隔离临时 PG16 实例，链头 433）
 **46 / 46 通过，0 失败，0 跳过**，覆盖 JE 全生命周期、过账 SoD、AP、AR、银行—账面对平、报表反向追溯、证据→报表分阶段追溯、仅 POSTED 投影、关闭期间写入矩阵。详见 `S34-staging-accounting-e2e.md`。
 
@@ -89,6 +95,16 @@ P13 `tools/secret-scan.mjs`（11 条窄规则，含 Render deploy hook / JWT / c
 ### 3.6 【中】合并与抵销无真库测试 — N23 §10
 633 个测试文件中仅 18 个连真库，**无一涉及 consolidation / elimination**。全部覆盖是静态 SQL 文本断言 + 进程内 HTTP 夹具。若生产会使用合并功能，这是保证缺口。
 
+### 3.6b 【中，新发现】会计设置两条用例超过生产语句超时 — S-GATE-05 §2
+`accounting-settings-workflow-postgres` 的子测试 14、15 在**完全全新的数据库**上仍以 `57014` 失败，各耗时 10016 ms / 10177 ms —— 恰好卡在 `runtime/config.mjs:58` 的生产默认 `statement_timeout`（10000 ms）。
+
+**双面性**：若只是测试写法（一条语句塞了过多矩阵行），改测试即可；**但若生产代码存在同形状语句，生产环境下它同样会被 10 s 掐断**。本会话未区分二者——需要看到被掐断的确切语句。已登记 D-SG05-2。
+
+该文件 140 s 内跑不完，**其余子测试状态未知**，不得宣称通过。
+
+### 3.6c 【中】安全扫描当前不可能成为必需检查 — S-GATE-04 §2
+5 个 CI 工作流中只有 `accounting-kernel-ci.yml` 与 `outbox-consumer-ci.yml` 在 `pull_request` 上触发。**`codeql.yml` 仅 `workflow_dispatch`**，手动触发的工作流不会在 PR 上产生检查结果，因此无法设为 required check（呼应 D-P13-1/D-P13-2）。
+
 ### 3.7 【低—但影响判断】两项文档/认知风险
 - **N34**：仓库**无已签入表字典**（248 张表，0 张有文档）。本会话已新增 `db/TABLE-CENSUS.json` + 漂移门禁堵住"继续漂移"，但存量文档仍缺
 - **N26 §3**：生产导航「Closing Accounting」实际指向**会计期间关闭**工作台，不是成交结算单。任何按导航判断能力的人都会误判。纯前端文案，**建议发布前先改**（零风险）
@@ -123,7 +139,9 @@ P13 `tools/secret-scan.mjs`（11 条窄规则，含 Render deploy hook / JWT / c
 4. Owner 就 **D-N38-1**（无界读）表态：至少 `account-register` 与 `source-documents`
 5. 确认生产 outbox worker 的运行与观测安排（呼应 433 表头记录的 staging 积压）
 6. 与 Owner 对齐 §4 的未实现能力清单，确认发布沟通口径
-7. 建议顺带改掉「Closing Accounting」标签（零风险）
+7. 建议顺带改掉「Closing Accounting」与 `checks-payments` 两处误导标签（零风险）
+8. **新增**：Owner 就 S-GATE-05 §4.3 逐项裁定 NO-GO / scope exclusion（AP/AR write-off 与 AR void/cancel 优先）
+9. **新增**：S-GATE-06 的 6 项 Owner 输入（staging 同 SHA 部署、隔离 tenant、六互异 actor、只读 grant、WBS 身份、容器环境）——在此之前 staging E2E 无法转 LIVE_VERIFIED
 
 **满足 1–6 后，本文件可改判为 GO（带条件）。技术门禁本身不是当前的瓶颈。**
 
