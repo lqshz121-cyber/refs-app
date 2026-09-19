@@ -62,12 +62,13 @@ P13 `tools/secret-scan.mjs`（11 条窄规则，含 Render deploy hook / JWT / c
 
 按严重度排序。每一项都在本批 N 审计中有完整取证。
 
-### 3.1 【高】附件证据门禁弱于其余全库 — N21 §10
-`refs_create_manual_journal`（`002:1041-1043`）与 `refs_create_reconciliation_adjustment`（`067:121`）的附件检查**只要求租户自有**，不要求 `VERIFIED_CLEAN`、不按 `entity_id` 限定。全库另有 **41 个**迁移都要求 `VERIFIED_CLEAN`。
+### 3.1 【中，已降级】附件证据的实体作用域 — N21 §10（经 L20 实测更正）
 
-即：一个**未扫描（PENDING）或已判毒（REJECTED）**的附件，只要属于同租户任意实体，就能满足手工分录的"证据"要求。侦测性控制（280）已收紧到 verified-clean，**预防性控制没有同步**。
+**更正**：本包初稿据读码判定为【高】，称未扫描/已判毒附件可充当手工分录证据。**L20 红队实测（8/8 通过）推翻了该结论**——`require_finalized_source_link_attachment`（`001:725-738`，触发器 `001:757`）在写 `source_link` 时以 23514 拒绝任何非 VERIFIED_CLEAN 附件，整条命令回滚。**系统在这一维上 fail closed。**
 
-→ **发布前须由 Owner 就 D-N21-1 表态**：修、还是明确接受并记录为已知风险。修之前须先做存量影响评估（本会话不查真实账）。
+残留的是**跨实体**一维：`002:1042` 与 `001:731` 两道守卫都只按 `tenant_id` 匹配，因此同租户内**另一实体**的 VERIFIED_CLEAN 附件可作为本实体分录的证据。多实体租户下这让证据链跨越实体边界。
+
+→ 不再构成发布阻断。**D-N21-1 已降级为中**，可在发布后按计划处理。
 
 ### 3.2 【高】五个 HTTP 列表端点无界 — N38 §2
 `source-documents`、`account-register`、`match-candidates`、`worksheet`、`chart-of-accounts` 的 SQL 无 `LIMIT`，且 HTTP 的 `requireExactQuery` 白名单不含任何分页键——**调用方无法自愿限界**。其中 `account-register` 直读 `ledger_line`。
@@ -118,7 +119,7 @@ P13 `tools/secret-scan.mjs`（11 条窄规则，含 Render deploy hook / JWT / c
 
 1. Owner 给出 **D-0-1 / D-0-2**（部署授权与顺序）与 **D-O10-1**
 2. Owner 就 **D-O11-1**（237 个名称）表态
-3. Owner 就 **D-N21-1**（附件门禁）表态：修 / 明确接受
+3. ~~Owner 就 D-N21-1（附件门禁）表态~~ —— **已撤销**：L20 实测证明该路径 fail closed，残留的跨实体作用域降级为中，不再是发布前置
 4. Owner 就 **D-N38-1**（无界读）表态：至少 `account-register` 与 `source-documents`
 5. 确认生产 outbox worker 的运行与观测安排（呼应 433 表头记录的 staging 积压）
 6. 与 Owner 对齐 §4 的未实现能力清单，确认发布沟通口径

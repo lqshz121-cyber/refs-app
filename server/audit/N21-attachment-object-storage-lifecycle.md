@@ -6,7 +6,7 @@
 
 附件链路设计扎实：租户隔离在**四处**独立强制（key 推导、ref 解析、扫描边界、行级 RLS），病毒扫描**确实 fail-closed**，内容哈希**三重独立校验**，证据行不可删除。
 
-**一个实质安全缺口**：`refs_create_manual_journal` 的附件门禁只要求**租户自有**，**不要求 `VERIFIED_CLEAN`、不按 entity 限定**——即一个未扫描（PENDING）或已判毒（REJECTED）的附件，只要属于同一租户的任意实体，就能满足手工分录的"证据"要求。全库 41 个迁移都要求 `VERIFIED_CLEAN`，唯独最核心的两条命令不要求。
+**一个实质缺口（已由 L20 实测收窄）**：`refs_create_manual_journal` 的附件门禁只要求**租户自有**，不要求 `VERIFIED_CLEAN`、不按 entity 限定。但 **L20 红队实测证明系统整体仍 fail closed** —— 未扫描或已判毒的附件会被下游 `source_link` 触发器以 23514 拒绝。**真正残留的缺口只剩"跨实体"这一维**：两道守卫都只按 `tenant_id` 匹配，因此同租户内**另一实体**的 VERIFIED_CLEAN 附件可被当作本实体分录的证据。详见 §10。
 
 **一个实质运营缺口**：已定稿附件**无保留期、无过期、无清除路径**，且清理队列**无健康读**。
 
@@ -107,11 +107,11 @@ ADD CONSTRAINT attachment_verified_entity_ck
 
 **缺口**：清理 worker 是独立长驻进程（`runtime/start-attachment-cleanup-worker.mjs`）。若未运行，过期预留与孤儿对象会静默堆积——且与 outbox 不同，**附件清理没有任何健康/积压读**（无 433 的对应物）。
 
-## 10. 附件证据门禁的强弱不一（核心安全发现）
+## 10. 附件证据门禁：两道守卫，以及实测对本文初稿的更正
 
-**已核验计数**：全库断言 `finalization_status='VERIFIED_CLEAN'` 的迁移 **41 个**（048、067、092、094、096、097、100、101、118、139、174、180、181、209、210、223、254、269 等）。
+**本节在 L20 红队测试实跑后被更正。初稿仅凭读码断言"未扫描/已判毒附件可充当手工分录证据"，实测证明该结论过强——系统整体仍然 fail closed。如实记录如下。**
 
-而**只有两处**使用弱门禁，且恰是最核心的两条：
+### 10.1 上游门禁确实弱
 
 ```
 -- 002_accounting_runtime.sql:1041-1043（refs_create_manual_journal）
@@ -119,22 +119,53 @@ IF COALESCE(cardinality(p_attachment_ids),0)=0 OR COALESCE(cardinality(p_attachm
   SELECT count(DISTINCT a.attachment_id) FROM attachment a
    WHERE a.tenant_id=p_tenant AND a.attachment_id=ANY(p_attachment_ids)
 ) THEN RAISE EXCEPTION 'Manual journal requires tenant-owned attachment evidence' USING ERRCODE='23503'; END IF;
-
--- 067_reconciliation_adjustment_draft.sql:121（refs_create_reconciliation_adjustment）
-... 'Reconciliation adjustment requires tenant-owned attachment evidence' ... ERRCODE='23503'
 ```
 
-**该检查只要求租户自有**：
-- 不要求 `finalization_status='VERIFIED_CLEAN'` → 未扫描（PENDING）或已判毒（REJECTED）的附件可通过
-- 不按 `entity_id` 限定 → 租户内**任意实体**的附件可通过
+它只校验**租户自有**：既不要求 `VERIFIED_CLEAN`，也不按 `entity_id` 限定。`067:121`（`refs_create_reconciliation_adjustment`）同形。
 
-对照：`280_ai_manual_journal_verified_attachment_support.sql` 把**侦测性**控制收紧到了 verified-clean（`280:11-14`，理由串明示"no verified-clean retained attachment; source-document lineage alone is not supporting attachment evidence"，`280:30` fail-closed），但 `002:1043` 的**预防性**控制未同步收紧。
+### 10.2 但下游触发器补上了 VERIFIED_CLEAN
 
-HTTP 侧只做形状校验：`requireAttachmentIds`（`accounting-http.mjs:290`）1..25 个唯一 UUID，`INVALID_ATTACHMENT_IDS`(400)。
+```
+-- 001_wbs_accounting_core.sql:725-738，触发器安装于 001:757
+CREATE OR REPLACE FUNCTION require_finalized_source_link_attachment() RETURNS trigger ...
+  IF NEW.attachment_id IS NOT NULL THEN
+    SELECT finalization_status INTO attachment_state FROM attachment
+      WHERE tenant_id = NEW.tenant_id AND attachment_id = NEW.attachment_id;
+    IF attachment_state IS DISTINCT FROM 'VERIFIED_CLEAN' THEN
+      RAISE EXCEPTION 'Attachment must be VERIFIED_CLEAN before it enters the trace graph' USING ERRCODE='23514';
+```
+
+`refs_create_manual_journal` 在 `002:1050-1051` 写 `source_link(link_type='JE_ATTACHMENT')`，该插入触发上述守卫。**因此未扫描（PENDING）或已判毒（REJECTED）的附件会被拒绝，整条命令回滚。**
+
+### 10.3 实测结论（L20-6，真库，8/8 通过）
+
+| 场景 | 实测结果 |
+|---|---|
+| 从未扫描（PENDING/PENDING） | **拒绝** 23514「VERIFIED_CLEAN before it enters the trace graph」，零写入 |
+| 扫描判毒（REJECTED/REJECTED） | **拒绝** 23514，零写入 |
+| 附件 id 不存在 | 拒绝 23503（上游门禁） |
+| 空证据列表 | 拒绝 23503（上游门禁） |
+| **同租户、另一实体的 VERIFIED_CLEAN 附件** | **接受** ← 残留缺口 |
+
+### 10.4 残留缺口：跨实体
+
+两道守卫都只按 `tenant_id` 匹配（`002:1042` 的 `a.tenant_id=p_tenant`；`001:731` 的 `WHERE tenant_id = NEW.tenant_id`），**都不按 `entity_id` 限定**。因此一个属于同租户内**另一实体**的 VERIFIED_CLEAN 附件，可以作为本实体手工分录的支持证据。
+
+在多实体租户下，这意味着 A 公司的分录可以引用 B 公司的凭证。它不会引入未扫描内容，但会让证据链跨越实体边界——对合并报表与实体级审计而言是实质问题。
+
+### 10.5 对比：预防性 vs 侦测性控制
+
+`280_ai_manual_journal_verified_attachment_support.sql` 把 AI 风险发现的判据收紧到 verified-clean（`280:11-14`，`280:30` fail-closed）。结合 §10.2，**预防性控制（001:733 触发器）与侦测性控制（280）在 VERIFIED_CLEAN 这一维上是一致的**——初稿认为二者脱节，该判断不成立。
+
+HTTP 侧只做形状校验：`requireAttachmentIds`（`accounting-http.mjs:290`）1..25 个唯一 UUID → `INVALID_ATTACHMENT_IDS`(400)。
+
+### 10.6 方法论备注
+
+本节是本轮唯一一处"读码结论被实测推翻"的地方。教训是：**在一个用触发器做纵深防御的 schema 里，只读命令函数不足以判断一条路径是否 fail closed。** 其余审计文档中凡涉及"某命令是否拒绝"的断言，若未经实测，应按同样标准复核（D-N21-6）。
 
 ## 11. 缺口清单
 
-1. **`refs_create_manual_journal`（`002:1041-1043`）与 `refs_create_reconciliation_adjustment`（`067:121`）的附件门禁不要求 VERIFIED_CLEAN、不按 entity 限定**
+1. **跨实体证据**：`002:1041-1043` 与 `001:731` 两道守卫都只按 `tenant_id` 匹配，同租户内另一实体的 VERIFIED_CLEAN 附件可作为本实体分录证据（VERIFIED_CLEAN 本身已由 `001:733` 强制，见 §10）
 2. 已定稿附件无保留/过期/清除路径（`003:89` 只覆盖 PENDING）
 3. 附件清理队列无健康/积压读（无 433 对应物）
 4. 媒体类型白名单硬编码在三处须同步（`003:146`、`303:13`、`attachment-storage.mjs` 的预留校验），无共享目录表
@@ -148,7 +179,8 @@ HTTP 侧只做形状校验：`requireAttachmentIds`（`accounting-http.mjs:290`�
 
 ## 13. Owner 决策
 
-- **D-N21-1（优先）附件证据门禁收紧**。是否前向修改 `002:1041-1043` 与 `067:121`，要求 `finalization_status='VERIFIED_CLEAN'` 且 `entity_id=p_entity`？**影响评估必须先做**：需查询现存 POSTED 手工分录中引用了非 VERIFIED_CLEAN 或跨实体附件的数量；若存量非零，收紧会使这些分录的历史证据链在新规则下不成立，须决定是追认还是补证。**本会话不改账、不查真实账，故此项停在方案。**
+- **D-N21-1（已降级为中）附件证据的实体作用域**。VERIFIED_CLEAN 已由 `001:733` 触发器强制（L20 实测确认），故原先判定的"可用判毒附件入账"**不成立**。残留问题只有一条：两道守卫都不按 `entity_id` 限定。是否前向增加实体作用域？**影响评估须先做**：需统计现存 POSTED 手工分录中引用跨实体附件的数量；若存量非零，收紧会使这些分录的证据链在新规则下不成立，须决定追认还是补证。**本会话不改账、不查真实账，故停在方案。**
+- **D-N21-6 审计方法**。是否要求：凡断言"某命令拒绝某输入"的审计结论，均须有实测支撑（本轮 L20 的形态），而非仅凭读命令函数。本文 §10 即为一个读码结论被实测推翻的实例。
 - **D-N21-2 已定稿附件保留策略**。是否引入保留期 + 法务保留 + 到期清除？须先由 Owner 给出各证据类别的法定保留年限。
 - **D-N21-3** 是否为附件清理队列补健康读（对齐 433 的形状）。
 - **D-N21-4** 是否为 `001:144` 的无名 CHECK 命名（纯前向、零行为变更）。
