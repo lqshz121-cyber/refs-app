@@ -57,6 +57,10 @@ test('R13-4: a file that skipped every test is SKIPPED, never PASSED',()=>{
 test('R13-5: failures are classified, and only actionable classes gate the build',()=>{
   const cases=[
     ['POSTGRES NOT RUN: ECONNREFUSED','POSTGRES_UNAVAILABLE',false,res({exitCode:1})],
+    // Both learned from the S-GATE-03 full-suite run: neither is a defect, so neither gates.
+    ['Error: Container attachment test environment is required','CONTAINER_UNAVAILABLE',false,res({exitCode:1})],
+    [`${tap(2,0,2,0)}duplicate key value violates unique constraint "journal_entry_pkey"`,'SHARED_DB_RESIDUE',false,res({exitCode:1})],
+    [`${tap(7,5,2,0)}canceling statement due to lock timeout`,'SHARED_DB_RESIDUE',false,res({exitCode:1})],
     ['anything at all','TIMEOUT',true,res({exitCode:null,timedOut:true,signal:'SIGKILL'})],
     [`${tap(1,0,1,0)}MIGRATION_RESET_BLOCKED`,'MIGRATION_BARRIER',true,res({exitCode:1})],
     ['ERR_MODULE_NOT_FOUND cannot find x','MODULE_ERROR',true,res({exitCode:1})],
