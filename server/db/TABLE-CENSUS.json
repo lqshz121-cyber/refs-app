@@ -1,0 +1,999 @@
+{
+  "schema_version": "REFS_TABLE_CENSUS_V1",
+  "migration_head": "433_outbox_health_read.sql",
+  "table_count": 248,
+  "tables": [
+    {
+      "name": "account_master",
+      "created_by": "002_accounting_runtime.sql"
+    },
+    {
+      "name": "accounting_event",
+      "created_by": "151_wbs_autorec_accounting_event.sql"
+    },
+    {
+      "name": "accounting_exception",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "accounting_period",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "accounting_settings_workflow",
+      "created_by": "374_accounting_settings_authoritative.sql"
+    },
+    {
+      "name": "accounting_settings_workflow_gate",
+      "created_by": "374_accounting_settings_authoritative.sql"
+    },
+    {
+      "name": "accounting_settings_workflow_history",
+      "created_by": "374_accounting_settings_authoritative.sql"
+    },
+    {
+      "name": "ai_accounting_decision",
+      "created_by": "254_ai_accounting_decision_human_draft.sql"
+    },
+    {
+      "name": "ai_accounting_decision_draft_evidence",
+      "created_by": "254_ai_accounting_decision_human_draft.sql"
+    },
+    {
+      "name": "ai_accounting_human_decision",
+      "created_by": "254_ai_accounting_decision_human_draft.sql"
+    },
+    {
+      "name": "ai_accounting_posted_outcome_review",
+      "created_by": "255_ai_accounting_posted_outcome_review.sql"
+    },
+    {
+      "name": "ai_admitted_source_review_finding",
+      "created_by": "287_ai_admitted_source_review_lifecycle.sql"
+    },
+    {
+      "name": "ai_admitted_source_review_function_backup",
+      "created_by": "287_ai_admitted_source_review_lifecycle.sql"
+    },
+    {
+      "name": "ai_admitted_source_review_lifecycle",
+      "created_by": "287_ai_admitted_source_review_lifecycle.sql"
+    },
+    {
+      "name": "ai_amortization_coverage_evidence",
+      "created_by": "121_ai_amortization_coverage_evidence.sql"
+    },
+    {
+      "name": "ai_amortization_draft_evidence",
+      "created_by": "139_ai_amortization_human_draft.sql"
+    },
+    {
+      "name": "ai_amortization_schedule",
+      "created_by": "119_ai_amortization_schedule_proposal.sql"
+    },
+    {
+      "name": "ai_amortization_schedule_line",
+      "created_by": "119_ai_amortization_schedule_proposal.sql"
+    },
+    {
+      "name": "ai_bank_duplicate_payment_finding",
+      "created_by": "212_ai_bank_duplicate_payment_finding.sql"
+    },
+    {
+      "name": "ai_bank_duplicate_payment_lifecycle",
+      "created_by": "285_ai_bank_duplicate_payment_lifecycle.sql"
+    },
+    {
+      "name": "ai_bank_duplicate_payment_lifecycle_function_backup",
+      "created_by": "285_ai_bank_duplicate_payment_lifecycle.sql"
+    },
+    {
+      "name": "ai_bank_duplicate_payment_source",
+      "created_by": "212_ai_bank_duplicate_payment_finding.sql"
+    },
+    {
+      "name": "ai_construction_loan_classification_evidence",
+      "created_by": "199_ai_construction_loan_classification_evidence.sql"
+    },
+    {
+      "name": "ai_construction_loan_entry_proposal",
+      "created_by": "200_ai_construction_loan_entry_proposal.sql"
+    },
+    {
+      "name": "ai_cost_dimension_finding",
+      "created_by": "125_ai_cost_dimension_findings.sql"
+    },
+    {
+      "name": "ai_decision",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "ai_duplicate_payable_finding",
+      "created_by": "123_ai_duplicate_payable_findings.sql"
+    },
+    {
+      "name": "ai_finding",
+      "created_by": "115_ai_wbs_exception_findings.sql"
+    },
+    {
+      "name": "ai_finding_action",
+      "created_by": "143_ai_finding_action_queue.sql"
+    },
+    {
+      "name": "ai_full_controller_model_chunk",
+      "created_by": "277_ai_full_controller_model_wal.sql"
+    },
+    {
+      "name": "ai_full_controller_model_memo",
+      "created_by": "277_ai_full_controller_model_wal.sql"
+    },
+    {
+      "name": "ai_full_controller_model_run",
+      "created_by": "277_ai_full_controller_model_wal.sql"
+    },
+    {
+      "name": "ai_invoice_accounting_classification_evidence",
+      "created_by": "194_ai_invoice_accounting_classification_evidence.sql"
+    },
+    {
+      "name": "ai_invoice_accrual_proposal",
+      "created_by": "196_ai_invoice_accrual_proposal.sql"
+    },
+    {
+      "name": "ai_invoice_capitalization_proposal",
+      "created_by": "197_ai_invoice_capitalization_proposal.sql"
+    },
+    {
+      "name": "ai_invoice_expense_proposal",
+      "created_by": "198_ai_invoice_expense_proposal.sql"
+    },
+    {
+      "name": "ai_loan_reference_finding",
+      "created_by": "126_ai_loan_reference_findings.sql"
+    },
+    {
+      "name": "ai_manual_journal_risk_finding",
+      "created_by": "210_ai_manual_journal_risk_finding.sql"
+    },
+    {
+      "name": "ai_prepaid_coverage_finding",
+      "created_by": "122_ai_prepaid_coverage_findings.sql"
+    },
+    {
+      "name": "ai_property_rent_revenue_reader_function_backup",
+      "created_by": "286_ai_property_rent_ledger_authority.sql"
+    },
+    {
+      "name": "ai_unmatched_bank_payment_finding",
+      "created_by": "124_ai_unmatched_bank_payment_findings.sql"
+    },
+    {
+      "name": "ai_vendor_invoice_amount_anomaly_finding",
+      "created_by": "202_ai_vendor_invoice_anomaly_finding.sql"
+    },
+    {
+      "name": "ai_vendor_invoice_amount_drop_finding",
+      "created_by": "206_ai_vendor_invoice_amount_drop_finding.sql"
+    },
+    {
+      "name": "ai_vendor_invoice_frequency_anomaly_finding",
+      "created_by": "204_ai_vendor_invoice_frequency_anomaly_finding.sql"
+    },
+    {
+      "name": "ai_vendor_invoice_frequency_anomaly_source",
+      "created_by": "204_ai_vendor_invoice_frequency_anomaly_finding.sql"
+    },
+    {
+      "name": "ai_vendor_invoice_near_duplicate_finding",
+      "created_by": "208_ai_vendor_invoice_near_duplicate_finding.sql"
+    },
+    {
+      "name": "ai_vendor_invoice_near_duplicate_source",
+      "created_by": "208_ai_vendor_invoice_near_duplicate_finding.sql"
+    },
+    {
+      "name": "ai_wbs_payable_draft_proposal",
+      "created_by": "135_ai_wbs_payable_draft_proposal.sql"
+    },
+    {
+      "name": "ai_wbs_payable_draft_proposal_review",
+      "created_by": "135_ai_wbs_payable_draft_proposal.sql"
+    },
+    {
+      "name": "attachment",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "audit_event",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "bank_match",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "bank_source",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "budget_line",
+      "created_by": "081_budget_vs_actual_read.sql"
+    },
+    {
+      "name": "budget_snapshot",
+      "created_by": "081_budget_vs_actual_read.sql"
+    },
+    {
+      "name": "business_adjustment",
+      "created_by": "004_ap_ar_business_runtime.sql"
+    },
+    {
+      "name": "business_allocation",
+      "created_by": "004_ap_ar_business_runtime.sql"
+    },
+    {
+      "name": "business_document",
+      "created_by": "004_ap_ar_business_runtime.sql"
+    },
+    {
+      "name": "cash_transfer",
+      "created_by": "375_cash_transfer_authoritative.sql"
+    },
+    {
+      "name": "cash_transfer_bank_account_control",
+      "created_by": "375_cash_transfer_authoritative.sql"
+    },
+    {
+      "name": "cash_transfer_bank_link",
+      "created_by": "375_cash_transfer_authoritative.sql"
+    },
+    {
+      "name": "cash_transfer_internal_gate",
+      "created_by": "375_cash_transfer_authoritative.sql"
+    },
+    {
+      "name": "consolidation_account_map",
+      "created_by": "082_consolidation_read.sql"
+    },
+    {
+      "name": "consolidation_configuration_gate",
+      "created_by": "384_consolidation_configuration_authoritative.sql"
+    },
+    {
+      "name": "consolidation_configuration_history",
+      "created_by": "384_consolidation_configuration_authoritative.sql"
+    },
+    {
+      "name": "consolidation_configuration_workflow",
+      "created_by": "384_consolidation_configuration_authoritative.sql"
+    },
+    {
+      "name": "consolidation_elimination_evidence",
+      "created_by": "082_consolidation_read.sql"
+    },
+    {
+      "name": "consolidation_member",
+      "created_by": "082_consolidation_read.sql"
+    },
+    {
+      "name": "consolidation_snapshot",
+      "created_by": "082_consolidation_read.sql"
+    },
+    {
+      "name": "controlled_demo_tenant",
+      "created_by": "116_controlled_demo_tenant_isolation.sql"
+    },
+    {
+      "name": "controlled_demo_tenant_retirement",
+      "created_by": "116_controlled_demo_tenant_isolation.sql"
+    },
+    {
+      "name": "controlled_test_ai_source",
+      "created_by": "176_controlled_test_ai_workflow.sql"
+    },
+    {
+      "name": "counterparty_change",
+      "created_by": "327_counterparty_maintenance.sql"
+    },
+    {
+      "name": "entity",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "entity_identity_change",
+      "created_by": "427_entity_identity_change_history.sql"
+    },
+    {
+      "name": "expense",
+      "created_by": "393_native_expense_authoritative.sql"
+    },
+    {
+      "name": "financial_statement_snapshot",
+      "created_by": "107_financial_statement_snapshot_read.sql"
+    },
+    {
+      "name": "financial_statement_snapshot_approval",
+      "created_by": "108_financial_statement_snapshot_lifecycle.sql"
+    },
+    {
+      "name": "financial_statement_snapshot_proposal",
+      "created_by": "108_financial_statement_snapshot_lifecycle.sql"
+    },
+    {
+      "name": "financial_statement_snapshot_proposal_row",
+      "created_by": "108_financial_statement_snapshot_lifecycle.sql"
+    },
+    {
+      "name": "financial_statement_snapshot_row",
+      "created_by": "107_financial_statement_snapshot_read.sql"
+    },
+    {
+      "name": "financial_statement_snapshot_workflow_function_backup",
+      "created_by": "288_financial_statement_snapshot_workflow.sql"
+    },
+    {
+      "name": "fixed_asset_acquisition_binding",
+      "created_by": "341_fixed_asset_acquisition_draft.sql"
+    },
+    {
+      "name": "fixed_asset_acquisition_posting",
+      "created_by": "341_fixed_asset_acquisition_draft.sql"
+    },
+    {
+      "name": "fixed_asset_depreciation_binding",
+      "created_by": "355_fixed_asset_depreciation_draft.sql"
+    },
+    {
+      "name": "fixed_asset_depreciation_posting",
+      "created_by": "355_fixed_asset_depreciation_draft.sql"
+    },
+    {
+      "name": "fixed_asset_disposal_draft_binding",
+      "created_by": "360_fixed_asset_disposal_draft.sql"
+    },
+    {
+      "name": "fixed_asset_disposal_evidence",
+      "created_by": "240_fixed_asset_disposal_independent_review.sql"
+    },
+    {
+      "name": "fixed_asset_disposal_posting",
+      "created_by": "337_fixed_asset_disposal_source_binding.sql"
+    },
+    {
+      "name": "fixed_asset_disposal_source_binding",
+      "created_by": "337_fixed_asset_disposal_source_binding.sql"
+    },
+    {
+      "name": "fixed_asset_impairment_assessment_evidence",
+      "created_by": "242_fixed_asset_impairment_assessment.sql"
+    },
+    {
+      "name": "fixed_asset_impairment_draft_binding",
+      "created_by": "432_fixed_asset_impairment_draft.sql"
+    },
+    {
+      "name": "fixed_asset_original_source_binding",
+      "created_by": "349_fixed_asset_original_source_binding.sql"
+    },
+    {
+      "name": "fixed_asset_post_impairment_depreciation_policy",
+      "created_by": "358_fixed_asset_post_impairment_depreciation_policy.sql"
+    },
+    {
+      "name": "fixed_asset_read_cursor_key",
+      "created_by": "339_fixed_asset_read_integrity.sql"
+    },
+    {
+      "name": "fixed_asset_register_evidence",
+      "created_by": "236_fixed_asset_register_evidence.sql"
+    },
+    {
+      "name": "fixed_asset_source_consumption",
+      "created_by": "345_fixed_asset_source_consumption.sql"
+    },
+    {
+      "name": "fixed_asset_source_serialization",
+      "created_by": "346_fixed_asset_source_snapshot_serialization.sql"
+    },
+    {
+      "name": "forecast_line",
+      "created_by": "388_forecast_authoritative.sql"
+    },
+    {
+      "name": "forecast_workflow",
+      "created_by": "388_forecast_authoritative.sql"
+    },
+    {
+      "name": "forecast_workflow_gate",
+      "created_by": "388_forecast_authoritative.sql"
+    },
+    {
+      "name": "forecast_workflow_history",
+      "created_by": "388_forecast_authoritative.sql"
+    },
+    {
+      "name": "idempotency_receipt",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "import_batch",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "import_export_history_job",
+      "created_by": "389_import_export_history_authoritative.sql"
+    },
+    {
+      "name": "insurance_prepaid_amortization_draft_evidence",
+      "created_by": "155_insurance_prepaid_amortization.sql"
+    },
+    {
+      "name": "insurance_prepaid_amortization_review",
+      "created_by": "155_insurance_prepaid_amortization.sql"
+    },
+    {
+      "name": "intercompany_elimination_batch",
+      "created_by": "373_intercompany_elimination_authoritative.sql"
+    },
+    {
+      "name": "intercompany_elimination_history",
+      "created_by": "373_intercompany_elimination_authoritative.sql"
+    },
+    {
+      "name": "intercompany_elimination_internal_gate",
+      "created_by": "373_intercompany_elimination_authoritative.sql"
+    },
+    {
+      "name": "intercompany_elimination_line",
+      "created_by": "373_intercompany_elimination_authoritative.sql"
+    },
+    {
+      "name": "je_reversal_link",
+      "created_by": "004_ap_ar_business_runtime.sql"
+    },
+    {
+      "name": "journal_accounting_event",
+      "created_by": "151_wbs_autorec_accounting_event.sql"
+    },
+    {
+      "name": "journal_entry",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "journal_line",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "ledger_line",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "loan_draw",
+      "created_by": "431_loan_master_interest.sql"
+    },
+    {
+      "name": "loan_interest_draft_binding",
+      "created_by": "431_loan_master_interest.sql"
+    },
+    {
+      "name": "loan_master",
+      "created_by": "431_loan_master_interest.sql"
+    },
+    {
+      "name": "loan_master_event",
+      "created_by": "431_loan_master_interest.sql"
+    },
+    {
+      "name": "mapping_snapshot",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "member_master",
+      "created_by": "002_accounting_runtime.sql"
+    },
+    {
+      "name": "outbox_event",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "payment_occurrence",
+      "created_by": "004_ap_ar_business_runtime.sql"
+    },
+    {
+      "name": "permission_catalog",
+      "created_by": "002_accounting_runtime.sql"
+    },
+    {
+      "name": "posting_batch",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "project_cost_code",
+      "created_by": "429_project_cost_master.sql"
+    },
+    {
+      "name": "project_master",
+      "created_by": "429_project_cost_master.sql"
+    },
+    {
+      "name": "project_master_event",
+      "created_by": "429_project_cost_master.sql"
+    },
+    {
+      "name": "project_unit",
+      "created_by": "429_project_cost_master.sql"
+    },
+    {
+      "name": "raw_event",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "reconciliation",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "reconciliation_adjustment_draft",
+      "created_by": "067_reconciliation_adjustment_draft.sql"
+    },
+    {
+      "name": "reconciliation_item",
+      "created_by": "063_reconciliation_command_lifecycle.sql"
+    },
+    {
+      "name": "reconciliation_snapshot",
+      "created_by": "063_reconciliation_command_lifecycle.sql"
+    },
+    {
+      "name": "recurring_schedule",
+      "created_by": "390_recurring_scheduler_authoritative.sql"
+    },
+    {
+      "name": "recurring_schedule_exception",
+      "created_by": "390_recurring_scheduler_authoritative.sql"
+    },
+    {
+      "name": "recurring_schedule_gate",
+      "created_by": "390_recurring_scheduler_authoritative.sql"
+    },
+    {
+      "name": "recurring_schedule_history",
+      "created_by": "390_recurring_scheduler_authoritative.sql"
+    },
+    {
+      "name": "recurring_schedule_run",
+      "created_by": "390_recurring_scheduler_authoritative.sql"
+    },
+    {
+      "name": "recurring_schedule_run_gate",
+      "created_by": "390_recurring_scheduler_authoritative.sql"
+    },
+    {
+      "name": "refs_control_metric_snapshot",
+      "created_by": "067_wbs_control_reconciliation_read.sql"
+    },
+    {
+      "name": "refs_deployment_identity",
+      "created_by": "301_deployment_identity_attestation.sql"
+    },
+    {
+      "name": "refs_deployment_identity_fence",
+      "created_by": "301_deployment_identity_attestation.sql"
+    },
+    {
+      "name": "refs_runtime_migration_state",
+      "created_by": "002_accounting_runtime.sql"
+    },
+    {
+      "name": "report_saved_view",
+      "created_by": "386_report_saved_views_authoritative.sql"
+    },
+    {
+      "name": "report_saved_view_history",
+      "created_by": "386_report_saved_views_authoritative.sql"
+    },
+    {
+      "name": "rule_evaluation",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "runtime_actor_grant",
+      "created_by": "002_accounting_runtime.sql"
+    },
+    {
+      "name": "runtime_actor_grant_set",
+      "created_by": "002_accounting_runtime.sql"
+    },
+    {
+      "name": "runtime_auth_context",
+      "created_by": "002_accounting_runtime.sql"
+    },
+    {
+      "name": "runtime_grant_sync_receipt",
+      "created_by": "002_accounting_runtime.sql"
+    },
+    {
+      "name": "runtime_human_additive_permission_authority",
+      "created_by": "331_attachment_entry_authority.sql"
+    },
+    {
+      "name": "runtime_human_permission_authority",
+      "created_by": "274_runtime_grant_sod_expiry.sql"
+    },
+    {
+      "name": "runtime_service_only_permission",
+      "created_by": "274_runtime_grant_sod_expiry.sql"
+    },
+    {
+      "name": "sales_receipt",
+      "created_by": "317_native_sales_receipt.sql"
+    },
+    {
+      "name": "setting_snapshot",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "source_document",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "source_document_line",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "source_link",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "source_parse_run",
+      "created_by": "392_source_document_parse_authoritative.sql"
+    },
+    {
+      "name": "staging_item",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "sync_cursor",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "tenant",
+      "created_by": "001_wbs_accounting_core.sql"
+    },
+    {
+      "name": "unit_cogs_release_binding",
+      "created_by": "430_unit_sale_closeout.sql"
+    },
+    {
+      "name": "unit_transfer_elimination_basis",
+      "created_by": "370_unit_transfer_authoritative.sql"
+    },
+    {
+      "name": "unit_transfer_elimination_reversal_basis",
+      "created_by": "371_unit_transfer_paired_reversal.sql"
+    },
+    {
+      "name": "unit_transfer_ic_open_item",
+      "created_by": "371_unit_transfer_paired_reversal.sql"
+    },
+    {
+      "name": "unit_transfer_internal_gate",
+      "created_by": "370_unit_transfer_authoritative.sql"
+    },
+    {
+      "name": "unit_transfer_pair",
+      "created_by": "370_unit_transfer_authoritative.sql"
+    },
+    {
+      "name": "unit_transfer_reversal_pair",
+      "created_by": "371_unit_transfer_paired_reversal.sql"
+    },
+    {
+      "name": "unit_transfer_unit_control",
+      "created_by": "370_unit_transfer_authoritative.sql"
+    },
+    {
+      "name": "wbs_autorec_execution_event",
+      "created_by": "073_wbs_autorec_execution_reservation.sql"
+    },
+    {
+      "name": "wbs_autorec_g11_completion",
+      "created_by": "153_wbs_autorec_g11_incurred.sql"
+    },
+    {
+      "name": "wbs_autorec_g11_completion_line",
+      "created_by": "153_wbs_autorec_g11_incurred.sql"
+    },
+    {
+      "name": "wbs_autorec_match_review",
+      "created_by": "150_wbs_autorec_match_review.sql"
+    },
+    {
+      "name": "wbs_autorec_observed_state_event",
+      "created_by": "065_wbs_autorec_observed_state_evidence.sql"
+    },
+    {
+      "name": "wbs_autorec_reversal",
+      "created_by": "417_wbs_autorec_reverse_workflow.sql"
+    },
+    {
+      "name": "wbs_autorec_source_reservation",
+      "created_by": "073_wbs_autorec_execution_reservation.sql"
+    },
+    {
+      "name": "wbs_bank_statement_receipt",
+      "created_by": "091_wbs_signed_bank_statement_admission.sql"
+    },
+    {
+      "name": "wbs_bank_statement_transaction",
+      "created_by": "091_wbs_signed_bank_statement_admission.sql"
+    },
+    {
+      "name": "wbs_company_catalog_candidate",
+      "created_by": "136_wbs_company_catalog_controller.sql"
+    },
+    {
+      "name": "wbs_company_catalog_candidate_row",
+      "created_by": "136_wbs_company_catalog_controller.sql"
+    },
+    {
+      "name": "wbs_company_catalog_controller_decision",
+      "created_by": "136_wbs_company_catalog_controller.sql"
+    },
+    {
+      "name": "wbs_company_catalog_validation_finding",
+      "created_by": "136_wbs_company_catalog_controller.sql"
+    },
+    {
+      "name": "wbs_control_metric_snapshot",
+      "created_by": "064_wbs_control_metric_snapshot.sql"
+    },
+    {
+      "name": "wbs_controlled_test_bank_import",
+      "created_by": "175_wbs_controlled_test_bank_scope.sql"
+    },
+    {
+      "name": "wbs_controlled_test_bank_import_row",
+      "created_by": "175_wbs_controlled_test_bank_scope.sql"
+    },
+    {
+      "name": "wbs_cost_cwip_review_evidence",
+      "created_by": "132_wbs_cost_cwip_review.sql"
+    },
+    {
+      "name": "wbs_final1_payable_document_evidence",
+      "created_by": "297_wbs_final1_payable_typed_document_evidence.sql"
+    },
+    {
+      "name": "wbs_final1_payable_document_revision",
+      "created_by": "298_wbs_final1_payable_document_revision_lifecycle.sql"
+    },
+    {
+      "name": "wbs_final1_retained_evidence_admission",
+      "created_by": "149_wbs_final1_retained_source_evidence.sql"
+    },
+    {
+      "name": "wbs_final1_retained_source_row",
+      "created_by": "149_wbs_final1_retained_source_evidence.sql"
+    },
+    {
+      "name": "wbs_final1_signed_business_source_row",
+      "created_by": "167_wbs_final1_signed_business_evidence.sql"
+    },
+    {
+      "name": "wbs_final1_signed_control_total",
+      "created_by": "167_wbs_final1_signed_business_evidence.sql"
+    },
+    {
+      "name": "wbs_h1_accounting_control_reconciliation",
+      "created_by": "273_wbs_h1_accounting_control_reconciliation.sql"
+    },
+    {
+      "name": "wbs_h1_accounting_control_reconciliation_account",
+      "created_by": "273_wbs_h1_accounting_control_reconciliation.sql"
+    },
+    {
+      "name": "wbs_h1_accounting_evidence_line",
+      "created_by": "272_wbs_h1_accounting_control_population.sql"
+    },
+    {
+      "name": "wbs_h1_accounting_module_receipt",
+      "created_by": "272_wbs_h1_accounting_control_population.sql"
+    },
+    {
+      "name": "wbs_h1_accounting_population_receipt",
+      "created_by": "272_wbs_h1_accounting_control_population.sql"
+    },
+    {
+      "name": "wbs_h1_accounting_population_run",
+      "created_by": "272_wbs_h1_accounting_control_population.sql"
+    },
+    {
+      "name": "wbs_h1_accounting_setting_stage",
+      "created_by": "262_wbs_h1_payable_mapping_stage.sql"
+    },
+    {
+      "name": "wbs_h1_accounting_settings_human_decision",
+      "created_by": "267_wbs_h1_accounting_settings_human_decision.sql"
+    },
+    {
+      "name": "wbs_h1_payable_cost_code_stage",
+      "created_by": "264_wbs_h1_payable_cost_code_evidence.sql"
+    },
+    {
+      "name": "wbs_h1_payable_mapping_source_conflict",
+      "created_by": "271_wbs_h1_payable_mapping_source_conflict.sql"
+    },
+    {
+      "name": "wbs_h1_payable_mapping_source_stage",
+      "created_by": "262_wbs_h1_payable_mapping_stage.sql"
+    },
+    {
+      "name": "wbs_h1_payable_reclass_draft_evidence",
+      "created_by": "269_wbs_h1_payable_reclass_draft.sql"
+    },
+    {
+      "name": "wbs_inbound_receipt",
+      "created_by": "058_wbs_inbound_atomic_persistence.sql"
+    },
+    {
+      "name": "wbs_inbound_row",
+      "created_by": "058_wbs_inbound_atomic_persistence.sql"
+    },
+    {
+      "name": "wbs_insurance_pc_company_mapping_decision",
+      "created_by": "163_wbs_final1_amount_precision_pc_mapping_and_accrual_isolation.sql"
+    },
+    {
+      "name": "wbs_insurance_pc_mapping_approval",
+      "created_by": "164_wbs_insurance_pc_mapping_controller_workflow.sql"
+    },
+    {
+      "name": "wbs_insurance_pc_mapping_decision_trace",
+      "created_by": "164_wbs_insurance_pc_mapping_controller_workflow.sql"
+    },
+    {
+      "name": "wbs_insurance_pc_mapping_pre_admission_observation",
+      "created_by": "164_wbs_insurance_pc_mapping_controller_workflow.sql"
+    },
+    {
+      "name": "wbs_insurance_pc_mapping_pre_admission_row",
+      "created_by": "164_wbs_insurance_pc_mapping_controller_workflow.sql"
+    },
+    {
+      "name": "wbs_insurance_pc_mapping_proposal",
+      "created_by": "164_wbs_insurance_pc_mapping_controller_workflow.sql"
+    },
+    {
+      "name": "wbs_operator_payable_attestation",
+      "created_by": "102_wbs_operator_attested_payable_evidence.sql"
+    },
+    {
+      "name": "wbs_operator_payable_evidence_provider_hash",
+      "created_by": "112_wbs_operator_signed_source_bridge.sql"
+    },
+    {
+      "name": "wbs_operator_payable_evidence_row",
+      "created_by": "102_wbs_operator_attested_payable_evidence.sql"
+    },
+    {
+      "name": "wbs_operator_signed_source_link",
+      "created_by": "112_wbs_operator_signed_source_bridge.sql"
+    },
+    {
+      "name": "wbs_payable_attachment_binding",
+      "created_by": "100_wbs_payable_exact_attachment_binding.sql"
+    },
+    {
+      "name": "wbs_payable_attachment_upload_intent",
+      "created_by": "101_wbs_payable_row_bound_attachment_intent.sql"
+    },
+    {
+      "name": "wbs_payable_draft_evidence",
+      "created_by": "096_wbs_payable_ap_draft.sql"
+    },
+    {
+      "name": "wbs_payable_original_row_evidence",
+      "created_by": "348_wbs_payable_original_row_evidence.sql"
+    },
+    {
+      "name": "wbs_payable_review_attachment",
+      "created_by": "094_wbs_payable_review_evidence.sql"
+    },
+    {
+      "name": "wbs_payable_review_evidence",
+      "created_by": "094_wbs_payable_review_evidence.sql"
+    },
+    {
+      "name": "wbs_property_rent_draft_evidence",
+      "created_by": "157_wbs_property_rent_pickup.sql"
+    },
+    {
+      "name": "wbs_property_rent_review_evidence",
+      "created_by": "157_wbs_property_rent_pickup.sql"
+    },
+    {
+      "name": "wbs_property_rent_source_admission",
+      "created_by": "156_wbs_property_rent_source_admission.sql"
+    },
+    {
+      "name": "wbs_provider_signed_payable_admission",
+      "created_by": "111_wbs_provider_signed_payable_admission.sql"
+    },
+    {
+      "name": "wbs_snapshot_delivery_attestation",
+      "created_by": "056_wbs_snapshot_delivery_attestation.sql"
+    },
+    {
+      "name": "wbs_snapshot_import",
+      "created_by": "054_wbs_snapshot_observation.sql"
+    },
+    {
+      "name": "wbs_snapshot_receipt",
+      "created_by": "054_wbs_snapshot_observation.sql"
+    },
+    {
+      "name": "wbs_test_bank_adjustment_post_receipt",
+      "created_by": "276_wbs_test_bank_sod_boundaries.sql"
+    },
+    {
+      "name": "wbs_test_bank_import_receipt",
+      "created_by": "276_wbs_test_bank_sod_boundaries.sql"
+    },
+    {
+      "name": "wbs_test_bank_import_stage",
+      "created_by": "185_wbs_test_bank_staged_import.sql"
+    },
+    {
+      "name": "wbs_test_bank_import_stage_chunk",
+      "created_by": "185_wbs_test_bank_staged_import.sql"
+    },
+    {
+      "name": "wbs_test_bank_import_stage_final",
+      "created_by": "185_wbs_test_bank_staged_import.sql"
+    },
+    {
+      "name": "wbs_test_bank_import_stage_row",
+      "created_by": "185_wbs_test_bank_staged_import.sql"
+    },
+    {
+      "name": "wbs_test_bank_legacy_function_backup",
+      "created_by": "276_wbs_test_bank_sod_boundaries.sql"
+    },
+    {
+      "name": "wbs_test_import_draft",
+      "created_by": "168_wbs_test_payable_draft.sql"
+    },
+    {
+      "name": "wbs_test_payable_draft_evidence",
+      "created_by": "275_wbs_test_payable_retain_human_draft.sql"
+    },
+    {
+      "name": "wbs_test_payable_source_receipt",
+      "created_by": "275_wbs_test_payable_retain_human_draft.sql"
+    },
+    {
+      "name": "wbs_trace_relation_evidence",
+      "created_by": "063_wbs_trace_relation_evidence.sql"
+    },
+    {
+      "name": "wbs_trace_relation_item",
+      "created_by": "063_wbs_trace_relation_evidence.sql"
+    },
+    {
+      "name": "webhook_delivery_history",
+      "created_by": "387_webhook_subscription_authoritative.sql"
+    },
+    {
+      "name": "webhook_subscription",
+      "created_by": "387_webhook_subscription_authoritative.sql"
+    },
+    {
+      "name": "webhook_subscription_gate",
+      "created_by": "387_webhook_subscription_authoritative.sql"
+    },
+    {
+      "name": "webhook_subscription_history",
+      "created_by": "387_webhook_subscription_authoritative.sql"
+    }
+  ]
+}
