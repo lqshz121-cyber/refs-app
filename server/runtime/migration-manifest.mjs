@@ -439,5 +439,6 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"432_fixed_asset_impairment_draft.sql",up:"d644a2f2e1cb574ccd59c0fbfe4f19c41813c44df14c0ea25fc4a02089d8de1a",down:"649119c2a8156d0ea7dc752fbf03830d078471e86cc3a15a6409973366d29621"}),
   Object.freeze({name:"433_outbox_health_read.sql",up:"b484997038a405c64718443b8856c0a013e0601d193f476f033e28eb2fd37ddf",down:"41d1c0bb58e88e8a52e84b3e178f6a4ebfa1b5760b8fa03fad96f97a4b12a124"}),
   Object.freeze({name:"434_ap_ar_write_off.sql",up:"aecbf78809598bb3c0141e3d65e0b425ecf0fdfdfa5ca7eaecf91e779716df45",down:"fba86e32e561648324fec733e719ff2ed15e65e21b852e9678811eb2feb2ca28"}),
-  Object.freeze({name:"435_ap_ar_write_off_reducer.sql",up:"eb44223138d5970858a3c3bacf5964a87eab23fe333f5450a2fbc01fe6e039bb",down:"e18a4cc4212078d248560d976f5dbca506d1b3ade6533e30f4ea40ad67738c37"})
+  Object.freeze({name:"435_ap_ar_write_off_reducer.sql",up:"eb44223138d5970858a3c3bacf5964a87eab23fe333f5450a2fbc01fe6e039bb",down:"e18a4cc4212078d248560d976f5dbca506d1b3ade6533e30f4ea40ad67738c37"}),
+  Object.freeze({name:"436_restore_reducer_catalog_patches.sql",up:"5525c554aa6402bcea199a0b41700b1ca4d6c636319f1ebc8f09f6ab2572401b",down:"156993cc5c365060827face145e563c4da2611e8c738f59e40e772d1616311c8"})
 ]);

@@ -33,10 +33,10 @@ const providerKey = generateKeyPairSync('ed25519').publicKey;
 const providerPublicKey = providerKey.export({type: 'spki', format: 'pem'}).toString();
 const providerFingerprint = `sha256:${createHash('sha256').update(providerKey.export({type: 'spki', format: 'der'})).digest('hex')}`;
 const base = {
-  DATABASE_URL: 'postgresql://runtime:password@db.example/refs',
-  MIGRATION_DATABASE_URL: 'postgresql://migration:password@db.example/refs',
-  CONTEXT_ISSUER_DATABASE_URL: 'postgresql://issuer:password@db.example/refs',
-  GRANT_SYNC_DATABASE_URL: 'postgresql://grants:password@db.example/refs',
+  DATABASE_URL: 'postgresql://runtime:password@db.example/refs',  // secret-scan: allow -- placeholder URLs for a config-shape test
+  MIGRATION_DATABASE_URL: 'postgresql://migration:password@db.example/refs',  // secret-scan: allow -- placeholder URLs for a config-shape test
+  CONTEXT_ISSUER_DATABASE_URL: 'postgresql://issuer:password@db.example/refs',  // secret-scan: allow -- placeholder URLs for a config-shape test
+  GRANT_SYNC_DATABASE_URL: 'postgresql://grants:password@db.example/refs',  // secret-scan: allow -- placeholder URLs for a config-shape test
   OIDC_ISSUER: 'https://issuer.example',
   OIDC_AUDIENCE: 'refs-accounting',
   OIDC_JWKS_URI: 'https://issuer.example/jwks',

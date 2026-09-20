@@ -38,7 +38,12 @@ export const ALLOW=Object.freeze([
   /sha256:[0-9a-f]{64}/,                                              // evidence hashes are not secrets
   /process\.env\./,                                                   // reading a secret is not carrying one
   /fromDatabase|fromService|sync:\s*false|generateValue/,             // Render blueprint secret *references*
-  /['"](?:x|y|test|example|placeholder|redacted|\*{3,})['"]/i
+  /['"](?:x|y|test|example|placeholder|redacted|\*{3,})['"]/i,
+  // A per-line, reviewed exemption. Test fixtures have to carry credential-shaped literals -- this
+  // scanner's own positive samples are the clearest case -- and the alternative, allowlisting a
+  // host pattern or a whole path, silently blinds the scanner to real secrets in the same place.
+  // The marker has to sit on the offending line, so it shows up in the diff next to what it excuses.
+  /\/\/\s*secret-scan:\s*allow\b/
 ]);
 
 export function scanLines(lines){
