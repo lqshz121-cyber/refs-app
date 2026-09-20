@@ -1,0 +1,38 @@
+# X05: secret and dependency scanning as a named job that runs on every pull request, so it can be
+# selected as a required check. Both legs already existed as npm scripts but neither ran in CI.
+name: Security Gate
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: security-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  secret-and-dependency-scan:
+    name: secret-and-dependency-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The secret scanner diffs against the merge base, so it needs history.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install kernel dependencies exactly
+        working-directory: server
+        run: npm ci --no-audit --no-fund
+      - name: Secret scan over the pull request diff
+        working-directory: server
+        env:
+          # Scan only what this PR adds, which is what the scanner is designed for; a full-history
+          # scan would re-report every historical fixture on every PR.
+          SECRET_SCAN_RANGE: origin/${{ github.base_ref || 'main' }}...HEAD
+        run: npm run security:secret-scan
+      - name: Dependency audit (high and critical only)
+        working-directory: server
+        run: npm audit --audit-level=high
