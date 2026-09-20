@@ -59,7 +59,7 @@ let unavailable=null;
 
 before(async()=>{
   try{
-    adminPool=await createPool({databaseUrl:config.migrationDatabaseUrl,applicationName:'refs-pg-integration-admin',max:8});
+    adminPool=await createPool({databaseUrl:config.migrationDatabaseUrl,applicationName:'refs-pg-integration-admin',max:8,statementTimeoutMs:300000});
     await adminPool.query('SELECT 1');
     await migrateUp(adminPool,{onEvent:event=>{if(event.event==='migration_failed')console.error(JSON.stringify(event));}});
     runtimePool=await createPool({databaseUrl:config.databaseUrl,applicationName:'refs-pg-integration-runtime',max:8});

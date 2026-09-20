@@ -20,7 +20,15 @@ let unavailable=null;
 
 before(async()=>{
   try{
-    adminPool=await createPool({databaseUrl:config.migrationDatabaseUrl,applicationName:'refs-accounting-settings-pg-admin',max:8});
+    // P0-1: this file resets state with TRUNCATE tenant CASCADE before each of its 34 subtests.
+    // CASCADE spans the 249 public tables reachable from tenant and takes ~9.0-9.4s even on an
+    // EMPTY freshly-migrated database -- 90%+ of the production 10s statement_timeout -- so the
+    // later subtests crossed it and failed with 57014. The admin pool does maintenance-scale DDL,
+    // not request-scale work, so it gets a maintenance timeout; this is the same pattern already
+    // used by large-population-performance, attachment-containers, database-dictionary and
+    // migration-runner. No production configuration is changed: runtime/config.mjs keeps the
+    // 10s default for every real request path.
+    adminPool=await createPool({databaseUrl:config.migrationDatabaseUrl,applicationName:'refs-accounting-settings-pg-admin',max:8,statementTimeoutMs:300000});
     await adminPool.query('SELECT 1');
     await migrateUp(adminPool,{onEvent:event=>{if(event.event==='migration_failed')console.error(JSON.stringify(event));}});
     runtimePool=await createPool({databaseUrl:config.databaseUrl,applicationName:'refs-accounting-settings-pg-runtime',max:8});
