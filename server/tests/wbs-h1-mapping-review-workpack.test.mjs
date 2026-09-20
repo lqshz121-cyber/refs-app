@@ -58,3 +58,31 @@ test('input validation and no-network/no-write source guard',()=>{
   const source=readFileSync(fileURLToPath(new URL('../tools/wbs-h1-mapping-review-workpack.mjs',import.meta.url)),'utf8');
   assert.doesNotMatch(source,/fetch\(|createPool|DATABASE_URL|INSERT |UPDATE |postJournal|https?:\/\//);
 });
+
+// X03: risk and confidence are the two grouping dimensions the P0 execution task asked for and
+// this workpack did not have. They exist so a Controller can triage 1191 unmapped rows by what
+// matters -- money at stake and how close the row is to a decision REFS can propose -- instead of
+// reading them in source order.
+test('X03: every queue entry carries a risk and a confidence, derived rather than guessed',async()=>{
+  const {buildMappingReviewWorkpack,riskOf,CONFIDENCE_BY_CLASS,WBS_H1_MAPPING_REVIEW_WORKPACK_SCHEMA}=
+    await import('../tools/wbs-h1-mapping-review-workpack.mjs');
+  assert.equal(WBS_H1_MAPPING_REVIEW_WORKPACK_SCHEMA,'WBS_H1_MAPPING_REVIEW_WORKPACK_V2');
+
+  const c=d=>BigInt(Math.round(d*10000));
+  // Magnitude bands.
+  assert.equal(riskOf(c(5000)),'LOW');
+  assert.equal(riskOf(c(10000)),'MEDIUM');
+  assert.equal(riskOf(c(100000)),'HIGH');
+  assert.equal(riskOf(c(1000000)),'CRITICAL');
+  // Sign matters independently of magnitude: H09 found 76 negative rows whose sign convention
+  // (payment/reversal vs payable) a human must confirm, so a negative row is never below HIGH.
+  assert.equal(riskOf(c(-20)),'HIGH','a small negative still needs the sign convention confirmed');
+  assert.equal(riskOf(c(-3238035.50)),'CRITICAL','the largest observed negative stays CRITICAL');
+  assert.equal(riskOf(null),'UNKNOWN','an unparseable amount must not silently become LOW');
+
+  // Confidence is a property of the decision class, so it cannot drift per row.
+  assert.equal(CONFIDENCE_BY_CLASS.SETTINGS_APPROVAL_PENDING,'HIGH','one approval away');
+  assert.equal(CONFIDENCE_BY_CLASS.COA_ACCOUNT_TO_CREATE,'MEDIUM');
+  assert.equal(CONFIDENCE_BY_CLASS.NO_RULE,'LOW','nothing to build on');
+  assert.equal(CONFIDENCE_BY_CLASS.COST_CODE_MISSING,'NONE','data quality, not a mapping decision');
+});

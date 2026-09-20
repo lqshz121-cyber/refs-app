@@ -12,7 +12,7 @@
 import {readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 
-export const WBS_H1_MAPPING_REVIEW_WORKPACK_SCHEMA='WBS_H1_MAPPING_REVIEW_WORKPACK_V1';
+export const WBS_H1_MAPPING_REVIEW_WORKPACK_SCHEMA='WBS_H1_MAPPING_REVIEW_WORKPACK_V2';
 const MONEY=/^-?(?:0|[1-9]\d{0,15})\.\d{4}$/;
 const cents=value=>{if(typeof value!=='string'||!MONEY.test(value))return null;const neg=value.startsWith('-');const [w,f]=value.replace('-','').split('.');const n=BigInt(w)*10000n+BigInt(f);return neg?-n:n;};
 const money=v=>{const neg=v<0n;const a=neg?-v:v;return `${neg?'-':''}${a/10000n}.${String(a%10000n).padStart(4,'0')}`;};
@@ -26,6 +26,42 @@ const money=v=>{const neg=v<0n;const a=neg?-v:v;return `${neg?'-':''}${a/10000n}
 //   CREDIT_RULE_MISSING         no Payable/Credit rule (AP control) matched (must decide once, company-wide)
 //   VENDOR_MEMBER_MISSING       vendor master member absent (master data)
 //   COST_CODE_MISSING           source row without cost code (data quality)
+
+// X03: risk and confidence, so a Controller can triage 1191 rows instead of reading them in order.
+//
+// Confidence answers "how close is this to a decision REFS can propose?" and is derived from the
+// decision class, not guessed: a class that already has a matched rule and an existing account is
+// one human approval away; a class with no rule at all is not.
+//
+// Risk answers "how much damage does getting this wrong do?" and is derived from the amount. The
+// sign matters as much as the magnitude: H09 found 76 negative rows totalling -24,343,397.24 with
+// 11 below -1,000,000, and those need a human to confirm the sign convention (payment/reversal vs
+// payable) before anything is drafted. A negative row is therefore never below HIGH.
+export const CONFIDENCE_BY_CLASS={
+  SETTINGS_APPROVAL_PENDING:'HIGH',      // rule matched, account exists -- only the Settings decision is missing
+  COA_ACCOUNT_TO_CREATE:'MEDIUM',        // rule matched, account must be created under COA authority
+  RULE_SCOPE_COMPANY_WIDE:'LOW',         // semantic question about what project_codes means
+  RULE_PROJECT_MISMATCH:'LOW',
+  RULE_WITHOUT_ACCOUNT:'LOW',            // WBS rule carries no journal_code
+  NO_RULE:'LOW',                         // nothing to build on
+  CREDIT_RULE_MISSING:'LOW',
+  VENDOR_MEMBER_MISSING:'NONE',          // master data, not a mapping decision
+  COST_CODE_MISSING:'NONE'               // data quality, not a mapping decision
+};
+const TEN_K=100000000n, HUNDRED_K=1000000000n, MILLION=10000000000n;  // integer cents
+export function riskOf(amountCents){
+  if(amountCents===null||amountCents===undefined)return 'UNKNOWN';
+  const negative=amountCents<0n;
+  const magnitude=negative?-amountCents:amountCents;
+  if(magnitude>=MILLION)return 'CRITICAL';
+  if(negative)return 'HIGH';               // sign convention unconfirmed -- never below HIGH
+  if(magnitude>=HUNDRED_K)return 'HIGH';
+  if(magnitude>=TEN_K)return 'MEDIUM';
+  return 'LOW';
+}
+const RISK_ORDER={CRITICAL:0,HIGH:1,MEDIUM:2,LOW:3,UNKNOWN:4};
+const CONFIDENCE_ORDER={NONE:0,LOW:1,MEDIUM:2,HIGH:3};
+
 export function buildMappingReviewWorkpack({settings,payablePages,companyWideProject=null}={}){
   if(!settings||settings.schema_version!=='WBS_H1_ACCOUNTING_SETTINGS_PROPOSAL_V1'||!Array.isArray(settings.rules))throw new Error('settings must be a WBS_H1_ACCOUNTING_SETTINGS_PROPOSAL_V1 document');
   if(!Array.isArray(payablePages)||!payablePages.length)throw new Error('payablePages must be a non-empty array');
@@ -85,7 +121,29 @@ export function buildMappingReviewWorkpack({settings,payablePages,companyWidePro
     exception_rows:rows.filter(r=>r.status==='EXCEPTION').length,ready_rows:rows.filter(r=>r.status==='READY_FOR_CONTROLLER_REVIEW').length,
     class_totals:Object.fromEntries(Object.entries(classTotals).map(([k,v])=>[k,{rows:v.rows,amount:money(v.amount)}])),
     accounts_to_create:[...accountsToCreate.values()].map(a=>({...a,amount:money(a.amount),cost_codes:[...a.cost_codes].sort()})).sort((a,b)=>b.rows-a.rows),
-    review_queue:queue,
+    review_queue:queue.map(entry=>{
+      const cents_=cents(entry.amount);
+      return {...entry,
+        confidence:CONFIDENCE_BY_CLASS[entry.decision_class]??'LOW',
+        risk:riskOf(cents_),
+        negative_amount:cents_!==null&&cents_<0n};
+    }).sort((a,b)=>(RISK_ORDER[a.risk]-RISK_ORDER[b.risk])
+      ||(CONFIDENCE_ORDER[b.confidence]-CONFIDENCE_ORDER[a.confidence])
+      ||(b.rows-a.rows)),
+    // Triage view: what a Controller should look at first, and how much of the population is
+    // one approval away versus genuinely undecided.
+    triage:(()=>{
+      const by=(key,pick)=>{const m={};for(const e of queue){const c=cents(e.amount);const k=pick(e,c);
+        (m[k]??=({rows:0,entries:0,amount:0n}));m[k].rows+=e.rows;m[k].entries+=1;m[k].amount+=(c??0n);}
+        return Object.fromEntries(Object.entries(m).map(([k,v])=>[k,{rows:v.rows,entries:v.entries,amount:money(v.amount)}]));};
+      return {
+        by_risk:by('risk',e=>riskOf(cents(e.amount))),
+        by_confidence:by('confidence',e=>CONFIDENCE_BY_CLASS[e.decision_class]??'LOW'),
+        suggestable_rows:queue.filter(e=>e.auto_suggestable).reduce((n,e)=>n+e.rows,0),
+        must_decide_rows:queue.filter(e=>e.must_decide).reduce((n,e)=>n+e.rows,0),
+        negative_amount_rows:queue.filter(e=>{const c=cents(e.amount);return c!==null&&c<0n;}).reduce((n,e)=>n+e.rows,0)
+      };
+    })(),
     consuming_commands:{
       settings_decision:'POST /entities/{id}/wbs/h1-accounting-settings-decision?periodId=<period>&proposalHash=<settings.proposal_hash> {outcome:APPROVED|REJECTED, reason} (WBS.H1 settings decider; independent of importer)',
       coa_account:'accounting-settings workflow / account_master maintenance under the entity COA authority; never an ad-hoc INSERT',

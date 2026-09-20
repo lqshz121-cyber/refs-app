@@ -153,7 +153,8 @@
     "gate:security": "node --test tests/l20-red-team-fail-closed-postgres.test.mjs tests/posting-sod-contract-postgres.test.mjs tests/closed-period-write-matrix-postgres.test.mjs && npm run --silent security:secret-scan",
     "gate:concurrency": "node --test tests/concurrency-optimistic-lock-postgres.test.mjs tests/context-retry-revocation-postgres.test.mjs tests/ap-cross-period-concurrency-postgres.test.mjs",
     "gate:barriers": "node --test tests/migration-barrier-contract-postgres.test.mjs tests/historical-head-helper-postgres.test.mjs tests/migration-historical-head-postgres.test.mjs",
-    "gate:all": "npm run gate:performance && npm run gate:concurrency && npm run gate:security && npm run gate:barriers"
+    "gate:all": "npm run gate:performance && npm run gate:concurrency && npm run gate:security && npm run gate:barriers",
+    "verify:staging-release": "node runtime/verify-render-staging-release.mjs"
   },
   "dependencies": {
     "pg": "^8.13.1"
