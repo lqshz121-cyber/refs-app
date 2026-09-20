@@ -1,7 +1,7 @@
 {
   "schema_version": "REFS_TABLE_CENSUS_V1",
-  "migration_head": "433_outbox_health_read.sql",
-  "table_count": 248,
+  "migration_head": "435_ap_ar_write_off_reducer.sql",
+  "table_count": 249,
   "tables": [
     {
       "name": "account_master",
@@ -198,6 +198,10 @@
     {
       "name": "ai_wbs_payable_draft_proposal_review",
       "created_by": "135_ai_wbs_payable_draft_proposal.sql"
+    },
+    {
+      "name": "ap_ar_write_off_binding",
+      "created_by": "434_ap_ar_write_off.sql"
     },
     {
       "name": "attachment",

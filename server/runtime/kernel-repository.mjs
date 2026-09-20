@@ -2058,6 +2058,22 @@ export class PostgresAccountingKernel{
     });
   }
 
+  // X02: one command serves AP and AR; the SQL picks the control account and the debit/credit
+  // orientation from the document kind, so the two sides cannot drift apart in the client.
+  async createApArWriteOff(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_ap_ar_write_off_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS request_hash',
+        [args.tenantId,args.entityId,args.businessDocumentId,args.periodId,args.journalNumber,args.journalDate,args.amount,args.writeOffAccountCode,args.attachmentIds,args.reason]
+      ),'AP_AR_WRITE_OFF_HASH_FAILED','Write-off hash was not produced').request_hash;
+      const row=requireRow(await client.query(
+        'SELECT refs_create_ap_ar_write_off($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) AS result',
+        [args.tenantId,args.entityId,args.businessDocumentId,args.periodId,args.journalNumber,args.journalDate,args.amount,args.writeOffAccountCode,args.attachmentIds,args.reason,args.idempotencyKey,requestHash]
+      ),'AP_AR_WRITE_OFF_FAILED','Write-off Draft creation did not return a result');
+      return row.result;
+    });
+  }
+
   async createApBillVoid(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
