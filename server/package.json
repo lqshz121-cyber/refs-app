@@ -149,7 +149,7 @@
     "test:shard": "node tools/test-shard-runner.mjs",
     "test:shard:resume": "node tools/test-shard-runner.mjs --resume",
     "test:shard:summary": "node tools/test-shard-runner.mjs --summary",
-    "gate:performance": "node --test tests/large-population-performance-postgres.test.mjs tests/high-volume-read-indexes-contract.test.mjs",
+    "gate:performance": "node --test tests/fixture-teardown-scalability-postgres.test.mjs tests/large-population-performance-postgres.test.mjs tests/high-volume-read-indexes-contract.test.mjs",
     "gate:security": "node --test tests/l20-red-team-fail-closed-postgres.test.mjs tests/posting-sod-contract-postgres.test.mjs tests/closed-period-write-matrix-postgres.test.mjs && npm run --silent security:secret-scan",
     "gate:concurrency": "node --test tests/concurrency-optimistic-lock-postgres.test.mjs tests/context-retry-revocation-postgres.test.mjs tests/ap-cross-period-concurrency-postgres.test.mjs",
     "gate:barriers": "node --test tests/migration-barrier-contract-postgres.test.mjs tests/historical-head-helper-postgres.test.mjs tests/migration-historical-head-postgres.test.mjs",
