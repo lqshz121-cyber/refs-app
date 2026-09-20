@@ -1,0 +1,85 @@
+{
+  "schema_version": "REFS_NEGATIVE_SIGN_DECISION_V1",
+  "$comment": [
+    "Z05: a fillable decision sheet for the 76 negative-amount WBS rows. It contains NO real",
+    "transaction data and must never be committed with any. Every row identifies its subject by a",
+    "stable hash, not by amount, vendor or description.",
+    "",
+    "Why this exists: H09 found 76 negative rows totalling -24,343,397.24, of which 11 are below",
+    "-1,000,000. Whether a negative source amount means a payment/reversal or a payable accrual is",
+    "an ACCOUNTING POLICY judgement, not something the system can infer. Until an Owner decides, no",
+    "row in this set may be drafted or posted.",
+    "",
+    "Fill one entry per source_category. Do not fill decided_meaning yourself unless you are the",
+    "named approver."
+  ],
+  "population_summary": {
+    "$comment": "Aggregates only, carried over from H09. No row-level data.",
+    "negative_rows": 76,
+    "negative_total": "-24343397.24",
+    "rows_below_negative_one_million": 11,
+    "largest_absolute": "3238035.50",
+    "positive_rows": 1209,
+    "positive_total": "1361427.34",
+    "source": "H09 exception-queue analysis; not re-measured by this template"
+  },
+  "decision_options": {
+    "$comment": "The closed set of meanings a negative source amount may be assigned. Each states its own ledger effect so the consequence is explicit before the choice is made.",
+    "PAYMENT_OR_SETTLEMENT": {
+      "meaning": "The row records cash leaving against an existing payable.",
+      "ledger_effect": "Dr AP control (291001) / Cr cash. Reduces the open payable.",
+      "requires": "A matching posted payable and a bank member."
+    },
+    "REVERSAL_OF_PRIOR_ACCRUAL": {
+      "meaning": "The row reverses an earlier accrual booked in error or superseded.",
+      "ledger_effect": "Mirror of the original entry. Must name the original.",
+      "requires": "The original journal identity."
+    },
+    "CREDIT_NOTE_FROM_VENDOR": {
+      "meaning": "The vendor issued a credit.",
+      "ledger_effect": "AP_VENDOR_CREDIT adjustment; reduces open balance via allocation.",
+      "requires": "Vendor member and credit evidence."
+    },
+    "NEGATIVE_PAYABLE_ACCRUAL": {
+      "meaning": "The source genuinely expresses a negative accrual (a debit-side payable).",
+      "ledger_effect": "Dr expense / Cr AP with a negative sign, i.e. a contra-accrual.",
+      "requires": "Explicit Owner confirmation; this is the least common reading and the easiest to get wrong."
+    },
+    "SOURCE_DATA_ERROR": {
+      "meaning": "The sign is wrong at source.",
+      "ledger_effect": "None. The row goes to the exception queue and is not drafted.",
+      "requires": "A WBS-side correction; REFS must not silently flip the sign."
+    },
+    "UNDECIDED": {
+      "meaning": "Default. No decision has been made.",
+      "ledger_effect": "None permitted.",
+      "requires": "Nothing. This is the only legal starting value."
+    }
+  },
+  "entries": [
+    {
+      "$comment": "TEMPLATE ROW — copy per source_category, do not fill with real data in this file.",
+      "source_category": "<e.g. PAYABLE_ADJUSTMENT | PAYMENT_BATCH | RETENTION_RELEASE>",
+      "stable_id_hash": "<sha256:... of the source record identity; never the raw identity>",
+      "company_code": "<company code only, no name>",
+      "period_code": "<YYYY-MM>",
+      "currency": "<ISO 4217>",
+      "row_count": 0,
+      "amount_sign": "NEGATIVE",
+      "absolute_total": "<0.0000 formatted, aggregate only>",
+      "risk": "<CRITICAL|HIGH|MEDIUM|LOW  — per the X03 rule: any negative is at least HIGH>",
+      "candidate_meaning": "<one key from decision_options, proposed by the preparer>",
+      "candidate_rationale": "<why the preparer proposes it; evidence reference, not transaction detail>",
+      "debit_effect": "<account code the decision would debit>",
+      "credit_effect": "<account code the decision would credit>",
+      "evidence_ref": "<document/receipt identifier; never the payload>",
+      "prepared_by": "<actor id>",
+      "prepared_at": "<ISO 8601>",
+      "approver": "<actor id, must differ from prepared_by>",
+      "decided_meaning": "UNDECIDED",
+      "decided_at": null,
+      "decision_reason": "<8-2000 chars, required once decided_meaning leaves UNDECIDED>",
+      "exception": "<if the row cannot be decided: why, and what input is missing>"
+    }
+  ]
+}
