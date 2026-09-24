@@ -77,14 +77,17 @@ test('Unit Transfer role bundles preserve dual-entity workflow segregation',()=>
     UNIT_TRANSFER_SUBMITTER:['SUBMIT','REAL_ESTATE.UNIT_TRANSFER.SUBMIT','GL.JE.SUBMIT'],
     UNIT_TRANSFER_REVIEWER:['REVIEW','REAL_ESTATE.UNIT_TRANSFER.REVIEW','GL.JE.REVIEW'],
     UNIT_TRANSFER_APPROVER:['APPROVE','REAL_ESTATE.UNIT_TRANSFER.APPROVE','GL.JE.APPROVE'],
-    UNIT_TRANSFER_POSTER:['POST','REAL_ESTATE.UNIT_TRANSFER.POST','GL.JE.POST']
+    UNIT_TRANSFER_POSTER:['POST','REAL_ESTATE.UNIT_TRANSFER.POST','GL.JE.POST'],
+    UNIT_TRANSFER_REVERSER:['REVERSAL','REAL_ESTATE.UNIT_TRANSFER.REVERSE',null],
+    UNIT_TRANSFER_CANCELLER:['JE_REVIEW','REAL_ESTATE.UNIT_TRANSFER.CANCEL',null]
   };
   for(const [name,[authority,permission,journalPermission]] of Object.entries(roles)){
     const role=AUTHORITATIVE_WORKFLOW_ROLES[name];
     assert.equal(role.authorityClass,authority,name);
     assert.equal(role.permissions.includes('REAL_ESTATE.UNIT_TRANSFER.VIEW'),true,name);
     assert.equal(role.permissions.includes(permission),true,name);
-    assert.equal(role.permissions.includes(journalPermission),true,name);
+    if(journalPermission)assert.equal(role.permissions.includes(journalPermission),true,name);
+    else assert.equal(role.permissions.some(p=>p.startsWith('GL.JE.')&&p!=='GL.JE.VIEW'),false,name);
     assert.equal(assertWorkflowRoleSafety(role),role,name);
   }
   const maker=AUTHORITATIVE_WORKFLOW_ROLES.UNIT_TRANSFER_MAKER;
@@ -97,7 +100,7 @@ test('Cash Transfer role bundles preserve dedicated lifecycle segregation',()=>{
     CASH_TRANSFER_REVIEWER:['REVIEW','CASH.TRANSFER.REVIEW','GL.JE.REVIEW'],
     CASH_TRANSFER_APPROVER:['APPROVE','CASH.TRANSFER.APPROVE','GL.JE.APPROVE'],
     CASH_TRANSFER_POSTER:['POST','CASH.TRANSFER.POST','GL.JE.POST'],
-    CASH_TRANSFER_RECONCILER:['RECONCILE','CASH.TRANSFER.RECONCILE',null]
+    CASH_TRANSFER_RECONCILER:['JE_REVIEW','CASH.TRANSFER.RECONCILE',null]
   };
   for(const [name,[authority,permission,journalPermission]] of Object.entries(roles)){
     const role=AUTHORITATIVE_WORKFLOW_ROLES[name];

@@ -10,6 +10,7 @@ import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
 import {AUTHORITATIVE_WORKFLOW_ROLES} from '../runtime/workflow-role-grant.mjs';
 import {installApprovedAiSettingsFixture} from './helpers/approved-ai-settings-fixture.mjs';
+import {ensureTemplateDatabase,withFreshDatabase,processTemplateName,dropTemplateDatabase} from './helpers/template-database.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -44,15 +45,26 @@ before(async()=>{
 });
 
 after(async()=>{
-  if(adminPool)await adminPool.query('TRUNCATE tenant CASCADE').catch(()=>{});
   await Promise.allSettled([runtimePool?.end(),issuerPool?.end(),grantSyncPool?.end(),adminPool?.end()]);
+  if(!unavailable)await dropTemplateDatabase().catch(()=>{});
 });
 
+// D-R04-1: each subtest gets a fresh clone of a migrated template instead of TRUNCATE tenant
+// CASCADE (~9s, proportional to table count, on the production statement_timeout's doorstep).
+// The four pools are pointed at the clone for the subtest and the clone is dropped afterwards.
 function pgTest(name,fn){
   test(name,async t=>{
     if(unavailable){t.skip(unavailable);return;}
-    await adminPool.query('TRUNCATE tenant CASCADE');
-    await fn(t);
+    const template=await ensureTemplateDatabase({name:processTemplateName()});
+    await withFreshDatabase(async()=>{
+      const shared=[adminPool,runtimePool,issuerPool,grantSyncPool],clone=runtimeConfig();
+      adminPool=await createPool({databaseUrl:clone.migrationDatabaseUrl,applicationName:'refs-accounting-settings-pg-admin',max:8,statementTimeoutMs:300000});
+      runtimePool=await createPool({databaseUrl:clone.databaseUrl,applicationName:'refs-accounting-settings-pg-runtime',max:8});
+      issuerPool=await createPool({databaseUrl:clone.contextIssuerDatabaseUrl,applicationName:'refs-accounting-settings-pg-issuer',max:4});
+      grantSyncPool=await createPool({databaseUrl:clone.grantSyncDatabaseUrl,applicationName:'refs-accounting-settings-pg-grant-sync',max:4});
+      try{await fn(t);}
+      finally{await Promise.allSettled([adminPool.end(),runtimePool.end(),issuerPool.end(),grantSyncPool.end()]);[adminPool,runtimePool,issuerPool,grantSyncPool]=shared;}
+    },{template});
   });
 }
 
@@ -67,7 +79,13 @@ const rollbackSql=()=>readFile(new URL('../db/migrations/down/374_accounting_set
 // down/401 is an unconditional barrier, so it cannot even reach 374), therefore these smokes model
 // the reverse-order prefix: roll back 412 - the only later migration that touches this CHECK -
 // inside the same transaction before exercising down/374.
-const rollbackSharedCheckPrefixSql=()=>readFile(new URL('../db/migrations/down/412_recurring_scheduler_read_authority_fix.sql',import.meta.url),'utf8');
+// Later migrations that widen the same additive-authority check must be rolled back first, newest
+// first: 445 (saved-view VIEW), 441 (workflow VIEW authorities), then 412 (recurring schedule VIEW).
+const rollbackSharedCheckPrefixSql=async()=>{
+  const read=name=>readFile(new URL('../db/migrations/down/'+name,import.meta.url),'utf8');
+  return (await Promise.all(['445_workflow_authority_reachability.sql','441_workflow_view_additive_authority.sql','412_recurring_scheduler_read_authority_fix.sql'].map(read)))
+    .map(sql=>sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'')).join('\n');
+};
 const stripTransaction=sql=>sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');
 const outcome=promise=>promise.then(value=>({value}),error=>({error}));
 

@@ -7,7 +7,8 @@ import {randomUUID} from 'node:crypto';
 export async function seedPaymentCandidateVolume(pool,ids){
   const client=await pool.connect(),billId=randomUUID(),batchId=randomUUID();
   try{
-    assert.equal((await client.query('SELECT current_database() name')).rows[0].name,'refs_kernel_gate_test');
+    // Only ever on a disposable test database (the gate database or a per-test clone of it).
+    assert.match((await client.query('SELECT current_database() name')).rows[0].name,/^refs_[a-z0-9_]*_test$/);
     await client.query('BEGIN');
     await client.query("SET LOCAL statement_timeout='600000'");
     await client.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,gross_amount,open_balance,status,created_by)

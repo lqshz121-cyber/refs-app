@@ -98,6 +98,14 @@ END $$;`;
   assert.equal(r1.amendments.length,1);
   assert.equal(r1.amendments[0].literal,true);
   assert.equal(r1.amendments[0].to,"'A', 'B'");
+  // 439: fragments DECLAREd with dollar quoting resolve the same way.
+  const dollar=`DO $m$
+DECLARE definition text; a constant text:=$q$it's 'quoted'$q$; b constant text:=$q$new$q$;
+BEGIN
+  SELECT pg_get_functiondef('refs_x(jsonb)'::regprocedure) INTO definition;EXECUTE replace(definition,a,b);
+END $m$;`;
+  const r3=parseAmendments(dollar,'439_x.sql');
+  assert.deepEqual(r3.amendments.map(x=>[x.literal,x.from,x.to]),[[true,"it's 'quoted'",'new']]);
   // A replacement built at run time (141: gate||needle) cannot be checked textually.
   const computed=`DO $$
 DECLARE definition text; needle text; gate text;

@@ -5,12 +5,14 @@ const ROLES=Object.freeze(['reader','maker','expenseMaker','paymentMaker','recei
 const OPTIONAL_ROLES=new Set(['voidMaker']);
 const READ=Object.freeze(['AP.VIEW','AR.VIEW','BANK.VIEW','GL.JE.VIEW','GL.REPORT.VIEW','WBS.AUTOREC.VIEW']);
 
-// These bundles must conform to the live database authority matrix.  The
+// These bundles must conform to the live database authority matrix. A command that asserts its
+// workflow's VIEW permission next to its action (412/441) needs that VIEW in the same bundle; VIEW is
+// additive to the bundle's class, so it adds no second authority class.  The
 // browser is frictionless, but every command remains executed by a separate,
 // finite actor whose authority is exact and non-overlapping.
 export const INTERNAL_TEST_WORKFLOW_GRANT_BUNDLES=Object.freeze({
   reader:READ,
-  maker:Object.freeze([...READ,'AP.BILL.CREATE','AR.INVOICE.CREATE','GL.JE.CREATE','BANK.RECONCILIATION.ADJUSTMENT_DRAFT','BANK.MATCH.CREATE','CASH.TRANSFER.VIEW','CASH.TRANSFER.CREATE','CASH.TRANSFER.CONFIGURE','REPORT.FORECAST.CREATE','RECURRING.SCHEDULE.CREATE','REPORT.SAVED_VIEW.CREATE','REPORT.SAVED_VIEW.UPDATE']),
+  maker:Object.freeze([...READ,'AP.BILL.CREATE','AR.INVOICE.CREATE','GL.JE.CREATE','BANK.RECONCILIATION.ADJUSTMENT_DRAFT','BANK.MATCH.CREATE','CASH.TRANSFER.VIEW','CASH.TRANSFER.CREATE','CASH.TRANSFER.CONFIGURE','REPORT.FORECAST.CREATE','REPORT.FORECAST.VIEW','RECURRING.SCHEDULE.CREATE','REPORT.SAVED_VIEW.CREATE','REPORT.SAVED_VIEW.UPDATE']),
   expenseMaker:Object.freeze([...READ,'AP.EXPENSE.CREATE']),
   paymentMaker:Object.freeze([...READ,'AP.PAYMENT.CREATE']),
   receiptMaker:Object.freeze([...READ,'AR.RECEIPT.CREATE']),
@@ -19,9 +21,9 @@ export const INTERNAL_TEST_WORKFLOW_GRANT_BUNDLES=Object.freeze({
   adjustmentMaker:Object.freeze([...READ,'AP.VENDOR_CREDIT.CREATE','AR.CREDIT_MEMO.CREATE']),
   refundMaker:Object.freeze([...READ,'AR.REFUND.CREATE']),
   allocator:Object.freeze([...READ,'AP.VENDOR_CREDIT.APPLY','AR.CREDIT_MEMO.APPLY']),
-  submitter:Object.freeze([...READ,'GL.JE.SUBMIT','CASH.TRANSFER.VIEW','CASH.TRANSFER.SUBMIT','REPORT.FORECAST.SUBMIT','RECURRING.SCHEDULE.SUBMIT']),
-  reviewer:Object.freeze([...READ,'GL.JE.REVIEW','BANK.RECONCILIATION.REVIEW','BANK.MATCH.REVIEW','CASH.TRANSFER.VIEW','CASH.TRANSFER.REVIEW','RECURRING.SCHEDULE.MANAGE','REPORT.SAVED_VIEW.SHARE']),
-  approver:Object.freeze([...READ,'GL.JE.APPROVE','BANK.RECONCILIATION.SIGN_OFF','CASH.TRANSFER.VIEW','CASH.TRANSFER.APPROVE','CASH.TRANSFER.CONFIGURE.APPROVE','REPORT.FORECAST.APPROVE','RECURRING.SCHEDULE.APPROVE']),
+  submitter:Object.freeze([...READ,'GL.JE.SUBMIT','CASH.TRANSFER.VIEW','CASH.TRANSFER.SUBMIT','REPORT.FORECAST.SUBMIT','REPORT.FORECAST.VIEW','RECURRING.SCHEDULE.SUBMIT','RECURRING.SCHEDULE.VIEW']),
+  reviewer:Object.freeze([...READ,'GL.JE.REVIEW','BANK.RECONCILIATION.REVIEW','BANK.MATCH.REVIEW','CASH.TRANSFER.VIEW','CASH.TRANSFER.REVIEW','RECURRING.SCHEDULE.MANAGE','RECURRING.SCHEDULE.VIEW','REPORT.SAVED_VIEW.SHARE']),
+  approver:Object.freeze([...READ,'GL.JE.APPROVE','BANK.RECONCILIATION.SIGN_OFF','CASH.TRANSFER.VIEW','CASH.TRANSFER.APPROVE','CASH.TRANSFER.CONFIGURE.APPROVE','REPORT.FORECAST.APPROVE','REPORT.FORECAST.VIEW','RECURRING.SCHEDULE.APPROVE','RECURRING.SCHEDULE.VIEW']),
   poster:Object.freeze([...READ,'GL.JE.POST','CASH.TRANSFER.VIEW','CASH.TRANSFER.POST']),
   reconciliationStarter:Object.freeze([...READ,'BANK.RECONCILIATION.START']),
   clearer:Object.freeze([...READ,'BANK.RECONCILIATION.CLEAR']),
@@ -30,7 +32,7 @@ export const INTERNAL_TEST_WORKFLOW_GRANT_BUNDLES=Object.freeze({
   periodCloser:Object.freeze([...READ,'GL.PERIOD.CLOSE']),
   periodReopener:Object.freeze([...READ,'GL.PERIOD.REOPEN']),
   cashTransferReconciler:Object.freeze([...READ,'CASH.TRANSFER.VIEW','CASH.TRANSFER.RECONCILE']),
-  recurringRunner:Object.freeze([...READ,'RECURRING.SCHEDULE.RUN']),
+  recurringRunner:Object.freeze([...READ,'RECURRING.SCHEDULE.RUN','RECURRING.SCHEDULE.VIEW']),
   // O06: AP bill void is a CRITICAL AP_ADJUSTMENT_MAKER-class permission; it needs its own actor (optional, see router).
   voidMaker:Object.freeze([...READ,'AP.BILL.VOID.CREATE'])
 });
@@ -56,7 +58,7 @@ export async function reconcileInternalTestWorkflowActorGrants({grantSync,scope}
     for(let attempt=0;attempt<2;attempt++){
       const expectedVersion=await grantSync.currentVersion({tenantId:scope.tenantId,entityId:scope.entityId,actorId});
       try{
-        await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId,permissions:INTERNAL_TEST_WORKFLOW_GRANT_BUNDLES[role],authorityClass:AUTHORITY[role],validUntil,expectedVersion,idempotencyKey:`internal-test-${role}-grant-v4-${expectedVersion}`});
+        await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId,permissions:INTERNAL_TEST_WORKFLOW_GRANT_BUNDLES[role],authorityClass:AUTHORITY[role],validUntil,expectedVersion,idempotencyKey:`internal-test-${role}-grant-v5-${expectedVersion}`});
         break;
       }catch(error){if(error?.code!=='40001'||attempt===1)throw error;}
     }

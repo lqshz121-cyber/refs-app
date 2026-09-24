@@ -49,6 +49,9 @@ export async function withHistoricalHead(until,body,{env=process.env}={}){
       const u=new URL(saved[key]);u.pathname=`/${databaseName}`;env[key]=u.toString();
     }
     pool=new pg.Pool({connectionString:url,max:2});
+    // The database is dropped WITH (FORCE) in finally; a connection still closing then gets 57P01 as an
+    // idle-client error, which must not become an uncaught exception in the calling test file.
+    pool.on('error',()=>{});
     await migrateUp(pool,{until});
     return await body({pool,url,databaseName});
   }finally{

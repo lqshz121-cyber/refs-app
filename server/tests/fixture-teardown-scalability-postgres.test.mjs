@@ -32,7 +32,6 @@ const pgTest=(name,fn)=>test(name,async t=>{if(unavailable){t.skip(unavailable);
 // Headroom the fixture must keep against the production ceiling. Deliberately generous: this is a
 // tripwire for a trend, not a latency SLO, and a shared sandbox cannot give a stable millisecond.
 const CEILING_MS=10000;
-const MAX_FRACTION_OF_CEILING=0.85;
 
 pgTest('Z03-1: ordered DELETE cannot replace TRUNCATE, because the schema deliberately blocks it',async()=>{
   // Worth pinning: the obvious cheap fix is wrong here, and it is wrong for a good reason.
@@ -52,27 +51,31 @@ pgTest('Z03-1: ordered DELETE cannot replace TRUNCATE, because the schema delibe
   }finally{await pool.end();}
 });
 
-pgTest('Z03-2: cloning a template is far cheaper than emptying the schema, and the gap is the point',async()=>{
+pgTest('Z03-2: cloning a template is far cheaper than emptying the schema (recorded, not asserted)',async t=>{
+  // D-R04-1: the timings are information. Both depend on the host (fsync, disk, PG major): on the
+  // CI runner TRUNCATE costs ~9s against a ~0.3s clone, on a fast local disk the two converge. The
+  // property that matters -- no fixture pays the TRUNCATE -- is enforced statically by Z03-3.
   const {tableCount,truncateMs,cloneMs}=await measureTeardownStrategies();
-  console.log(`      Z03 evidence: ${tableCount} tables | TRUNCATE ${truncateMs}ms | CREATE DATABASE TEMPLATE ${cloneMs}ms | ceiling ${CEILING_MS}ms`);
+  t.diagnostic(`Z03 evidence: ${tableCount} tables | TRUNCATE ${truncateMs}ms | CREATE DATABASE TEMPLATE ${cloneMs}ms | ceiling ${CEILING_MS}ms (${(truncateMs/CEILING_MS*100).toFixed(0)}% of it)`);
   assert.ok(tableCount>200,`this only matters at scale; saw ${tableCount} tables`);
-  // Not asserting an absolute figure for the clone -- asserting that it is in a different class.
-  assert.ok(cloneMs*3<truncateMs,
-    `cloning (${cloneMs}ms) should be dramatically cheaper than truncating (${truncateMs}ms); if they converged, re-derive the Z03 finding`);
+  assert.ok(Number.isFinite(truncateMs)&&Number.isFinite(cloneMs));
 });
 
-pgTest('Z03-3: the TRUNCATE fixture still has headroom against the production ceiling',async()=>{
-  // The tripwire. A migration that adds tables and pushes this over the line should fail HERE,
-  // with an explanation, rather than surfacing later as a confusing 57014 inside an unrelated
-  // accounting test.
-  const {tableCount,truncateMs}=await measureTeardownStrategies();
-  const fraction=truncateMs/CEILING_MS;
-  assert.ok(fraction<MAX_FRACTION_OF_CEILING,
-    `TRUNCATE tenant CASCADE now takes ${truncateMs}ms across ${tableCount} tables, `+
-    `which is ${(fraction*100).toFixed(0)}% of the ${CEILING_MS}ms production ceiling (limit ${MAX_FRACTION_OF_CEILING*100}%).\n`+
-    `Do NOT fix this by raising the production statement_timeout.\n`+
-    `Migrate the affected fixture to tests/helpers/template-database.mjs (withFreshDatabase), which clones a `+
-    `migrated template instead of emptying the schema and costs time proportional to data rather than table count.`);
+test('Z03-3: no test fixture resets its database with TRUNCATE tenant CASCADE',async()=>{
+  // D-R04-1 (static, replaces the timing tripwire): the reset costs time proportional to the table
+  // count and sits near the production statement_timeout. Fixtures use withFreshDatabase
+  // (tests/helpers/template-database.mjs) instead. The only files allowed to issue the statement are
+  // the two that measure it.
+  const {readdir,readFile}=await import('node:fs/promises');
+  const MEASURING=new Set(['fixture-teardown-scalability-postgres.test.mjs','statement-timeout-production-safety-postgres.test.mjs','helpers/template-database.mjs']);
+  const files=[...(await readdir(new URL('./',import.meta.url))).filter(f=>f.endsWith('.mjs')),...(await readdir(new URL('./helpers/',import.meta.url))).filter(f=>f.endsWith('.mjs')).map(f=>'helpers/'+f)];
+  const offenders=[];
+  for(const file of files){
+    if(MEASURING.has(file))continue;
+    const code=(await readFile(new URL('./'+file,import.meta.url),'utf8')).replace(/\/\/[^\n]*/g,'');
+    if(/query\(\s*['"`]TRUNCATE\s+tenant\s+CASCADE/i.test(code))offenders.push(file);
+  }
+  assert.deepEqual(offenders,[],`these fixtures still reset with TRUNCATE tenant CASCADE; use withFreshDatabase:\n${offenders.join('\n')}`);
 });
 
 pgTest('Z03-4: a cloned database is a usable, fully migrated, isolated copy',async()=>{
@@ -81,7 +84,9 @@ pgTest('Z03-4: a cloned database is a usable, fully migrated, isolated copy',asy
   let firstName=null;
   await withFreshDatabase(async({url,databaseName})=>{
     firstName=databaseName;
-    const pool=new pg.Pool({connectionString:url,max:2});
+    // The clone is dropped WITH (FORCE) as soon as the body returns; a connection pg has not finished
+    // closing then receives 57P01 as an idle-client error, which must not surface as uncaught.
+    const pool=new pg.Pool({connectionString:url,max:2});pool.on('error',()=>{});
     try{
       // Fully migrated: same ledger as the template, not an empty shell.
       const count=Number((await pool.query('SELECT count(*)::int n FROM refs_schema_migration')).rows[0].n);
@@ -95,7 +100,9 @@ pgTest('Z03-4: a cloned database is a usable, fully migrated, isolated copy',asy
   // Dropped afterwards, and the next clone does not see the previous one's writes.
   await withFreshDatabase(async({url,databaseName})=>{
     assert.notEqual(databaseName,firstName,'each clone must be its own database');
-    const pool=new pg.Pool({connectionString:url,max:2});
+    // The clone is dropped WITH (FORCE) as soon as the body returns; a connection pg has not finished
+    // closing then receives 57P01 as an idle-client error, which must not surface as uncaught.
+    const pool=new pg.Pool({connectionString:url,max:2});pool.on('error',()=>{});
     try{
       assert.equal(Number((await pool.query("SELECT count(*)::int n FROM tenant WHERE tenant_code='ZZCLONE'")).rows[0].n),0,
         'a fresh clone must not inherit the previous clone\'s rows');

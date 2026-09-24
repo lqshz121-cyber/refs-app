@@ -13,14 +13,15 @@ DROP FUNCTION IF EXISTS refs_recurring_schedule_run_hash(uuid,uuid,date,integer)
 DROP FUNCTION IF EXISTS refs_recurring_schedule_transition_hash(uuid,uuid,uuid,text,bigint,text);
 DROP FUNCTION IF EXISTS refs_recurring_schedule_create_hash(uuid,uuid,text,text,text,text,date,date,jsonb,text);
 DROP FUNCTION IF EXISTS refs_recurring_schedule_next_due(date,text);
-DROP FUNCTION IF EXISTS refs_guard_recurring_schedule_run();
-DROP FUNCTION IF EXISTS refs_guard_recurring_schedule();
 DROP TABLE recurring_schedule_run_gate;
 DROP TABLE recurring_schedule_gate;
 DROP TABLE recurring_schedule_exception;
 DROP TABLE recurring_schedule_run;
 DROP TABLE recurring_schedule_history;
 DROP TABLE recurring_schedule;
+-- The trigger functions go after their tables: the triggers on those tables depend on them.
+DROP FUNCTION IF EXISTS refs_guard_recurring_schedule_run();
+DROP FUNCTION IF EXISTS refs_guard_recurring_schedule();
 DELETE FROM runtime_human_permission_authority WHERE permission_code LIKE 'RECURRING.SCHEDULE.%';
 UPDATE permission_catalog SET active=false,effective_to=clock_timestamp(),version=version+1 WHERE permission_code LIKE 'RECURRING.SCHEDULE.%' AND active;
 COMMIT;

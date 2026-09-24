@@ -52,9 +52,12 @@ const literalOf=(raw,constants=new Map())=>{
 };
 // DECLARE section constants: `name [constant] text := 'literal';`
 const DECLARED=/([a-z_][a-z0-9_]*)\s+(?:constant\s+)?text\s*:=\s*'((?:[^']|'')*)'\s*;/gi;
+// 439 idiom: long SQL fragments DECLAREd with dollar quoting, `name constant text:=$tag$...$tag$;`.
+const DECLARED_DOLLAR=/([a-z_][a-z0-9_]*)\s+(?:constant\s+)?text\s*:=\s*\$(\w*)\$([\s\S]*?)\$\2\$\s*;/gi;
 function declaredConstants(block){
   const out=new Map();
   for(const m of block.matchAll(DECLARED))out.set(m[1].toLowerCase(),unquote(m[2]));
+  for(const m of block.matchAll(DECLARED_DOLLAR))out.set(m[1].toLowerCase(),m[3]);
   return out;
 }
 

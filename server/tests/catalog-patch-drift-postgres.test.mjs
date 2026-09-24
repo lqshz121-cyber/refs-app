@@ -169,7 +169,8 @@ pgTest('CPD-3b: non-literal amendments are few, named, and their targets are has
   const dynamic=amendments.filter(a=>!a.literal);
   const byMigration=[...new Set(dynamic.map(a=>a.migration))];
   // 215 is not here: its replacement is a DECLAREd text constant, which the parser resolves.
-  assert.deepEqual(byMigration,['051_post_journal_response_integrity.sql','141_ai_amortization_proposal_coverage_gate.sql','182_wbs_test_payable_signed_amount.sql'],
+  // 182 and 439 are not here either: their fragments are dollar-quoted DECLAREd constants.
+  assert.deepEqual(byMigration,['051_post_journal_response_integrity.sql','141_ai_amortization_proposal_coverage_gate.sql'],
     `non-literal replace() calls found in: ${byMigration.join(', ')}`);
   if(existsSync(FUNCTION_CATALOG_PATH)){
     const pinned=new Set(JSON.parse(require_json(FUNCTION_CATALOG_PATH)).functions.map(f=>f.signature));
@@ -221,4 +222,106 @@ pgTest('CPD-5: the live function catalog matches db/FUNCTION-CATALOG.json hash f
     '  added/removed: functions exist at head that the snapshot does not know, or vice versa.\n'+
     `  changed=${changed.length} added=${added.length} removed=${removed.length}`);
   assert.equal(doc.function_count,live.size);
+});
+
+pgTest('CPD-6: no installed function makes a call PostgreSQL will refuse at run time (more than 100 arguments)',async()=>{
+  // 440: 373 shipped two jsonb_build_object calls of 132 and 156 arguments. plpgsql does not check
+  // FUNC_MAX_ARGS until the statement runs, so the migration applied cleanly and every intercompany
+  // elimination read failed later. Count top-level arguments of every call in every public function.
+  const rows=(await admin.query("SELECT p.oid::regprocedure::text sig,p.prosrc src FROM pg_proc p WHERE p.pronamespace='public'::regnamespace AND p.prolang IN (SELECT oid FROM pg_language WHERE lanname IN ('plpgsql','sql'))")).rows;
+  // Only ordinary function calls are capped; SQL syntax and the special forms are not.
+  const NOT_A_CALL=new Set(['from','in','values','as','on','exists','using','over','filter','within','select','where','and','or','not','when','then','else','case','returns','table','into','any','all','some','row','array','coalesce','greatest','least','join','by','set','if','elsif','return','perform','execute','loop','for','foreach','raise','update','insert','delete','with','union','except','intersect','lateral','distinct','nullif','cast','extract','overlay','position','substring','trim','is','like','ilike','between']);
+  // A retained pre-fix copy no function and no kernel query reaches: 410 replaced refs_read_unit_transfer_pair
+  // with a split build, and the _370 body is kept only as rollback evidence.
+  const RETAINED_UNREACHABLE=new Set(['refs_read_unit_transfer_pair_370(uuid,uuid,uuid)']);
+  for(const sig of RETAINED_UNREACHABLE){
+    const name=sig.slice(0,sig.indexOf('('));
+    assert.equal((await admin.query('SELECT count(*)::int n FROM pg_proc WHERE pronamespace=$1::regnamespace AND prosrc LIKE $2',['public',`%${name}%`])).rows[0].n,0,`${sig} must stay unreferenced`);
+    const runtimeSource=await readFile(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
+    assert.ok(!runtimeSource.includes(name),`${sig} must stay unused by the kernel`);
+  }
+  const offenders=[];
+  for(const {sig,src} of rows){
+    if(RETAINED_UNREACHABLE.has(sig))continue;
+    const re=/([a-z_][a-z0-9_]*)\s*\(/gi;let m;
+    while((m=re.exec(src))){
+      if(NOT_A_CALL.has(m[1].toLowerCase()))continue;
+      let depth=1,quote=false,args=1,empty=true,i=m.index+m[0].length;
+      for(;i<src.length&&depth>0;i++){
+        const c=src[i];
+        if(quote){if(c==="'"){if(src[i+1]==="'"){i++;continue;}quote=false;}continue;}
+        if(c==="'"){quote=true;empty=false;continue;}
+        if(c==='(')depth++;else if(c===')')depth--;else if(c===','&&depth===1)args++;
+        if(depth>0&&!/\s/.test(c))empty=false;
+      }
+      if(!empty&&args>100)offenders.push(`${sig}: ${m[1]}() with ${args} arguments`);
+    }
+  }
+  assert.deepEqual(offenders,[],offenders.join('\n'));
+});
+
+pgTest('CPD-7: no command asserts a READ-class permission next to another class unless that READ permission is additive to it',async()=>{
+  // 441: a human grant carries exactly one authority class. A command that asserts, say,
+  // X.CREATE (DRAFT) and X.VIEW (READ) is unreachable for every real grant unless X.VIEW is listed in
+  // runtime_human_additive_permission_authority for DRAFT (the 412 pattern).
+  const rows=(await admin.query(`WITH f AS (SELECT p.oid::regprocedure::text sig,p.prosrc FROM pg_proc p WHERE p.pronamespace='public'::regnamespace),
+    uses AS (SELECT f.sig,a.permission_code,a.authority_class FROM f JOIN runtime_human_permission_authority a ON f.prosrc LIKE '%refs_assert_scope(%'''||a.permission_code||'''%'),
+    -- 445: the action permission may be chosen at run time (saved views pick CREATE or SHARE by
+    -- visibility into a variable), so the other side is any quoted permission literal in the body.
+    named AS (SELECT f.sig,a.permission_code,a.authority_class FROM f JOIN runtime_human_permission_authority a ON f.prosrc LIKE '%'''||a.permission_code||'''%')
+    SELECT r.sig,r.permission_code read_permission,o.permission_code other_permission,o.authority_class other_class
+    FROM uses r JOIN named o ON o.sig=r.sig AND o.authority_class<>'READ'
+    WHERE r.authority_class='READ' AND NOT EXISTS(SELECT 1 FROM runtime_human_additive_permission_authority x WHERE x.permission_code=r.permission_code AND x.authority_class=o.authority_class)
+    ORDER BY 1,2,3`)).rows;
+  assert.deepEqual(rows,[],rows.map(r=>`${r.sig}: ${r.read_permission} (READ) with ${r.other_permission} (${r.other_class})`).join('\n'));
+});
+
+pgTest('CPD-8: plpgsql_check finds no statement that fails every time it runs, outside named retained copies and table-branching triggers',async t=>{
+  // 442-444: a PL/pgSQL statement is only planned when it first runs, so an ambiguous column, a
+  // missing column or function, a bad regex or a type mismatch passes every migration and fails
+  // every call. plpgsql_check plans each statement statically. The extension is installed and used
+  // inside a transaction that is rolled back, so the schema and function catalog are untouched.
+  const available=(await admin.query("SELECT 1 FROM pg_available_extensions WHERE name='plpgsql_check'")).rowCount>0;
+  if(!available){t.skip('plpgsql_check is not installed on this server (apt: postgresql-<major>-plpgsql-check)');return;}
+  // Retained pre-fix copies that no live function or kernel query reaches (kept as rollback evidence).
+  const RETAINED_UNREACHABLE=['refs_set_reconciliation_clearance_385','refs_create_native_expense_395','refs_create_native_expense_403','refs_read_native_expense_create_options_395','refs_read_native_expense_create_options_403','refs_read_unit_transfer_pair_370','refs_read_ai_construction_loan_lender_balances'];
+  // Trigger functions shared by several tables that branch on TG_TABLE_NAME: plpgsql_check plans every
+  // branch against each table, so the other table's branch reports that table's missing fields.
+  const TABLE_BRANCHING_TRIGGERS=new Map([['refs_protect_approved_config',['setting_snapshot','mapping_snapshot']],['refs_guard_reconciliation_adjustment_lifecycle',['reconciliation','journal_entry']]]);
+  // Statements over temporary tables the same function creates (ON COMMIT DROP) cannot be planned statically.
+  const TEMP_TABLE_PREFIX='_wbs273_';
+  const runtimeSource=await readFile(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
+  const client=await admin.connect();
+  try{
+    await client.query('BEGIN');
+    await client.query('CREATE EXTENSION IF NOT EXISTS plpgsql_check');
+    const rows=(await client.query(`SELECT p.proname,p.oid::regprocedure::text sig,COALESCE(t.tgrelid::regclass::text,'') rel,c.sqlstate,c.message,c.lineno
+      FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang AND l.lanname='plpgsql'
+      LEFT JOIN LATERAL (SELECT tgrelid FROM pg_trigger t WHERE t.tgfoid=p.oid AND NOT t.tgisinternal) t ON true
+      CROSS JOIN LATERAL plpgsql_check_function_tb(p.oid,COALESCE(t.tgrelid,0),fatal_errors:=false,other_warnings:=false,performance_warnings:=false,extra_warnings:=false) c
+      WHERE p.pronamespace='public'::regnamespace AND p.prorettype<>'event_trigger'::regtype
+        AND (p.prorettype<>'trigger'::regtype OR t.tgrelid IS NOT NULL) AND c.level='error'`)).rows;
+    for(const name of RETAINED_UNREACHABLE){
+      assert.equal((await client.query("SELECT count(*)::int n FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname<>$1 AND prosrc ~ ('\\m'||$1||'\\M')",[name])).rows[0].n,0,`${name} must stay unreferenced`);
+      assert.ok(!new RegExp(`\\b${name}\\b`).test(runtimeSource),`${name} must stay unused by the kernel`);
+    }
+    const offenders=rows.filter(r=>!RETAINED_UNREACHABLE.includes(r.proname)&&!(TABLE_BRANCHING_TRIGGERS.get(r.proname)||[]).includes(r.rel)&&!String(r.message).includes(`"${TEMP_TABLE_PREFIX}`))
+      .map(r=>`${r.sig}${r.rel?` on ${r.rel}`:''} line ${r.lineno}: ${r.sqlstate} ${r.message}`);
+    assert.deepEqual(offenders,[],offenders.join('\n'));
+  }finally{await client.query('ROLLBACK').catch(()=>{});client.release();}
+});
+
+pgTest('CPD-7b: no command unconditionally asserts two non-READ authority classes (445)',async()=>{
+  // 445: Unit Transfer reversal steps asserted REVERSAL next to DRAFT/JE_REVERSAL/SUBMIT/REVIEW/APPROVE/POST/JE_REVIEW,
+  // so no real grant (one class per entity) could run any of them. A literal pair of classes in one body is
+  // flagged unless the function picks one of them per action/kind (a CASE), listed here by name.
+  const PER_ACTION=new Set(['refs_read_settlement_bank_account_pairs','refs_read_settlement_bank_members','refs_read_settlement_context','refs_transition_reconciliation','refs_transition_reconciliation_adjustment_aware_385','refs_transition_reconciliation_adjustment_aware_legacy_092']);
+  const rows=(await admin.query(`WITH f AS (SELECT p.proname,p.oid::regprocedure::text sig,p.prosrc FROM pg_proc p WHERE p.pronamespace='public'::regnamespace AND p.prosrc LIKE '%refs_assert_scope(%'),
+    u AS (SELECT f.proname,f.sig,a.permission_code,a.authority_class FROM f JOIN runtime_human_permission_authority a ON strpos(f.prosrc,''''||a.permission_code||'''')>0
+      AND f.prosrc ~ ('refs_assert_scope\\([^;]*'''||replace(a.permission_code,'.','\\.')||''''))
+    SELECT a.proname,a.sig,a.permission_code p1,a.authority_class c1,b.permission_code p2,b.authority_class c2 FROM u a JOIN u b ON a.sig=b.sig AND a.permission_code<b.permission_code AND a.authority_class<>b.authority_class
+    WHERE 'READ' NOT IN(a.authority_class,b.authority_class) AND NOT EXISTS(SELECT 1 FROM runtime_human_additive_permission_authority x WHERE (x.permission_code,x.authority_class) IN((a.permission_code,b.authority_class),(b.permission_code,a.authority_class)))
+    ORDER BY 2,3,5`)).rows.filter(r=>!PER_ACTION.has(r.proname));
+  assert.deepEqual(rows,[],rows.map(r=>`${r.sig}: ${r.p1} (${r.c1}) with ${r.p2} (${r.c2})`).join('\n'));
+  for(const name of PER_ACTION)assert.match((await admin.query('SELECT string_agg(prosrc,chr(10)) s FROM pg_proc WHERE proname=$1',[name])).rows[0].s??'',/\bCASE\b|\bELSIF\b/i,`${name} must choose its permission per action`);
 });

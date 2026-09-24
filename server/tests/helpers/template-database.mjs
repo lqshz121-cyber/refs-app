@@ -81,7 +81,9 @@ export async function withFreshDatabase(body,{env=process.env,template}={}){
   const base=env.MIGRATION_DATABASE_URL;
   if(!base)throw new Error('withFreshDatabase requires MIGRATION_DATABASE_URL');
   const templateName=template??await ensureTemplateDatabase({env});
-  const databaseName=ident(`refs_fx_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`);
+  // Ends in _test so the migration runner's test-only paths (migrateUp until, destructive down)
+  // accept the clone exactly as they accept the shared gate database.
+  const databaseName=ident(`refs_fx_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}_test`);
   const saved=Object.fromEntries(URL_KEYS.map(k=>[k,env[k]]));
   const admin=new pg.Client({connectionString:withDatabase(base,'postgres')});
   await admin.connect();
@@ -124,4 +126,18 @@ export async function measureTeardownStrategies({env=process.env}={}){
     await admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
   }finally{await admin.end().catch(()=>{});}
   return {tableCount,truncateMs,cloneMs};
+}
+
+// D-R04-1: per-process template, so test files that node --test runs concurrently never drop each
+// other's template. Pair with dropTemplateDatabase in the file's after().
+export const processTemplateName=()=>ident(`refs_tpl_${process.pid}_test`);
+export async function dropTemplateDatabase({env=process.env,name=processTemplateName()}={}){
+  const base=env.MIGRATION_DATABASE_URL;if(!base)return;
+  const admin=new pg.Client({connectionString:withDatabase(base,'postgres')});
+  await admin.connect();
+  try{
+    await admin.query(`ALTER DATABASE ${ident(name)} IS_TEMPLATE false`).catch(()=>{});
+    await admin.query(`DROP DATABASE IF EXISTS ${ident(name)} WITH (FORCE)`);
+  }finally{await admin.end().catch(()=>{});}
+  resetTemplateCache();
 }

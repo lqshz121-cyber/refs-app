@@ -1,8 +1,8 @@
 {
   "schema_version": "REFS_FUNCTION_CATALOG_V1",
   "postgres_major": 16,
-  "migration_head": "438_wbs_h1_reclass_placeholder_debit_identity.sql",
-  "manifest_head": "438_wbs_h1_reclass_placeholder_debit_identity.sql",
+  "migration_head": "445_workflow_authority_reachability.sql",
+  "manifest_head": "445_workflow_authority_reachability.sql",
   "function_count": 1130,
   "functions": [
     {
@@ -1743,12 +1743,12 @@
     {
       "signature": "refs_cancel_unit_transfer_pair(uuid,uuid,uuid,bigint,bigint,bigint,text,text,text)",
       "kind": "f",
-      "sha256": "2d15c28a1b950cadd1d84b85cb6491543116f3a9188686f63e1c9e1447d4da7a"
+      "sha256": "089f46124aa6780dc7c56d39daa595556e7949e7df702c3bafb9057c03dc9422"
     },
     {
       "signature": "refs_cancel_unit_transfer_reversal_pair(uuid,uuid,uuid,uuid,bigint,bigint,bigint,text,text,text)",
       "kind": "f",
-      "sha256": "cf9a0fbfc4a1a8135f6e793cbebbfe3124924b1b35febb5d4e26bdc57bd3e64a"
+      "sha256": "d1a5c75bbf3522267225bef17695fce48a55866cc07a2d7a6abb49f6f226eae5"
     },
     {
       "signature": "refs_canonical_jsonb_hash(jsonb)",
@@ -2113,7 +2113,7 @@
     {
       "signature": "refs_create_forecast_workflow(uuid,uuid,uuid,text,text,jsonb,text,text,text)",
       "kind": "f",
-      "sha256": "1e5264054da379ebac650444dbe15973706e8f6b36fa4f7621a7709970228cc8"
+      "sha256": "3cc79e9ee7557ede0b80c05f46a11026e1908927708b228fb81522947ebec848"
     },
     {
       "signature": "refs_create_insurance_prepaid_amortization_draft(uuid,uuid,uuid,text,text,text,text)",
@@ -2298,7 +2298,7 @@
     {
       "signature": "refs_create_unit_transfer_reversal_pair(uuid,uuid,uuid,bigint,bigint,bigint,date,text,text,text,text,text)",
       "kind": "f",
-      "sha256": "9c2b5638ed68956583530b553108968b18bd271aac5c8cffb54cb55b67ef8ab6"
+      "sha256": "a3407f90220e71f3d9fcf3687f28fa46e31386e4c9cc31daba748bb9eafc52bf"
     },
     {
       "signature": "refs_create_unit_transfer_reversal_pair_hash(uuid,uuid,uuid,bigint,bigint,bigint,date,text,text,text)",
@@ -2423,7 +2423,7 @@
     {
       "signature": "refs_create_webhook_subscription(uuid,uuid,text,text,text,text[],text,text,text,text,text)",
       "kind": "f",
-      "sha256": "53fb94d22e0e90132f7dce65c7acfb496404304677cdb4e8a4624451f7c058d7"
+      "sha256": "54bbc90e169ccc1e4b47b358aaaafed0607e2cb53542a954c5bebf17e1a41e57"
     },
     {
       "signature": "refs_credit_adjustment_hash_v2(uuid,uuid,text,uuid,text,date,text,text,numeric,jsonb,text,uuid[])",
@@ -2868,12 +2868,12 @@
     {
       "signature": "refs_guard_unit_transfer_journal_transition()",
       "kind": "f",
-      "sha256": "ae91af6e7a8570972bb6640f275606d2ec7edea920e16a5bdc7077dc07845a55"
+      "sha256": "2ebd80d269d82b44ec51c174d51f004e2ca810737af708a42af6702235319880"
     },
     {
       "signature": "refs_guard_unit_transfer_paired_reversal_journal_transition()",
       "kind": "f",
-      "sha256": "8003e5b1577beb1147008b4c0a9fd62360c5ef0247f775f5e462fabd39de12fd"
+      "sha256": "32ace5f82912f631f0d67c90fee0311824cd9e0aaac6d6cf46cfc0a404a835c0"
     },
     {
       "signature": "refs_guard_unit_transfer_reversal_line()",
@@ -2923,7 +2923,7 @@
     {
       "signature": "refs_intercompany_elimination_batch_payload(uuid,uuid,uuid)",
       "kind": "f",
-      "sha256": "0efa8e0ce5bfbc641d9ba41808f3ca3e07658b085841e7c76f2fd14f9c49abef"
+      "sha256": "14684cf12ff5bf2d3ca86e564212af36ebffda0543ebd41c09afe9ec80a2282a"
     },
     {
       "signature": "refs_intercompany_elimination_create_hash(uuid,uuid,uuid,uuid,uuid,uuid,uuid,uuid,text,text,text)",
@@ -2943,7 +2943,7 @@
     {
       "signature": "refs_intercompany_elimination_source_snapshot(uuid,uuid,uuid,uuid,uuid,uuid,uuid,uuid,text)",
       "kind": "f",
-      "sha256": "60972e7ce84826f116e8460b3683ce186d974b84858060662a3b33441f995b27"
+      "sha256": "6c05249dff71d4321ee35b5c5ae021a58253b33e877c6a23deb916d0c09ff8b6"
     },
     {
       "signature": "refs_intercompany_elimination_transition_hash(uuid,uuid,uuid,text,bigint,text)",
@@ -3128,7 +3128,7 @@
     {
       "signature": "refs_materialize_ai_bank_duplicate_payment_batch(uuid,uuid,uuid,jsonb,text,text)",
       "kind": "f",
-      "sha256": "c6e1b2f1aa79b53da2ae58e70705eb51c0f7b33a352e3b081b74576373035c98"
+      "sha256": "f90288304801888485fbe265a38afa4a0bee1f98ad26d858835d7dd95bc4a472"
     },
     {
       "signature": "refs_materialize_ai_construction_loan_classification(uuid,uuid,uuid,text,text,text)",
@@ -3228,22 +3228,22 @@
     {
       "signature": "refs_materialize_ai_vendor_invoice_amount_drop_batch(uuid,uuid,uuid,jsonb,text,text)",
       "kind": "f",
-      "sha256": "266bc1bb7dc6aa4901d4995322c321e5f78453c76fbbb9401570c0a5c32101ba"
+      "sha256": "5951e28ec692f8e1c8dc67d1abf98dbe05f7f1fbc59d9e8e33e0e5c7ce1f645d"
     },
     {
       "signature": "refs_materialize_ai_vendor_invoice_anomaly_batch(uuid,uuid,uuid,jsonb,text,text)",
       "kind": "f",
-      "sha256": "1713479764e523d7f8a0a1bf5ed279f6cdb4f79dc901cc8d2193d0de995942b5"
+      "sha256": "4754b4b3b03f7ab88a2db0b05cc064aa5ccffbd1c7daf881ba4298be857300a0"
     },
     {
       "signature": "refs_materialize_ai_vendor_invoice_frequency_anomaly_batch(uuid,uuid,uuid,jsonb,text,text)",
       "kind": "f",
-      "sha256": "7a389b70418c15864e1e19ed6417a25ed88105e39f5c3c813b8ba3e8fb05caf1"
+      "sha256": "d2c5771e413bb07dc3f91dd6fa470bac55586b84725efa79a92405fb7fbd9376"
     },
     {
       "signature": "refs_materialize_ai_vendor_invoice_near_duplicate_batch(uuid,uuid,uuid,jsonb,text,text)",
       "kind": "f",
-      "sha256": "7277d8b86582fc81408b957c89b36b091f36f7a045b372bb496552979eaa125f"
+      "sha256": "404463aa836918cb2ed922dc3725b172675077833798795f5a6167b1b8b7269a"
     },
     {
       "signature": "refs_materialize_ai_wbs_exception_finding(uuid)",
@@ -3338,7 +3338,7 @@
     {
       "signature": "refs_post_unit_transfer_reversal_pair(uuid,uuid,uuid,uuid,bigint,bigint,bigint,text,text)",
       "kind": "f",
-      "sha256": "6373d61ed41ade19326583facbd79b044742b92a405c673662419b79bd066e81"
+      "sha256": "11afaaac4c011afdefd8d032751a91bf347ff3a13d3c98cef26bfc50614e3708"
     },
     {
       "signature": "refs_prepare_ai_full_controller_model_run(uuid,uuid,uuid,text,text,jsonb,text)",
@@ -3608,7 +3608,7 @@
     {
       "signature": "refs_read_ai_ap_aging_risk_source(uuid,uuid,date)",
       "kind": "f",
-      "sha256": "43e1e5e9328e13891460c41b5d43f39d98f76b770c1435fd5baeef8b8f7942ca"
+      "sha256": "efe6a632195bdda3cb86ba9f584b1e4cc22870a2db7dad470342ca1cb2f03f27"
     },
     {
       "signature": "refs_read_ai_ap_invoice_cutoff_inputs(uuid,uuid,uuid,integer)",
@@ -3618,7 +3618,7 @@
     {
       "signature": "refs_read_ai_balance_sheet_account_aging_source(uuid,uuid,uuid)",
       "kind": "f",
-      "sha256": "b446386ff9afe21e9fcd17d18170f012e3d3967741caf84562b02d67a47a01fc"
+      "sha256": "b8a249ad007bedb7de3c6d1602970cc3c37bfe7cd5bad50c0f1f78636b6443a7"
     },
     {
       "signature": "refs_read_ai_balance_sheet_aging_policy(uuid,uuid,uuid)",
@@ -3728,7 +3728,7 @@
     {
       "signature": "refs_read_ai_construction_loan_project_cost_source(uuid,uuid,uuid)",
       "kind": "f",
-      "sha256": "fd9439e80ab68d058dd32ce220a437355a97ad51b2fc2a089b7f1a0a6c0625b9"
+      "sha256": "6794cdca5c52d52d8c7d30b7d36a1dc7b34c8e2d6063132e652480349bf92977"
     },
     {
       "signature": "refs_read_ai_construction_loan_source(uuid,uuid,uuid,integer)",
@@ -3883,7 +3883,7 @@
     {
       "signature": "refs_read_ai_invoice_source_support_inputs(uuid,uuid,uuid,integer)",
       "kind": "f",
-      "sha256": "b5fede193f48e8ff7725f7d4811ef129024304579f557057abfcb579a2728de8"
+      "sha256": "630a68a0bed3444f595e0b8a2910e43605edca85e81bb2633499a4ce28b76b2b"
     },
     {
       "signature": "refs_read_ai_loan_decision_population_page(uuid,uuid,uuid,date,uuid,integer,uuid,integer)",
@@ -3968,7 +3968,7 @@
     {
       "signature": "refs_read_ai_vendor_accounting_treatment_history(uuid,uuid,uuid,integer)",
       "kind": "f",
-      "sha256": "374f4818466de2faae306947a92b83f8e9e79ac287f1a3149a1cb318101d1313"
+      "sha256": "b7ec7ef1ae878d5b854f258e9568245951bf8bf9f61a3378537028672a85b3dd"
     },
     {
       "signature": "refs_read_ai_vendor_invoice_amount_drop_findings(uuid,uuid,integer)",
@@ -4168,7 +4168,7 @@
     {
       "signature": "refs_read_custom_report(uuid,uuid,uuid,text,text,text,integer,text)",
       "kind": "f",
-      "sha256": "ee747238e628fb8129358239f3428fb7dc626c3ef23664fd76b658067071b4f3"
+      "sha256": "45d616c314450e0531e5ccc3465d070bfa68257a5ef8598844bc77226fc1f4fa"
     },
     {
       "signature": "refs_read_document_settlements(uuid,uuid,uuid,text,uuid,integer)",
@@ -4268,7 +4268,7 @@
     {
       "signature": "refs_read_intercompany_elimination_create_options(uuid,uuid,uuid,text,uuid,uuid,uuid,uuid)",
       "kind": "f",
-      "sha256": "dc72c9d46c80dfa1977f43feb3b0a04b38da8dc781e814a6dcd54f29f37558ef"
+      "sha256": "fe543ec00ecaf60b8acdb3b6449e5278a1f1e225875217b127b05792c40e311c"
     },
     {
       "signature": "refs_read_intercompany_elimination_register(uuid,uuid,uuid,integer)",
@@ -4418,7 +4418,7 @@
     {
       "signature": "refs_read_settlement_bank_account_pairs(uuid,uuid,text,text,text,integer,uuid,date)",
       "kind": "f",
-      "sha256": "01be8d31697e0d7ca107b23209a45d9f6592b3a7dcedaca453c89a08c529b823"
+      "sha256": "6a8b422452ab778d25200e36dcaa12e614306d14af03256a73c0edd2e081b3aa"
     },
     {
       "signature": "refs_read_settlement_bank_members(uuid,uuid,text,text,text,integer)",
@@ -5113,7 +5113,7 @@
     {
       "signature": "refs_set_reconciliation_clearance_418(uuid,uuid,uuid,uuid,bigint,bigint,boolean,text,text,text)",
       "kind": "f",
-      "sha256": "2fd950428908d7eebc08bdaf8f527b3a00c4535b41fc1fd23b05e0c81fca6009"
+      "sha256": "3b0264860752f189af81798b485ea0f02cc7652238c1c7ce6a145a8b05ff76bd"
     },
     {
       "signature": "refs_signed_reconciliation_actor_conflict(uuid,uuid,uuid,text,text)",
@@ -5238,7 +5238,7 @@
     {
       "signature": "refs_transition_unit_transfer_reversal_pair(uuid,uuid,uuid,uuid,text,bigint,bigint,bigint,text,text,text)",
       "kind": "f",
-      "sha256": "011e34bf25afc1248abf1b99d6022e3fc50e2cce11a7300787df03f3670b8c20"
+      "sha256": "5d0b220cd841040f64229bae12ea6128d3d2ecdb29c44bba6a260ea81158cf79"
     },
     {
       "signature": "refs_transition_webhook_subscription(uuid,uuid,uuid,text,bigint,text,text,text)",
@@ -5403,7 +5403,7 @@
     {
       "signature": "refs_validate_report_saved_view(uuid,uuid,text,text,uuid,jsonb,text)",
       "kind": "f",
-      "sha256": "3472fea69d9c52e6905e54176c9fe3392172e638e34e851832b6e2996f8e3ab7"
+      "sha256": "7cea4d0c0b533dae3a6a1d47a4891ec23f122c1b7c481cdee0642880ac0d0afb"
     },
     {
       "signature": "refs_validate_rule_evaluation_digest()",
@@ -5418,7 +5418,7 @@
     {
       "signature": "refs_validate_wbs_autorec_reversal_je()",
       "kind": "f",
-      "sha256": "44b3f5d6ad5d1a1093e26be1dd5487d46dcb839a8cf268787fc7d1a9cac18b51"
+      "sha256": "91159c6b4db677a1c8552689b81221058c121eed656a031a5f8d5d9be9414363"
     },
     {
       "signature": "refs_validate_wbs_control_metric_cardinality()",

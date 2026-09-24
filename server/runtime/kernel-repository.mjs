@@ -914,7 +914,7 @@ export class PostgresAccountingKernel{
   }
 
   async createConsolidationConfiguration({tenantId,entityId,periodId,groupRef,currency,members,accountMaps,reason,idempotencyKey}){
-    return this.inSession(async client=>{const args=[tenantId,entityId,periodId,groupRef,currency,members,accountMaps,reason];const requestHash=requireRow(await client.query('SELECT refs_consolidation_configuration_hash($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8) AS request_hash',args),'CONSOLIDATION_CONFIGURATION_HASH_MISSING','Consolidation configuration hash unavailable').request_hash;return requireRow(await client.query('SELECT refs_create_consolidation_configuration($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10) AS result',[...args,idempotencyKey,requestHash]),'CONSOLIDATION_CONFIGURATION_CREATE_FAILED','Consolidation configuration create unavailable').result;});
+    return this.inSession(async client=>{const jsonArg=v=>typeof v==='string'?v:JSON.stringify(v);const args=[tenantId,entityId,periodId,groupRef,currency,jsonArg(members),jsonArg(accountMaps),reason];const requestHash=requireRow(await client.query('SELECT refs_consolidation_configuration_hash($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8) AS request_hash',args),'CONSOLIDATION_CONFIGURATION_HASH_MISSING','Consolidation configuration hash unavailable').request_hash;return requireRow(await client.query('SELECT refs_create_consolidation_configuration($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10) AS result',[...args,idempotencyKey,requestHash]),'CONSOLIDATION_CONFIGURATION_CREATE_FAILED','Consolidation configuration create unavailable').result;});
   }
 
   async transitionConsolidationConfiguration({tenantId,entityId,workflowId,action,expectedRevision,reason,idempotencyKey}){
@@ -927,7 +927,8 @@ export class PostgresAccountingKernel{
 
   async createForecastWorkflow({tenantId,entityId,periodId,name,currency,lines,reason,idempotencyKey}){
     return this.inSession(async client=>{
-      const args=[tenantId,entityId,periodId,name,currency,lines,reason];
+      // node-pg sends a JS array as a PostgreSQL array literal, which ::jsonb rejects (22P02).
+      const args=[tenantId,entityId,periodId,name,currency,typeof lines==='string'?lines:JSON.stringify(lines),reason];
       const requestHash=requireRow(await client.query('SELECT refs_forecast_create_hash($1,$2,$3,$4,$5,$6::jsonb,$7) AS request_hash',args),'FORECAST_CREATE_HASH_MISSING','Forecast create hash unavailable').request_hash;
       return requireRow(await client.query('SELECT refs_create_forecast_workflow($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9) AS result',[...args,idempotencyKey,requestHash]),'FORECAST_CREATE_FAILED','Forecast creation unavailable').result;
     });

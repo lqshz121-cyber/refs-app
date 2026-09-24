@@ -15,9 +15,7 @@
 // sign-off's evidence rule, but can never be cleared -- which means that reconciliation
 // can never be signed off at all.
 //
-// This file pins the inconsistency rather than asserting the system is correct. It is a
-// gap pin in the style of ap-lifecycle R03-5: if someone repairs the orphan (or removes
-// the sales-receipt match path), these assertions fail and force a deliberate update.
+// N08-1..3 pin the history; N08-4 pins the 439 repair (2026-09-24).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync} from 'node:fs';
@@ -58,14 +56,19 @@ test('N08-3: 418 re-wraps the 403 body, so the head clearance path still cannot 
   assert.equal((m418.match(/EXACT_POSTED_SALES_RECEIPT/g)||[]).length,0,'418 adds no sales-receipt clearance support');
 });
 
-test('N08-4: no migration after 403 restores sales-receipt clearance, and sign-off still demands every item be cleared',()=>{
-  // Only 321 and 400 mention the rule code anywhere in the chain.
+test('N08-4: 439 repairs the orphan on the live 418 body; sign-off still demands every item be cleared',()=>{
+  // The gap pinned by N08-1..3 is closed by 439, which restores 400's sales-receipt predicate inside
+  // refs_set_reconciliation_clearance_418 (the body the head wrapper calls), with 403's lock form.
+  // Proven end to end by postgres-kernel "native sales receipt creates and posts without AR".
   const dir=new URL('../db/migrations/',import.meta.url);
+  const M439='439_sales_receipt_reconciliation_clearance.sql';
   const mentioning=readdirSync(dir).filter(f=>f.endsWith('.sql')&&sql(f).includes('EXACT_POSTED_SALES_RECEIPT')).sort();
-  assert.deepEqual(mentioning,[M321,M400],
-    `GAP PIN: exactly two migrations mention EXACT_POSTED_SALES_RECEIPT (the matcher and the orphaned 400 body). Found: ${mentioning.join(', ')}`);
+  assert.deepEqual(mentioning,[M321,M400,M439],`only the matcher, the orphaned 400 body and the 439 repair mention EXACT_POSTED_SALES_RECEIPT. Found: ${mentioning.join(', ')}`);
+  const m439=sql(M439);
+  assert.match(m439,/refs_set_reconciliation_clearance_418\(/,'439 patches the body the head wrapper actually calls');
+  assert.match(m439,/FOR SHARE OF m;/,'439 keeps 403\'s lock form (no FOR SHARE on the nullable side of an outer join)');
+  assert.match(m439,/RAISE EXCEPTION 'Migration 439 requires the exact 403 clearance query/,'439 is fail-closed on its anchor');
 
-  // Sign-off cannot complete while any scoped bank item is uncleared, so an uncleanable
-  // sales-receipt line blocks the whole reconciliation, not just that row.
+  // Sign-off cannot complete while any scoped bank item is uncleared.
   assert.match(sql(M400),/total_items<>cleared_items/,'sign-off must still require every item cleared');
 });

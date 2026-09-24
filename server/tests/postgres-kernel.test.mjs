@@ -49,6 +49,7 @@ import {productionIamAttestationFixture} from './helpers/production-iam-attestat
 import {productionIamSealRaceFixture} from './helpers/production-iam-seal-race-fixture.mjs';
 import {proveCounterpartyMaintenance} from './helpers/counterparty-maintenance-fixture.mjs';
 import {proveCounterpartyMaintenanceReads} from './helpers/counterparty-maintenance-reads-fixture.mjs';
+import {ensureTemplateDatabase,withFreshDatabase,processTemplateName,dropTemplateDatabase} from './helpers/template-database.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -90,7 +91,11 @@ pgTest('production IAM seal and staging grant serialize across physical connecti
 
 pgTest('original payable evidence migration roundtrips with its later dependency chain before retaining source rows',async()=>{
  const name='348_wbs_payable_original_row_evidence.sql',start=MIGRATION_MANIFEST.findIndex(row=>row.name===name);assert.ok(start>=0,`Missing ${name} from migration manifest`);
- const tail=MIGRATION_MANIFEST.slice(start),bodies=new Map();
+ // The chain is walked up to the last migration before down/401, whose RAISE is unconditional; the
+ // database is built forwards to that point so the walk starts there instead of at the release head.
+ const barrier=MIGRATION_MANIFEST.findIndex(row=>row.name==='401_native_settlement_bank_account_control.sql');assert.ok(barrier>start);
+ const tail=MIGRATION_MANIFEST.slice(start,barrier),bodies=new Map();
+ await rebuildSchemaThrough(adminPool,tail[tail.length-1].name);
  for(const entry of tail)for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+entry.name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies.set(`${direction}:${entry.name}`,sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,''));}
  const client=await adminPool.connect();try{await client.query('BEGIN');for(const entry of [...tail].reverse())await client.query(bodies.get(`down:${entry.name}`));assert.equal((await client.query("SELECT to_regclass('wbs_payable_original_row_evidence') table_name")).rows[0].table_name,null);for(const entry of tail)await client.query(bodies.get(`up:${entry.name}`));assert.equal((await client.query("SELECT has_table_privilege('refs_app','wbs_payable_original_row_evidence','INSERT') allowed")).rows[0].allowed,false);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });
@@ -157,7 +162,7 @@ pgTest('AI vendor monthly spend reads one complete signed current-source populat
   const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'vendor-population-importer',['WBS.SNAPSHOT.IMPORT'])});
   await retainFinal1PayableFixture({pool:adminPool,kernel:importer,ids,amount:'125.0000'});
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'vendor-population-reader',['AI.ANALYSIS.EXPLAIN'])});
-  const counts=()=>adminPool.query("SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journal,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') accounting_audit,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='RUNTIME_CONTEXT_ISSUED') context_audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox",[ids.tenantId]).then(value=>value.rows[0]);
+  const counts=()=>adminPool.query("SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journal,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type NOT IN ('RUNTIME_CONTEXT_ISSUED','RUNTIME_CONTEXT_REVOKED')) accounting_audit,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='RUNTIME_CONTEXT_ISSUED') context_audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox",[ids.tenantId]).then(value=>value.rows[0]);
   const before=await counts(),result=await reader.readAiVendorMonthlySpendPopulation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId}),after=await counts();
   assert.deepEqual({...after,context_audit:before.context_audit},before);assert.equal(after.context_audit,before.context_audit+1);assert.equal(result.population_complete,true);assert.equal(result.population_line_count,1);assert.equal(result.history_period_count,3);assert.equal(result.selected_period_ids.length,4);assert.equal(result.rows.length,1);assert.equal(result.rows[0].source_admission_status,'ADMITTED');assert.equal(result.rows[0].signature_verified,true);assert.equal(result.admission_proofs.length,1);assert.equal(result.approved_policy.setting_snapshot_hash,snapshotHash);assert.deepEqual(result.action_flags,{can_post:false,can_review:false,can_approve:false,can_create_draft:false});
   const serialized=JSON.stringify(result);for(const forbidden of ['storage_ref','storage_version','authorization','credential','private_key'])assert.equal(serialized.includes(forbidden),false);
@@ -201,7 +206,7 @@ pgTest('signed payable document evidence retains tax statements and blocks text 
     }
   }finally{directReader.release();}
   assert.equal(evidence.source_document_id,retained.sourceDocumentId);await assert.rejects(adminPool.query('UPDATE wbs_final1_payable_document_evidence SET document_kind=$1 WHERE wbs_final1_payable_document_evidence_id=$2',['INVOICE',evidence.wbs_final1_payable_document_evidence_id]),error=>error.code==='55000');await assert.rejects(adminPool.query('DELETE FROM wbs_final1_payable_document_evidence WHERE wbs_final1_payable_document_evidence_id=$1',[evidence.wbs_final1_payable_document_evidence_id]),error=>error.code==='55000');
-  const before=(await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_final1_retained_source_row WHERE tenant_id=$1) retained,(SELECT count(*)::int FROM wbs_final1_payable_document_evidence WHERE tenant_id=$1) evidence,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox",[ids.tenantId])).rows[0];
+  const before=(await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_final1_retained_source_row WHERE tenant_id=$1) retained,(SELECT count(*)::int FROM wbs_final1_payable_document_evidence WHERE tenant_id=$1) evidence,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type NOT IN ('RUNTIME_CONTEXT_ISSUED','RUNTIME_CONTEXT_REVOKED')) audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox",[ids.tenantId])).rows[0];
   await assert.rejects(retainFinal1PayableFixture({...taxArgs,ensureCompanyMapping:false,idempotencyKey:'typed-tax-statement-duplicate',invoiceNo:'TAX-2026-0042-DUP'}),error=>error.code==='23505');
   await assert.rejects(retainFinal1PayableFixture({...taxArgs,ensureCompanyMapping:false,idempotencyKey:'typed-tax-statement-unknown',documentKind:'PROPERTY_TAX_NOTICE',taxStatementIdentifier:'PIN-UNKNOWN'}),error=>error.code==='23514');
   await assert.rejects(retainFinal1PayableFixture({...taxArgs,ensureCompanyMapping:false,idempotencyKey:'typed-tax-statement-null-schema',documentEvidenceSchemaVersion:null,taxStatementIdentifier:'PIN-NULL-SCHEMA'}),error=>error.code==='23514');
@@ -209,7 +214,7 @@ pgTest('signed payable document evidence retains tax statements and blocks text 
   await assert.rejects(retainFinal1PayableFixture({...taxArgs,ensureCompanyMapping:false,idempotencyKey:'typed-tax-statement-null-raw-row',rawRowShape:'NULL',taxStatementIdentifier:'PIN-NULL-RAW'}),error=>error.code==='23514');
   await assert.rejects(retainFinal1PayableFixture({...taxArgs,ensureCompanyMapping:false,idempotencyKey:'typed-tax-statement-absent-raw-row',rawRowShape:'ABSENT',taxStatementIdentifier:'PIN-ABSENT-RAW'}),error=>error.code==='23514');
   await assert.rejects(retainFinal1PayableFixture({...taxArgs,ensureCompanyMapping:false,idempotencyKey:'typed-tax-statement-canonical-duplicate',invoiceNo:'TAX-2026-0042-CANONICAL-DUPLICATE',taxingJurisdiction:`  ${taxArgs.taxingJurisdiction.toUpperCase()}  `}),error=>error.code==='23505');
-  const after=(await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_final1_retained_source_row WHERE tenant_id=$1) retained,(SELECT count(*)::int FROM wbs_final1_payable_document_evidence WHERE tenant_id=$1) evidence,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox",[ids.tenantId])).rows[0];assert.deepEqual(after,before);
+  const after=(await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_final1_retained_source_row WHERE tenant_id=$1) retained,(SELECT count(*)::int FROM wbs_final1_payable_document_evidence WHERE tenant_id=$1) evidence,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type NOT IN ('RUNTIME_CONTEXT_ISSUED','RUNTIME_CONTEXT_REVOKED')) audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox",[ids.tenantId])).rows[0];assert.deepEqual(after,before);
   await assert.rejects(retainFinal1PayableFixture({...taxArgs,ensureCompanyMapping:false,idempotencyKey:'typed-tax-statement-no-change-correction',invoiceNo:'TAX-2026-0042-NO-CHANGE',documentRevisionKind:'CORRECTION',documentRevision:2,predecessorDocumentEvidenceHash:originalRevision.document_evidence_hash,predecessorDocumentRevisionHash:originalRevision.revision_hash,predecessorDocumentRevision:1,predecessorSourceRecordId:originalRevision.source_record_id}),error=>error.code==='23514');
   const lifecycleCounts=()=>adminPool.query("SELECT (SELECT count(*)::int FROM wbs_final1_retained_source_row WHERE tenant_id=$1) retained,(SELECT count(*)::int FROM wbs_final1_payable_document_revision WHERE tenant_id=$1) revisions,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_RETAINED') audits,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND event_type='WBS_FINAL1_PAYABLE_DOCUMENT_REVISION_RETAINED') outbox",[ids.tenantId]).then(result=>result.rows[0]),signerBefore=await lifecycleCounts();
   await assert.rejects(retainFinal1PayableFixture({...taxArgs,ensureCompanyMapping:false,idempotencyKey:'typed-tax-statement-signer-drift',invoiceNo:'TAX-2026-0042-SIGNER-DRIFT',parcelIdentifier:'PARCEL-SIGNER-DRIFT',providerKeyId:'wbs-final1-key-rotated',documentRevisionKind:'CORRECTION',documentRevision:2,predecessorDocumentEvidenceHash:originalRevision.document_evidence_hash,predecessorDocumentRevisionHash:originalRevision.revision_hash,predecessorDocumentRevision:1,predecessorSourceRecordId:originalRevision.source_record_id}),error=>error.code==='42501');
@@ -314,18 +319,37 @@ pgTest('Unit Transfer paired reversal migration cleanly roundtrips and keeps IC 
 });
 
 after(async()=>{
-  if(adminPool)await adminPool.query('TRUNCATE tenant CASCADE').catch(()=>{});
   if(runtimePool)await runtimePool.end();
   if(issuerPool)await issuerPool.end();
   if(grantSyncPool)await grantSyncPool.end();
   if(adminPool)await adminPool.end();
+  if(!unavailable)await dropTemplateDatabase().catch(()=>{});
 });
 
-// This suite shares one migrated database and deliberately includes migration
-// round trips.  Node may schedule top-level tests concurrently, so serialize
-// their database sections to prevent one test from truncating or migrating
-// while another test owns transactional locks.
+// D-R04-1: every test runs on its own fresh clone of a migrated template (CREATE DATABASE ...
+// TEMPLATE, ~0.3s) instead of TRUNCATE tenant CASCADE on one shared database (~9s on CI, growing with
+// the table count, and a half-finished migration round trip in one test used to break every later
+// one). The four pools and the URLs in `config` point at the clone for the duration of the test;
+// the clone is dropped afterwards whatever the test did to its schema. Tests stay serialized
+// because some deliberately hold locks across connections.
 let pgTestTail=Promise.resolve();
+const POOL_SHAPES=[['adminPool','migrationDatabaseUrl','refs-pg-integration-admin',8,300000],['runtimePool','databaseUrl','refs-pg-integration-runtime',8,null],['issuerPool','contextIssuerDatabaseUrl','refs-pg-integration-issuer',4,null],['grantSyncPool','grantSyncDatabaseUrl','refs-pg-integration-grant-sync',4,null]];
+async function onFreshDatabase(fn){
+  const template=await ensureTemplateDatabase({name:processTemplateName()});
+  await withFreshDatabase(async()=>{
+    const clone=runtimeConfig(),shared={adminPool,runtimePool,issuerPool,grantSyncPool},sharedUrls=Object.fromEntries(POOL_SHAPES.map(([,key])=>[key,config[key]]));
+    const pools={};
+    for(const [name,key,applicationName,max,statementTimeoutMs] of POOL_SHAPES)pools[name]=await createPool({databaseUrl:clone[key],applicationName,max,...(statementTimeoutMs?{statementTimeoutMs}:{})});
+    ({adminPool,runtimePool,issuerPool,grantSyncPool}=pools);
+    for(const [,key] of POOL_SHAPES)config[key]=clone[key];
+    try{await fn();}
+    finally{
+      await Promise.allSettled(Object.values(pools).map(pool=>pool.end()));
+      ({adminPool,runtimePool,issuerPool,grantSyncPool}=shared);
+      Object.assign(config,sharedUrls);
+    }
+  },{template});
+}
 
 function pgTest(name,fn){
   test(name,async t=>{
@@ -335,8 +359,7 @@ function pgTest(name,fn){
     await previous;
     try{
       if(unavailable){t.skip(unavailable);return;}
-      const cleanupClient=await adminPool.connect();try{await cleanupClient.query("SET statement_timeout='120s'");await cleanupClient.query('TRUNCATE tenant CASCADE');}finally{cleanupClient.release();}
-      await fn(t);
+      await onFreshDatabase(()=>fn(t));
     }finally{release();}
   });
 }
@@ -438,14 +461,97 @@ pgTest('immutable queue and GL page tokens reject same-count insert-delete drift
   await assert.rejects(reader.readGeneralLedgerSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,limit:1,offset:1,snapshotToken:glFirst.snapshot_token}),error=>error.code==='40001');
 });
 
+// Rebuild the shared test database's schema forwards to `until` (inclusive). The schema is dropped
+// and recreated exactly as CREATE DATABASE leaves it on PostgreSQL 15+, so the chain runs as on a
+// fresh database. Roles are cluster-level and untouched; the chain creates none.
+async function rebuildSchemaThrough(pool,until){
+  const client=await pool.connect();
+  try{
+    await client.query("SET statement_timeout='300s'");
+    await client.query('DROP SCHEMA public CASCADE');
+    await client.query('CREATE SCHEMA public');
+    await client.query('ALTER SCHEMA public OWNER TO pg_database_owner');
+    await client.query('GRANT USAGE ON SCHEMA public TO PUBLIC');
+  }finally{client.release();}
+  await migrateUp(pool,{until,onEvent:()=>{}});
+}
+
+// S18/R14: stepping the shared database down from head to an old migration crosses down/401, whose
+// RAISE is unconditional, and several evidence barriers (55006) -- so the old walk-down failed
+// before reaching the migration under test and left the database half rolled back for every later
+// test. Two replacements, neither of which crosses or weakens a barrier:
+//
+// migrateDownThrough(pool,X): roll back X and only the later migrations that redefine, amend, alter
+// or drop an object X creates (transitively), newest first, each with its own down file and ledger
+// row -- exactly what migrateDown does, restricted to X's dependency closure. Unrelated newer
+// migrations stay applied, so rows seeded at head survive and migrateUp re-applies just the gap.
+//
+// rebuildDownThrough(pool,X): build the historical head forwards through X on the shared test
+// database and run X's own down, for tests that need the whole schema as it stood before X.
+const stripSqlComments=text=>text.replace(/--[^\n]*/g,'');
+const migrationSqlCache=new Map();
+async function migrationSql(name,direction){
+  const key=`${direction}:${name}`;
+  if(!migrationSqlCache.has(key)){
+    const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');
+    const entry=MIGRATION_MANIFEST.find(row=>row.name===name);
+    assert.equal(createHash('sha256').update(sql.replace(/\r\n/g,'\n')).digest('hex'),entry[direction],`${direction} checksum ${name}`);
+    migrationSqlCache.set(key,sql);
+  }
+  return migrationSqlCache.get(key);
+}
+async function dependencyClosure(target){
+  const start=MIGRATION_MANIFEST.findIndex(row=>row.name===target);
+  assert.ok(start>=0,`Expected ${target} in the manifest`);
+  const objects=new Set(),closure=[target];
+  const collect=async name=>{
+    const sql=stripSqlComments(await migrationSql(name,'up'));
+    for(const m of sql.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|VIEW|TABLE|TRIGGER)\s+(?:public\.)?([a-z0-9_]+)/gi))objects.add(m[1].toLowerCase());
+    for(const m of sql.matchAll(/pg_get_functiondef\(\s*'(?:public\.)?([a-z0-9_]+)\(/gi))objects.add(m[1].toLowerCase());
+    // A table X alters is X's dependency too: a later migration that alters it again (e.g. widening a
+    // check) must be rolled back before X's down restores the older definition.
+    for(const m of sql.matchAll(/ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:public\.)?([a-z0-9_]+)/gi))objects.add(m[1].toLowerCase());
+  };
+  await collect(target);
+  for(const row of MIGRATION_MANIFEST.slice(start+1)){
+    const sql=stripSqlComments(await migrationSql(row.name,'up'));
+    const touches=[...objects].some(o=>new RegExp(`(CREATE\\s+(OR\\s+REPLACE\\s+)?(FUNCTION|VIEW)\\s+(public\\.)?${o}\\b|pg_get_functiondef\\(\\s*'(public\\.)?${o}\\(|ALTER\\s+TABLE\\s+(IF\\s+EXISTS\\s+)?(ONLY\\s+)?(public\\.)?${o}\\b|DROP\\s+(FUNCTION|VIEW|TABLE|TRIGGER)\\s+(IF\\s+EXISTS\\s+)?(public\\.)?${o}\\b)`,'i').test(sql));
+    if(touches){closure.push(row.name);await collect(row.name);}
+  }
+  return closure;
+}
 async function migrateDownThrough(pool,targetMigration){
-  for(;;){
-    const row=(await pool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name DESC LIMIT 1')).rows[0];
-    assert.ok(row,`Expected ${targetMigration} to be installed`);
-    await migrateDown(pool);
-    if(row.migration_name===targetMigration)return;
+  const closure=await dependencyClosure(targetMigration);
+  const applied=new Set((await pool.query('SELECT migration_name FROM refs_schema_migration')).rows.map(row=>row.migration_name));
+  for(const name of [...closure].reverse()){
+    if(!applied.has(name))continue;
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      await client.query((await migrationSql(name,'down')).replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,''));
+      await client.query('DELETE FROM refs_schema_migration WHERE migration_name=$1',[name]);
+      await client.query('COMMIT');
+    }catch(error){await client.query('ROLLBACK').catch(()=>{});throw error;}
+    finally{client.release();}
   }
 }
+// A down's evidence barrier is the first thing it runs, so it can be proven at the release head
+// without walking there: execute that down body in a transaction that is always rolled back.
+async function assertDownRefuses(pool,name,code){
+  const sql=await migrationSql(name,'down');
+  const client=await pool.connect();
+  try{
+    await client.query('BEGIN');
+    await assert.rejects(client.query(sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'')),error=>error.code===code,`${name} down must refuse with ${code}`);
+  }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+}
+async function rebuildDownThrough(pool,targetMigration){
+  await rebuildSchemaThrough(pool,targetMigration);
+  const row=(await pool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name DESC LIMIT 1')).rows[0];
+  assert.equal(row?.migration_name,targetMigration,`historical head must be ${targetMigration}`);
+  await migrateDown(pool);
+}
+
 
 // Exercise one migration's SQL and restoration without rolling back unrelated
 // newer features that deliberately retain their own immutable evidence.
@@ -545,7 +651,7 @@ async function rejectsInTransaction(client,query,validator){
   }
 }
 
-async function seed({status='APPROVED',journalType='MANUAL',attachmentStatus='VERIFIED_CLEAN',tenantId=randomUUID(),entityId=randomUUID(),periodId=randomUUID(),journalId=randomUUID(),extraAccounts=[],extraMembers=[],journalLines=null,attachmentName='support.pdf',attachmentStorageRef=null,attachmentStorageVersion='v1'}={}){
+async function seed({cashTransferControl=true,status='APPROVED',journalType='MANUAL',attachmentStatus='VERIFIED_CLEAN',tenantId=randomUUID(),entityId=randomUUID(),periodId=randomUUID(),journalId=randomUUID(),extraAccounts=[],extraMembers=[],journalLines=null,attachmentName='support.pdf',attachmentStorageRef=null,attachmentStorageVersion='v1'}={}){
   const sourceEntityId=`E${entityId.replaceAll('-','').slice(0,8)}`.toUpperCase();
   await adminPool.query('INSERT INTO tenant(tenant_id,tenant_code,name) VALUES($1,$2,$3) ON CONFLICT (tenant_id) DO NOTHING',[tenantId,`T${tenantId.replaceAll('-','').slice(0,8)}`.toUpperCase(),'Test tenant']);
   await adminPool.query("INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency) VALUES($1,$2,$3,'WBS',$3,$3,'USD')",[entityId,tenantId,sourceEntityId]);
@@ -553,10 +659,13 @@ async function seed({status='APPROVED',journalType='MANUAL',attachmentStatus='VE
   await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type) VALUES($1,$2,'111000','Cash',true,'BANK'),($1,$2,'291001','Accounts Payable',true,'VENDOR'),($1,$2,'120200','Accounts Receivable',true,'CUSTOMER_OR_AFFILIATE')",[tenantId,entityId]);
   await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'BANK-1','BANK','Operating Cash'),($1,$2,'VENDOR-1','VENDOR','Vendor')",[tenantId,entityId]);
   const controlIds={tenantId,entityId};
+  // cashTransferControl:false is for historical-head tests built before the cash-transfer control existed.
+  if(cashTransferControl){
   const controlMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(controlIds,'fixture-control-maker',['CASH.TRANSFER.CONFIGURE'])});
   const control=await controlMaker.createCashTransferBankAccountControl({tenantId,entityId,bankMemberRef:'BANK-1',cashAccountCode:'111000',currency:'USD',effectiveFrom:'2026-01-01',idempotencyKey:`fixture-control-create-${entityId}`});
   const controlApprover=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(controlIds,'fixture-control-approver',['CASH.TRANSFER.CONFIGURE.APPROVE'])});
   await controlApprover.approveCashTransferBankAccountControl({tenantId,entityId,controlId:control.cash_transfer_bank_account_control_id,expectedVersion:control.revision,idempotencyKey:`fixture-control-approve-${entityId}`});
+  }
   for(const account of extraAccounts)await adminPool.query('INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type) VALUES($1,$2,$3,$4,$5,$6)',[tenantId,entityId,account.accountCode,account.accountName,account.requiresMember??false,account.requiredMemberType??null]);
   for(const member of extraMembers)await adminPool.query('INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,$3,$4,$5)',[tenantId,entityId,member.memberRef,member.memberType,member.displayName]);
   const actors=status==='DRAFT'?[null,null,null]:['reviewer','approver',null];
@@ -615,7 +724,12 @@ async function trustedSession(ids,actorId='poster',permissions=['GL.JE.POST']){
       FROM unnest($1::text[]) requested(permission)
       LEFT JOIN runtime_service_only_permission service ON service.permission_code=requested.permission
       LEFT JOIN runtime_human_permission_authority human ON human.permission_code=requested.permission`,[permissions])).rows;
-    const writeAuthorities=[...new Set(policy.flatMap(row=>row.service_only?['SERVICE']:row.authority_class?[row.authority_class]:[]))];
+    // A permission listed in runtime_human_additive_permission_authority for another requested
+    // class (ATTACHMENT.CREATE, the workflow VIEW permissions) rides on that class, as in grant sync.
+    const additive=(await adminPool.query('SELECT permission_code,authority_class FROM runtime_human_additive_permission_authority WHERE permission_code=ANY($1::text[])',[permissions])).rows;
+    const classOf=row=>row.service_only?'SERVICE':row.authority_class;
+    const rides=row=>policy.some(other=>other.permission!==row.permission&&classOf(other)&&additive.some(a=>a.permission_code===row.permission&&a.authority_class===classOf(other)));
+    const writeAuthorities=[...new Set(policy.filter(row=>!rides(row)).flatMap(row=>classOf(row)?[classOf(row)]:[]))];
     if(writeAuthorities.length>1){const error=new Error('PG fixture actor combines mutually exclusive workflow authorities');error.code='42501';throw error;}
     fixtureAuthority=writeAuthorities[0]||'ANALYSIS';
     const validUntil=fixtureAuthority==='SERVICE'?null:new Date(Date.now()+60*60*1000).toISOString();
@@ -737,7 +851,9 @@ pgTest('controlled test AI source bridge is private, fixed-permission, and rejec
 });
 
 pgTest('controlled test AI source module and SERVICE_ACCOUNT audit actor are explicit and rollback fails closed after evidence exists',async()=>{
-  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  // Historical head first (188, via 189's own down), then the evidence: the point is that 188's down refuses while it exists.
+  await rebuildDownThrough(adminPool,'189_general_ledger_page_before_lineage.sql');
+  const ids=await seed({cashTransferControl:false,status:'DRAFT',attachmentStatus:null});
   const batchId=randomUUID(),rawId=randomUUID(),sourceId=randomUUID(),recordId=`AI-TEST-${sourceId}`;
   await adminPool.query("INSERT INTO import_batch(import_batch_id,tenant_id,entity_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash,status,row_count,started_at,completed_at) VALUES($1,$2,$3,'WBS_AI_TEST','ai_test_prepaid',$4,$5,$6,'SUCCEEDED',1,now(),now())",[batchId,ids.tenantId,ids.entityId,ids.sourceEntityId,`ai-module-${sourceId}`,hash('ai-module-batch')]);
   await adminPool.query("INSERT INTO raw_event(raw_event_id,tenant_id,entity_id,import_batch_id,source_system,source_module,source_entity_id,source_record_id,source_version,event_type,occurred_at,payload_hash,payload_ref,correlation_id) VALUES($1,$2,$3,$4,'WBS','ai_test_prepaid',$5,$6,'unsigned-test-only:v1','UPSERT',now(),$7,$8,$6)",[rawId,ids.tenantId,ids.entityId,batchId,ids.sourceEntityId,recordId,hash('ai-module-raw'),`object://refs-test-only/${ids.entityId}/ai-workflow/${sourceId}`]);
@@ -747,7 +863,6 @@ pgTest('controlled test AI source module and SERVICE_ACCOUNT audit actor are exp
   assert.match(definition,/actor,'SERVICE_ACCOUNT','AI\.TEST\.WORKFLOW'/);assert.doesNotMatch(definition,/actor,'SERVICE','AI\.TEST\.WORKFLOW'/);
   await adminPool.query("INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash) VALUES($1,$2,'CONTROLLED_TEST_AI_SOURCE_DERIVED','SOURCE_DOCUMENT',$3,'DERIVE_TEST_SOURCE','controlled-ai-source-maker','SERVICE_ACCOUNT','AI.TEST.WORKFLOW',$4,$4,$4,$5)",[ids.tenantId,ids.entityId,sourceId,'controlled-ai-audit-actor-test',hash('controlled-ai-audit-actor-test')]);
   assert.deepEqual((await adminPool.query("SELECT actor_type FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='CONTROLLED_TEST_AI_SOURCE_DERIVED'",[ids.tenantId,ids.entityId])).rows,[{actor_type:'SERVICE_ACCOUNT'}]);
-  await migrateDownThrough(adminPool,'189_general_ledger_page_before_lineage.sql');
   await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
   assert.equal((await adminPool.query("SELECT pg_get_constraintdef(oid) definition FROM pg_constraint WHERE conname='source_document_source_module_check'")).rows[0].definition.includes('ai_test_prepaid'),true);
   assert.match((await adminPool.query("SELECT pg_get_functiondef('refs_derive_controlled_test_ai_source(uuid,uuid,uuid,text,text,text)'::regprocedure) definition")).rows[0].definition,/actor,'SERVICE_ACCOUNT','AI\.TEST\.WORKFLOW'/);
@@ -1236,7 +1351,9 @@ async function formalWorkflowRoleKernel(ids,actorId,roleName,{idempotencyKey=`fo
   const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
   await sync.reconcile({tenantId:ids.tenantId,entityId:ids.entityId,actorId,permissions:definition.permissions,authorityClass:definition.authorityClass,validUntil:new Date(Date.now()+60*60*1000).toISOString(),expectedVersion:0,idempotencyKey});
   const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId,tenantId:ids.tenantId})});
-  return new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})});
+  return new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId}),
+    // Wired exactly as runtime/accounting-server.mjs wires production kernels.
+    sessionRevoker:(session,{reason})=>issuer.revoke({contextToken:session.contextToken,reason})});
 }
 
 async function formalWorkflowRoleKernelForEntities({tenantId,entityIds},actorId,roleName,{idempotencyKey}={}){
@@ -1247,7 +1364,8 @@ async function formalWorkflowRoleKernelForEntities({tenantId,entityIds},actorId,
   const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
   for(const [index,entityId] of entityIds.entries())await sync.reconcile({tenantId,entityId,actorId,permissions:definition.permissions,authorityClass:definition.authorityClass,validUntil:new Date(Date.now()+60*60*1000).toISOString(),expectedVersion:0,idempotencyKey:`${key}-${index}`});
   const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId,tenantId})});
-  return new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId})});
+  return new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId}),
+    sessionRevoker:(session,{reason})=>issuer.revoke({contextToken:session.contextToken,reason})});
 }
 async function seedUnitTransferFixture(){
   const tenantId=randomUUID(),sourceEntityId=randomUUID(),targetEntityId=randomUUID(),sourcePeriodId=randomUUID(),targetPeriodId=randomUUID(),costJournalId=randomUUID(),sourceDocumentId=randomUUID(),sourceLineId=randomUUID(),sourceAttachmentId=randomUUID(),targetAttachmentId=randomUUID(),sourceMappingId=randomUUID(),targetMappingId=randomUUID();
@@ -1335,6 +1453,44 @@ pgTest('Unit Transfer creates a dual-entity Draft, applies separated approvals, 
   assert.deepEqual(state,{ledger_lines:5,open_items:2,posted_audits:2,posted_outbox:2});
   const register=await roles.poster.readUnitTransferRegister({tenantId:ids.tenantId,entityId:ids.sourceEntityId,periodId:ids.sourcePeriodId,limit:10});assert.equal(register.rows.length,1);assert.equal(register.rows[0].unit_transfer_pair_id,pairId);
 });
+pgTest('445: a posted Unit Transfer is reversed as a pair by separate people who each hold one authority class',async()=>{
+  const ids=await seedUnitTransferFixture();
+  const scope={tenantId:ids.tenantId,entityIds:[ids.sourceEntityId,ids.targetEntityId]};
+  const role=(actor,name)=>formalWorkflowRoleKernelForEntities(scope,actor,name);
+  const fwd={maker:await role('utr-maker','UNIT_TRANSFER_MAKER'),submitter:await role('utr-submitter','UNIT_TRANSFER_SUBMITTER'),reviewer:await role('utr-reviewer','UNIT_TRANSFER_REVIEWER'),approver:await role('utr-approver','UNIT_TRANSFER_APPROVER'),poster:await role('utr-poster','UNIT_TRANSFER_POSTER')};
+  const draft=await fwd.maker.createUnitTransfer({tenantId:ids.tenantId,entityId:ids.sourceEntityId,targetEntityId:ids.targetEntityId,sourcePeriodId:ids.sourcePeriodId,targetPeriodId:ids.targetPeriodId,transferDate:'2026-07-15',unitRef:ids.unitRef,sourceDocumentId:ids.sourceDocumentId,sourceDocumentLineId:ids.sourceLineId,expectedSourceVersion:0,expectedSourceHash:ids.payloadHash,expectedSourceLineHash:ids.sourceLineHash,expectedSourceAttachmentHash:ids.sourceAttachmentHash,expectedTransferPrice:'200.0000',sourceMappingSnapshotId:ids.sourceMappingId,expectedSourceMappingHash:ids.sourceMappingHash,targetMappingSnapshotId:ids.targetMappingId,expectedTargetMappingHash:ids.targetMappingHash,sourceCarryingAccountCodes:['151000'],sourceGainLossAccountCode:'490100',targetInventoryAccountCode:'141000',expectedCarryingAmount:'175.0000',expectedUnitVersion:0,targetAttachmentIds:[ids.targetAttachmentId],expectedTargetAttachmentHash:ids.targetAttachmentHash,sourceJournalNumber:'UT-S-001',targetJournalNumber:'UT-T-001',reason:'Transfer approved unit cost between related entities with retained evidence.',idempotencyKey:'utr-create-001'});
+  const pairId=draft.unit_transfer_pair_id;
+  const fwdStep=(k,action,rev)=>k.transitionUnitTransfer({tenantId:ids.tenantId,entityId:ids.sourceEntityId,pairId,action,expectedPairRevision:rev,expectedSourceRevision:rev,expectedTargetRevision:rev,reason:`${action} the forward pair for the 445 reversal test.`,idempotencyKey:`utr-fwd-${action.toLowerCase()}`});
+  await fwdStep(fwd.submitter,'SUBMIT',0);await fwdStep(fwd.reviewer,'REVIEW',1);await fwdStep(fwd.approver,'APPROVE',2);
+  const posted=await fwd.poster.postUnitTransfer({tenantId:ids.tenantId,entityId:ids.sourceEntityId,pairId,expectedPairRevision:3,expectedSourceRevision:3,expectedTargetRevision:3,idempotencyKey:'utr-fwd-post'});
+  assert.equal(posted.status,'POSTED_PAIR');
+  const pair=await fwd.poster.readUnitTransferPair({tenantId:ids.tenantId,entityId:ids.sourceEntityId,pairId});
+  // Reversal: every person is new, so the 371 SoD checks against the original journal actors hold.
+  const rev={reverser:await role('utr-reverser','UNIT_TRANSFER_REVERSER'),submitter:await role('utr-rev-submitter','UNIT_TRANSFER_SUBMITTER'),reviewer:await role('utr-rev-reviewer','UNIT_TRANSFER_REVIEWER'),approver:await role('utr-rev-approver','UNIT_TRANSFER_APPROVER'),poster:await role('utr-rev-poster','UNIT_TRANSFER_POSTER')};
+  const reversal=await rev.reverser.createUnitTransferReversal({tenantId:ids.tenantId,entityId:ids.sourceEntityId,pairId,expectedPairRevision:Number(pair.revision),expectedSourceRevision:Number(pair.source_journal_revision),expectedTargetRevision:Number(pair.target_journal_revision),reversalDate:'2026-07-20',sourceJournalNumber:'UTR-SRC-REV-001',targetJournalNumber:'UTR-TGT-REV-001',reason:'Reverse the posted unit transfer as a controlled pair.',idempotencyKey:'utr-rev-create'});
+  const reversalPairId=reversal.unit_transfer_reversal_pair_id??reversal.reversal_pair_id;
+  assert.ok(reversalPairId,JSON.stringify(reversal).slice(0,300));
+  let r=0;
+  for(const [k,action] of [[rev.submitter,'SUBMIT'],[rev.reviewer,'REVIEW'],[rev.approver,'APPROVE']]){
+    const next=await k.transitionUnitTransferReversal({tenantId:ids.tenantId,entityId:ids.sourceEntityId,pairId,reversalPairId,action,expectedReversalPairRevision:r,expectedSourceReversalRevision:r,expectedTargetReversalRevision:r,reason:`${action} the paired reversal journals.`,idempotencyKey:`utr-rev-${action.toLowerCase()}`});
+    r+=1;assert.ok(next,action);
+  }
+  const done=await rev.poster.postUnitTransferReversal({tenantId:ids.tenantId,entityId:ids.sourceEntityId,pairId,reversalPairId,expectedReversalPairRevision:r,expectedSourceReversalRevision:r,expectedTargetReversalRevision:r,idempotencyKey:'utr-rev-post'});
+  assert.match(JSON.stringify(done),/POSTED/);
+  const state=(await adminPool.query("SELECT (SELECT current_owner_entity_id FROM unit_transfer_unit_control WHERE tenant_id=$1 AND unit_control_id=(SELECT unit_control_id FROM unit_transfer_pair WHERE unit_transfer_pair_id=$2)) owner,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1 AND status='POSTED' AND reversal_of_id IS NOT NULL) reversals",[ids.tenantId,pairId])).rows[0];
+  assert.deepEqual(state,{owner:ids.sourceEntityId,reversals:2});
+});
+pgTest('444/445: a Draft Unit Transfer pair is cancelled by a separate JE_REVIEW-class person (SET cancelled_at was ambiguous before 444)',async()=>{
+  const ids=await seedUnitTransferFixture();
+  const scope={tenantId:ids.tenantId,entityIds:[ids.sourceEntityId,ids.targetEntityId]};
+  const maker=await formalWorkflowRoleKernelForEntities(scope,'utc-maker','UNIT_TRANSFER_MAKER'),canceller=await formalWorkflowRoleKernelForEntities(scope,'utc-canceller','UNIT_TRANSFER_CANCELLER');
+  const draft=await maker.createUnitTransfer({tenantId:ids.tenantId,entityId:ids.sourceEntityId,targetEntityId:ids.targetEntityId,sourcePeriodId:ids.sourcePeriodId,targetPeriodId:ids.targetPeriodId,transferDate:'2026-07-15',unitRef:ids.unitRef,sourceDocumentId:ids.sourceDocumentId,sourceDocumentLineId:ids.sourceLineId,expectedSourceVersion:0,expectedSourceHash:ids.payloadHash,expectedSourceLineHash:ids.sourceLineHash,expectedSourceAttachmentHash:ids.sourceAttachmentHash,expectedTransferPrice:'200.0000',sourceMappingSnapshotId:ids.sourceMappingId,expectedSourceMappingHash:ids.sourceMappingHash,targetMappingSnapshotId:ids.targetMappingId,expectedTargetMappingHash:ids.targetMappingHash,sourceCarryingAccountCodes:['151000'],sourceGainLossAccountCode:'490100',targetInventoryAccountCode:'141000',expectedCarryingAmount:'175.0000',expectedUnitVersion:0,targetAttachmentIds:[ids.targetAttachmentId],expectedTargetAttachmentHash:ids.targetAttachmentHash,sourceJournalNumber:'UT-S-001',targetJournalNumber:'UT-T-001',reason:'Transfer approved unit cost between related entities with retained evidence.',idempotencyKey:'utc-create-001'});
+  await assert.rejects(maker.cancelUnitTransfer({tenantId:ids.tenantId,entityId:ids.sourceEntityId,pairId:draft.unit_transfer_pair_id,expectedPairRevision:0,expectedSourceRevision:0,expectedTargetRevision:0,reason:'Maker must not cancel their own pair.',idempotencyKey:'utc-maker-cancel'}),error=>error.code==='42501');
+  const cancelled=await canceller.cancelUnitTransfer({tenantId:ids.tenantId,entityId:ids.sourceEntityId,pairId:draft.unit_transfer_pair_id,expectedPairRevision:0,expectedSourceRevision:0,expectedTargetRevision:0,reason:'Cancel the unposted Draft pair in the 444 test.',idempotencyKey:'utc-cancel-001'});
+  assert.equal(cancelled.status,'CANCELLED_PAIR');assert.ok(cancelled.cancelled_at);
+  const row=(await adminPool.query('SELECT status,cancelled_by,cancelled_at IS NOT NULL has_time FROM unit_transfer_pair WHERE unit_transfer_pair_id=$1',[draft.unit_transfer_pair_id])).rows[0];
+  assert.deepEqual(row,{status:'CANCELLED_PAIR',cancelled_by:'utc-canceller',has_time:true});
+});
 pgTest('parallel authorized read contexts complete under bounded serializable retry without leaking scope',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null});
   const kernel=await formalWorkflowRoleKernel(ids,'parallel-ai-reader','AI_CONTROLLER_REVIEWER',{idempotencyKey:'parallel-ai-reader-role-grant-0001'});
@@ -1346,7 +1502,12 @@ pgTest('parallel authorized read contexts complete under bounded serializable re
   }
   assert.equal(completed,128);
   const contexts=(await adminPool.query("SELECT count(*) FILTER (WHERE actor_id='parallel-ai-reader')::int total,count(*) FILTER (WHERE actor_id='parallel-ai-reader' AND tenant_id=$1 AND bound_backend_pid IS NOT NULL AND bound_txid IS NOT NULL)::int bound,count(*) FILTER (WHERE actor_id='parallel-ai-reader' AND tenant_id<>$1)::int cross_tenant FROM runtime_auth_context",[ids.tenantId])).rows[0];
-  assert.deepEqual(contexts,{total:128,bound:128,cross_tenant:0});
+  // Serializable retries issue a fresh context per attempt, so total may exceed 128; what must hold is
+  // one bound context per completed read, no cross-tenant scope, and no live unbound capability left
+  // behind by an aborted attempt (R04 revokes them).
+  assert.equal(contexts.bound,128);assert.equal(contexts.cross_tenant,0);assert.ok(contexts.total>=128);
+  const liveUnbound=(await adminPool.query("SELECT count(*)::int n FROM runtime_auth_context WHERE actor_id='parallel-ai-reader' AND bound_backend_pid IS NULL AND revoked_at IS NULL AND expires_at>clock_timestamp()")).rows[0].n;
+  assert.equal(liveUnbound,0,`every aborted attempt must revoke its context (total ${contexts.total})`);
 });
 
 pgTest('migration manifest retains immutable settlement history while reversible tail migrations roundtrip',async()=>{
@@ -2710,10 +2871,11 @@ pgTest('additional formal role catalog matches database authority and scopes eve
 });
 
 pgTest('credit entry formal roles upload and create exact Draft credits without later workflow authority',async()=>{
-  const ids=await seed({attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'400000',accountName:'Returns'}],extraMembers:[{memberRef:'CUSTOMER-CREDIT',memberType:'CUSTOMER',displayName:'Credit customer'}]});
-  await migrateDownThrough(adminPool,'333_credit_entry_attachment_authority.sql');
+  await rebuildDownThrough(adminPool,'333_credit_entry_attachment_authority.sql');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_human_additive_permission_authority WHERE authority_class='ADJUSTMENT'")).rows[0].n,0);
   await migrateUp(adminPool);
+  // Seeded after the historical-head check: rows seeded before a rebuild do not survive it.
+  const ids=await seed({attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'400000',accountName:'Returns'}],extraMembers:[{memberRef:'CUSTOMER-CREDIT',memberType:'CUSTOMER',displayName:'Credit customer'}]});
   const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
   const scope={tenantId:ids.tenantId,entityId:ids.entityId,validUntil:new Date(Date.now()+3600000).toISOString(),expectedVersion:0};
   for(const roleName of ['AP_VENDOR_CREDIT_ENTRY_MAKER','AR_CREDIT_MEMO_ENTRY_MAKER']){
@@ -2732,15 +2894,16 @@ pgTest('credit entry formal roles upload and create exact Draft credits without 
   }
   for(const [index,permissions] of [['ATTACHMENT.CREATE'],['AP.VENDOR_CREDIT.CREATE','ATTACHMENT.CREATE','GL.JE.APPROVE'],['AR.CREDIT_MEMO.CREATE','ATTACHMENT.CREATE','AR.CREDIT_MEMO.APPLY']].entries())await assert.rejects(sync.reconcile({...scope,actorId:`bad-credit-role-${index}`,permissions,authorityClass:'ADJUSTMENT',idempotencyKey:`bad-credit-role-${index}`}),e=>e.code==='42501');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE authority_class='ADJUSTMENT'")).rows[0].n,2);
-  await assert.rejects(migrateDownThrough(adminPool,'333_credit_entry_attachment_authority.sql'),e=>e.code==='55006');
+  await assertDownRefuses(adminPool,'333_credit_entry_attachment_authority.sql','55006');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE status='DRAFT'")).rows[0].n,2);
 });
 
 pgTest('attachment entry authority supports exact formal maker roles and denies unanchored or approval bundles',async()=>{
-  const ids=await seed({attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'400000',accountName:'Sales revenue'}],extraMembers:[{memberRef:'CUSTOMER-ENTRY',memberType:'CUSTOMER',displayName:'Entry customer'}]});
   await migrateDownThrough(adminPool,'331_attachment_entry_authority.sql');
   assert.equal((await adminPool.query("SELECT to_regprocedure('refs_reconcile_actor_grants_v3(uuid,text,uuid,text[],text,timestamptz,bigint,text,text)') fn")).rows[0].fn,null);
   await migrateUp(adminPool);
+  // Seeded after the historical-head check: rows seeded before a rebuild do not survive it.
+  const ids=await seed({attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'400000',accountName:'Sales revenue'}],extraMembers:[{memberRef:'CUSTOMER-ENTRY',memberType:'CUSTOMER',displayName:'Entry customer'}]});
   const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
   const validUntil=new Date(Date.now()+3600000).toISOString();
   const scope={tenantId:ids.tenantId,entityId:ids.entityId,validUntil,expectedVersion:0};
@@ -2780,7 +2943,7 @@ pgTest('attachment entry authority supports exact formal maker roles and denies 
   assert.deepEqual(await count(),counts);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE grant_policy_version='SOD_FINITE_V2'")).rows[0].n,11);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE event_type='ACTOR_GRANTS_RECONCILED' AND metadata->>'grant_policy_version'='SOD_FINITE_V2'")).rows[0].n,11);
-  await assert.rejects(migrateDownThrough(adminPool,'331_attachment_entry_authority.sql'),e=>e.code==='55006');
+  await assertDownRefuses(adminPool,'331_attachment_entry_authority.sql','55006');
   await migrateUp(adminPool);
   assert.deepEqual(await count(),counts);
 });
@@ -3268,7 +3431,7 @@ pgTest('post rehash and unique setting/mapping resolvers fail closed against own
   await assert.rejects(tamperKernel.postJournal({...tampered,journalEntryId:tampered.journalId,expectedRevision:0,idempotencyKey:'tamper-rehash-post'}),error=>error.code==='23514');
   assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM posting_batch')).rows[0].n,0);
 
-  await adminPool.query('TRUNCATE tenant CASCADE');
+  // (D-R04-1) no mid-test TRUNCATE: each section seeds its own random tenant on this test's clone.
   const duplicateSetting=await seed({journalType:'AUTO',attachmentStatus:null});const settingTrace=await attachAutoSource(duplicateSetting);
   await adminPool.query('ALTER TABLE setting_snapshot DROP CONSTRAINT setting_approved_scope_no_overlap');
   try{
@@ -3285,7 +3448,7 @@ pgTest('post rehash and unique setting/mapping resolvers fail closed against own
       tstzrange(effective_from,COALESCE(effective_to,'infinity'::timestamptz),'[)') WITH &&) WHERE (status IN ('APPROVED','RETIRED'))`);
   }
 
-  await adminPool.query('TRUNCATE tenant CASCADE');
+  // (D-R04-1) no mid-test TRUNCATE: each section seeds its own random tenant on this test's clone.
   const tied=await seed({journalType:'AUTO',attachmentStatus:null});const tiedTrace=await attachAutoSource(tied,{mappingPriority:9});
   await adminPool.query('ALTER TABLE mapping_snapshot DROP CONSTRAINT mapping_approved_equal_priority_no_overlap');
   try{
@@ -3305,7 +3468,8 @@ pgTest('post rehash and unique setting/mapping resolvers fail closed against own
 });
 
 pgTest('legacy dirty approved configuration makes migration 002 fail atomically',async()=>{
-  while((await adminPool.query('SELECT count(*)::int AS n FROM refs_schema_migration')).rows[0].n>1)await migrateDown(adminPool);
+  // Historical head 001, built forwards: walking down from the release head crosses down/401.
+  await rebuildSchemaThrough(adminPool,'001_wbs_accounting_core.sql');
   const tenantId=randomUUID(),entityId=randomUUID();
   await adminPool.query("INSERT INTO tenant(tenant_id,tenant_code,name) VALUES($1,'DIRTYTEN','Dirty migration tenant')",[tenantId]);
   await adminPool.query("INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency) VALUES($1,$2,'DIRTYENT','WBS','DIRTYENT','Dirty entity','USD')",[entityId,tenantId]);
@@ -3329,17 +3493,21 @@ pgTest('down restores pre-hardened PUBLIC CREATE and exact direct USAGE ACLs',as
     LEFT JOIN pg_roles r ON r.oid=x.grantee
     WHERE n.nspname='public' AND (x.grantee=0 OR r.rolname IN ('refs_app','refs_context_issuer','refs_grant_sync'))
     ORDER BY 1,2`)).rows;
+  // 002 owns the schema hardening; build to it forwards (a full reset from the release head is
+  // refused at down/401) and exercise exactly its up and down.
+  const hardening='002_accounting_runtime.sql';
+  await rebuildSchemaThrough(adminPool,hardening);
   await migrateDown(adminPool,{all:true});
   await adminPool.query('GRANT CREATE,USAGE ON SCHEMA public TO PUBLIC');
   await adminPool.query('REVOKE USAGE ON SCHEMA public FROM refs_app,refs_context_issuer,refs_grant_sync');
   const before=await aclRows();
-  await migrateUp(adminPool);
+  await migrateUp(adminPool,{until:hardening});
   const publicPrivileges=(await adminPool.query(`SELECT privilege_type FROM pg_namespace n,LATERAL aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) x
     WHERE n.nspname='public' AND x.grantee=0 ORDER BY privilege_type`)).rows.map(row=>row.privilege_type);
   assert.deepEqual(publicPrivileges,['USAGE']);
   await migrateDown(adminPool,{all:true});
   assert.deepEqual(await aclRows(),before);
-  await migrateUp(adminPool);
+  await migrateUp(adminPool); // back to the release head
 });
 
 pgTest('runtime roles create, submit, review, approve and post a manual journal without admin DML',async()=>{
@@ -3817,6 +3985,11 @@ for(const native of [false,true])pgTest(`${native?'evidence-backed native':'lega
     const old=await read(settlementActor,url.replace(paymentPeriodId,ids.periodId));assert.equal(old.status,200);assert.equal(old.body.data.can_create_draft,false);
     const create=async(amount,key,bank='BANK-1',attachmentIds=[attachmentId])=>send(settlementActor,`${root}/${module}/${documentId}/${native?'native-':''}${kind==='AP_PAYMENT'?'payments':'receipts'}`,{
       periodId:paymentPeriodId,...(native?{number:key,date:'2026-08-15',attachmentIds}:kind==='AP_PAYMENT'?{paymentNumber:key,paymentDate:'2026-08-15'}:{receiptNumber:key,receiptDate:'2026-08-15'}),cashAccountCode:'111000',bankMemberRef:bank,amount,reason:'Partial settlement context test'},key);
+    if(!native){
+      // Legacy AP payment / AR receipt creation is retired (410 ROUTE_RETIRED); the context read above stays.
+      const retired=await create('30.0000',`context-${kind}-retired`);assert.equal(retired.status,410,JSON.stringify(retired.body));
+      continue;
+    }
     if(native){
       assert.equal((await create('30.0000',`context-${kind}-no-evidence`,'BANK-1',[])).status,400);
       const foreignAttachment=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[other.journalId])).rows[0].attachment_id;
@@ -3885,7 +4058,9 @@ for(const native of [false,true])pgTest(`${native?'evidence-backed native':'lega
 
 
   }
-  await migrateDownThrough(adminPool,'304_settlement_input_reads.sql');
+  if(!native)return;
+  // The settlement history reader and its index are 306's; roll back exactly that feature.
+  await migrateDownThrough(adminPool,'306_document_settlement_history.sql');
   assert.equal((await adminPool.query("SELECT to_regprocedure('refs_read_document_settlements(uuid,uuid,uuid,text,uuid,integer)') f,to_regclass('payment_occurrence_document_history_idx') i")).rows[0].f,null);
   await migrateUp(adminPool);
   for(const {read,documentId,kind} of contexts){const history=await read('historyViewer',root+'/business-documents/'+documentId+'/settlements?kind='+kind);assert.equal(history.status,200,JSON.stringify(history.body));assert.ok(history.body.data.rows.length>=2);}
@@ -4772,7 +4947,7 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   const guardedArgs={...ids,businessAdjustmentId:credit.business_adjustment_id,businessDocumentId:billId,amount:'1.2345',reason:'Verify allocation capacity',idempotencyKey:'AP-capacity-invalid'};
   const capacityCounts=async()=> (await adminPool.query(`SELECT
     (SELECT count(*)::int FROM business_allocation WHERE tenant_id=$1) allocations,
-    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') audits,
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type NOT IN ('RUNTIME_CONTEXT_ISSUED','RUNTIME_CONTEXT_REVOKED')) audits,
     (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) events,
     (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1) receipts,
     (SELECT open_balance::text FROM business_document WHERE business_document_id=$2) balance`,[ids.tenantId,billId])).rows[0];
@@ -4902,7 +5077,7 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   const guardedArgs={...ids,businessAdjustmentId:memo.business_adjustment_id,businessDocumentId:invoiceId,amount:'1.2345',reason:'Verify allocation capacity',idempotencyKey:'AR-capacity-invalid'};
   const capacityCounts=async()=> (await adminPool.query(`SELECT
     (SELECT count(*)::int FROM business_allocation WHERE tenant_id=$1) allocations,
-    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') audits,
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type NOT IN ('RUNTIME_CONTEXT_ISSUED','RUNTIME_CONTEXT_REVOKED')) audits,
     (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) events,
     (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1) receipts,
     (SELECT open_balance::text FROM business_document WHERE business_document_id=$2) balance`,[ids.tenantId,invoiceId])).rows[0];
@@ -6283,7 +6458,7 @@ pgTest('construction-loan/CWIP population attestation is atomic, scope-bound, an
     (SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM posting_batch WHERE tenant_id=$1) posting_batches,
     (SELECT count(*)::int FROM source_document WHERE tenant_id=$1) sources,(SELECT count(*)::int FROM source_link WHERE tenant_id=$1) links,
     (SELECT count(*)::int FROM mapping_snapshot WHERE tenant_id=$1) mappings,(SELECT count(*)::int FROM setting_snapshot WHERE tenant_id=$1) settings,
-    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') accounting_audit,
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type NOT IN ('RUNTIME_CONTEXT_ISSUED','RUNTIME_CONTEXT_REVOKED')) accounting_audit,
     (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='RUNTIME_CONTEXT_ISSUED') context_audit,
     (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox`,[draw.tenantId]).then(result=>result.rows[0]);
   const beforeDrawRead=await drawCounts(),zeroCwip=await drawReader.getAiConstructionLoanCwipPopulationAttestation({tenantId:draw.tenantId,entityId:draw.entityId,accountingPeriodId:draw.periodId}),afterDrawRead=await drawCounts();
@@ -6680,7 +6855,7 @@ pgTest('cross-entity payment review finds one exact signed counterparty invoice 
   await attachAutoSource({...current,journalId:payment.journal_entry_id},{reuseApprovedSnapshots:true});
   await submitter.transitionJournal({...current,journalEntryId:payment.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'cross-entity-payment-submit-001'});await reviewer.transitionJournal({...current,journalEntryId:payment.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'cross-entity-payment-review-001'});await approver.transitionJournal({...current,journalEntryId:payment.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'cross-entity-payment-approve-001'});await poster.postJournal({...current,journalEntryId:payment.journal_entry_id,periodId:current.periodId,expectedRevision:3,idempotencyKey:'cross-entity-payment-post-001'});
   const actor='cross-entity-ai-reader';await trustedSession(counterparty,actor,['AI.ANALYSIS.EXPLAIN']);await trustedSession(current,actor,['AI.ANALYSIS.EXPLAIN']);
-  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(current,actor,['AI.ANALYSIS.EXPLAIN'])}),counts=()=>adminPool.query(`SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') accounting_audit,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='RUNTIME_CONTEXT_ISSUED') context_audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox`,[current.tenantId]).then(value=>value.rows[0]),before=await counts();
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(current,actor,['AI.ANALYSIS.EXPLAIN'])}),counts=()=>adminPool.query(`SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type NOT IN ('RUNTIME_CONTEXT_ISSUED','RUNTIME_CONTEXT_REVOKED')) accounting_audit,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='RUNTIME_CONTEXT_ISSUED') context_audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox`,[current.tenantId]).then(value=>value.rows[0]),before=await counts();
   const rows=await reader.readAiCrossEntityPaymentInvoices({tenantId:current.tenantId,entityId:current.entityId,periodId:current.periodId,counterpartyEntityId:counterparty.entityId,counterpartyPeriodId:counterparty.periodId,limit:10});assert.equal(rows.length,1);assert.deepEqual({payment:rows[0].payment_occurrence_id,currentSource:rows[0].current_source_document_id,counterpartySource:rows[0].counterparty_source_document_id,businessId:rows[0].signed_business_id,invoice:rows[0].invoice_number,amount:rows[0].payment_amount,identityCount:rows[0].counterparty_invoice_identity_count},{payment:payment.payment_occurrence_id,currentSource:currentSource.sourceDocumentId,counterpartySource:counterpartySource.sourceDocumentId,businessId,invoice:invoiceNo,amount:'125.0000',identityCount:1});assert.equal(rows[0].payment_ledger_line_ids.length,2);
   const result=detectCrossEntityPaymentInvoiceReviews(rows,{entityId:current.entityId,accountingPeriodId:current.periodId,counterpartyEntityId:counterparty.entityId,counterpartyPeriodId:counterparty.periodId,limit:10});assert.equal(result.finding_count,1);assert.equal(result.findings[0].finding_type,'CROSS_ENTITY_PAYMENT_INVOICE_MISMATCH');assert.deepEqual(result.findings[0].action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
   const after=await counts();assert.deepEqual({...after,context_audit:before.context_audit},before);assert.equal(after.context_audit,before.context_audit+1);
@@ -6701,6 +6876,68 @@ pgTest('budget versus actual reads one approved immutable snapshot against same-
   const cash=rows.find(row=>row.account_code==='111000'),expense=rows.find(row=>row.account_code==='610000');assert.deepEqual({status:cash.report_status,budget:cash.budget_amount,actual:cash.actual_amount,variance:cash.variance_amount,snapshot:cash.budget_snapshot_id,receipt:cash.budget_receipt_hash},{status:'APPROVED_BUDGET_VS_ACTUAL',budget:'120.0000',actual:'100.0000',variance:'20.0000',snapshot:snapshotId,receipt:receiptHash});assert.deepEqual(cash.source_document_ids,[trace.documentId]);assert.deepEqual({status:expense.report_status,budget:expense.budget_amount,actual:expense.actual_amount,variance:expense.variance_amount},{status:'BLOCKED_POSTED_ACTUAL_EVIDENCE_REQUIRED',budget:null,actual:null,variance:null});
   await assert.rejects(adminPool.query('UPDATE budget_line SET budget_amount=999 WHERE budget_snapshot_id=$1',[snapshotId]),error=>error.code==='55000');
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:actor}),kernelFactory:async()=>reader});const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/budget-vs-actual?periodId=${ids.periodId}`,body:null,headers:{}});assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.find(row=>row.account_code==='111000').report_status,'APPROVED_BUDGET_VS_ACTUAL');
+});
+
+pgTest('441: a forecast binds an approved budget and POSTED actuals and runs DRAFT to APPROVED with three people who each hold only VIEW plus their own action',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN'});await attachAutoSource(ids);
+  await new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'forecast-poster',['GL.JE.POST'])}).postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'forecast-post-001'});
+  const snapshotId=randomUUID(),snapshotHash=hash(`forecast-budget:${ids.periodId}`);
+  await adminPool.query(`INSERT INTO budget_snapshot(budget_snapshot_id,tenant_id,entity_id,period_id,version,currency,source_ref,source_version,receipt_hash,snapshot_hash,prepared_by,approved_by,approved_at)
+    VALUES($1,$2,$3,$4,1,'USD','approved-budget-2026-07','1',$5,$6,'budget-maker','budget-approver',now())`,[snapshotId,ids.tenantId,ids.entityId,ids.periodId,hash('forecast-receipt'),snapshotHash]);
+  const line=(await adminPool.query(`WITH evidence AS (SELECT refs_jsonb_hash(jsonb_build_object('account_code','111000','ledger_line_ids',to_jsonb(array_agg(ll.ledger_line_id ORDER BY ll.ledger_line_id)))) h
+      FROM ledger_line ll JOIN journal_entry j ON j.tenant_id=ll.tenant_id AND j.entity_id=ll.entity_id AND j.journal_entry_id=ll.journal_entry_id AND j.status='POSTED'
+      WHERE ll.tenant_id=$1 AND ll.entity_id=$2 AND ll.period_id=$3 AND ll.account_code='111000')
+    SELECT jsonb_build_object('account_code','111000','amount','150.0000','budget_snapshot_id',$4::text,'budget_version','1','budget_snapshot_hash',$5::text,'posted_actual_evidence_hash',h,
+      'line_hash',refs_jsonb_hash(jsonb_build_object('account_code','111000','amount','150.0000','budget_snapshot_id',$4::text,'budget_version','1','budget_snapshot_hash',$5::text,'posted_actual_evidence_hash',h))) line FROM evidence`,
+    [ids.tenantId,ids.entityId,ids.periodId,snapshotId,snapshotHash])).rows[0].line;
+  const k=(actor,action)=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actor,[`REPORT.FORECAST.${action}`,'REPORT.FORECAST.VIEW'])});
+  // The HTTP route hands the kernel the parsed JSON body, so lines arrive as a JS array.
+  const created=await k('forecast-maker','CREATE').createForecastWorkflow({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,name:'Base forecast',currency:'USD',lines:[line],reason:'441 forecast create',idempotencyKey:'forecast-create-001'});
+  assert.equal(created.status,'DRAFT');assert.equal(created.lines.length,1);
+  const submitted=await k('forecast-submitter','SUBMIT').transitionForecastWorkflow({tenantId:ids.tenantId,entityId:ids.entityId,workflowId:created.forecast_workflow_id,action:'SUBMIT',expectedRevision:0,reason:'441 forecast submit',idempotencyKey:'forecast-submit-001'});
+  assert.equal(submitted.status,'PENDING_APPROVAL');
+  await assert.rejects(k('forecast-submitter','APPROVE').transitionForecastWorkflow({tenantId:ids.tenantId,entityId:ids.entityId,workflowId:created.forecast_workflow_id,action:'APPROVE',expectedRevision:1,reason:'441 forecast self approve',idempotencyKey:'forecast-self-approve-001'}));
+  const approved=await k('forecast-approver','APPROVE').transitionForecastWorkflow({tenantId:ids.tenantId,entityId:ids.entityId,workflowId:created.forecast_workflow_id,action:'APPROVE',expectedRevision:1,reason:'441 forecast approve',idempotencyKey:'forecast-approve-001'});
+  assert.equal(approved.status,'APPROVED');assert.equal(approved.approved_by,'forecast-approver');
+});
+
+pgTest('444: saved report views, custom budget reports and settlement bank-account pairs run against PostgreSQL (each statement failed on every call before 444)',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN'});await attachAutoSource(ids);
+  await new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'report-444-poster',['GL.JE.POST'])}).postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'report-444-post-001'});
+  // Saved views: jsonb_object_length() did not exist (42883).
+  const viewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'report-444-viewer',['REPORT.SAVED_VIEW.CREATE','REPORT.SAVED_VIEW.VIEW'])});
+  const view=await viewer.createReportSavedView({tenantId:ids.tenantId,entityId:ids.entityId,name:'444 trial balance',reportType:'TRIAL_BALANCE',periodId:ids.periodId,filters:{},visibility:'PRIVATE',reason:'444 saved view create',idempotencyKey:'report-444-view-001'});
+  assert.equal(view.name,'444 trial balance');
+  const page=await viewer.readReportSavedViews({tenantId:ids.tenantId,entityId:ids.entityId});
+  assert.equal((page.rows??page.items??page.views??[]).length,1,JSON.stringify(page).slice(0,300));
+  // Custom budget report: the local snapshot_hash collided with budget_snapshot.snapshot_hash (42702).
+  const snapshotId=randomUUID(),snapshotHash=hash(`report-444-budget:${ids.periodId}`);
+  await adminPool.query(`INSERT INTO budget_snapshot(budget_snapshot_id,tenant_id,entity_id,period_id,version,currency,source_ref,source_version,receipt_hash,snapshot_hash,prepared_by,approved_by,approved_at)
+    VALUES($1,$2,$3,$4,1,'USD','approved-budget-2026-07','1',$5,$6,'budget-maker','budget-approver',now())`,[snapshotId,ids.tenantId,ids.entityId,ids.periodId,hash('report-444-receipt'),snapshotHash]);
+  await adminPool.query(`INSERT INTO budget_line(budget_snapshot_id,tenant_id,entity_id,period_id,account_code,comparison_side,budget_amount,budget_line_hash) VALUES($1,$2,$3,$4,'111000','DEBIT',120,$5)`,[snapshotId,ids.tenantId,ids.entityId,ids.periodId,hash('report-444-111000')]);
+  const reporter=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'report-444-reporter',['REPORT.CUSTOM.VIEW'])});
+  const report=await reporter.readCustomReport({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,reportType:'BUDGET_VS_ACTUAL'});
+  assert.ok(JSON.stringify(report).includes('111000'),JSON.stringify(report).slice(0,400));
+  // Settlement bank-account pairs: ORDER BY an alias with COLLATE did not resolve (42703).
+  const payer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'report-444-payer',['AP.PAYMENT.CREATE'])});
+  const pairs=await payer.readSettlementBankAccountPairs({tenantId:ids.tenantId,entityId:ids.entityId,settlementKind:'AP_PAYMENT',periodId:ids.periodId,settlementDate:'2026-07-20'});
+  assert.equal(pairs.schema_version,'SETTLEMENT_BANK_ACCOUNT_PAIRS_V1');assert.ok(pairs.rows.length>=1,JSON.stringify(pairs).slice(0,300));
+  assert.equal(pairs.rows[0].cash_account_code,'111000');
+});
+
+pgTest('a native expense Draft is created from the create options a DRAFT-class person sees',async()=>{
+  const ids=await seed({status:'DRAFT',extraAccounts:[{accountCode:'610000',accountName:'Repairs expense'}]});
+  const attachmentId=randomUUID();
+  await adminPool.query(`INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,verified_at,scan_status,finalization_status,finalized_at)
+    VALUES($1,$2,$3,'expense-receipt.pdf','application/pdf',10,$4,$5,'v1','maker',now(),now(),'CLEAN','VERIFIED_CLEAN',now())`,[attachmentId,ids.tenantId,ids.entityId,hash('expense-receipt'),`s3://refs-test/${attachmentId}`]);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'expense-maker',['AP.EXPENSE.CREATE'])});
+  const options=await maker.readNativeExpenseCreateOptions({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
+  assert.ok(options.vendors.some(v=>v.vendor_ref==='VENDOR-1'));assert.ok(options.bank_cash_accounts.some(b=>b.cash_account_code==='111000'));assert.ok(options.expense_accounts.some(a=>a.expense_account_code==='610000'));
+  assert.ok(options.attachments.some(a=>a.attachment_id===attachmentId),JSON.stringify(options.attachments));
+  const draft=await maker.createNativeExpense({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,number:'EXP-001',vendorRef:'VENDOR-1',bankMemberRef:'BANK-1',cashAccountCode:'111000',expenseAccountCode:'610000',date:'2026-07-10',currency:'USD',amount:'42.5000',reason:'Repair paid from operating cash.',attachmentIds:[attachmentId],idempotencyKey:'expense-create-001'});
+  assert.ok(draft.journal_entry_id,JSON.stringify(draft).slice(0,300));
+  const lines=(await adminPool.query('SELECT account_code,debit_amount::text d,credit_amount::text c,member_ref FROM journal_line WHERE tenant_id=$1 AND journal_entry_id=$2 ORDER BY line_no',[ids.tenantId,draft.journal_entry_id])).rows;
+  assert.deepEqual(lines.map(l=>[l.account_code,l.d,l.c]),[['610000','42.5000','0.0000'],['111000','0.0000','42.5000']]);
 });
 
 pgTest('consolidation reads only an approved immutable two-member scope with explicit elimination evidence and never creates an elimination journal',async()=>{
@@ -6740,37 +6977,39 @@ pgTest('PostgreSQL 15/16 intercompany elimination lifecycle is least-privilege, 
   await attachAutoSource(source);await attachAutoSource(counterparty);
   await new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(source,'intercompany-elimination-source-poster',['GL.JE.POST'])}).postJournal({...source,journalEntryId:source.journalId,periodId:source.periodId,expectedRevision:0,idempotencyKey:'intercompany-elimination-source-post'});
   await new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(counterparty,'intercompany-elimination-counterparty-poster',['GL.JE.POST'])}).postJournal({...counterparty,journalEntryId:counterparty.journalId,periodId:counterparty.periodId,expectedRevision:0,idempotencyKey:'intercompany-elimination-counterparty-post'});
-  const insertPairMap=async(ids,accountCode,counterpartyEntityId,classification,counterpartyAccountCode,counterpartyClassification)=>{const input={account_code:accountCode,counterparty_entity_id:counterpartyEntityId},output={classification,counterparty_account_code:counterpartyAccountCode,counterparty_classification:counterpartyClassification},snapshotHash=(await adminPool.query("SELECT refs_jsonb_hash(jsonb_build_object('input_keys',$1::jsonb,'output_rules',$2::jsonb)) hash",[JSON.stringify(input),JSON.stringify(output)])).rows[0].hash,mappingId=randomUUID();await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at) VALUES($1,$2,$3,'INTERCOMPANY_ACCOUNT_PAIR','ENTITY',$3::text,$4,1,0,'2026-01-01','APPROVED',$5,$6,$7,'map-maker','map-approver',now())`,[mappingId,ids.tenantId,ids.entityId,hash(`ic-map:${mappingId}`),JSON.stringify(input),JSON.stringify(output),snapshotHash]);return {mappingId,snapshotHash};};
+  const insertPairMap=async(ids,accountCode,counterpartyEntityId,classification,counterpartyAccountCode,counterpartyClassification)=>{const input={account_code:accountCode,counterparty_entity_id:counterpartyEntityId},output={classification,counterparty_account_code:counterpartyAccountCode,counterparty_classification:counterpartyClassification},snapshotHash=(await adminPool.query("SELECT refs_jsonb_hash(jsonb_build_object('input_keys',$1::jsonb,'output_rules',$2::jsonb)) hash",[JSON.stringify(input),JSON.stringify(output)])).rows[0].hash,mappingId=randomUUID();await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at) VALUES($1,$2,$3::uuid,'INTERCOMPANY_ACCOUNT_PAIR','ENTITY',($3::uuid)::text,$4,1,0,'2026-01-01','APPROVED',$5,$6,$7,'map-maker','map-approver',now())`,[mappingId,ids.tenantId,ids.entityId,hash(`ic-map:${mappingId}`),JSON.stringify(input),JSON.stringify(output),snapshotHash]);return {mappingId,snapshotHash};};
   await insertPairMap(source,'120200',counterparty.entityId,'DUE_FROM','291001','DUE_TO');await insertPairMap(counterparty,'291001',source.entityId,'DUE_TO','120200','DUE_FROM');
   const snapshotId=randomUUID(),groupRef='GROUP-ELIMINATION-PG',snapshotHash=hash(`ic-snapshot:${snapshotId}`),receiptHash=hash(`ic-receipt:${snapshotId}`);
   await adminPool.query(`INSERT INTO consolidation_snapshot(consolidation_snapshot_id,tenant_id,reporting_entity_id,reporting_period_id,group_ref,version,currency,source_ref,source_version,receipt_hash,snapshot_hash,prepared_by,approved_by,approved_at) VALUES($1,$2,$3,$4,$5,1,'USD','pg-intercompany-elimination','1',$6,$7,'snapshot-maker','snapshot-approver',now())`,[snapshotId,reporting.tenantId,reporting.entityId,reporting.periodId,groupRef,receiptHash,snapshotHash]);
   for(const [member,ref] of [[source,'SOURCE'],[counterparty,'COUNTERPARTY']])await adminPool.query(`INSERT INTO consolidation_member(consolidation_snapshot_id,tenant_id,reporting_entity_id,reporting_period_id,member_entity_id,member_period_id,member_ref,member_source_ref,member_source_version,member_receipt_hash,member_snapshot_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'1',$9,$10)`,[snapshotId,reporting.tenantId,reporting.entityId,reporting.periodId,member.entityId,member.periodId,ref,`member:${ref}`,hash(`member-receipt:${ref}`),hash(`member-snapshot:${ref}`)]);
   await adminPool.query(`INSERT INTO consolidation_account_map(consolidation_snapshot_id,member_entity_id,source_account_code,presentation_account_code,presentation_side,mapping_hash) VALUES($1,$2,'120200','IC_RECEIVABLE','DEBIT',$3),($1,$4,'291001','IC_PAYABLE','CREDIT',$5)`,[snapshotId,source.entityId,hash('map-source-presentation'),counterparty.entityId,hash('map-counterparty-presentation')]);
-  const grantMemberReads=async actor=>{for(const member of [source,counterparty])await adminPool.query(`INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,'GL.REPORT.VIEW') ON CONFLICT(tenant_id,actor_id,entity_id,permission) DO UPDATE SET revoked_at=NULL`,[reporting.tenantId,actor,member.entityId]);};
+  const grantMemberReads=async actor=>{for(const member of [source,counterparty,reporting])await adminPool.query(`INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,'GL.REPORT.VIEW') ON CONFLICT(tenant_id,actor_id,entity_id,permission) DO UPDATE SET revoked_at=NULL`,[reporting.tenantId,actor,member.entityId]);};
   const readerActor='ic-elimination-reader';await grantMemberReads(readerActor);const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(reporting,readerActor,['GROUP.INTERCOMPANY_ELIMINATION.VIEW'])}),options=await reader.readIntercompanyEliminationCreateOptions({tenantId:reporting.tenantId,reportingEntityId:reporting.entityId,reportingPeriodId:reporting.periodId,groupRef,sourceEntityId:source.entityId,sourcePeriodId:source.periodId,counterpartyEntityId:counterparty.entityId,counterpartyPeriodId:counterparty.periodId});
   assert.equal(options.options.length,1);const option=options.options[0];assert.equal(option.matched_amount,'90.0000');assert.equal(option.raw_mismatch,'10.0000');assert.equal(options.action_flags.can_create_draft,false);
   const createArgs={tenantId:reporting.tenantId,reportingEntityId:reporting.entityId,reportingPeriodId:reporting.periodId,consolidationSnapshotId:snapshotId,sourceEntityId:source.entityId,sourcePeriodId:source.periodId,counterpartyEntityId:counterparty.entityId,counterpartyPeriodId:counterparty.periodId,sourceAccountCode:'120200',expectedSourceEvidenceHash:option.source_evidence_hash,reason:'Create the exact matched presentation evidence for independent review.'};
   const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(reporting,'ic-elimination-denied',['GROUP.INTERCOMPANY_ELIMINATION.VIEW'])});await grantMemberReads('ic-elimination-denied');await assert.rejects(denied.createIntercompanyElimination({...createArgs,idempotencyKey:'ic-elimination-denied-create'}),error=>error.code==='42501');
-  const missingMemberActor='ic-elimination-missing-member',missingMemberSession=await trustedSession(reporting,missingMemberActor,['GROUP.INTERCOMPANY_ELIMINATION.CREATE']);await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,'GL.REPORT.VIEW')",[reporting.tenantId,missingMemberActor,source.entityId]);const missingMember=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>missingMemberSession});await assert.rejects(missingMember.createIntercompanyElimination({...createArgs,idempotencyKey:'ic-elimination-missing-member'}),error=>error.code==='42501');
-  const makerActor='ic-elimination-maker';await grantMemberReads(makerActor);const makerSession=await trustedSession(reporting,makerActor,['GROUP.INTERCOMPANY_ELIMINATION.CREATE']),maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>makerSession});
+  const missingMemberActor='ic-elimination-missing-member',missingMemberSession=()=>trustedSession(reporting,missingMemberActor,['GROUP.INTERCOMPANY_ELIMINATION.CREATE','GROUP.INTERCOMPANY_ELIMINATION.VIEW']);await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,'GL.REPORT.VIEW')",[reporting.tenantId,missingMemberActor,source.entityId]);const missingMember=new PostgresAccountingKernel(runtimePool,{sessionProvider:missingMemberSession});await assert.rejects(missingMember.createIntercompanyElimination({...createArgs,idempotencyKey:'ic-elimination-missing-member'}),error=>error.code==='42501');
+  const makerActor='ic-elimination-maker';await grantMemberReads(makerActor);const makerSession=()=>trustedSession(reporting,makerActor,['GROUP.INTERCOMPANY_ELIMINATION.CREATE','GROUP.INTERCOMPANY_ELIMINATION.VIEW']),maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:makerSession});
   const cancelledDraft=await maker.createIntercompanyElimination({...createArgs,idempotencyKey:'ic-elimination-create-then-cancel'}),createReplay=await maker.createIntercompanyElimination({...createArgs,idempotencyKey:'ic-elimination-create-then-cancel'});assert.equal(createReplay.idempotent,true);assert.equal(createReplay.intercompany_elimination_batch_id,cancelledDraft.intercompany_elimination_batch_id);
   const cancelArgs={tenantId:reporting.tenantId,reportingEntityId:reporting.entityId,batchId:cancelledDraft.intercompany_elimination_batch_id,expectedRevision:0,reason:'Cancel this retained Draft before creating a replacement from the same source.'};
-  const cancelNoMemberActor='ic-elimination-cancel-no-member',cancelNoMemberSession=await trustedSession(reporting,cancelNoMemberActor,['GROUP.INTERCOMPANY_ELIMINATION.CANCEL']),cancelNoMember=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>cancelNoMemberSession});await assert.rejects(cancelNoMember.cancelIntercompanyElimination({...cancelArgs,idempotencyKey:'ic-elimination-cancel-no-member'}),error=>error.code==='42501');
-  const cancelOneMemberActor='ic-elimination-cancel-one-member',cancelOneMemberSession=await trustedSession(reporting,cancelOneMemberActor,['GROUP.INTERCOMPANY_ELIMINATION.CANCEL']);await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,'GL.REPORT.VIEW')",[reporting.tenantId,cancelOneMemberActor,source.entityId]);const cancelOneMember=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>cancelOneMemberSession});await assert.rejects(cancelOneMember.cancelIntercompanyElimination({...cancelArgs,idempotencyKey:'ic-elimination-cancel-one-member'}),error=>error.code==='42501');
-  const cancellerActor='ic-elimination-canceller';await grantMemberReads(cancellerActor);const cancellerSession=await trustedSession(reporting,cancellerActor,['GROUP.INTERCOMPANY_ELIMINATION.CANCEL']),canceller=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>cancellerSession}),cancelled=await canceller.cancelIntercompanyElimination({...cancelArgs,idempotencyKey:'ic-elimination-cancel'}),cancelReplay=await canceller.cancelIntercompanyElimination({...cancelArgs,idempotencyKey:'ic-elimination-cancel'});assert.equal(cancelled.status,'CANCELLED');assert.equal(cancelled.revision,'1');assert.equal(cancelled.cancel_reason,cancelArgs.reason);assert.equal(cancelReplay.idempotent,true);assert.equal(cancelReplay.intercompany_elimination_batch_id,cancelled.intercompany_elimination_batch_id);assert.equal(cancelReplay.status,'CANCELLED');assert.equal(cancelReplay.revision,'1');assert.equal((await adminPool.query("SELECT count(*)::int n FROM consolidation_elimination_evidence WHERE consolidation_snapshot_id=$1",[snapshotId])).rows[0].n,0);
+  const cancelNoMemberActor='ic-elimination-cancel-no-member',cancelNoMemberSession=()=>trustedSession(reporting,cancelNoMemberActor,['GROUP.INTERCOMPANY_ELIMINATION.CANCEL','GROUP.INTERCOMPANY_ELIMINATION.VIEW']),cancelNoMember=new PostgresAccountingKernel(runtimePool,{sessionProvider:cancelNoMemberSession});await assert.rejects(cancelNoMember.cancelIntercompanyElimination({...cancelArgs,idempotencyKey:'ic-elimination-cancel-no-member'}),error=>error.code==='42501');
+  const cancelOneMemberActor='ic-elimination-cancel-one-member',cancelOneMemberSession=()=>trustedSession(reporting,cancelOneMemberActor,['GROUP.INTERCOMPANY_ELIMINATION.CANCEL','GROUP.INTERCOMPANY_ELIMINATION.VIEW']);await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,'GL.REPORT.VIEW')",[reporting.tenantId,cancelOneMemberActor,source.entityId]);const cancelOneMember=new PostgresAccountingKernel(runtimePool,{sessionProvider:cancelOneMemberSession});await assert.rejects(cancelOneMember.cancelIntercompanyElimination({...cancelArgs,idempotencyKey:'ic-elimination-cancel-one-member'}),error=>error.code==='42501');
+  const cancellerActor='ic-elimination-canceller';await grantMemberReads(cancellerActor);const cancellerSession=()=>trustedSession(reporting,cancellerActor,['GROUP.INTERCOMPANY_ELIMINATION.CANCEL','GROUP.INTERCOMPANY_ELIMINATION.VIEW']),canceller=new PostgresAccountingKernel(runtimePool,{sessionProvider:cancellerSession}),cancelled=await canceller.cancelIntercompanyElimination({...cancelArgs,idempotencyKey:'ic-elimination-cancel'}),cancelReplay=await canceller.cancelIntercompanyElimination({...cancelArgs,idempotencyKey:'ic-elimination-cancel'});assert.equal(cancelled.status,'CANCELLED');assert.equal(cancelled.revision,'1');assert.equal(cancelled.cancel_reason,cancelArgs.reason);assert.equal(cancelReplay.idempotent,true);assert.equal(cancelReplay.intercompany_elimination_batch_id,cancelled.intercompany_elimination_batch_id);assert.equal(cancelReplay.status,'CANCELLED');assert.equal(cancelReplay.revision,'1');assert.equal((await adminPool.query("SELECT count(*)::int n FROM consolidation_elimination_evidence WHERE consolidation_snapshot_id=$1",[snapshotId])).rows[0].n,0);
   const race=await Promise.allSettled([maker.createIntercompanyElimination({...createArgs,idempotencyKey:'ic-elimination-create-race-a'}),maker.createIntercompanyElimination({...createArgs,idempotencyKey:'ic-elimination-create-race-b'})]);assert.equal(race.filter(row=>row.status==='fulfilled').length,1);assert.equal(race.filter(row=>row.status==='rejected').length,1);const draft=race.find(row=>row.status==='fulfilled').value;assert.equal(draft.status,'DRAFT');assert.equal(draft.revision,'0');assert.equal(draft.idempotent,false);
-  const transition=async(actor,permission,action,revision,key)=>{await grantMemberReads(actor);const session=await trustedSession(reporting,actor,[permission]),kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>session});return kernel.transitionIntercompanyElimination({tenantId:reporting.tenantId,reportingEntityId:reporting.entityId,batchId:draft.intercompany_elimination_batch_id,action,expectedRevision:revision,reason:`${action} the exact retained intercompany elimination evidence.`,idempotencyKey:key});};
+  const transition=async(actor,permission,action,revision,key)=>{await grantMemberReads(actor);const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(reporting,actor,[permission,'GROUP.INTERCOMPANY_ELIMINATION.VIEW'])});return kernel.transitionIntercompanyElimination({tenantId:reporting.tenantId,reportingEntityId:reporting.entityId,batchId:draft.intercompany_elimination_batch_id,action,expectedRevision:revision,reason:`${action} the exact retained intercompany elimination evidence.`,idempotencyKey:key});};
   const submitted=await transition('ic-elimination-submitter','GROUP.INTERCOMPANY_ELIMINATION.SUBMIT','SUBMIT',0,'ic-elimination-submit');assert.equal(submitted.status,'PENDING_REVIEW');const reviewed=await transition('ic-elimination-reviewer','GROUP.INTERCOMPANY_ELIMINATION.REVIEW','REVIEW',1,'ic-elimination-review');assert.equal(reviewed.status,'REVIEWED');const approved=await transition('ic-elimination-approver','GROUP.INTERCOMPANY_ELIMINATION.APPROVE','APPROVE',2,'ic-elimination-approve');assert.equal(approved.status,'APPROVED');
-  const posterActor='ic-elimination-poster';await grantMemberReads(posterActor);const posterSession=await trustedSession(reporting,posterActor,['GROUP.INTERCOMPANY_ELIMINATION.POST']),poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>posterSession}),posted=await poster.postIntercompanyElimination({tenantId:reporting.tenantId,reportingEntityId:reporting.entityId,batchId:draft.intercompany_elimination_batch_id,expectedRevision:3,idempotencyKey:'ic-elimination-post'});
+  const posterActor='ic-elimination-poster';await grantMemberReads(posterActor);const posterSession=()=>trustedSession(reporting,posterActor,['GROUP.INTERCOMPANY_ELIMINATION.POST','GROUP.INTERCOMPANY_ELIMINATION.VIEW']),poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:posterSession}),posted=await poster.postIntercompanyElimination({tenantId:reporting.tenantId,reportingEntityId:reporting.entityId,batchId:draft.intercompany_elimination_batch_id,expectedRevision:3,idempotencyKey:'ic-elimination-post'});
   assert.equal(posted.status,'POSTED');assert.equal(posted.revision,'4');assert.match(posted.post_evidence_hash,/^sha256:[0-9a-f]{64}$/);assert.equal(posted.source_current,true);assert.equal(posted.consolidation_results.length,2);assert.ok(posted.consolidation_results.every(row=>row.report_status==='APPROVED_CONSOLIDATION_SNAPSHOT_AND_POSTED_LEDGER_EXACT'));assert.deepEqual(posted.lines.map(line=>[line.entry_side,line.debit_amount,line.credit_amount]),[['CREDIT','0.0000','90.0000'],['DEBIT','90.0000','0.0000']]);
   const readback=await reader.readIntercompanyEliminationBatch({tenantId:reporting.tenantId,reportingEntityId:reporting.entityId,batchId:draft.intercompany_elimination_batch_id});assert.equal(readback.post_evidence_hash,posted.post_evidence_hash);assert.equal(readback.source_current,true);assert.equal((await adminPool.query("SELECT count(*)::int n FROM consolidation_elimination_evidence WHERE consolidation_snapshot_id=$1 AND elimination_ref LIKE $2",[snapshotId,`INTERCOMPANY_ELIMINATION_BATCH:${draft.intercompany_elimination_batch_id}:%`])).rows[0].n,2);
-  const lateJournalId=randomUUID();await adminPool.query(`INSERT INTO journal_entry(journal_entry_id,tenant_id,entity_id,period_id,journal_number,journal_type,status,journal_date,currency,created_by,reviewed_by,approved_by) VALUES($1,$2,$3,$4,'IC-LATE-SOURCE','AUTO','APPROVED','2026-07-31','USD','late-maker','late-reviewer','late-approver')`,[lateJournalId,source.tenantId,source.entityId,source.periodId]);await adminPool.query(`INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref) VALUES($1,$2,$3,$4,1,'120200',1,0,'AFFILIATE-CP'),($1,$2,$3,$4,2,'111000',0,1,'BANK-1')`,[source.tenantId,source.entityId,source.periodId,lateJournalId]);await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,journal_entry_id,attachment_id,created_by) VALUES($1,$2,'JE_ATTACHMENT',$3,$4,'late-maker')",[source.tenantId,source.entityId,lateJournalId,source.attachmentId]);await attachAutoSource({...source,journalId:lateJournalId});
+  const lateJournalId=randomUUID();await adminPool.query(`INSERT INTO journal_entry(journal_entry_id,tenant_id,entity_id,period_id,journal_number,journal_type,status,journal_date,currency,created_by,reviewed_by,approved_by) VALUES($1,$2,$3,$4,'IC-LATE-SOURCE','AUTO','APPROVED','2026-07-31','USD','late-maker','late-reviewer','late-approver')`,[lateJournalId,source.tenantId,source.entityId,source.periodId]);await adminPool.query(`INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref) VALUES($1,$2,$3,$4,1,'120200',1,0,'AFFILIATE-CP'),($1,$2,$3,$4,2,'111000',0,1,'BANK-1')`,[source.tenantId,source.entityId,source.periodId,lateJournalId]);await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,journal_entry_id,attachment_id,created_by) VALUES($1,$2,'JE_ATTACHMENT',$3,$4,'late-maker')",[source.tenantId,source.entityId,lateJournalId,source.attachmentId]);await attachAutoSource({...source,journalId:lateJournalId},{reuseApprovedSnapshots:true});
   const latePoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(source,'ic-elimination-late-member-poster',['GL.JE.POST'])});await latePoster.postJournal({tenantId:source.tenantId,entityId:source.entityId,periodId:source.periodId,journalEntryId:lateJournalId,expectedRevision:0,idempotencyKey:'ic-elimination-late-member-post'});
   const stale=await reader.readIntercompanyEliminationBatch({tenantId:reporting.tenantId,reportingEntityId:reporting.entityId,batchId:draft.intercompany_elimination_batch_id});assert.equal(stale.source_current,false);assert.equal(stale.consolidation_results.length,2);assert.ok(stale.consolidation_results.every(row=>row.report_status==='BLOCKED_STALE_INTERCOMPANY_ELIMINATION_SOURCE'&&row.member_actual_amount===null&&row.elimination_amount===null&&row.consolidated_amount===null));
 });
 
 pgTest('intercompany elimination migration 373 roundtrips only with no retained evidence and keeps its payload builder private',async()=>{
  const entry=MIGRATION_MANIFEST.find(row=>row.name==='373_intercompany_elimination_authoritative.sql'),strip=sql=>sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,''),up=await readFile(new URL('../db/migrations/373_intercompany_elimination_authoritative.sql',import.meta.url),'utf8'),down=await readFile(new URL('../db/migrations/down/373_intercompany_elimination_authoritative.sql',import.meta.url),'utf8');assert.ok(entry);assert.equal(createHash('sha256').update(up).digest('hex'),entry.up);assert.equal(createHash('sha256').update(down).digest('hex'),entry.down);
+ // Built forwards to '373_intercompany_elimination_authoritative.sql' so no barrier (down/401) sits between head and the migration under test.
+ await rebuildSchemaThrough(adminPool,'373_intercompany_elimination_authoritative.sql');
  const client=await adminPool.connect();try{await client.query('BEGIN');await client.query(strip(down));assert.equal((await client.query("SELECT to_regprocedure('refs_read_intercompany_elimination_batch(uuid,uuid,uuid)') fn")).rows[0].fn,null);await client.query(strip(up));const restored=(await client.query("SELECT to_regprocedure('refs_read_intercompany_elimination_batch(uuid,uuid,uuid)') read_fn,to_regprocedure('refs_intercompany_elimination_batch_payload(uuid,uuid,uuid)') payload_fn,has_function_privilege('refs_app','refs_intercompany_elimination_batch_payload(uuid,uuid,uuid)','EXECUTE') payload_public")).rows[0];assert.ok(restored.read_fn);assert.ok(restored.payload_fn);assert.equal(restored.payload_public,false);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });
 
@@ -6999,11 +7238,11 @@ pgTest('WBS TEST Bank retained checkpoint rejects changed chunk replay and resum
   assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM reconciliation WHERE tenant_id=$1) reconciliations,(SELECT count(*)::int FROM wbs_test_bank_import_receipt WHERE tenant_id=$1) imports",[ids.tenantId])).rows[0],{staged:201,bank:201,reconciliations:0,imports:1});
   const beforeDown=(await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage_final WHERE tenant_id=$1) finals",[ids.tenantId])).rows[0];
   await adminPool.query('TRUNCATE wbs_test_bank_adjustment_post_receipt,wbs_test_bank_import_receipt');
-  await migrateDownThrough(adminPool,'251_wbs_ai_approved_entity_period_settings_read.sql');
-  await assert.rejects(migrateDown(adminPool),error=>error.code==='55006'); // 250 refuses to discard the immutable checkpoint payload.
+  await assertDownRefuses(adminPool,'250_wbs_test_bank_checkpoint_integrity.sql','55006'); // 250 refuses to discard the immutable checkpoint payload.
   assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage_final WHERE tenant_id=$1) finals",[ids.tenantId])).rows[0],beforeDown);
-  await adminPool.query('TRUNCATE wbs_test_bank_import_stage_final,wbs_test_bank_import_stage_row,wbs_test_bank_import_stage_chunk,wbs_test_bank_import_stage');
-  await migrateDown(adminPool); // 250 after explicit test-fixture disposal.
+  // wbs_test_bank_import_receipt (276, emptied above) still references the stage, so it joins the truncate.
+  await adminPool.query('TRUNCATE wbs_test_bank_import_stage_final,wbs_test_bank_import_stage_row,wbs_test_bank_import_stage_chunk,wbs_test_bank_import_stage,wbs_test_bank_import_receipt');
+  await migrateDownThrough(adminPool,'250_wbs_test_bank_checkpoint_integrity.sql'); // 250 after explicit test-fixture disposal.
   // 185's retained-checkpoint guard correctly sees the explicit fixture
   // disposal above, so its down migration must now succeed.  Locate it by
   // immutable identity because unrelated migrations may exist above it.
@@ -7239,7 +7478,7 @@ pgTest('WBS H1 paged import replays retained Payables as human Drafts without le
 });
 
 pgTest('native sales receipt creates and posts without AR and rejects mismatched journal posting atomically',async()=>{
-  await migrateDownThrough(adminPool,'317_native_sales_receipt.sql');
+  await rebuildDownThrough(adminPool,'317_native_sales_receipt.sql');
   assert.equal((await adminPool.query('SELECT to_regclass($1) AS relation',['public.sales_receipt'])).rows[0].relation,null);
   await migrateUp(adminPool);
   const ids=await seed({status:'DRAFT',extraAccounts:[{accountCode:'400000',accountName:'Cash sale category'}]});
@@ -7369,8 +7608,22 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   assert.equal((await adminPool.query('SELECT sales_receipt_id FROM bank_match WHERE bank_match_id=$1',[matched.body.data.bank_match_id])).rows[0].sales_receipt_id,receipt.sales_receipt_id);
   await migrateUp(adminPool);
   assertSaleSource(await saleBankReader.getReconciliationWorksheetItem({...sourceWorksheetArgs,bankSourceId:saleBankId}));
+  // A signed-off reconciliation freezes its bank matches, so the unmatch-history proof runs first
+  // and the line is then matched again for the reconciliation below.
+  const saleUnmatcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'sale-bank-unmatcher',['BANK.MATCH.UNMATCH'])});
+  await saleUnmatcher.unmatchBankPayment({...ids,bankSourceId:saleBankId,bankMatchId:matched.body.data.bank_match_id,expectedMatchVersion:0,reason:'Verify cash sale unmatched source history',idempotencyKey:'sale-source-unmatch-001'});
+  const history=(await saleBankReader.listBankTransactions({...ids,bankAccountRef:'BANK-1'})).find(row=>row.bank_source_id===saleBankId);
+  assert.equal(history.match_status,'UNMATCHED');assertSaleSource(history);
+  const unmatchedWorksheet=await saleBankReader.getReconciliationWorksheetItem({...sourceWorksheetArgs,bankSourceId:saleBankId});
+  for(const field of ['match_source_kind','sales_receipt_id','sales_receipt_number','sales_receipt_revision','payment_occurrence_id','ledger_line_id'])assert.equal(unmatchedWorksheet[field],null);
+  const rematchRevision=(await bankCandidateApi({method:'GET',url:candidateUrl,headers:{}})).body.data.bank_revision;
+  const rematched=await bankCandidateApi({...matchRequest,headers:{'idempotency-key':'native-sale-bank-rematch-001','if-match':'"'+rematchRevision+'"'}});
+  assert.equal(rematched.status,201,JSON.stringify(rematched.body));
   // A second exact sales receipt proves the 400 reconciliation path end-to-end
   // without disturbing the earlier unmatch/read-history assertions.
+  // The worksheet fixture above is an open DRAFT on BANK-1, and 063 allows one open reconciliation
+  // per bank account; dispose of the fixture before the real reconciliation starts.
+  await adminPool.query('DELETE FROM reconciliation WHERE reconciliation_id=$1',[saleRecId]);
   const reconciliationReceipt=await send('sale-maker',url,{...body,number:'NATIVE-SALE-RECON-1'},'sale-reconciliation-create-001');
   assert.equal(reconciliationReceipt.status,201,JSON.stringify(reconciliationReceipt.body));
   const reconciledSale=reconciliationReceipt.body.data;
@@ -7396,21 +7649,21 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   await assert.rejects(reconciliationClearer.setReconciliationClearance({...ids,reconciliationId:reconciliationStarted.reconciliation_id,bankSourceId:reconciliationBankId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Non-exact sales receipt evidence must not clear',idempotencyKey:'sale-reconciliation-clear-tampered-001'}),error=>error.code==='23514');
   await adminPool.query('UPDATE bank_match SET amount_delta=0 WHERE bank_match_id=$1',[reconciliationMatch.body.data.bank_match_id]);
   const reconciliationCleared=await reconciliationClearer.setReconciliationClearance({...ids,reconciliationId:reconciliationStarted.reconciliation_id,bankSourceId:reconciliationBankId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Clear exact posted sales receipt evidence',idempotencyKey:'sale-reconciliation-clear-001'});
-  assert.equal(reconciliationCleared.revision,1);assert.equal(Number(reconciliationCleared.difference),0);
-  const reconciliationReviewed=await reconciliationReviewer.transitionReconciliation({...ids,reconciliationId:reconciliationStarted.reconciliation_id,action:'REVIEW',expectedVersion:1,reason:'Independent reviewer confirms sales receipt evidence',idempotencyKey:'sale-reconciliation-review-001'});
+  assert.equal(reconciliationCleared.revision,1);
+  // The statement through 2026-07-31 holds both cash sales on BANK-1 (book 2.4690), so the first
+  // sale's exactly matched line must be cleared too before the activity and book-to-bank ties hold.
+  const firstSaleBankVersion=Number((await adminPool.query('SELECT version FROM bank_source WHERE bank_source_id=$1',[saleBankId])).rows[0].version);
+  const firstSaleCleared=await reconciliationClearer.setReconciliationClearance({...ids,reconciliationId:reconciliationStarted.reconciliation_id,bankSourceId:saleBankId,expectedReconciliationVersion:1,expectedBankVersion:firstSaleBankVersion,clear:true,reason:'Clear the first exact posted sales receipt',idempotencyKey:'sale-reconciliation-clear-002'});
+  assert.equal(firstSaleCleared.revision,2);assert.equal(Number(firstSaleCleared.difference),0);
+  const reconciliationReviewed=await reconciliationReviewer.transitionReconciliation({...ids,reconciliationId:reconciliationStarted.reconciliation_id,action:'REVIEW',expectedVersion:2,reason:'Independent reviewer confirms sales receipt evidence',idempotencyKey:'sale-reconciliation-review-001'});
   assert.equal(reconciliationReviewed.status,'IN_REVIEW');
-  await assert.rejects(reconciliationReviewer.transitionReconciliation({...ids,reconciliationId:reconciliationStarted.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Reviewer cannot sign own sales receipt reconciliation',idempotencyKey:'sale-reconciliation-sign-denied-001'}),error=>error.code==='42501');
-  const reconciliationSigned=await reconciliationSigner.transitionReconciliation({...ids,reconciliationId:reconciliationStarted.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Independent signer completes sales receipt reconciliation',idempotencyKey:'sale-reconciliation-sign-001'});
+  await assert.rejects(reconciliationReviewer.transitionReconciliation({...ids,reconciliationId:reconciliationStarted.reconciliation_id,action:'SIGN_OFF',expectedVersion:3,reason:'Reviewer cannot sign own sales receipt reconciliation',idempotencyKey:'sale-reconciliation-sign-denied-001'}),error=>error.code==='42501');
+  const reconciliationSigned=await reconciliationSigner.transitionReconciliation({...ids,reconciliationId:reconciliationStarted.reconciliation_id,action:'SIGN_OFF',expectedVersion:3,reason:'Independent signer completes sales receipt reconciliation',idempotencyKey:'sale-reconciliation-sign-001'});
   assert.equal(reconciliationSigned.status,'RECONCILED');assert.match(reconciliationSigned.snapshot_hash,/^sha256:[0-9a-f]{64}$/);
-  assert.equal((await adminPool.query(`SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND object_id=$3 AND event_type IN ('RECONCILIATION_ITEM_CLEARED','RECONCILIATION_REVIEWED','RECONCILIATION_SIGNED_OFF')`,[ids.tenantId,ids.entityId,reconciliationStarted.reconciliation_id])).rows[0].n,3);
+  assert.equal((await adminPool.query(`SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND object_id=$3 AND event_type IN ('RECONCILIATION_ITEM_CLEARED','RECONCILIATION_REVIEW','RECONCILIATION_SIGN_OFF')`,[ids.tenantId,ids.entityId,reconciliationStarted.reconciliation_id])).rows[0].n,4);
   assert.equal((await adminPool.query(`SELECT count(*)::int n FROM reconciliation_item WHERE tenant_id=$1 AND entity_id=$2 AND reconciliation_id=$3 AND bank_source_id=$4 AND state='CLEARED'`,[ids.tenantId,ids.entityId,reconciliationStarted.reconciliation_id,reconciliationBankId])).rows[0].n,1);
-  const saleUnmatcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'sale-bank-unmatcher',['BANK.MATCH.UNMATCH'])});
-  await saleUnmatcher.unmatchBankPayment({...ids,bankSourceId:saleBankId,bankMatchId:matched.body.data.bank_match_id,expectedMatchVersion:0,reason:'Verify cash sale unmatched source history',idempotencyKey:'sale-source-unmatch-001'});
-  const history=(await saleBankReader.listBankTransactions({...ids,bankAccountRef:'BANK-1'})).find(row=>row.bank_source_id===saleBankId);
-  assert.equal(history.match_status,'UNMATCHED');assertSaleSource(history);
-  const unmatchedWorksheet=await saleBankReader.getReconciliationWorksheetItem({...sourceWorksheetArgs,bankSourceId:saleBankId});
-  for(const field of ['match_source_kind','sales_receipt_id','sales_receipt_number','sales_receipt_revision','payment_occurrence_id','ledger_line_id'])assert.equal(unmatchedWorksheet[field],null);
-  assert.deepEqual(await counts(),{sales:1,documents:0,allocations:0});
+  // Two receipts by now: the first sale and the one reconciled above; still no AR documents or allocations.
+  assert.deepEqual(await counts(),{sales:2,documents:0,allocations:0});
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type=ANY($2::text[])',[receipt.sales_receipt_id,['SALES_RECEIPT_DRAFT_CREATED','SALES_RECEIPT_POSTED']])).rows[0].n,2);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type=ANY($2::text[])',[receipt.sales_receipt_id,['SALES_RECEIPT_DRAFT_CREATED','SALES_RECEIPT_POSTED']])).rows[0].n,2);
   const replay=await send('sale-maker',url,body,'sale-concurrent-001');assert.equal(replay.status,200);assert.equal(replay.body.data.sales_receipt_id,receipt.sales_receipt_id);
@@ -7425,7 +7678,7 @@ pgTest('native sales receipt creates and posts without AR and rejects mismatched
   assert.equal((await adminPool.query('SELECT status FROM sales_receipt WHERE sales_receipt_id=$1',[badReceipt.sales_receipt_id])).rows[0].status,'DRAFT');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM outbox_event WHERE aggregate_id IN ($1,$2)',[badReceipt.sales_receipt_id,badReceipt.journal_entry_id])).rows[0].n,before);
   await assert.rejects(probeMigrationRoundTrip(adminPool,'320_sales_receipt_bank_evidence.sql','refs_read_sales_receipt_bank_candidates(uuid,uuid,uuid,uuid,integer)'),/Retained sales receipt bank match history prevents destructive rollback/);
-  assert.equal((await counts()).sales,2);
+  assert.equal((await counts()).sales,3); // first, reconciled, and the rejected tamper Draft
 });
 
 pgTest('recurring scheduler separates creation approval and due-run, creates one Draft, and never writes ledger',async()=>{
@@ -7931,9 +8184,11 @@ async function cloneAssetReadFixture(ids,baseId,suffix){
 pgTest('fixed asset snapshot serialization installation waits for the old source writer',async()=>{
  const name='346_fixed_asset_source_snapshot_serialization.sql',entry=MIGRATION_MANIFEST.find(r=>r.name===name),bodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql;}
  const start=MIGRATION_MANIFEST.findIndex(r=>r.name===name),tail=MIGRATION_MANIFEST.slice(start+1),tailBodies=new Map();for(const migration of tail)for(const direction of ['up','down'])tailBodies.set(`${direction}:${migration.name}`,await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+migration.name,import.meta.url),'utf8'));
+ // Built forwards to 346 so no barrier (down/401) sits between head and the migration under test.
+ await rebuildSchemaThrough(adminPool,name);
  // This focused case runs without asset bindings so a real downgrade is allowed.
- const ids=await seed({status:'DRAFT',attachmentStatus:'VERIFIED_CLEAN'}),trace=await attachAutoSource(ids,{linkJournal:false});
- const removed=[];for(const migration of [...tail].reverse()){await adminPool.query(tailBodies.get(`down:${migration.name}`));removed.push(migration);}
+ const ids=await seed({cashTransferControl:false,status:'DRAFT',attachmentStatus:'VERIFIED_CLEAN'}),trace=await attachAutoSource(ids,{linkJournal:false});
+ const removed=[];
  await adminPool.query(bodies.down);
  const writer=await adminPool.connect(),migration=await adminPool.connect();let installation=null,baseRestored=false;
  try{
@@ -7953,8 +8208,10 @@ pgTest('fixed asset source consumption migration restores empty history function
  const name='345_fixed_asset_source_consumption.sql',entry=MIGRATION_MANIFEST.find(r=>r.name===name),bodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
  const nextName='346_fixed_asset_source_snapshot_serialization.sql',nextEntry=MIGRATION_MANIFEST.find(r=>r.name===nextName),nextBodies={};for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+nextName,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),nextEntry[direction]);nextBodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
  const nextIndex=MIGRATION_MANIFEST.findIndex(r=>r.name===nextName),tail=MIGRATION_MANIFEST.slice(nextIndex+1),tailBodies=new Map();for(const migration of tail)for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+migration.name,import.meta.url),'utf8');tailBodies.set(`${direction}:${migration.name}`,sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,''));}
+ // Built forwards to 346 so no barrier (down/401) sits between head and the migration under test.
+ await rebuildSchemaThrough(adminPool,nextName);
  const client=await adminPool.connect();const definition=async()=> (await client.query("SELECT pg_get_functiondef(oid) body FROM pg_proc WHERE proname='refs_create_fixed_asset_acquisition'")).rows[0].body;
- try{await client.query('BEGIN');const current=await definition();for(const migration of [...tail].reverse())await client.query(tailBodies.get(`down:${migration.name}`));await client.query(nextBodies.down);const before=await definition();assert.notEqual(before,current);await client.query(bodies.down);assert.notEqual(await definition(),before);await client.query(bodies.up);assert.equal(await definition(),before);await client.query(nextBodies.up);for(const migration of tail)await client.query(tailBodies.get(`up:${migration.name}`));assert.equal(await definition(),current);assert.equal((await client.query("SELECT has_function_privilege('refs_app','refs_serialize_asset_source(uuid,uuid,uuid)','EXECUTE') allowed")).rows[0].allowed,false);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+ try{await client.query('BEGIN');const current=await definition();await client.query(nextBodies.down);const before=await definition();assert.notEqual(before,current);await client.query(bodies.down);assert.notEqual(await definition(),before);await client.query(bodies.up);assert.equal(await definition(),before);await client.query(nextBodies.up);assert.equal(await definition(),current);assert.equal((await client.query("SELECT has_function_privilege('refs_app','refs_serialize_asset_source(uuid,uuid,uuid)','EXECUTE') allowed")).rows[0].allowed,false);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });
 
 pgTest('fixed asset mandatory acquisition migration roundtrips before retaining bindings',async()=>{
@@ -8104,7 +8361,11 @@ async function exerciseFixedAssetLedger(assessmentAfterDisposal=false,impairment
    assert.equal(movements.length,includeImpairmentReversal?11:8);assert.equal(new Set(movements.map(item=>item.ledger_line_id)).size,movements.length);
 
    const analysisReader=await formalWorkflowRoleKernel(ids,'asset-analysis-json-reader','AI_CONTROLLER_REVIEWER');
-   for(const method of ['getAiFixedAssetPostedReconciliation',...(impairmentPosted?['getAiFixedAssetImpairmentAssessments','getAiFixedAssetImpairmentPostedReconciliation']:[])]){
+   // 372: once an impairment is recorded, the depreciation reconciliation needs a reviewed
+   // post-impairment policy to know the revised expectation; this fixture has none, so that read
+   // fails closed instead of reporting an invented schedule. The impairment reads still populate.
+   if(impairmentPosted)await assert.rejects(analysisReader.getAiFixedAssetPostedReconciliation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId}),e=>e.code==='23514'&&/post-impairment depreciation policy is invalid/.test(e.message));
+   for(const method of [...(impairmentPosted?[]:['getAiFixedAssetPostedReconciliation']),...(impairmentPosted?['getAiFixedAssetImpairmentAssessments','getAiFixedAssetImpairmentPostedReconciliation']:[])]){
     const analysisRows=await analysisReader[method]({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId});assert.ok(analysisRows.length>0,method+' must exercise a populated JSON result');
     for(const evidence of analysisRows){assert.equal(evidence.fixed_asset_register_evidence_id,receipt.fixed_asset_register_evidence_id,method);assert.equal(evidence.period_id,ids.periodId,method);assert.ok(Object.keys(evidence).every(key=>!key.startsWith('refs_read_')),method+' must expose evidence rather than a driver column wrapper');}
    }
@@ -8370,8 +8631,10 @@ pgTest('fixed asset posting audit identity migration roundtrips exact posting pr
  const name='340_fixed_asset_posting_audit_identity.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};assert.ok(entry);
  for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
  const start=MIGRATION_MANIFEST.findIndex(row=>row.name===name),tail=MIGRATION_MANIFEST.slice(start+1),tailBodies=new Map();for(const migration of tail)for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+migration.name,import.meta.url),'utf8');tailBodies.set(`${direction}:${migration.name}`,sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,''));}
+ // Built forwards to name so no barrier (down/401) sits between head and the migration under test.
+ await rebuildSchemaThrough(adminPool,name);
  const client=await adminPool.connect();const definition="SELECT pg_get_functiondef('refs_read_fixed_asset_movements(uuid,uuid,uuid,date,integer,text)'::regprocedure) body";
- try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0].body;assert.match(before,/a.actor_id=l.posted_by/);for(const migration of [...tail].reverse())await client.query(tailBodies.get(`down:${migration.name}`));await client.query(bodies.down);const prior=(await client.query(definition)).rows[0].body;assert.doesNotMatch(prior,/a.actor_id=l.posted_by|a.permission_used='GL.JE.POST'/);await client.query(bodies.up);for(const migration of tail)await client.query(tailBodies.get(`up:${migration.name}`));assert.equal((await client.query(definition)).rows[0].body,before);assert.equal((await client.query("SELECT has_function_privilege('refs_app','refs_read_fixed_asset_movements(uuid,uuid,uuid,date,integer,text)','EXECUTE') allowed")).rows[0].allowed,true);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+ try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0].body;assert.match(before,/a.actor_id=l.posted_by/);await client.query(bodies.down);const prior=(await client.query(definition)).rows[0].body;assert.doesNotMatch(prior,/a.actor_id=l.posted_by|a.permission_used='GL.JE.POST'/);await client.query(bodies.up);assert.equal((await client.query(definition)).rows[0].body,before);assert.equal((await client.query("SELECT has_function_privilege('refs_app','refs_read_fixed_asset_movements(uuid,uuid,uuid,date,integer,text)','EXECUTE') allowed")).rows[0].allowed,true);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });
 
 async function assertAcquisitionPostRolledBack(ids,journalId,key){
@@ -8425,7 +8688,7 @@ pgTest('native fixed asset original source rejects missing capture and classific
   const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1',options);
   await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'original-negative-fixture')",[ids.tenantId,ids.entityId,trace.documentId,ids.attachmentId]);
   const maker=await formalWorkflowRoleKernel(ids,'original-negative-maker','FIXED_ASSET_ACQUISITION_MAKER');
-  const counts=async()=>{const result={};for(const table of ['journal_entry','journal_line','ledger_line','source_link','fixed_asset_acquisition_binding','fixed_asset_original_source_binding','idempotency_receipt','audit_event','outbox_event'])result[table]=(await adminPool.query('SELECT count(*)::int n FROM '+table+' WHERE tenant_id=$1'+(table==='audit_event'?" AND event_type<>'RUNTIME_CONTEXT_ISSUED'":''),[ids.tenantId])).rows[0].n;return result;};
+  const counts=async()=>{const result={};for(const table of ['journal_entry','journal_line','ledger_line','source_link','fixed_asset_acquisition_binding','fixed_asset_original_source_binding','idempotency_receipt','audit_event','outbox_event'])result[table]=(await adminPool.query('SELECT count(*)::int n FROM '+table+' WHERE tenant_id=$1'+(table==='audit_event'?" AND event_type NOT IN ('RUNTIME_CONTEXT_ISSUED','RUNTIME_CONTEXT_REVOKED')":''),[ids.tenantId])).rows[0].n;return result;};
   const before=await counts();
   await assert.rejects(maker.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'ORIGINAL-NEGATIVE',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Verify missing or mismatched original source rejection.',idempotencyKey:'original-negative-draft'}),e=>e.code===expected);
   assert.deepEqual(await counts(),before);
@@ -8481,7 +8744,7 @@ pgTest('fixed asset acquisition options read exact source attachments without bu
  const {ids,trace,receipt}=await reviewedFixedAssetFixture('VENDOR-1');
  const maker=await formalWorkflowRoleKernel(ids,'acquisition-options-maker','FIXED_ASSET_ACQUISITION_MAKER'),reviewer=await formalWorkflowRoleKernel(ids,'acquisition-options-reviewer','JE_REVIEWER');
  const args={tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id};
- const counts=async()=>(await adminPool.query(`SELECT (SELECT count(*) FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*) FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*) FROM idempotency_receipt WHERE tenant_id=$1) receipts,(SELECT count(*) FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') audits,(SELECT count(*) FROM outbox_event WHERE tenant_id=$1) outbox`,[ids.tenantId])).rows[0];
+ const counts=async()=>(await adminPool.query(`SELECT (SELECT count(*) FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*) FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*) FROM idempotency_receipt WHERE tenant_id=$1) receipts,(SELECT count(*) FROM audit_event WHERE tenant_id=$1 AND event_type NOT IN ('RUNTIME_CONTEXT_ISSUED','RUNTIME_CONTEXT_REVOKED')) audits,(SELECT count(*) FROM outbox_event WHERE tenant_id=$1) outbox`,[ids.tenantId])).rows[0];
  const before=await counts(),missing=await maker.readFixedAssetAcquisitionOptions(args);
  assert.equal(missing.attachment_status,'MISSING');assert.deepEqual(missing.attachments,[]);assert.equal(missing.source.source_document_id,trace.documentId);assert.equal(missing.source.source_document_version,1);assert.equal(missing.requires_command_validation,true);assert.equal(missing.acquisition_posted,false);assert.equal(missing.cost_basis,'25000.0000');assert.match(missing.original_evidence.evidence_hash,/^sha256:[a-f0-9]{64}$/);
  await assert.rejects(reviewer.readFixedAssetAcquisitionOptions(args),error=>error.code==='42501');
@@ -8752,7 +9015,7 @@ pgTest('fixed asset attachment identity normalizes lines and rejects ambiguous r
  const maker=await formalWorkflowRoleKernel(ids,'attachment-identity-maker','FIXED_ASSET_ACQUISITION_MAKER');
  // Auth context issuance has its own committed security audit; business audit
  // and every financial artifact must still roll back with the rejected command.
- const counts=async()=>{const result={};for(const table of ['journal_entry','journal_line','audit_event','outbox_event','idempotency_receipt','fixed_asset_acquisition_binding','source_link'])result[table]=(await adminPool.query('SELECT count(*)::int n FROM '+table+' WHERE tenant_id=$1'+(table==='audit_event'?" AND event_type<>'RUNTIME_CONTEXT_ISSUED'":''),[ids.tenantId])).rows[0].n;return result;};
+ const counts=async()=>{const result={};for(const table of ['journal_entry','journal_line','audit_event','outbox_event','idempotency_receipt','fixed_asset_acquisition_binding','source_link'])result[table]=(await adminPool.query('SELECT count(*)::int n FROM '+table+' WHERE tenant_id=$1'+(table==='audit_event'?" AND event_type NOT IN ('RUNTIME_CONTEXT_ISSUED','RUNTIME_CONTEXT_REVOKED')":''),[ids.tenantId])).rows[0].n;return result;};
  const before=await counts();
  await assert.rejects(maker.createFixedAssetAcquisition({tenantId:ids.tenantId,entityId:ids.entityId,assetId:receipt.fixed_asset_register_evidence_id,periodId:ids.periodId,journalNumber:'AMBIGUOUS-ATTACHMENT',journalDate:'2026-07-02',expectedSourceVersion:1,attachmentIds:[ids.attachmentId],reason:'Reject historical ambiguous attachment identity atomically.',idempotencyKey:'ambiguous-attachment-create'}),e=>e.code==='55006');
  assert.deepEqual(await counts(),before);
@@ -8985,6 +9248,8 @@ pgTest('post-impairment depreciation policy migration roundtrips only without re
 pgTest('fixed asset depreciation schedule boundary migration restores the previous function and roundtrips',async()=>{
  const name='353_fixed_asset_depreciation_schedule_boundary.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
  for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ // Built forwards to name so no barrier (down/401) sits between head and the migration under test.
+ await rebuildSchemaThrough(adminPool,name);
  const client=await adminPool.connect(),definition="SELECT pg_get_functiondef('refs_read_ai_fixed_asset_depreciation_source(uuid,uuid,uuid)'::regprocedure) body";
  try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0].body;await client.query(bodies.down);const old=(await client.query(definition)).rows[0].body;assert.match(old,/least\(r.useful_life_months/);assert.notEqual(old,before);await client.query(bodies.up);assert.equal((await client.query(definition)).rows[0].body,before);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });
@@ -9013,6 +9278,8 @@ pgTest('asset acquisition requires its dedicated maker permission before any dra
 pgTest('asset acquisition dedicated permission migration restores prior functions without deleting permission history',async()=>{
  const name='356_fixed_asset_acquisition_draft_permission.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
  for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ // Built forwards to name so no barrier (down/401) sits between head and the migration under test.
+ await rebuildSchemaThrough(adminPool,name);
  const client=await adminPool.connect(),definition="SELECT pg_get_functiondef('refs_create_fixed_asset_acquisition(uuid,uuid,uuid,uuid,text,date,bigint,uuid[],text,text,text)'::regprocedure) create_body,pg_get_functiondef('refs_read_fixed_asset_acquisition_options(uuid,uuid,uuid)'::regprocedure) options_body";
  try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0];await client.query(bodies.down);const prior=(await client.query(definition)).rows[0];for(const field of ['create_body','options_body']){assert.match(before[field],/FIXED_ASSET\.ACQUISITION\.DRAFT/);assert.doesNotMatch(prior[field],/FIXED_ASSET\.ACQUISITION\.DRAFT/);assert.match(prior[field],/GL\.JE\.CREATE/);}const retained=await client.query("SELECT active FROM permission_catalog WHERE permission_code='FIXED_ASSET.ACQUISITION.DRAFT'");assert.equal(retained.rows.length,1);assert.equal(retained.rows[0].active,false);await client.query(bodies.up);assert.deepEqual((await client.query(definition)).rows[0],before);assert.equal((await client.query("SELECT active FROM permission_catalog WHERE permission_code='FIXED_ASSET.ACQUISITION.DRAFT'")).rows[0].active,true);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });
@@ -9020,6 +9287,8 @@ pgTest('asset acquisition dedicated permission migration restores prior function
 pgTest('fixed asset depreciation reconciliation boundary migration restores the previous function and roundtrips',async()=>{
  const name='354_fixed_asset_depreciation_reconciliation_boundary.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
  for(const direction of ['up','down']){const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');}
+ // Built forwards to name so no barrier (down/401) sits between head and the migration under test.
+ await rebuildSchemaThrough(adminPool,name);
  const client=await adminPool.connect(),definition="SELECT pg_get_functiondef('refs_read_ai_fixed_asset_posted_reconciliation(uuid,uuid,uuid)'::regprocedure) body";
  try{await client.query('BEGIN');const before=(await client.query(definition)).rows[0].body;await client.query(bodies.down);const old=(await client.query(definition)).rows[0].body;assert.match(old,/least\(r.useful_life_months/);assert.notEqual(old,before);await client.query(bodies.up);assert.equal((await client.query(definition)).rows[0].body,before);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });

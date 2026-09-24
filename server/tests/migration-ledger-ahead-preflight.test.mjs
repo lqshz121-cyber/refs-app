@@ -12,6 +12,11 @@ import assert from 'node:assert/strict';
 import {readdir} from 'node:fs/promises';
 import {migrateUp} from '../runtime/migrations.mjs';
 import {safeMigrationErrorCode} from '../runtime/migration-observability.mjs';
+import {runtimeConfig} from '../runtime/config.mjs';
+
+// The fake reports whatever database MIGRATION_DATABASE_URL names, so the test holds with or without
+// a real database configured in the environment.
+const configuredDatabase=decodeURIComponent(new URL(runtimeConfig().migrationDatabaseUrl).pathname.slice(1));
 
 const upDir=new URL('../db/migrations/',import.meta.url);
 
@@ -20,7 +25,7 @@ function fakePool(ledgerRows){
   const client={
     async query(text,params){
       const sql=String(text);queries.push({sql,params});
-      if(sql.startsWith('SELECT current_database()'))return {rows:[{database_name:'refs_kernel_test',current_user:'refs_migrator',session_user:'refs_migrator'}],rowCount:1};
+      if(sql.startsWith('SELECT current_database()'))return {rows:[{database_name:configuredDatabase,current_user:'refs_migrator',session_user:'refs_migrator'}],rowCount:1};
       if(sql.startsWith("SELECT current_setting('statement_timeout')"))return {rows:[{statement_timeout:'10s',lock_timeout:'5s'}],rowCount:1};
       if(sql.includes('FROM refs_schema_migration ORDER BY migration_name'))return {rows:ledgerRows,rowCount:ledgerRows.length};
       if(sql.includes('FROM refs_schema_migration WHERE migration_name=$1')){const row=ledgerRows.find(r=>r.migration_name===params[0]);return row?{rows:[{checksum:row.checksum}],rowCount:1}:{rows:[],rowCount:0};}
