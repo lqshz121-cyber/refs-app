@@ -229,14 +229,13 @@ pgTest('R04-2: an AR invoice has no void and no cancel object anywhere, so AR_IN
   assert.deepEqual(writers.map(w=>w.proname),['refs_apply_ap_ar_posted_adjustment'],'exactly one routine can set business_document.status=VOID');
   assert.match(writers[0].src,/AP_BILL_VOID/,'and it only does so for an AP_BILL_VOID adjustment');
 
-  // (e) the consequence, read out of the shipped reconciliation view: the AP
-  //     open-document leg excludes VOID, the AR leg has no such filter because
-  //     an AR document can never be VOID.
+  // (e) read out of the shipped reconciliation view: since 437 (D-R03-1) the subledger side counts
+  //     only posted documents and excludes VOID/REVERSED for both kinds in one WHERE, so the R04 gap
+  //     (an AR void would have double-counted) is closed at the view as well.
   const viewdef=(await admin.query("SELECT pg_get_viewdef('refs_ap_ar_control_reconciliation'::regclass,true) d")).rows[0].d;
-  assert.match(viewdef,/'AP_BILL'::text AND business_document\.status <> 'VOID'::text/,'the AP open-document leg excludes voided bills');
-  assert.match(viewdef,/FILTER \(WHERE business_document\.document_kind = 'AR_INVOICE'::text\)/,'the AR open-document leg is filtered on kind only');
-  assert.ok(!/'AR_INVOICE'::text AND business_document\.status <> 'VOID'::text/.test(viewdef),
-    'R04 GAP: the AR leg carries no VOID exclusion, so introducing an AR void later silently double-counts unless this view changes too');
+  assert.match(viewdef,/business_document\.posted_journal_entry_id IS NOT NULL AND \(business_document\.status <> ALL \(ARRAY\['DRAFT'::text, 'PENDING_POST'::text, 'VOID'::text, 'REVERSED'::text\]\)\)/,
+    'both open-document legs count posted, non-void, non-reversed documents only');
+  assert.match(viewdef,/FILTER \(WHERE business_document\.document_kind = 'AR_INVOICE'::text\)/,'the AR leg is split from the AP leg by kind');
 
   // (f) behaviourally, in this same database: an AP bill created and posted the
   //     same way CAN be voided, so the AR gap is a real asymmetry rather than a

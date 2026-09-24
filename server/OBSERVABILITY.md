@@ -8,7 +8,7 @@ does not know fails the suite, and so does a catalogued event nothing emits.
 
 Database-derived metrics (`DB_METRICS`) are read-only SELECTs for a scraper on
 the runtime login. The ones that page immediately are accounting controls, not
-infrastructure: `posted_into_closed_period > 0`, `ap_control_out_of_balance > 0`,
+infrastructure: `posted_into_closed_period > 0`, `ap_ar_control_out_of_balance > 0`,
 `outbox_failed > 0 for 15 min`, `migration_ledger_hash != release manifest`.
 
 Known gaps (`MISSING_EVENTS`): no access log with request id / latency, no event

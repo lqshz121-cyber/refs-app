@@ -39,7 +39,13 @@ export const EVENT_CATALOG=Object.freeze([
   {event:'outbox_dispatch_unhealthy',level:'error',fields:['reason'],alert:'2 consecutive -> page'},
   {event:'outbox_dispatch_cycle_timeout',level:'error',fields:['cycleTimeoutMs','scopeCount'],alert:'any -> dispatch stalled on a claim/publish/completion, check database locks and the publisher; repeats -> page'},
   {event:'outbox_dispatch_stop_timeout',level:'error',fields:['stopTimeoutMs','scopeCount'],alert:'any -> shutdown abandoned a hung cycle, leases stay held until they expire; page if it repeats on every deploy'},
-  {event:'attachment_cleanup_scope_failed',level:'error',fields:['scope','code'],alert:'any -> orphaned objects accumulate; retention breach risk'}
+  {event:'attachment_cleanup_scope_failed',level:'error',fields:['scope','code'],alert:'any -> orphaned objects accumulate; retention breach risk'},
+  // Release-tooling events (R05/R07/R10): emitted by CLI verifiers, not by long-running services.
+  {event:'function_catalog_exported',level:'info',fields:['path','function_count','migration_head'],alert:'migration_head differs from the release manifest head -> catalog was exported from the wrong schema, regenerate'},
+  {event:'function_catalog_export_failed',level:'error',fields:['code'],alert:'any -> release evidence incomplete'},
+  {event:'migration_idempotency_verified',level:'info',fields:['ok','skipped','completed'],alert:'ok=false or completed>0 -> a second db:up changed the schema, block release'},
+  {event:'migration_idempotency_error',level:'error',fields:['code'],alert:'any -> idempotency unproven, block release'},
+  {event:'release_pack_error',level:'error',fields:[],alert:'any -> staging release pack could not be evaluated, deployment is unverified'}
 ]);
 
 // Metrics derived from the database, not from logs. Each is a single SQL the
@@ -51,7 +57,9 @@ export const DB_METRICS=Object.freeze([
   {metric:'live_unbound_contexts',sql:"SELECT count(*) FROM runtime_auth_context WHERE bound_backend_pid IS NULL AND revoked_at IS NULL AND expires_at>clock_timestamp()",threshold:'> 100 -> warn (retry leak, see T06)'},
   {metric:'approved_unposted_journals',sql:"SELECT count(*) FROM journal_entry WHERE status='APPROVED'",threshold:'> 50 for 24h -> warn (posting backlog blocks period close)'},
   {metric:'posted_into_closed_period',sql:"SELECT count(*) FROM journal_entry j JOIN accounting_period p ON p.period_id=j.period_id WHERE j.status='POSTED' AND p.status<>'OPEN' AND j.posted_at>p.closed_at",threshold:'> 0 -> page; accounting control breach'},
-  {metric:'ap_control_out_of_balance',sql:"SELECT count(*) FROM refs_ap_ar_control_reconciliation WHERE NOT in_balance",threshold:'> 0 -> page; subledger != GL'},
+  // R06: the view exposes ap_in_balance and ar_in_balance (no `in_balance` column); the previous SQL
+  // would have errored on first use. Since 437 only posted documents count, so a break here is real.
+  {metric:'ap_ar_control_out_of_balance',sql:"SELECT count(*) FROM refs_ap_ar_control_reconciliation WHERE NOT ap_in_balance OR NOT ar_in_balance",threshold:'> 0 -> page; posted subledger != GL control (291001/120200)'},
   {metric:'attachments_pending_scan_old',sql:"SELECT count(*) FROM attachment WHERE finalization_status='PENDING' AND uploaded_at<now()-interval '1 hour'",threshold:'> 0 -> warn (scanner stalled)'},
   {metric:'migration_ledger_hash',sql:"SELECT encode(sha256(convert_to(string_agg(migration_name||':'||checksum,',' ORDER BY migration_name),'UTF8')),'hex') FROM refs_schema_migration",threshold:'differs from release manifest -> page'}
 ]);

@@ -1,6 +1,6 @@
 {
   "schema_version": "REFS_TABLE_CENSUS_V1",
-  "migration_head": "436_restore_reducer_catalog_patches.sql",
+  "migration_head": "438_wbs_h1_reclass_placeholder_debit_identity.sql",
   "table_count": 249,
   "tables": [
     {

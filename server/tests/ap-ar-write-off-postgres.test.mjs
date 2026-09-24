@@ -136,6 +136,18 @@ pgTest('X02-1: a partial AP write-off moves the subledger and the ledger by the 
   assert.equal(after.ap_open_balance,'700.0000','documents side moved');
   assert.equal(after.ap_control_balance,'700.0000','ledger side moved by the same amount');
   assert.equal(after.ap_in_balance,true,'THE POINT: a write-off must not break the control reconciliation');
+
+  // R06: the period-scoped read (166, refs_ap_ar_period_control_lineage) is what the UI shows when a
+  // period is selected. It recomputes each document from gross minus posted allocations rather than
+  // reading open_balance, so it must independently agree -- the write-off's allocation is what it
+  // subtracts, and the lineage must name the write-off journal on the ledger side.
+  const period=await kernelFor(ids,'viewer').getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
+  assert.equal(period.length,1,'one currency');
+  assert.equal(String(period[0].open_balance),'700.0000','period lineage: document side net of the write-off allocation');
+  assert.equal(String(period[0].control_balance),'700.0000','period lineage: ledger side');
+  assert.equal(period[0].in_balance,true);
+  assert.deepEqual(period[0].business_document_ids,[billId]);
+  assert.ok(period[0].journal_entry_ids.includes(draft.journal_entry_id),'the write-off journal is part of the control-account lineage');
 });
 
 pgTest('X02-2: writing off the remainder closes the document and leaves both sides at zero',async()=>{

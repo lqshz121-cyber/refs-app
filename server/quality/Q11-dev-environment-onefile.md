@@ -44,9 +44,9 @@ cd server && npm ci
 
 # 3. 启动 Embedded PG（开发模式）
 export EMBEDDED_PG_DIR=/tmp/pg16v
-export DATABASE_URL="postgres://refs_app:refs_app@localhost:5432/refs"
-export MIGRATION_DATABASE_URL="postgres://refs_migrator:refs_migrator@localhost:5432/refs"
-export CONTEXT_ISSUER_DATABASE_URL="postgres://refs_issuer:refs_issuer@localhost:5432/refs"
+export DATABASE_URL="postgres://refs_app:<password>@localhost:5432/refs"
+export MIGRATION_DATABASE_URL="postgres://refs_migrator:<password>@localhost:5432/refs"
+export CONTEXT_ISSUER_DATABASE_URL="postgres://refs_issuer:<password>@localhost:5432/refs"
 
 # 4. 运行迁移
 node runtime/migrations.mjs up

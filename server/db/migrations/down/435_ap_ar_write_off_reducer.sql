@@ -1,21 +1,30 @@
 BEGIN;
 
--- Restore the 010 reducer exactly: the write-off branch is removed, the AP_BILL_VOID and
--- AP_VENDOR_CREDIT branches are byte-for-byte what 010 installed.
+-- Restore the reducer exactly as it stood before 435: the 010 body plus the in-place amendments
+-- 028 and 423 made to the installed function (pg_get_functiondef of a database migrated to 434).
+--
+-- R07 follow-up (2026-09-24): this down originally restored the bare 010 body. That silently
+-- dropped the 028/423 amendments on the way down -- the same stale-base defect 436 fixes on the
+-- way up -- and made every later down in the chain (down/423 first) fail with "expected text not
+-- found", which broke the migration round-trip tests in postgres-kernel.test.mjs.
 --
 -- This down is safe to run even when write-off rows exist: removing the branch only stops NEW
 -- write-off Drafts from activating. Retained evidence is protected by down/434, which refuses
 -- while any write-off adjustment exists.
 
-CREATE OR REPLACE FUNCTION refs_apply_ap_ar_posted_adjustment() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+CREATE OR REPLACE FUNCTION public.refs_apply_ap_ar_posted_adjustment()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public', 'pg_temp'
+AS $function$
 DECLARE adj business_adjustment; bill business_document; pending_total numeric(20,4); impacted bigint; event_payload jsonb;
 BEGIN
   IF TG_OP<>'UPDATE' OR NEW.status<>'POSTED' OR OLD.status='POSTED' THEN RETURN NEW; END IF;
   SELECT * INTO adj FROM business_adjustment
     WHERE tenant_id=NEW.tenant_id AND entity_id=NEW.entity_id AND draft_journal_entry_id=NEW.journal_entry_id
     FOR UPDATE;
-  IF NOT FOUND THEN RETURN NEW; END IF;
+  IF NOT FOUND OR adj.adjustment_kind NOT IN ('AP_BILL_VOID','AP_VENDOR_CREDIT','AR_CREDIT_MEMO','AR_REFUND') THEN RETURN NEW; END IF;
   IF adj.status IN ('POSTED','CANCELLED','REJECTED') THEN
     RAISE EXCEPTION 'Business adjustment cannot be posted from current state' USING ERRCODE='23514';
   END IF;
@@ -24,7 +33,7 @@ BEGIN
     SELECT * INTO bill FROM business_document
       WHERE tenant_id=NEW.tenant_id AND entity_id=NEW.entity_id AND business_document_id=adj.business_document_id
       FOR UPDATE;
-    IF NOT FOUND OR bill.document_kind<>'AP_BILL' OR bill.status<>'APPROVED' OR bill.open_balance<>bill.gross_amount OR bill.currency<>adj.currency THEN
+    IF NOT FOUND OR bill.document_kind<>'AP_BILL' OR bill.status NOT IN ('APPROVED','OPEN') OR bill.open_balance<>bill.gross_amount OR bill.currency<>adj.currency THEN
       RAISE EXCEPTION 'AP bill void can only post against a fully-open AP bill' USING ERRCODE='23514';
     END IF;
     IF EXISTS (
@@ -99,7 +108,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$;
+$function$;
 
 REVOKE EXECUTE ON FUNCTION refs_apply_ap_ar_posted_adjustment() FROM PUBLIC;
 

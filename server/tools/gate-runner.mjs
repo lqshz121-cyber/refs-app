@@ -29,7 +29,7 @@
 
 import {spawn} from 'node:child_process';
 import {readFileSync, writeFileSync, mkdirSync, existsSync} from 'node:fs';
-import {dirname, join, relative} from 'node:path';
+import {dirname, join, relative, resolve as resolvePath} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import pg from 'pg';
 import {parseTap, classifyFailure} from './test-shard-runner.mjs';
@@ -76,7 +76,7 @@ function parseArgs(argv){
     else if(a==='--per-file')opts.perFile=true;
     else if(a==='--keep')opts.keep=true;
     else if(a==='--timeout')opts.timeoutSec=Number(argv[++i]);
-    else if(a==='--out')opts.out=join(process.cwd(),argv[++i]);
+    else if(a==='--out')opts.out=resolvePath(process.cwd(),argv[++i]);
     else throw new Error(`unknown argument ${a}`);
   }
   if(!(opts.timeoutSec>0))throw new Error('--timeout must be a positive number of seconds');

@@ -8,6 +8,7 @@ permissions:
   contents: read
 jobs:
   isolated-consumer:
+    name: isolated-consumer
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {posix} from 'node:path';
 
 const packageJson=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
 const serverPackageJson=JSON.parse(await readFile(new URL('../server/package.json',import.meta.url),'utf8'));
@@ -18,7 +19,8 @@ function untrackedScriptSources(scripts,prefix,tracked){
         continue;
       }
       if(token.startsWith('-')||! /\.(?:mjs|cjs|jsx|js)$/.test(token))continue;
-      const path=prefix+token.replace(/^\.\//,'');
+      // server scripts may reach repo-root tools as ../tools/x.mjs; resolve that against the prefix.
+      const path=posix.normalize(prefix+token.replace(/^\.\//,''));
       if(!tracked.has(path)&&!generated.has(path))missing.push(`${name}: ${path}`);
     }
   }
@@ -57,6 +59,9 @@ test('the reachable audit mutation harness uses the cross-platform esbuild API, 
 // an operator-run release target. Adding a name here is a deliberate, reviewable decision;
 // forgetting to wire a plain Node suite is not.
 const INFRASTRUCTURE_BOUND_SERVER_SUITES=Object.freeze([
+  'test:shard', // Runner, not a suite: re-runs the aggregate in resumable shards.
+  'test:shard:resume',
+  'test:shard:summary',
   'test:fixed-asset-acquisition-browser:e2e', // Requires owned Docker PostgreSQL and installed Chromium/Playwright.
   'test:fixed-asset-browser:e2e', // Requires owned Docker PostgreSQL and installed Chromium/Playwright.
   'test:attachments:containers',

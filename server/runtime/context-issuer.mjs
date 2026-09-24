@@ -27,7 +27,11 @@ export class PostgresContextIssuer{
 
   async revoke({contextToken,reason}){
     if(typeof contextToken!=='string'||contextToken.length<32)throw new KernelError('CONTEXT_TOKEN_REQUIRED','A context token is required');
-    return withTransaction(this.pool,async client=>requireRow(await client.query(
+    // R04 follow-up: revokes run in the same contention window as the attempts that failed (16-way
+    // bootstraps under SERIALIZABLE), so a single-shot revoke can itself abort with 40001 -- and the
+    // kernel swallows revoke errors by design, which left one live unbound capability behind in
+    // roughly 1 of 14 gate runs. Retry it like issue(); refs_revoke_context is idempotent.
+    return withSerializableRetry(this.pool,async client=>requireRow(await client.query(
       'SELECT refs_revoke_context($1,$2) AS revoked',[tokenHash(contextToken),reason||'Revoked by authenticated service']
     ),'CONTEXT_REVOKE_FAILED','Context revoke did not return a result').revoked);
   }

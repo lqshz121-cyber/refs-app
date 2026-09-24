@@ -282,14 +282,14 @@ pgTest('R03-4: business_document status reachability census — PENDING_POST has
     'exactly these readers exclude the non-aged statuses; a new aged reader must be added here on purpose');
 });
 
-pgTest('R03-5: the AP write-off is not implemented anywhere — pinned as a gap, not assumed',async()=>{
-  const fns=(await admin.query(`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname ~* 'write.?off'`)).rows;
-  assert.deepEqual(fns,[],'R03 GAP: there is no AP write-off routine in the database');
+pgTest('R03-5: the AP write-off gap is closed by 434/435 -- one creator, one hash helper, a dedicated kind',async()=>{
+  // R03 pinned the absence of an AP write-off. 434 (routine + kind) and 435 (reducer) closed it; the
+  // behaviour is covered by ap-ar-write-off-postgres.test.mjs. Pin the shape here so a second
+  // write-off path cannot appear unnoticed.
+  const fns=(await admin.query(`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname ~* 'write.?off' ORDER BY 1`)).rows.map(r=>r.proname);
+  assert.deepEqual(fns,['refs_ap_ar_write_off_hash','refs_create_ap_ar_write_off'],'exactly the 434 write-off routines exist');
   const kinds=(await admin.query(`SELECT pg_get_constraintdef(oid) d FROM pg_constraint WHERE conrelid='business_adjustment'::regclass AND contype='c' AND pg_get_constraintdef(oid) ILIKE '%adjustment_kind%'`)).rows.map(r=>r.d).join(' ');
-  assert.ok(!/WRITE_OFF/i.test(kinds),'R03 GAP: business_adjustment has no WRITE_OFF adjustment kind');
-  // The only ways an AP balance can currently be cleared without cash are a
-  // full bill void and a vendor credit application. Pin the kinds that do
-  // exist so the gap stays visible and a future write-off has to land here.
-  assert.match(kinds,/AP_BILL_VOID/,'the bill void is the only non-cash full AP clearing path today');
-  assert.match(kinds,/AP_VENDOR_CREDIT/,'the vendor credit is the only partial non-cash AP relief today');
+  assert.match(kinds,/AP_BILL_WRITE_OFF/,'business_adjustment carries the AP write-off kind');
+  assert.match(kinds,/AP_BILL_VOID/,'the full bill void remains a separate non-cash clearing path');
+  assert.match(kinds,/AP_VENDOR_CREDIT/,'the vendor credit remains the partial non-cash relief path');
 });

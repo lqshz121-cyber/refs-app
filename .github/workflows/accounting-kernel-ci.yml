@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   static-and-unit:
+    name: static-and-unit
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -57,6 +58,64 @@ jobs:
       - name: Accounting kernel static and unit gate
         working-directory: server
         run: npm test
+
+  # R05: the release gates, each on its own fully migrated database (tools/gate-runner.mjs), plus
+  # the migration ledger idempotency check. Failure semantics: red when any gate step fails, when
+  # a gate skips every test (a gate may not pass by skipping), when a second `db:up` on an already
+  # migrated database applies anything or exits non-zero, or when the fresh ledger head is not the
+  # manifest head. Never softened with continue-on-error.
+  core-gates:
+    name: core-gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      REFS_PG_REQUIRED: '1'
+      # Local-only test credentials, identical to server/compose.yaml and runtime/docker-init.sql.
+      # Production runtime validation rejects these defaults.
+      DATABASE_URL: postgresql://refs_runtime:refs_runtime_test_N7v2p9Q4x6Lm@127.0.0.1:55432/refs_kernel_test
+      MIGRATION_DATABASE_URL: postgresql://refs_migrator:refs_migrator_test_K8r3w5T1z9Hp@127.0.0.1:55432/refs_kernel_test
+      CONTEXT_ISSUER_DATABASE_URL: postgresql://refs_context_issuer:refs_issuer_test_P6m4s8V2q7Jc@127.0.0.1:55432/refs_kernel_test
+      GRANT_SYNC_DATABASE_URL: postgresql://refs_grant_sync:refs_grant_sync_test_R9k5d3W8y2Fn@127.0.0.1:55432/refs_kernel_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gate:security's secret scan diffs the pull request range, which needs history.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install kernel dependencies exactly
+        working-directory: server
+        run: npm ci
+      - name: Start a fresh local-only PostgreSQL 16
+        working-directory: server
+        env:
+          POSTGRES_IMAGE: postgres:16-alpine
+        run: docker compose -p refs_core_gates -f compose.yaml up -d --wait
+      - name: Migrate a fresh database to the manifest head
+        working-directory: server
+        run: npm run db:up
+      - name: A second db:up must be a no-op on an already migrated database
+        working-directory: server
+        run: npm run verify:migration-idempotent
+      - name: Release gates, one isolated database per gate
+        working-directory: server
+        env:
+          SECRET_SCAN_RANGE: origin/${{ github.base_ref || 'main' }}...HEAD
+        run: npm run gate:isolated -- --out out/gates
+      - name: Upload per-gate JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-gates-json
+          path: server/out/gates/
+          if-no-files-found: error
+      - name: Stop PostgreSQL
+        if: always()
+        working-directory: server
+        run: docker compose -p refs_core_gates -f compose.yaml down -v
 
   postgres-required:
     name: PostgreSQL ${{ matrix.postgres }} required gate
