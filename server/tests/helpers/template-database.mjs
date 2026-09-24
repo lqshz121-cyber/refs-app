@@ -49,16 +49,19 @@ export async function ensureTemplateDatabase({env=process.env,name='refs_fixture
 
     // migrations.mjs:102 refuses to migrate a database whose name does not match
     // MIGRATION_DATABASE_URL (MIGRATION_DATABASE_REJECTED). That guard is correct and worth
-    // keeping, so point the variable at the template for exactly as long as the migration runs.
-    const savedMigrationUrl=env.MIGRATION_DATABASE_URL;
+    // keeping, so point the variables at the template for exactly as long as the migration runs.
+    // R04: all four role URLs move together. Under REFS_PG_REQUIRED=1 (the only mode in which a
+    // gate may not skip) runtimeConfig() refuses URLs that address different databases, so moving
+    // MIGRATION_DATABASE_URL alone made every template build fail in strict mode.
+    const saved=Object.fromEntries(URL_KEYS.map(k=>[k,env[k]]));
     const pool=new pg.Pool({connectionString:withDatabase(base,name),max:2,
       statement_timeout:300000,lock_timeout:60000});
     try{
-      env.MIGRATION_DATABASE_URL=withDatabase(base,name);
+      for(const key of URL_KEYS){if(saved[key])env[key]=withDatabase(saved[key],name);}
       await pool.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
       await migrateUp(pool,{});
     }finally{
-      env.MIGRATION_DATABASE_URL=savedMigrationUrl;
+      for(const key of URL_KEYS){if(saved[key]===undefined)delete env[key];else env[key]=saved[key];}
       await pool.end().catch(()=>{});
     }
 

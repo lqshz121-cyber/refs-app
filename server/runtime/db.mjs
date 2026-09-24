@@ -44,11 +44,15 @@ export async function withTransaction(pool,work,{isolation='SERIALIZABLE'}={}){
   }finally{client.release();}
 }
 
-export async function withSerializableRetry(pool,work,{maxRetries=7,baseDelayMs=20,maxDelayMs=500,random=Math.random,sleep=delay=>new Promise(resolve=>setTimeout(resolve,delay))}={}){
+// onAttemptError(error) runs after EVERY failed attempt -- including a failure raised by COMMIT
+// itself, which no try/catch inside `work` can observe -- and before the retry or the rethrow.
+// It must not throw; if it does, the original error still wins.
+export async function withSerializableRetry(pool,work,{maxRetries=7,baseDelayMs=20,maxDelayMs=500,random=Math.random,sleep=delay=>new Promise(resolve=>setTimeout(resolve,delay)),onAttemptError=null}={}){
   let attempt=0;
   while(true){
     try{return await withTransaction(pool,work,{isolation:'SERIALIZABLE'});}
     catch(error){
+      if(typeof onAttemptError==='function'){try{await onAttemptError(error);}catch{}}
       if(!['40001','40P01'].includes(error?.code)||attempt>=maxRetries)throw error;
       attempt+=1;
       const ceiling=Math.min(baseDelayMs*2**attempt,maxDelayMs);

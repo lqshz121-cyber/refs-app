@@ -12,12 +12,16 @@ import test, {before, after} from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
 import {runtimeConfig} from '../runtime/config.mjs';
+import {migrateUp} from '../runtime/migrations.mjs';
 import {ensureTemplateDatabase, withFreshDatabase, measureTeardownStrategies} from './helpers/template-database.mjs';
 
 const config=runtimeConfig();
 let unavailable=null;
 before(async()=>{
-  try{const c=new pg.Client({connectionString:config.migrationDatabaseUrl});await c.connect();await c.end();}
+  // R04: migrate the target first, like every other *-postgres test. Z01/Z02/Z03 read the live
+  // schema, so without this the file only passed when an earlier file had migrated the database.
+  try{const p=new pg.Pool({connectionString:config.migrationDatabaseUrl,max:2,statement_timeout:300000});
+    try{await p.query('SELECT 1');await migrateUp(p,{});}finally{await p.end().catch(()=>{});}}
   catch(error){
     unavailable=`POSTGRES NOT RUN: ${error.code||error.name}: ${error.message}`;
     if(config.requirePostgres)throw error;

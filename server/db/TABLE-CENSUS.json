@@ -1,6 +1,6 @@
 {
   "schema_version": "REFS_TABLE_CENSUS_V1",
-  "migration_head": "435_ap_ar_write_off_reducer.sql",
+  "migration_head": "436_restore_reducer_catalog_patches.sql",
   "table_count": 249,
   "tables": [
     {

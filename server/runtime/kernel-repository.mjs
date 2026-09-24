@@ -24,6 +24,9 @@ const WBS_TEST_BANK_BATCH_STATEMENT_TIMEOUT='120s';
 const WBS_FINAL1_RETAIN_STATEMENT_TIMEOUT='120s';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+// SQLSTATEs that guarantee the transaction was rolled back when raised by COMMIT.
+const COMMIT_ROLLED_BACK=new Set(['40001','40P01']);
+
 export class PostgresAccountingKernel{
   constructor(pool,{sessionProvider,sessionRevoker=null,runtimeLoginAllowlist=['refs_runtime'],wbsSnapshotVerifier=null,wbsAutoRecTransitionContractVerifier=null,wbsSignedBankAdmissionVerifier=null}={}){
     // Optional: revokes the context an attempt issued when that attempt fails
@@ -38,14 +41,19 @@ export class PostgresAccountingKernel{
 
   async inSession(work){
     let databaseStage='CONTEXT_ISSUE';
+    // R04: the capability issued by the attempt that is currently in flight. It is cleared as soon
+    // as that capability has been revoked, so it is never revoked twice.
+    let inFlight=null;
     try{
     return await withSerializableRetry(this.pool,async client=>{
       databaseStage='CONTEXT_ISSUE';
+      inFlight=null;
       // A capability is bound to exactly one backend transaction by
       // refs_bootstrap_context. Issue it after the runtime connection is
       // acquired and for every retry attempt; reusing it across transactions
       // would make later workflow commands lose their DB authorization.
       const session=assertTrustedSession(await this.sessionProvider());
+      inFlight=session;
       // Everything after issuance runs under revokeOnFailure: if this attempt
       // does not reach commit, the capability it issued is revoked (on the
       // issuer login, in its own transaction) before the error propagates -
@@ -62,23 +70,36 @@ export class PostgresAccountingKernel{
       await client.query('SELECT refs_bootstrap_context($1)',[session.contextToken]);
       databaseStage='DATABASE_OPERATION';
       return work(client,session);
-      });
-    });
+      },()=>{inFlight=null;});
+    },{onAttemptError:async error=>{
+      // The gap revokeOnFailure cannot see: `work` returned, then COMMIT failed. Under SERIALIZABLE
+      // that is a 40001/40P01 at commit, so the bind rolled back and the capability is live but
+      // unbound -- exactly what revokeOnFailure exists to prevent. Only these codes are treated as
+      // "certainly rolled back"; an ambiguous failure (e.g. the connection dropped during COMMIT)
+      // might have committed, and revoking a committed binding would be wrong, so it is left to expire.
+      const session=inFlight;inFlight=null;
+      if(!session||!COMMIT_ROLLED_BACK.has(error?.code))return;
+      await this.revokeSession(session,error);
+    }});
     }catch(error){
       if(error?.code==='57014'){try{error.accountingDatabaseStage=databaseStage;}catch{}}
       throw error;
     }
   }
 
-  async revokeOnFailure(session,attempt){
+  async revokeSession(session,error){
+    if(!this.sessionRevoker)return;
+    // Best effort and never masking the original error: a revoke failure is
+    // reported on the error object for diagnostics, not thrown.
+    try{await this.sessionRevoker(session,{reason:'Attempt failed before commit',code:error?.code||null});}
+    catch(revokeError){try{error.contextRevokeFailed=revokeError?.code||revokeError?.message||true;}catch{}}
+  }
+
+  async revokeOnFailure(session,attempt,onRevoked=null){
     try{return await attempt();}
     catch(error){
-      if(this.sessionRevoker){
-        // Best effort and never masking the original error: a revoke failure is
-        // reported on the error object for diagnostics, not thrown.
-        try{await this.sessionRevoker(session,{reason:'Attempt failed before commit',code:error?.code||null});}
-        catch(revokeError){try{error.contextRevokeFailed=revokeError?.code||revokeError?.message||true;}catch{}}
-      }
+      await this.revokeSession(session,error);
+      if(typeof onRevoked==='function')onRevoked();
       throw error;
     }
   }
