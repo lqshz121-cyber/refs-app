@@ -92,8 +92,12 @@ jobs:
       - name: Start a fresh local-only PostgreSQL 16
         working-directory: server
         env:
-          POSTGRES_IMAGE: postgres:16-alpine
+          # Debian image (not alpine) so CPD-8 can install plpgsql_check from the image's PGDG apt source.
+          POSTGRES_IMAGE: postgres:16
         run: docker compose -p refs_core_gates -f compose.yaml up -d --wait
+      - name: Install plpgsql_check for CPD-8 (static planning of every PL/pgSQL statement)
+        working-directory: server
+        run: docker compose -p refs_core_gates -f compose.yaml exec -T postgres sh -c 'apt-get update -qq && apt-get install -y -qq postgresql-16-plpgsql-check'
       - name: Migrate a fresh database to the manifest head
         working-directory: server
         run: npm run db:up
@@ -104,6 +108,8 @@ jobs:
         working-directory: server
         env:
           SECRET_SCAN_RANGE: origin/${{ github.base_ref || 'main' }}...HEAD
+          # CPD-8 fails instead of skipping when the extension is missing here.
+          REFS_REQUIRE_PLPGSQL_CHECK: '1'
         run: npm run gate:isolated -- --out out/gates
       - name: Upload per-gate JSON
         if: always()

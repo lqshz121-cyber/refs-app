@@ -43,6 +43,8 @@ export const EVENT_CATALOG=Object.freeze([
   // Release-tooling events (R05/R07/R10): emitted by CLI verifiers, not by long-running services.
   {event:'function_catalog_exported',level:'info',fields:['path','function_count','migration_head'],alert:'migration_head differs from the release manifest head -> catalog was exported from the wrong schema, regenerate'},
   {event:'function_catalog_export_failed',level:'error',fields:['code'],alert:'any -> release evidence incomplete'},
+  {event:'backup_restore_drill',level:'info',fields:['ok','source','tables','rows','differences','timings'],alert:'ok=false or differences>0 -> the restored copy is not the same system, do not rely on this backup (R13)'},
+  {event:'backup_restore_drill_failed',level:'error',fields:['message'],alert:'any -> backup/restore unproven, block Go (R13)'},
   {event:'migration_idempotency_verified',level:'info',fields:['ok','skipped','completed'],alert:'ok=false or completed>0 -> a second db:up changed the schema, block release'},
   {event:'migration_idempotency_error',level:'error',fields:['code'],alert:'any -> idempotency unproven, block release'},
   {event:'release_pack_error',level:'error',fields:[],alert:'any -> staging release pack could not be evaluated, deployment is unverified'}

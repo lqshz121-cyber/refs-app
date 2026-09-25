@@ -282,7 +282,11 @@ pgTest('CPD-8: plpgsql_check finds no statement that fails every time it runs, o
   // every call. plpgsql_check plans each statement statically. The extension is installed and used
   // inside a transaction that is rolled back, so the schema and function catalog are untouched.
   const available=(await admin.query("SELECT 1 FROM pg_available_extensions WHERE name='plpgsql_check'")).rowCount>0;
-  if(!available){t.skip('plpgsql_check is not installed on this server (apt: postgresql-<major>-plpgsql-check)');return;}
+  if(!available){
+    // core-gates installs the extension and sets REFS_REQUIRE_PLPGSQL_CHECK=1, so there a missing extension is a failure.
+    assert.notEqual(process.env.REFS_REQUIRE_PLPGSQL_CHECK,'1','REFS_REQUIRE_PLPGSQL_CHECK=1 but plpgsql_check is not installed on this server');
+    t.skip('plpgsql_check is not installed on this server (apt: postgresql-<major>-plpgsql-check)');return;
+  }
   // Retained pre-fix copies that no live function or kernel query reaches (kept as rollback evidence).
   const RETAINED_UNREACHABLE=['refs_set_reconciliation_clearance_385','refs_create_native_expense_395','refs_create_native_expense_403','refs_read_native_expense_create_options_395','refs_read_native_expense_create_options_403','refs_read_unit_transfer_pair_370','refs_read_ai_construction_loan_lender_balances'];
   // Trigger functions shared by several tables that branch on TG_TABLE_NAME: plpgsql_check plans every
