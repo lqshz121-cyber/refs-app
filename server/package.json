@@ -153,7 +153,7 @@
     "test:shard:resume": "node tools/test-shard-runner.mjs --resume",
     "test:shard:summary": "node tools/test-shard-runner.mjs --summary",
     "gate:performance": "node --test tests/fixture-teardown-scalability-postgres.test.mjs && node --test tests/large-population-performance-postgres.test.mjs && node --test tests/high-volume-read-indexes-contract.test.mjs",
-    "gate:security": "node --test tests/l20-red-team-fail-closed-postgres.test.mjs && node --test tests/posting-sod-contract-postgres.test.mjs && node --test tests/closed-period-write-matrix-postgres.test.mjs && npm run --silent security:secret-scan",
+    "gate:security": "node --test tests/l20-red-team-fail-closed-postgres.test.mjs && node --test tests/posting-sod-contract-postgres.test.mjs && node --test tests/closed-period-write-matrix-postgres.test.mjs && node --test tests/wbs-coa-seed-postgres.test.mjs && npm run --silent security:secret-scan",
     "gate:concurrency": "node --test tests/concurrency-optimistic-lock-postgres.test.mjs && node --test tests/context-retry-revocation-postgres.test.mjs && node --test tests/ap-cross-period-concurrency-postgres.test.mjs",
     "gate:barriers": "node --test tests/migration-barrier-contract-postgres.test.mjs && node --test tests/historical-head-helper-postgres.test.mjs && node --test tests/migration-historical-head-postgres.test.mjs && node --test tests/catalog-patch-drift-postgres.test.mjs && node --test tests/backup-restore-drill-postgres.test.mjs",
     "gate:all": "npm run gate:performance && npm run gate:concurrency && npm run gate:security && npm run gate:barriers",
