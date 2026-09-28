@@ -141,20 +141,64 @@ END $$;`;
     [['refs_create_reconciliation_adjustment_draft_105(uuid,uuid,character,text)','bank_delta<>bank.amount',"bank_delta<>bank.amount OR item.kind='ADJ'",true]]);
 });
 
-test('CAP-6: a dynamic signature is reported as unresolved -- the 140 idiom',()=>{
+test('CAP-6: a loop over a VALUES list of signatures yields one amendment per row -- the 140/313 idiom',()=>{
   const sql=`DO $$
 DECLARE target record; definition text;
 BEGIN
-  FOR target IN SELECT * FROM (VALUES ('refs_a(uuid)')) AS t(signature) LOOP
+  FOR target IN SELECT * FROM (VALUES
+    ('refs_a(uuid)','P.ONE'),
+    ('public.refs_b(uuid,text)','P.TWO')) AS t(signature,permission) LOOP
+    SELECT pg_get_functiondef(target.signature::regprocedure) INTO definition;
+    definition:=replace(definition,'x','y');
+    IF target.signature='refs_b(uuid,text)' THEN
+      definition:=replace(definition,'p','q');
+    END IF;
+    EXECUTE definition;
+  END LOOP;
+END $$;`;
+  const {amendments,unresolved}=parseAmendments(sql,'140_x.sql');
+  assert.deepEqual(unresolved,[]);
+  assert.deepEqual(amendments.map(a=>[a.fn,a.from,a.to,a.literal]),
+    [['refs_a(uuid)','x','y',true],['refs_b(uuid,text)','x','y',true],['refs_b(uuid,text)','p','q',true]],
+    'every row is a target; the IF <row>.<col>=... guard narrows a replace to that one signature');
+});
+
+test('CAP-6b: a truly dynamic signature (no literal VALUES list) is reported as unresolved',()=>{
+  const sql=`DO $$
+DECLARE target record; definition text;
+BEGIN
+  FOR target IN SELECT proname||'('||pg_get_function_identity_arguments(oid)||')' AS signature FROM pg_proc WHERE proname LIKE 'refs_%' LOOP
     SELECT pg_get_functiondef(target.signature::regprocedure) INTO definition;
     definition:=replace(definition,'x','y');
     EXECUTE definition;
   END LOOP;
 END $$;`;
-  const {amendments,unresolved}=parseAmendments(sql,'140_x.sql');
+  const {amendments,unresolved}=parseAmendments(sql,'999_x.sql');
   assert.equal(amendments.length,0,'nothing can be paired with a static target');
   assert.equal(unresolved.length,1);
-  assert.match(unresolved[0].reason,/non-literal signature/);
+  assert.match(unresolved[0].reason,/no VALUES list/);
+});
+
+test('CAP-6c: || concatenation with E-strings (051/141) and nested replace(replace()) (181) resolve statically',()=>{
+  const sql=`DO $$
+DECLARE definition text; gate text:=E'  IF x THEN\n    RAISE EXCEPTION ''no'';\n  END IF;\n'; needle text:='  IF y THEN END IF;';
+  old_message constant text:='one to five hundred rows'; new_message constant text:='one to ten thousand rows';
+BEGIN
+  SELECT pg_get_functiondef('refs_a(uuid)'::regprocedure) INTO definition;
+  definition:=replace(definition,needle,gate||needle);
+  definition:=replace(definition,
+    '  INSERT INTO a(x)' || E'\n' || '    VALUES(1);',
+    '  INSERT INTO a(x,y)' || E'\n' || '    VALUES(1,2);');
+  EXECUTE replace(replace(definition,'LIMIT 500','LIMIT 10000'),old_message,new_message);
+END $$;`;
+  const {amendments,unresolved}=parseAmendments(sql,'051_x.sql');
+  assert.deepEqual(unresolved,[]);
+  assert.deepEqual(amendments.map(a=>[a.literal,a.from,a.to]),[
+    [true,'  IF y THEN END IF;',"  IF x THEN\n    RAISE EXCEPTION 'no';\n  END IF;\n  IF y THEN END IF;"],
+    [true,'  INSERT INTO a(x)\n    VALUES(1);','  INSERT INTO a(x,y)\n    VALUES(1,2);'],
+    // the outer replace( is scanned first; order within one statement does not matter to CPD-3
+    [true,'one to five hundred rows','one to ten thousand rows'],
+    [true,'LIMIT 500','LIMIT 10000']]);
 });
 
 test('CAP-7: files without pg_get_functiondef produce nothing; CRLF is tolerated',()=>{
@@ -168,7 +212,7 @@ test('CAP-7: files without pg_get_functiondef produce nothing; CRLF is tolerated
   assert.equal(parseAmendments(crlf,'x.sql').amendments.length,1);
 });
 
-test('CAP-8: against the real chain, the parser resolves every amending migration except the known dynamic one',()=>{
+test('CAP-8: against the real chain, the parser resolves every amending migration',()=>{
   const files=readdirSync(MIGRATIONS).filter(f=>/^\d+_.+\.sql$/.test(f)).sort();
   let total=0;const unresolvedBy=new Map();const fns=new Set();
   for(const f of files){
@@ -181,7 +225,7 @@ test('CAP-8: against the real chain, the parser resolves every amending migratio
   assert.ok(fns.size>=20,`found ${fns.size} distinct amended functions`);
   // 140 and 313 both loop over a VALUES list of signatures (x.signature::regprocedure); the drift
   // test lists them in KNOWN_DYNAMIC and relies on the FUNCTION-CATALOG hashes for their targets.
-  assert.deepEqual([...unresolvedBy.keys()],['140_ai_analysis_explain_scope.sql','313_credit_allocation_capacity.sql'],
+  assert.deepEqual([...unresolvedBy.keys()],[],
     `unresolved: ${JSON.stringify([...unresolvedBy])}`);
   for(const fn of ['refs_post_journal(uuid,uuid,uuid,uuid,bigint,text,text,text)','refs_transition_journal(uuid,uuid,uuid,text,bigint,text,text,text)','refs_apply_ap_ar_posted_adjustment()'])
     assert.ok(fns.has(fn),`${fn} must be discovered`);

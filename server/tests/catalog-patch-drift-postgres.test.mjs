@@ -70,10 +70,9 @@ const renameCopy=a=>{
   return from&&to&&from[1]!==to[1]?to[1]:null;
 };
 
-const KNOWN_DYNAMIC=new Map([
-  ['140_ai_analysis_explain_scope.sql','loops over a VALUES list of signatures (target.signature::regprocedure)'],
-  ['313_credit_allocation_capacity.sql','loops over a VALUES list of signatures (item.signature::regprocedure)'],
-]);
+// The VALUES-list loops of 140 and 313 are resolved since 2026-09-26; the chain currently has no
+// block the parser cannot pair with static targets.
+const KNOWN_DYNAMIC=new Map([]);
 
 before(async()=>{
   try{
@@ -169,8 +168,10 @@ pgTest('CPD-3b: non-literal amendments are few, named, and their targets are has
   const dynamic=amendments.filter(a=>!a.literal);
   const byMigration=[...new Set(dynamic.map(a=>a.migration))];
   // 215 is not here: its replacement is a DECLAREd text constant, which the parser resolves.
-  // 182 and 439 are not here either: their fragments are dollar-quoted DECLAREd constants.
-  assert.deepEqual(byMigration,['051_post_journal_response_integrity.sql','141_ai_amortization_proposal_coverage_gate.sql'],
+  // 182 and 439 are not here either: their fragments are dollar-quoted DECLAREd constants; nor are
+  // 051 and 141, whose texts are || chains of literals and E-strings. What remains is computed at
+  // run time: 140's format()-built needle and 313's guard||'...' concatenation of a loop variable.
+  assert.deepEqual(byMigration,['140_ai_analysis_explain_scope.sql','313_credit_allocation_capacity.sql'],
     `non-literal replace() calls found in: ${byMigration.join(', ')}`);
   if(existsSync(FUNCTION_CATALOG_PATH)){
     const pinned=new Set(JSON.parse(require_json(FUNCTION_CATALOG_PATH)).functions.map(f=>f.signature));
