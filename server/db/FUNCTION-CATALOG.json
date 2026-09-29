@@ -1,8 +1,8 @@
 {
   "schema_version": "REFS_FUNCTION_CATALOG_V1",
   "postgres_major": 16,
-  "migration_head": "445_workflow_authority_reachability.sql",
-  "manifest_head": "445_workflow_authority_reachability.sql",
+  "migration_head": "446_internal_test_receivable_control_shape.sql",
+  "manifest_head": "446_internal_test_receivable_control_shape.sql",
   "function_count": 1130,
   "functions": [
     {
@@ -2493,7 +2493,7 @@
     {
       "signature": "refs_ensure_internal_test_customer_master(uuid,uuid,text)",
       "kind": "f",
-      "sha256": "e85c22ab31017d5e58cc680149c1da5f076850faad7dc2783c598b56f220a760"
+      "sha256": "30e84b380d1707bbe72bb7a6031603ace3dcd7dd234b906c169adae7f5bc960a"
     },
     {
       "signature": "refs_ensure_wbs_test_h1_2026_periods(uuid,uuid)",
