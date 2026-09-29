@@ -52,6 +52,28 @@ pgTest('requires an existing member-bearing 120200 control account and never cre
   assert.equal((await admin.query("SELECT count(*)::int n FROM account_master WHERE tenant_id=$1 AND account_code='120200'",[ids.tenantId])).rows[0].n,0);
   assert.equal((await admin.query("SELECT count(*)::int n FROM member_master WHERE tenant_id=$1 AND member_ref='INTERNAL_TEST_CUSTOMER'",[ids.tenantId])).rows[0].n,0,'the transaction rolled the member back');
 });
+pgTest('446 / D-O06-2: an UNPOSTED plain 120200 is made member-bearing by the bootstrap; a posted one still fails closed',async()=>{
+  // the staging shape observed 2026-09-28: account exists, requires_member=false, no lines
+  const ids=await seed({withReceivable:false});
+  await admin.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type) VALUES($1,$2,'120200','Accounts Receivable',false,NULL)",[ids.tenantId,ids.entityId]);
+  const result=await kernelFor(ids,'o06-maker').ensureInternalTestCustomerMaster({...ids,idempotencyKey:'o06-customer-0006'});
+  assert.equal(result.idempotent,false);
+  const shape=(await admin.query("SELECT requires_member,required_member_type,active FROM account_master WHERE tenant_id=$1 AND account_code='120200'",[ids.tenantId])).rows[0];
+  assert.deepEqual(shape,{requires_member:true,required_member_type:'CUSTOMER_OR_AFFILIATE',active:true});
+  assert.equal((await admin.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='INTERNAL_TEST_RECEIVABLE_CONTROL_RESHAPED'",[ids.tenantId])).rows[0].n,1);
+  // a second call is idempotent and does not audit a second reshape
+  await kernelFor(ids,'o06-maker').ensureInternalTestCustomerMaster({...ids,idempotencyKey:'o06-customer-0006'});
+  assert.equal((await admin.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='INTERNAL_TEST_RECEIVABLE_CONTROL_RESHAPED'",[ids.tenantId])).rows[0].n,1);
+  // same plain shape but with a posted line: evidence, never reshaped
+  const posted=await seed({withReceivable:false});
+  await admin.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type) VALUES($1,$2,'120200','Accounts Receivable',false,NULL),($1,$2,'400000','Revenue',false,NULL)",[posted.tenantId,posted.entityId]);
+  const periodId=randomUUID(),journalId=randomUUID();
+  await admin.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-07','2026-07-01','2026-07-31','OPEN')",[periodId,posted.tenantId,posted.entityId]);
+  await admin.query("INSERT INTO journal_entry(journal_entry_id,tenant_id,entity_id,period_id,journal_number,journal_type,status,journal_date,currency,created_by) VALUES($1,$2,$3,$4,'JE-O06B','MANUAL','DRAFT','2026-07-10','USD','o06-maker')",[journalId,posted.tenantId,posted.entityId,periodId]);
+  await admin.query("INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref,description,dimensions) VALUES($1,$2,$3,$4,1,'120200',10,0,NULL,'x','{}'),($1,$2,$3,$4,2,'400000',0,10,NULL,'x','{}')",[posted.tenantId,posted.entityId,periodId,journalId]);
+  await assert.rejects(kernelFor(posted,'o06-maker').ensureInternalTestCustomerMaster({...posted,idempotencyKey:'o06-customer-0007'}),e=>e.code==='23514');
+  assert.equal((await admin.query("SELECT requires_member FROM account_master WHERE tenant_id=$1 AND account_code='120200'",[posted.tenantId])).rows[0].requires_member,false);
+});
 pgTest('down/426 refuses while journal evidence references the test customer',async()=>{
   const ids=await seed();await kernelFor(ids,'o06-maker').ensureInternalTestCustomerMaster({...ids,idempotencyKey:'o06-customer-0005'});
   const periodId=randomUUID(),journalId=randomUUID();
