@@ -449,5 +449,6 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"442_webhook_endpoint_path_regex_bound.sql",up:"4ddcc1068d69c77205692be5efce35250d99d78d561170c1f8a5341635d824f8",down:"269e4f58512c4bc1e136209ce7778699151936e658194965fb8466149d526846"}),
   Object.freeze({name:"443_forecast_line_amount_regex_fix.sql",up:"42c0c303b86c3036afbdd84dce8be197ad9a55e41f78353d1eb29470388495a1",down:"7c86b88950bdd658cabaf065e73d871367e84f28339c7741060dc36f4738a58e"}),
   Object.freeze({name:"444_latent_plpgsql_runtime_errors.sql",up:"19b416698b964bde79dbac10899f834eceaac32a4c4c28a90d30c3505779c503",down:"47d4f1705f81c8f8456bb45116215af51e74065dd9a7ec47c145c75494298292"}),
-  Object.freeze({name:"445_workflow_authority_reachability.sql",up:"c59aed6d9bd1d45de94140aa676b0fff2069cd2867a14062cdb1a51d9cedc0f8",down:"8f146dd80a1b1dbe337945d9702f6d6bcd22b1b5bf6ec0425032ee17a231b55e"})
+  Object.freeze({name:"445_workflow_authority_reachability.sql",up:"c59aed6d9bd1d45de94140aa676b0fff2069cd2867a14062cdb1a51d9cedc0f8",down:"8f146dd80a1b1dbe337945d9702f6d6bcd22b1b5bf6ec0425032ee17a231b55e"}),
+  Object.freeze({name:"446_internal_test_receivable_control_shape.sql",up:"352aec697fea13c8c45f4441d1e6e4977467d04986444668e137ac7bfe168151",down:"10f5c0f37db1992961d4986f12794916cb78a6c1038e12ef7f51856eb088c7c3"})
 ]);
