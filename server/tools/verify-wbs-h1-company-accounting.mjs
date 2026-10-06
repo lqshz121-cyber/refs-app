@@ -9,7 +9,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const H1_PERIODS=Object.freeze(['2026-01','2026-02','2026-03','2026-04','2026-05','2026-06']);
 
 function money4(value){
-  const match=String(value??'0').match(/^(-?)(\d+)(?:\.(\d{1,4}))?$/);
+  const match=String(value).match(/^(-?)(\d+)(?:\.(\d{1,4}))?$/);
   if(!match)throw new Error('Authoritative report returned an invalid MONEY4 value');
   return BigInt(`${match[1]}${match[2]}${(match[3]||'').padEnd(4,'0')}`);
 }
@@ -19,7 +19,10 @@ function formatMoney4(value){
   return `${sign}${absolute/10000n}.${String(absolute%10000n).padStart(4,'0')}`;
 }
 
-export function summarizeCompanyPeriod({periodCode,documents,journals,ledger,statements}){
+export function summarizeCompanyPeriod({periodCode,documents,journals,ledger,statements,memberItems}){
+  if(memberItems?.schema_version!=='AP_CONTROL_MEMBER_OPEN_ITEMS_V1'
+    ||!Number.isSafeInteger(memberItems.totals?.exception_count)||memberItems.totals.exception_count<0)
+    throw new Error('Authoritative AP member reconciliation is required');
   const trialBalance=statements.filter(row=>row.statement_type==='TRIAL_BALANCE');
   const debit=trialBalance.reduce((total,row)=>total+money4(row.ending_debit),0n);
   const credit=trialBalance.reduce((total,row)=>total+money4(row.ending_credit),0n);
@@ -31,35 +34,43 @@ export function summarizeCompanyPeriod({periodCode,documents,journals,ledger,sta
     posted_ledger_line_count:ledger.length===0?0:Number(ledger[0].total_count),
     report_row_count:statements.length,
     report_types:statementTypes,
-    trial_balance_balanced:debit===credit,
-    trial_balance_difference:formatMoney4(debit-credit)
+    trial_balance_balanced:trialBalance.length>0&&debit===credit,
+    trial_balance_difference:formatMoney4(debit-credit),
+    ap_member_exception_count:memberItems.totals.exception_count,
+    ap_member_difference:formatMoney4(money4(memberItems.totals.difference)),
+    ap_member_reconciled:memberItems.totals.exception_count===0&&money4(memberItems.totals.difference)===0n
   });
 }
 
-export async function verifyWbsH1CompanyAccounting({adminPool,runtimePool,issuerPool,tenantId,companyCode,actorId='wbs-h1-reader'}){
+export async function verifyWbsH1CompanyAccounting({adminPool,runtimePool,issuerPool,tenantId,companyCode,actorId='wbs-h1-reader',periodCode=null,reader=null}){
   if(!UUID.test(tenantId||'')||!COMPANY.test(companyCode||''))throw new Error('Exact tenant and company scope are required');
+  if(periodCode!==null&&!H1_PERIODS.includes(periodCode))throw new Error('Verification period must be in 2026 H1');
+  const selectedPeriods=periodCode?[periodCode]:H1_PERIODS;
   const entities=(await adminPool.query(`SELECT entity_id,entity_code,name FROM entity
     WHERE tenant_id=$1 AND (entity_code=$2 OR source_entity_id=$2) AND source_system='WBS' ORDER BY entity_id`,[tenantId,companyCode])).rows;
   if(entities.length!==1)throw new Error(`Expected exactly one WBS entity for ${companyCode}; found ${entities.length}`);
   const entity=entities[0];
   const periods=(await adminPool.query(`SELECT period_id,period_code,status::text FROM accounting_period
-    WHERE tenant_id=$1 AND entity_id=$2 AND period_code=ANY($3::text[]) ORDER BY period_code`,[tenantId,entity.entity_id,H1_PERIODS])).rows;
-  if(periods.length!==H1_PERIODS.length||periods.some((row,index)=>row.period_code!==H1_PERIODS[index]))throw new Error(`Complete 2026 H1 periods are unavailable for ${companyCode}`);
-  for(const permission of ['AP.VIEW','GL.JE.VIEW','GL.REPORT.VIEW'])await adminPool.query(`INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission)
-    VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,[tenantId,actorId,entity.entity_id,permission]);
+    WHERE tenant_id=$1 AND entity_id=$2 AND ledger_code='PRIMARY' AND period_code=ANY($3::text[]) ORDER BY period_code`,[tenantId,entity.entity_id,selectedPeriods])).rows;
+  if(periods.length!==selectedPeriods.length||periods.some((row,index)=>row.period_code!==selectedPeriods[index]))throw new Error(`Selected 2026 H1 periods are unavailable for ${companyCode}`);
+  // A verifier never grants itself access. Provision finite read authority through
+  // formal grant-sync separately; missing existing permissions fail closed.
   const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,tenantId,actorId})});
-  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId})});
+  reader??=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId})});
   const results=[];
   for(const period of periods){
-    const [documents,journals,ledger,statements]=await Promise.all([
+    const [documents,journals,ledger,statements,memberItems]=await Promise.all([
       reader.listBusinessDocuments({tenantId,entityId:entity.entity_id,documentKind:'AP_BILL',periodId:period.period_id,limit:1,offset:0}),
       reader.listJournalEntries({tenantId,entityId:entity.entity_id,periodId:period.period_id,limit:1,offset:0}),
       reader.listGeneralLedger({tenantId,entityId:entity.entity_id,periodId:period.period_id,accountCode:null,query:null,limit:1,offset:0}),
-      reader.getFinancialStatements({tenantId,entityId:entity.entity_id,periodId:period.period_id})
+      reader.getFinancialStatements({tenantId,entityId:entity.entity_id,periodId:period.period_id}),
+      reader.readApControlMemberOpenItems({tenantId,entityId:entity.entity_id,periodId:period.period_id,limit:1,offset:0})
     ]);
-    results.push({...summarizeCompanyPeriod({periodCode:period.period_code,documents,journals,ledger,statements}),period_status:period.status});
+    if(memberItems.entity_id!==entity.entity_id||memberItems.period_id!==period.period_id)throw new Error('AP member reconciliation scope differs from the selected company period');
+    results.push({...summarizeCompanyPeriod({periodCode:period.period_code,documents,journals,ledger,statements,memberItems}),period_status:period.status});
   }
-  return Object.freeze({status:'WBS_H1_COMPANY_ACCOUNTING_VERIFIED',company_code:companyCode,entity_ready:true,period_count:periods.length,periods:results});
+  const pass=results.every(row=>row.trial_balance_balanced&&row.ap_member_reconciled&&['BALANCE_SHEET','INCOME_STATEMENT','TRIAL_BALANCE'].every(type=>row.report_types.includes(type)));
+  return Object.freeze({status:pass?'WBS_H1_COMPANY_ACCOUNTING_VERIFIED':'WBS_H1_COMPANY_ACCOUNTING_INCOMPLETE',company_code:companyCode,entity_ready:true,period_count:periods.length,periods:results,pass});
 }
 
 async function main(){
@@ -69,7 +80,12 @@ async function main(){
   const adminPool=await createPool({databaseUrl:process.env.MIGRATION_DATABASE_URL,applicationName:'refs-wbs-h1-company-verifier-admin',max:1});
   const runtimePool=await createPool({databaseUrl:process.env.DATABASE_URL,applicationName:'refs-wbs-h1-company-verifier-runtime',max:2});
   const issuerPool=await createPool({databaseUrl:process.env.CONTEXT_ISSUER_DATABASE_URL,applicationName:'refs-wbs-h1-company-verifier-issuer',max:1});
-  try{process.stdout.write(`${JSON.stringify(await verifyWbsH1CompanyAccounting({adminPool,runtimePool,issuerPool,tenantId,companyCode}))}\n`);}
+  try{
+    const actorId=process.env.REFS_WBS_H1_VERIFY_ACTOR_ID;
+    if(!actorId?.trim())throw new Error('REFS_WBS_H1_VERIFY_ACTOR_ID must identify an already authorized reader');
+    const result=await verifyWbsH1CompanyAccounting({adminPool,runtimePool,issuerPool,tenantId,companyCode,actorId,periodCode:process.env.REFS_WBS_H1_VERIFY_PERIOD||null});
+    process.stdout.write(`${JSON.stringify(result)}\n`);if(!result.pass)process.exitCode=1;
+  }
   finally{await Promise.allSettled([adminPool.end(),runtimePool.end(),issuerPool.end()]);}
 }
 

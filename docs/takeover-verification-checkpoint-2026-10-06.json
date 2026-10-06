@@ -4,6 +4,18 @@
   "baseline_sha": "ee35b223af2f02147aad9c4c7e98d181e440b55e",
   "hardening_sha": "79103ffe",
   "modern_workflow_candidate_sha": "bfeb9ee885fa0adc5a7e0f2abb68fd2558cb6bf4",
+  "vendor_candidate_frozen_validation": {
+    "source_sha": "68ae152d1cd8fe2fcc4772e1a069a34d2fc09251",
+    "worktree": "C:/Users/lqshz/Documents/ChatGPT/REFS会计系统/work/refs-verification-vendor-20261006",
+    "source_will_not_be_edited_during_gates": true,
+    "secret_scan": {"scanned_added_lines": 288, "findings": 0},
+    "sessions": [
+      {"gate": "full fresh PG15", "session_id": 43431, "log": "server/takeover-pg15-frozen-68ae152d.log", "status": "running"},
+      {"gate": "full fresh PG16", "session_id": 80265, "log": "server/takeover-pg16-frozen-68ae152d.log", "status": "running"},
+      {"gate": "root test then build then full server test", "session_id": 20037, "logs": ["takeover-root-frozen-68ae152d.log", "takeover-build-frozen-68ae152d.log", "server/takeover-server-frozen-68ae152d.log"], "status": "running"}
+    ],
+    "deploy_ready": false
+  },
   "frozen_validation": {
     "source_sha": "bfeb9ee885fa0adc5a7e0f2abb68fd2558cb6bf4",
     "worktree": "C:/Users/lqshz/Documents/ChatGPT/REFS会计系统/work/refs-verification-bfeb9ee8",
@@ -16,6 +28,14 @@
     ]
   },
   "inventory_code_sha": "0b16cd79",
+  "read_only_company_verifier_followup": {
+    "status": "selected real PG18 and units passed; not included in frozen 68ae152d gates",
+    "finding": "Legacy company verifier inserted runtime_actor_grant directly and only checked trial-balance totals",
+    "changes": ["removed grant writes", "explicit already-authorized reader required by CLI", "optional single H1 period", "PRIMARY ledger selection", "AP member exception_count and difference required", "missing trial balance cannot pass", "CLI incomplete result exits nonzero"],
+    "units": {"pass": 4, "fail": 0, "skipped": 0},
+    "real_pg18": {"session_id": 95679, "status": "completed", "exit_code": 0, "pass": 1, "fail": 0, "skipped": 0, "log": "server/takeover-pg18-readonly-verifier.log"},
+    "must_validate_final_followup_before_deploy": true
+  },
   "vendor_subledger_fix": {
     "migration": "450_wbs_h1_payable_vendor_posted_reducer.sql",
     "status": "selected PG18 validation passed; final frozen full gates required",
@@ -76,7 +96,7 @@
   "latest_build": {"source_sha": "cd61d4a1", "exit_code": 0, "runtime_deployment_assets": "PASS", "log": "takeover-build-final.log"},
   "candidate_diff_secret_scan": {"range": "ee35b223..cd61d4a1", "exit_code": 0, "scanned_lines": 337, "findings": []},
   "staging_authorization": {"source": "Direct human reply to deployment-scope question in this thread", "push_candidate_branch_after_local_gates_pass": true, "deploy_refs_accounting_api_staging_after_local_gates_pass": true, "single_company_single_period_pilot": true, "expansion_requires_further_confirmation": true, "production_changes": false},
-  "render_access_preflight": {"observed_url": "https://dashboard.render.com/login", "authenticated_session_available": false, "browser_control": "Repeated tab-control timeouts; stopped after recovery attempts", "authentication_must_be_completed_by_owner": true, "github_cli_authenticated": true},
+  "render_access_preflight": {"observed_url": "https://dashboard.render.com/", "authenticated_session_available": null, "browser_control": "Inventory showed Render Dashboard tab; two tab-binding attempts timed out and reset kernel. Stopped recovery; dashboard contents and login state unverified", "authentication_must_be_completed_by_owner": true, "github_cli_authenticated": true},
   "running_at_checkpoint": [
     {"gate": "fresh PG15 full kernel and accounting-settings workflow", "session_id": 52007, "log": "server/takeover-pg15-test.log", "status": "failed", "exit_code": 1, "pass": 279, "fail": 4, "skipped": 0, "reason": "MIGRATION_MANIFEST_MISMATCH after source directory changed during the running gate", "acceptance_proof": false},
     {"gate": "fresh PG16 full kernel and accounting-settings workflow", "session_id": 64959, "log": "server/takeover-pg16-test.log", "status": "failed", "exit_code": 1, "pass": 279, "fail": 4, "skipped": 0, "reason": "MIGRATION_MANIFEST_MISMATCH after source directory changed during the running gate", "acceptance_proof": false},

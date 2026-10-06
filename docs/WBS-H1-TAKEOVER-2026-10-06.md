@@ -31,6 +31,9 @@ Owner 已在本会话直接授权本地验证通过后推送候选分支、部�
 - 设置汇总的 plan_counts 表示读回的计划分类，counts 表示互斥的最终结果；实际成功批准记 APPROVED，批准失败只记 FAILED。计划读取失败只出现在最终 FAILED 中。
 - 异常明细完整保留 missing_details、not_ready_accounts、ambiguous_details，不再截断。大规模执行需保留完整 JSONL 日志，终端摘要不足以代替回执。
 - npm test 的 pretest 已包含 company-runners 测试；新增独立测试及两个工具别名。
+- 公司验收工具 verify-wbs-h1-company-accounting.mjs 不再插入 runtime_actor_grant。CLI 必须指定已有正式读授权的 REFS_WBS_H1_VERIFY_ACTOR_ID；REFS_WBS_H1_VERIFY_COMPANY 指定公司，REFS_WBS_H1_VERIFY_PERIOD 指定单个 H1 期间，不设置期间则检查六期 PRIMARY。读身份至少需要 AP.VIEW、GL.JE.VIEW、GL.REPORT.VIEW，工具不会自行补权限。缺失 TB、报表不全、TB 不平或供应商 AP 明细有例外均不通过，CLI 返回非零退出码。
+
+公司验收工具的单元测试 4/4、零跳过；PG18 实际 CLI 接续的只读验收专项 1/1、零跳过，过账后供应商明细无异常且会计工件数量不变。这项后续补丁未包含在 68ae152d 的冻结全量验证中，最终候选的工具回归仍需单独固定验证，不能把早先全量运行记成覆盖这项改动。
 
 ## 执行顺序
 
