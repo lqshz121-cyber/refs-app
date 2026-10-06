@@ -1,7 +1,7 @@
 {
   "schema_version": "REFS_TABLE_CENSUS_V1",
-  "migration_head":"446_internal_test_receivable_control_shape.sql",
-  "table_count": 249,
+  "migration_head":"450_wbs_h1_payable_vendor_posted_reducer.sql",
+  "table_count": 250,
   "tables": [
     {
       "name": "account_master",
@@ -834,6 +834,10 @@
     {
       "name": "wbs_h1_payable_reclass_draft_evidence",
       "created_by": "269_wbs_h1_payable_reclass_draft.sql"
+    },
+    {
+      "name": "wbs_h1_payable_vendor_posted_evidence",
+      "created_by": "450_wbs_h1_payable_vendor_posted_reducer.sql"
     },
     {
       "name": "wbs_inbound_receipt",

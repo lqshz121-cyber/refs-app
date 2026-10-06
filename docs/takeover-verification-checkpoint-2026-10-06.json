@@ -3,7 +3,30 @@
   "checkpoint_date": "2026-10-06",
   "baseline_sha": "ee35b223af2f02147aad9c4c7e98d181e440b55e",
   "hardening_sha": "79103ffe",
+  "modern_workflow_candidate_sha": "bfeb9ee885fa0adc5a7e0f2abb68fd2558cb6bf4",
+  "frozen_validation": {
+    "source_sha": "bfeb9ee885fa0adc5a7e0f2abb68fd2558cb6bf4",
+    "worktree": "C:/Users/lqshz/Documents/ChatGPT/REFS会计系统/work/refs-verification-bfeb9ee8",
+    "source_will_not_be_edited_during_gates": true,
+    "dependencies": "Junctions to already installed root/server node_modules; no lockfile change",
+    "sessions": [
+      {"gate": "full fresh PG15", "session_id": 44683, "log": "server/takeover-pg15-frozen-bfeb9ee8.log", "status": "running"},
+      {"gate": "full fresh PG16", "session_id": 16278, "log": "server/takeover-pg16-frozen-bfeb9ee8.log", "status": "running"},
+      {"gate": "root test then build then full server test", "session_id": 29246, "logs": ["takeover-root-frozen-bfeb9ee8.log", "takeover-build-frozen-bfeb9ee8.log", "server/takeover-server-frozen-bfeb9ee8.log"], "status": "completed", "root_exit_code": 0, "build_exit_code": 0, "server_exit_code": 1, "server_failure": "TABLE-CENSUS migration_head remained at 446 instead of 449", "final_candidate_acceptance_proof": false}
+    ]
+  },
   "inventory_code_sha": "0b16cd79",
+  "vendor_subledger_fix": {
+    "migration": "450_wbs_h1_payable_vendor_posted_reducer.sql",
+    "status": "selected PG18 validation passed; final frozen full gates required",
+    "actual_cli_failure_log": "server/takeover-pg18-mapping-cli-retest.log",
+    "failure": "Synthetic fixture 125.0000: ledger vendor moved but AP Bill vendor remained WBS_TEST_VENDOR; member exception_count=2 despite total difference=0",
+    "initial_fixed_cli_and_roundtrip": {"exit_code": 0, "pass": 2, "fail": 0, "skipped": 0, "log": "server/takeover-pg18-vendor-reducer-test.log"},
+    "expanded_validation": {"session_id": 25685, "status": "completed", "exit_code": 0, "pass": 4, "fail": 0, "skipped": 0, "log": "server/takeover-pg18-vendor-atomic-final.log", "coverage": ["legacy compatibility", "modern native trace", "actual CLI with finite grants and attestation", "member subledger exception_count=0", "outbox failure rolls back Post atomically", "immutable typed evidence and destructive rollback guard", "generic business-linked reversal denied", "migration down/up exact function restoration"]},
+    "focused_units": {"pass": 26, "fail": 0, "skipped": 0},
+    "generic_vendor_transfer_adjustments": "fail closed; dedicated owning reversal workflow not implemented",
+    "final_full_pg15_pg16_required": true
+  },
   "progress_checkpoint_utc": "2026-10-06T11:19:40Z",
   "scope": "Local isolated PostgreSQL validation and public staging readiness readback; no remote writes",
   "staging_readback": {

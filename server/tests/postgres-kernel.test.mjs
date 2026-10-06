@@ -7406,7 +7406,7 @@ pgTest('WBS H1 Payable accounting proposal matches approved debit and credit Set
   const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-h1-payable-proposal-denied',['AP.VIEW'])});await assert.rejects(denied.readWbsH1PayableAccountingProposal({tenantId:ids.tenantId,entityId:ids.entityId,periodId,limit:50,offset:0}),error=>error.code==='42501');
 });
 
-async function exerciseWbsH1Reclass({modern=false}={}){
+async function exerciseWbsH1Reclass({modern=false,cli=false}={}){
   const ids=await seed({status:'DRAFT',attachmentStatus:null,extraAccounts:[{accountCode:'610000',accountName:'WBS Test Operating Expense'},{accountCode:'164100',accountName:'CWIP - Land'}]}),periodId=randomUUID(),sourceHash=hash('wbs-h1-human-draft-source'),row={source_record_hash:hash('wbs-h1-human-draft-source'),currency:'USD',accounting_date:'2026-01-15',amount:'125.0000',status:'CLEAR'};
   await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,ledger_code,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'PRIMARY','2026-01','2026-01-01','2026-01-31','OPEN')",[periodId,ids.tenantId,ids.entityId]);
   const observationCore={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_payables',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-22T12:00:00.000Z',provider_content_sha256:createHash('sha256').update(canonicalRequestBody([row]),'utf8').digest('hex'),scope:{company_codes:[ids.sourceEntityId],date_range:['2026-01-01','2026-01-31']},record_count:1,rows:[row],signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false};
@@ -7463,6 +7463,52 @@ async function exerciseWbsH1Reclass({modern=false}={}){
   await adminPool.query('ALTER TABLE source_document_line DISABLE TRIGGER USER');await adminPool.query("UPDATE source_document_line SET external_dimension_refs=jsonb_set(external_dimension_refs,'{provenance_mode}','\"DRIFTED\"'::jsonb) WHERE source_document_line_id=$1",[trace.source_document_line_id]);await adminPool.query('ALTER TABLE source_document_line ENABLE TRIGGER USER');
   try{await assert.rejects(maker.createWbsH1PayableReclassDraft({...args,idempotencyKey:'h1-human-reclass-source-drift'}),error=>error.code==='40001');assert.deepEqual(await draftArtifacts(),failureBaseline);}finally{await adminPool.query('ALTER TABLE source_document_line DISABLE TRIGGER USER');await adminPool.query("UPDATE source_document_line SET external_dimension_refs=jsonb_set(external_dimension_refs,'{provenance_mode}','\"UNSIGNED_TEST_ONLY\"'::jsonb) WHERE source_document_line_id=$1",[trace.source_document_line_id]);await adminPool.query('ALTER TABLE source_document_line ENABLE TRIGGER USER');}
   const formalPrepare=()=>prepareAuthoritativeWbsH1Mapping({decision:resolveWbsH1PayableMapping((currentCandidates.rows)[0]),kernel:maker,reason:args.reason});
+  if(cli){
+    const installationId=randomUUID(),database=(await adminPool.query('SELECT current_database() name')).rows[0].name;
+    await adminPool.query('SELECT refs_initialize_deployment_identity($1,$2,$3,$4)',[installationId,'staging',database,'INITIALIZE_IMMUTABLE_DEPLOYMENT_IDENTITY']);
+    const cliActors={reclassMaker:'h1-reclass-maker',submitter:'h1-cli-submitter',reviewer:'h1-cli-reviewer',approver:'h1-cli-approver',poster:'h1-cli-poster'};
+    const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+    const granted=await reconcileWbsH1CompanyActorGrants({grantSync:sync,tenantId:ids.tenantId,entities:[{entity_id:ids.entityId,company_code:ids.sourceEntityId}],actors:cliActors,roles:Object.keys(cliActors),humanValidUntil:wbsH1GrantExpiry(1)});
+    assert.equal(granted.failed,0);assert.equal(granted.reconciled,5);
+    const env={...process.env,DATABASE_URL:config.databaseUrl,MIGRATION_DATABASE_URL:config.migrationDatabaseUrl,CONTEXT_ISSUER_DATABASE_URL:config.contextIssuerDatabaseUrl,GRANT_SYNC_DATABASE_URL:config.grantSyncDatabaseUrl,
+      REFS_EXPECTED_INSTALLATION_ID:installationId,REFS_EXPECTED_DATABASE_NAME:database,REFS_WBS_TEST_IMPORT_TENANT_ID:ids.tenantId,
+      REFS_WBS_H1_MAPPING_COMPANY:ids.sourceEntityId,REFS_WBS_H1_MAPPING_PERIOD:'2026-01',REFS_WBS_H1_MAPPING_REASON:args.reason,
+      REFS_WBS_H1_MAPPING_START_AFTER:'sha256:'+'0'.repeat(64),REFS_WBS_H1_MAPPING_LIMIT:'10',REFS_WBS_H1_MAPPING_DRY_RUN:'0'};
+    for(const [role,actorId] of Object.entries(cliActors))env[`REFS_WBS_TEST_IMPORT_${role==='reclassMaker'?'RECLASS_MAKER':role.toUpperCase()}_ACTOR_ID`]=actorId;
+    const runCli=patch=>new Promise((resolveChild,reject)=>{
+      const child=spawn(process.execPath,[fileURLToPath(new URL('../tools/apply-wbs-h1-payable-mappings.mjs',import.meta.url))],{env:{...env,...patch},stdio:['ignore','pipe','pipe']});
+      let stdout='',stderr='';child.stdout.on('data',chunk=>stdout+=chunk);child.stderr.on('data',chunk=>stderr+=chunk);child.once('error',reject);
+      child.once('exit',code=>{try{resolveChild({code,rows:stdout.trim().split(/\r?\n/).filter(Boolean).map(line=>JSON.parse(line)),stderr});}catch(error){reject(error);}});
+    });
+    const artifactCounts=async()=>({...await draftArtifacts(),...(await adminPool.query(`SELECT
+      (SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1 AND entity_id=$2) ledger,
+      (SELECT count(*)::int FROM source_link WHERE tenant_id=$1 AND entity_id=$2) links,
+      (SELECT count(*)::int FROM account_master WHERE tenant_id=$1 AND entity_id=$2) accounts`,[ids.tenantId,ids.entityId])).rows[0]});
+    const initial=await artifactCounts(),denied=await runCli({REFS_EXPECTED_INSTALLATION_ID:randomUUID()});
+    assert.equal(denied.code,1);assert.match(denied.stderr,/"status":"WBS_H1_PAYABLE_MAPPING_FAILED"/);assert.deepEqual(await artifactCounts(),initial);
+    const plan=await runCli({REFS_WBS_H1_MAPPING_DRY_RUN:'1'});assert.equal(plan.code,0,plan.stderr);
+    assert.deepEqual(plan.rows.at(-1).counts,{APPROVED_SETTINGS_PROPOSAL_READY:1});assert.deepEqual(await artifactCounts(),initial);
+    const executed=await runCli({});assert.equal(executed.code,0,executed.stderr||JSON.stringify(executed.rows));
+    assert.equal(executed.rows.at(-1).posted_count,1);assert.equal(executed.rows.at(-1).replayed_count,0);
+    const postedRow=executed.rows.find(row=>row.status==='WBS_H1_MAPPING_POSTED');assert.ok(postedRow);
+    const result=(await adminPool.query(`SELECT j.status::text,j.revision::int,j.posted_by,count(l.ledger_line_id)::int ledger_lines,
+      sum(l.debit_amount)::numeric(22,4)::text debit_total,sum(l.credit_amount)::numeric(22,4)::text credit_total
+      FROM journal_entry j JOIN ledger_line l USING(tenant_id,entity_id,journal_entry_id)
+      WHERE j.tenant_id=$1 AND j.entity_id=$2 AND j.journal_entry_id=$3 GROUP BY j.status,j.revision,j.posted_by`,[ids.tenantId,ids.entityId,postedRow.journal_entry_id])).rows[0];
+    assert.deepEqual(result,{status:'POSTED',revision:4,posted_by:cliActors.poster,ledger_lines:4,debit_total:'250.0000',credit_total:'250.0000'});
+    const completed=await artifactCounts(),replayed=await runCli({});assert.equal(replayed.code,0,replayed.stderr||JSON.stringify(replayed.rows));
+    assert.equal(replayed.rows.at(-1).replayed_count,1);assert.deepEqual(await artifactCounts(),completed);
+    const reportReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'h1-cli-report-reader',['AP.VIEW','GL.REPORT.VIEW','WBS.AUTOREC.VIEW'])});
+    const reports=await reportReader.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId});
+    assert.equal(reports.find(row=>row.statement_type==='TRIAL_BALANCE'&&row.account_code==='610000').display_balance,'0.0000');
+    assert.equal(reports.find(row=>row.statement_type==='TRIAL_BALANCE'&&row.account_code==='164100').display_balance,'125.0000');
+    const memberItems=await reportReader.readApControlMemberOpenItems({tenantId:ids.tenantId,entityId:ids.entityId,periodId});
+    assert.equal(memberItems.totals.exception_count,0,JSON.stringify(memberItems));
+    const inventory=await reportReader.readWbsH1ImportInventory({tenantId:ids.tenantId,entityId:ids.entityId,limit:50,offset:0}),pack=buildExceptionWorkpack([inventory]);
+    assert.equal(pack.control.reconciled,true);assert.equal(pack.draft_mapping_cross_table.four_cell_complete,true);
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_test_import_draft WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n,0);
+    return;
+  }
   const receipt=modern?(await formalPrepare()).draft:await maker.createWbsH1PayableReclassDraft(args),replay=modern?(await formalPrepare()).draft:await maker.createWbsH1PayableReclassDraft(args);assert.equal(receipt.status,'DRAFT');assert.equal(receipt.idempotent,false);assert.equal(replay.idempotent,true);assert.equal(replay.journal_entry_id,receipt.journal_entry_id);assert.deepEqual({submit:receipt.can_submit,review:receipt.can_review,approve:receipt.can_approve,post:receipt.can_post},{submit:false,review:false,approve:false,post:false});
   const created=(await adminPool.query(`SELECT j.journal_type,j.status,j.revision,l.line_no,l.account_code,l.debit_amount::text,l.credit_amount::text,l.member_ref,l.dimensions FROM journal_entry j JOIN journal_line l ON l.tenant_id=j.tenant_id AND l.entity_id=j.entity_id AND l.journal_entry_id=j.journal_entry_id WHERE j.tenant_id=$1 AND j.entity_id=$2 AND j.journal_entry_id=$3 ORDER BY l.line_no`,[ids.tenantId,ids.entityId,receipt.journal_entry_id])).rows;assert.deepEqual(created.map(({journal_type,status,revision,line_no,account_code,debit_amount,credit_amount,member_ref})=>({journal_type,status,revision,line_no,account_code,debit_amount,credit_amount,member_ref})),[{journal_type:'MANUAL',status:'DRAFT',revision:'0',line_no:1,account_code:'164100',debit_amount:'125.0000',credit_amount:'0.0000',member_ref:null},{journal_type:'MANUAL',status:'DRAFT',revision:'0',line_no:2,account_code:'610000',debit_amount:'0.0000',credit_amount:'125.0000',member_ref:null},{journal_type:'MANUAL',status:'DRAFT',revision:'0',line_no:3,account_code:'291001',debit_amount:'125.0000',credit_amount:'0.0000',member_ref:'WBS_TEST_VENDOR'},{journal_type:'MANUAL',status:'DRAFT',revision:'0',line_no:4,account_code:'291001',debit_amount:'0.0000',credit_amount:'125.0000',member_ref:'REAL-WBS-VENDOR'}]);
   const retainedVendorIdentity=(await adminPool.query('SELECT baseline_vendor_member_ref,target_vendor_member_ref FROM wbs_h1_payable_reclass_draft_evidence WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,receipt.journal_entry_id])).rows[0];assert.deepEqual(retainedVendorIdentity,{baseline_vendor_member_ref:'WBS_TEST_VENDOR',target_vendor_member_ref:'REAL-WBS-VENDOR'});
@@ -7472,7 +7518,31 @@ async function exerciseWbsH1Reclass({modern=false}={}){
   await submitter.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:receipt.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'h1-formal-submit-001'});
   await reviewer.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:receipt.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'h1-formal-review-001'});
   await approver.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:receipt.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'h1-formal-approve-001'});
+  const postSnapshot=async()=>(await adminPool.query(`SELECT
+    (SELECT jsonb_agg(to_jsonb(b) ORDER BY business_document_id) FROM business_document b WHERE tenant_id=$1 AND entity_id=$2) bills,
+    (SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1 AND entity_id=$2) ledger,
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND entity_id=$2) audit,
+    (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND entity_id=$2) outbox,
+    (SELECT count(*)::int FROM wbs_h1_payable_vendor_posted_evidence WHERE tenant_id=$1 AND entity_id=$2) vendor_proofs,
+    (SELECT status::text||':'||revision::text FROM journal_entry WHERE journal_entry_id=$3) journal`,[ids.tenantId,ids.entityId,receipt.journal_entry_id])).rows[0];
+  const beforeFailedPost=await postSnapshot();
+  // Fault injection in the disposable integration DB, never a production path.
+  await adminPool.query(`CREATE FUNCTION test_reject_wbs_vendor_outbox() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.event_type='WBS_H1_PAYABLE_VENDOR_RECLASS_POSTED' THEN RAISE EXCEPTION 'injected vendor outbox failure' USING ERRCODE='23514'; END IF; RETURN NEW; END $$;
+    CREATE TRIGGER test_reject_wbs_vendor_outbox BEFORE INSERT ON outbox_event FOR EACH ROW EXECUTE FUNCTION test_reject_wbs_vendor_outbox()`);
+  try{
+    await assert.rejects(poster.postJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId,journalEntryId:receipt.journal_entry_id,expectedRevision:3,idempotencyKey:'h1-formal-post-001'}),error=>error.code==='23514'&&/injected vendor outbox failure/.test(error.message));
+    assert.deepEqual(await postSnapshot(),beforeFailedPost,'failed outbox must roll back vendor, source, proof, journal and ledger together');
+  }finally{await adminPool.query('DROP TRIGGER test_reject_wbs_vendor_outbox ON outbox_event; DROP FUNCTION test_reject_wbs_vendor_outbox()');}
   const posted=await poster.postJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId,journalEntryId:receipt.journal_entry_id,expectedRevision:3,idempotencyKey:'h1-formal-post-001'});assert.equal(posted.journal_entry_id,receipt.journal_entry_id);assert.equal(posted.idempotent,false);
+  const vendorProof=(await adminPool.query('SELECT * FROM wbs_h1_payable_vendor_posted_evidence WHERE journal_entry_id=$1',[receipt.journal_entry_id])).rows[0];
+  assert.ok(vendorProof);assert.equal(vendorProof.from_member_ref,'WBS_TEST_VENDOR');assert.equal(vendorProof.to_member_ref,'REAL-WBS-VENDOR');
+  assert.equal(vendorProof.business_version_after, String(BigInt(vendorProof.business_version_before)+1n));
+  await assert.rejects(adminPool.query('UPDATE wbs_h1_payable_vendor_posted_evidence SET amount=amount+1 WHERE journal_entry_id=$1',[receipt.journal_entry_id]),error=>error.code==='55000');
+  await assert.rejects(runtimePool.query('INSERT INTO wbs_h1_payable_vendor_posted_evidence DEFAULT VALUES'),error=>error.code==='42501');
+  await assert.rejects(probeMigrationRoundTrip(adminPool,'450_wbs_h1_payable_vendor_posted_reducer.sql','refs_apply_wbs_h1_payable_vendor_posted()'),/Posted vendor transfer history/);
+  const reversalRequester=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'h1-reversal-requester',['GL.JE.REVERSE'])});
+  await assert.rejects(reversalRequester.createJournalAdjustment({action:'REVERSAL',tenantId:ids.tenantId,entityId:ids.entityId,originalJournalEntryId:receipt.journal_entry_id,periodId,journalNumber:'WBS-UNSUPPORTED-REVERSAL',journalDate:'2026-01-15',reason:'Prove generic adjustment cannot bypass the owning AP workflow',attachmentIds:[],idempotencyKey:'h1-generic-reversal-denied'}),error=>error.code==='55000'&&/owning business adjustment workflow/.test(error.message));
   const postedState=(await adminPool.query(`SELECT j.status,j.revision,j.posted_by,count(l.ledger_line_id)::int ledger_lines,sum(l.debit_amount)::numeric(22,4)::text debit_total,sum(l.credit_amount)::numeric(22,4)::text credit_total FROM journal_entry j JOIN ledger_line l ON l.tenant_id=j.tenant_id AND l.entity_id=j.entity_id AND l.journal_entry_id=j.journal_entry_id WHERE j.tenant_id=$1 AND j.entity_id=$2 AND j.journal_entry_id=$3 GROUP BY j.status,j.revision,j.posted_by`,[ids.tenantId,ids.entityId,receipt.journal_entry_id])).rows[0];assert.deepEqual(postedState,{status:'POSTED',revision:'4',posted_by:'h1-formal-poster',ledger_lines:4,debit_total:'250.0000',credit_total:'250.0000'});
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND object_id=$3 AND event_type IN ('JOURNAL_SUBMIT','JOURNAL_REVIEW','JOURNAL_APPROVE','JOURNAL_POSTED')",[ids.tenantId,ids.entityId,receipt.journal_entry_id])).rows[0].n,4);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE tenant_id=$1 AND entity_id=$2 AND aggregate_id=$3 AND event_type IN ('JOURNAL_SUBMIT','JOURNAL_REVIEW','JOURNAL_APPROVE','JOURNAL_POSTED')",[ids.tenantId,ids.entityId,receipt.journal_entry_id])).rows[0].n,4);
@@ -7489,10 +7559,11 @@ async function exerciseWbsH1Reclass({modern=false}={}){
 
 pgTest('separate humans take one approved WBS H1 Payable mapping from Draft through POSTED GL and financial statements',()=>exerciseWbsH1Reclass());
 pgTest('modern retained WBS H1 source passes authoritative runner through POSTED GL and reports without legacy trace',()=>exerciseWbsH1Reclass({modern:true}));
+pgTest('modern WBS H1 mapping CLI uses scoped real grants and attestation, dry run, four human stages, reports and idempotent replay',()=>exerciseWbsH1Reclass({modern:true,cli:true}));
 
 pgTest('modern WBS H1 trace migrations roundtrip and upgrade the historical function definitions exactly',async()=>{
   const client=await adminPool.connect();
-  const names=['447_wbs_h1_modern_reclass_trace.sql','448_wbs_h1_modern_inventory_trace.sql','449_wbs_h1_modern_source_finalize.sql'];
+  const names=['447_wbs_h1_modern_reclass_trace.sql','448_wbs_h1_modern_inventory_trace.sql','449_wbs_h1_modern_source_finalize.sql','450_wbs_h1_payable_vendor_posted_reducer.sql'];
   const definitions=async()=> (await client.query(`SELECT pg_get_functiondef('refs_create_wbs_h1_payable_reclass_draft(uuid,uuid,uuid,text,text,text,text,text)'::regprocedure) reclass,
     pg_get_functiondef('refs_read_wbs_h1_import_inventory(uuid,uuid,integer,integer)'::regprocedure) inventory,
     pg_get_functiondef('refs_finalize_wbs_test_import_source(uuid,uuid,uuid,uuid,uuid,text,text)'::regprocedure) finalize`)).rows[0];
