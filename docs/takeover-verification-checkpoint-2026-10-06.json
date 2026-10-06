@@ -4,7 +4,7 @@
   "baseline_sha": "ee35b223af2f02147aad9c4c7e98d181e440b55e",
   "hardening_sha": "79103ffe",
   "latest_code_sha": "0b16cd79",
-  "progress_checkpoint_utc": "2026-10-06T10:57:54Z",
+  "progress_checkpoint_utc": "2026-10-06T11:04:55Z",
   "scope": "Local isolated PostgreSQL validation and public staging readiness readback; no remote writes",
   "staging_readback": {
     "observed_at_utc": "2026-10-06T10:54:07Z",
@@ -28,11 +28,14 @@
     "fixture_container_and_volume_removed": true,
     "first_attempt": "Test-only wrong table name caused 42P01 after approval/replay; corrected and fresh isolated rerun passed"
   },
+  "pg15_company_runners": {"exit_code": 0, "tests": 1, "pass": 1, "fail": 0, "skipped": 0, "verification_mode": "PATTERN", "log": "server/takeover-pg15-runners-test.log", "fixture_container_and_volume_removed": true},
+  "pg16_company_runners": {"exit_code": 0, "tests": 1, "pass": 1, "fail": 0, "skipped": 0, "verification_mode": "PATTERN", "log": "server/takeover-pg16-runners-test.log", "fixture_container_and_volume_removed": true},
+  "root_complete_test_rerun": {"exit_code": 0, "nonzero_skipped_summaries_observed": false, "log": "takeover-root-final-test.log"},
+  "staging_authorization": {"source": "Direct human reply to deployment-scope question in this thread", "push_candidate_branch_after_local_gates_pass": true, "deploy_refs_accounting_api_staging_after_local_gates_pass": true, "single_company_single_period_pilot": true, "expansion_requires_further_confirmation": true, "production_changes": false},
+  "render_access_preflight": {"observed_url": "https://dashboard.render.com/login", "authenticated_session_available": false, "browser_control": "Repeated tab-control timeouts; stopped after recovery attempts", "authentication_must_be_completed_by_owner": true, "github_cli_authenticated": true},
   "running_at_checkpoint": [
     {"gate": "fresh PG15 full kernel and accounting-settings workflow", "session_id": 52007, "log": "server/takeover-pg15-test.log", "source": "79103ffe before new runner integration test"},
-    {"gate": "fresh PG16 full kernel and accounting-settings workflow", "session_id": 64959, "log": "server/takeover-pg16-test.log", "source": "79103ffe before new runner integration test"},
-    {"gate": "root npm test complete rerun", "session_id": 9191, "log": "takeover-root-final-test.log"},
-    {"gate": "new runner integration test on fresh PG15 then PG16", "session_id": 99890, "logs": ["server/takeover-pg15-runners-test.log", "server/takeover-pg16-runners-test.log"]}
+    {"gate": "fresh PG16 full kernel and accounting-settings workflow", "session_id": 64959, "log": "server/takeover-pg16-test.log", "source": "79103ffe before new runner integration test"}
   ],
   "inventory_cross_table": {
     "commit": "0b16cd79",
@@ -43,7 +46,7 @@
     "historical_number_fixture": "synthetic regression only, not a current WBPA readback",
     "no_draft_root_cause": "unresolved; requires fresh source/import evidence"
   },
-  "remaining": ["Confirm terminal results of existing sessions without restarting live jobs", "Verify new runner integration test on PG15 and PG16", "Record final candidate SHA and complete gate receipts", "Owner-authorized staging deployment of validated candidate", "Fresh scoped population readback and single-company single-period pilot", "Settings approval before reclassification", "Accounting acceptance before expansion"],
+  "remaining": ["Confirm terminal results of full PG15 and PG16 sessions without restarting live jobs", "Record final candidate SHA and complete gate receipts", "Restore authenticated Render access and deploy validated candidate under direct user authorization", "Fresh scoped population readback and single-company single-period pilot", "Settings approval before reclassification", "Accounting acceptance and further confirmation before expansion"],
   "production_changed": false,
   "remote_shell_used": false,
   "secrets_recorded": false
