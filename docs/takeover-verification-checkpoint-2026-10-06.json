@@ -1,0 +1,38 @@
+{
+  "schema_version": "REFS_TAKEOVER_VERIFICATION_CHECKPOINT_V1",
+  "checkpoint_date": "2026-10-06",
+  "baseline_sha": "ee35b223af2f02147aad9c4c7e98d181e440b55e",
+  "hardening_sha": "79103ffe",
+  "scope": "Local isolated PostgreSQL validation and public staging readiness readback; no remote writes",
+  "staging_readback": {
+    "observed_at_utc": "2026-10-06T10:54:07Z",
+    "url": "https://refs-accounting-api-staging.onrender.com/health/ready",
+    "http_status": 200,
+    "response": {"ok": true, "status": "ready", "release": "bfe08ff9d810e787a461ffa75b8e227e8ae1d9a2"},
+    "candidate_deployed": false,
+    "accounting_population_readback": "not performed"
+  },
+  "pg18_company_runners": {
+    "command": "POSTGRES_IMAGE=postgres:18-alpine npm run test:postgres:fresh -- --pattern 'WBS H1 company runners'",
+    "exit_code": 0,
+    "tests": 1,
+    "pass": 1,
+    "fail": 0,
+    "skipped": 0,
+    "verification_mode": "PATTERN",
+    "coverage": ["seven formal actor grants", "staging attestation via grant-sync login", "settings dry run", "settings approval", "idempotent replay", "wrong installation denies before context issuance", "denial preserves decision and ledger counts"],
+    "full_pg18_suite_verified": false,
+    "log": "server/takeover-pg18-runners-retest.log",
+    "fixture_container_and_volume_removed": true,
+    "first_attempt": "Test-only wrong table name caused 42P01 after approval/replay; corrected and fresh isolated rerun passed"
+  },
+  "running_at_checkpoint": [
+    {"gate": "fresh PG15 full kernel and accounting-settings workflow", "session_id": 52007, "log": "server/takeover-pg15-test.log", "source": "79103ffe before new runner integration test"},
+    {"gate": "fresh PG16 full kernel and accounting-settings workflow", "session_id": 64959, "log": "server/takeover-pg16-test.log", "source": "79103ffe before new runner integration test"},
+    {"gate": "root npm test complete rerun", "session_id": 9191, "log": "takeover-root-final-test.log"}
+  ],
+  "remaining": ["Confirm terminal results of existing sessions without restarting live jobs", "Verify new runner integration test on PG15 and PG16", "Record final candidate SHA and complete gate receipts", "Owner-authorized staging deployment of validated candidate", "Fresh scoped population readback and single-company single-period pilot", "Settings approval before reclassification", "Accounting acceptance before expansion"],
+  "production_changed": false,
+  "remote_shell_used": false,
+  "secrets_recorded": false
+}

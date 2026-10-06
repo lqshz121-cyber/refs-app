@@ -13,6 +13,8 @@ import {serializeOutboxEvent} from '../runtime/outbox-wire-contract.mjs';
 import {createAccountingApi} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
+import {reconcileWbsH1CompanyActorGrants,wbsH1GrantExpiry} from '../tools/reconcile-wbs-h1-company-actor-grants.mjs';
+import {StagingWbsH1SettingsKernel,decideWbsH1AccountingSettingsForScopes} from '../tools/decide-wbs-h1-accounting-settings.mjs';
 import {ADDITIONAL_WORKFLOW_ROLES} from '../runtime/additional-workflow-roles.mjs';
 import {createWbsTestImportService,reconcileWbsTestImportActorGrants} from '../runtime/wbs-test-import-service.mjs';
 import {createControlledTestBankWorkflowService} from '../runtime/controlled-test-bank-workflow-service.mjs';
@@ -7317,6 +7319,35 @@ pgTest('WBS H1 import inventory reads exact company source rows and exposes zero
   const result=await reader.readWbsH1ImportInventory({tenantId:ids.tenantId,entityId:ids.entityId,limit:1,offset:0});
   assert.equal(result.schema_version,'WBS_H1_IMPORT_INVENTORY_V1');assert.equal(result.company_code,ids.sourceEntityId);assert.equal(result.totals.source_record_count,2);assert.equal(result.totals.source_amount,'100.0000');assert.equal(result.rows.length,1);assert.equal(result.rows[0].mapping_state,'MAPPING_MISSING');assert.equal(result.months.length,6);assert.equal(result.months[0].source_record_count,1);assert.equal(result.months[5].source_record_count,1);assert.deepEqual({create:result.can_create_draft,review:result.can_review,approve:result.can_approve,post:result.can_post},{create:false,review:false,approve:false,post:false});
   const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-h1-inventory-denied',['AP.VIEW'])});await assert.rejects(denied.readWbsH1ImportInventory({tenantId:ids.tenantId,entityId:ids.entityId,limit:50,offset:0}),error=>error.code==='42501');
+});
+
+pgTest('WBS H1 company runners use real staging grants and guarded settings decisions with idempotent replay',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null,extraAccounts:[{accountCode:'164100',accountName:'CWIP - Land'}]}),periodId=randomUUID(),installationId=randomUUID();
+  const database=(await adminPool.query('SELECT current_database() AS name')).rows[0].name;
+  await adminPool.query('SELECT refs_initialize_deployment_identity($1,$2,$3,$4)',[installationId,'staging',database,'INITIALIZE_IMMUTABLE_DEPLOYMENT_IDENTITY']);
+  await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,ledger_code,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'PRIMARY','2026-01','2026-01-01','2026-01-31','OPEN')",[periodId,ids.tenantId,ids.entityId]);
+  await adminPool.query("INSERT INTO wbs_h1_accounting_setting_stage(tenant_id,company_code,setting_id,setting_type,category,business_type,detail,project_codes,journal_code,account_name,supplementary,effective_from,effective_to,setting_hash) VALUES($1,$2,1,'Debit','Payable',4,'0LD067','','164100','CWIP - Land','Project','2026-01-01','2026-12-31',$3)",[ids.tenantId,ids.sourceEntityId,hash('company-runner-ready')]);
+  const roles=['importer','maker','submitter','reviewer','approver','poster','settingsController'];
+  const actors=Object.fromEntries(roles.map(role=>[role,`company-runner-${role}`]));
+  const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+  const grants=await reconcileWbsH1CompanyActorGrants({grantSync:sync,tenantId:ids.tenantId,entities:[{entity_id:ids.entityId,company_code:ids.sourceEntityId}],actors,roles,humanValidUntil:wbsH1GrantExpiry(1)});
+  assert.equal(grants.failed,0,JSON.stringify(grants.failures));assert.equal(grants.reconciled,7);
+  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,tenantId:ids.tenantId,actorId:actors.settingsController})});
+  const target={installationId,expectedDatabase:database};
+  const kernel=new StagingWbsH1SettingsKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})},target,grantSyncPool);
+  const scopes=[{tenant_id:ids.tenantId,entity_id:ids.entityId,company_code:ids.sourceEntityId,period_id:periodId,period_code:'2026-01'}],reason='Verify guarded company settings approval against a real isolated database.';
+  const plan=await decideWbsH1AccountingSettingsForScopes({scopes,kernel,reason,dryRun:true});
+  assert.deepEqual(plan.counts,{APPROVABLE:1});assert.equal(plan.approved_now,0);
+  const approved=await decideWbsH1AccountingSettingsForScopes({scopes,kernel,reason});
+  assert.deepEqual(approved.counts,{APPROVED:1});assert.equal(approved.approved_now,1);
+  const replay=await decideWbsH1AccountingSettingsForScopes({scopes,kernel,reason});
+  assert.deepEqual(replay.counts,{ALREADY_APPROVED:1});assert.equal(replay.approved_now,0);
+  const countSql="SELECT (SELECT count(*)::int FROM runtime_auth_context) contexts,(SELECT count(*)::int FROM wbs_h1_accounting_settings_human_decision WHERE tenant_id=$1) decisions,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger";
+  const before=(await adminPool.query(countSql,[ids.tenantId])).rows[0];
+  const denied=new StagingWbsH1SettingsKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})},{...target,installationId:randomUUID()},grantSyncPool);
+  const result=await decideWbsH1AccountingSettingsForScopes({scopes,kernel:denied,reason});
+  assert.deepEqual(result.counts,{FAILED:1});assert.equal(result.approved_now,0);
+  assert.deepEqual((await adminPool.query(countSql,[ids.tenantId])).rows[0],before);
 });
 
 pgTest('WBS H1 accounting Settings proposal reads exact staged account rules and exposes zero accounting authority',async()=>{
