@@ -3,6 +3,8 @@
   "checkpoint_date": "2026-10-06",
   "baseline_sha": "ee35b223af2f02147aad9c4c7e98d181e440b55e",
   "hardening_sha": "79103ffe",
+  "latest_code_sha": "0b16cd79",
+  "progress_checkpoint_utc": "2026-10-06T10:57:54Z",
   "scope": "Local isolated PostgreSQL validation and public staging readiness readback; no remote writes",
   "staging_readback": {
     "observed_at_utc": "2026-10-06T10:54:07Z",
@@ -29,8 +31,18 @@
   "running_at_checkpoint": [
     {"gate": "fresh PG15 full kernel and accounting-settings workflow", "session_id": 52007, "log": "server/takeover-pg15-test.log", "source": "79103ffe before new runner integration test"},
     {"gate": "fresh PG16 full kernel and accounting-settings workflow", "session_id": 64959, "log": "server/takeover-pg16-test.log", "source": "79103ffe before new runner integration test"},
-    {"gate": "root npm test complete rerun", "session_id": 9191, "log": "takeover-root-final-test.log"}
+    {"gate": "root npm test complete rerun", "session_id": 9191, "log": "takeover-root-final-test.log"},
+    {"gate": "new runner integration test on fresh PG15 then PG16", "session_id": 99890, "logs": ["server/takeover-pg15-runners-test.log", "server/takeover-pg16-runners-test.log"]}
   ],
+  "inventory_cross_table": {
+    "commit": "0b16cd79",
+    "tests_with_company_runners": {"pass": 16, "fail": 0, "skipped": 0},
+    "log": "server/takeover-cross-table-test.log",
+    "scope": "Pure transformation of authenticated inventory exports; no network or database access",
+    "coverage": ["four independent Draft-presence/mapping cells", "separate ambiguous and unexposed states", "partial exports cannot claim complete population", "duplicate or invalid source identities cannot claim complete four-cell population"],
+    "historical_number_fixture": "synthetic regression only, not a current WBPA readback",
+    "no_draft_root_cause": "unresolved; requires fresh source/import evidence"
+  },
   "remaining": ["Confirm terminal results of existing sessions without restarting live jobs", "Verify new runner integration test on PG15 and PG16", "Record final candidate SHA and complete gate receipts", "Owner-authorized staging deployment of validated candidate", "Fresh scoped population readback and single-company single-period pilot", "Settings approval before reclassification", "Accounting acceptance before expansion"],
   "production_changed": false,
   "remote_shell_used": false,
