@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createHash,randomInt} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
-import {buildExceptionWorkpack} from '../tools/wbs-h1-inventory-exception-workpack.mjs';
+import {buildExceptionWorkpack,buildDraftMappingCrossTable} from '../tools/wbs-h1-inventory-exception-workpack.mjs';
 
 const sha=v=>`sha256:${createHash('sha256').update(String(v)).digest('hex')}`;
 const money=c=>`${c<0?'-':''}${Math.trunc(Math.abs(c)/10000)}.${String(Math.abs(c)%10000).padStart(4,'0')}`;
@@ -52,6 +52,8 @@ test('pages that drift in company or totals are flagged and a partial export is 
   const drifted=[pages[0],{...pages[1],company_code:'OTHR'}];
   const pack=buildExceptionWorkpack(drifted);
   assert.equal(pack.inventory_complete,false);assert.deepEqual(pack.page_errors,[{page:1,code:'PAGE_SCOPE_DRIFT'}]);assert.equal(pack.control.reconciled,false);
+  assert.equal(pack.draft_mapping_cross_table.four_cell_complete,false);
+  assert.equal(pack.draft_mapping_cross_table.inventory_population_verified,false);
   assert.throws(()=>buildExceptionWorkpack([]),/non-empty/);
   assert.throws(()=>buildExceptionWorkpack([{schema_version:'OTHER'}]),/not a WBS_H1_IMPORT_INVENTORY_V1/);
 });
@@ -59,4 +61,32 @@ test('pages that drift in company or totals are flagged and a partial export is 
 test('tool source opens no network or database connection and never posts',()=>{
   const source=readFileSync(fileURLToPath(new URL('../tools/wbs-h1-inventory-exception-workpack.mjs',import.meta.url)),'utf8');
   assert.doesNotMatch(source,/fetch\(|createPool|DATABASE_URL|postJournal|transition|https?:\/\//);
+});
+
+test('synthetic historical-shape fixture retains all four cells rather than subtracting orthogonal totals',()=>{
+  const rows=[];
+  for(const [import_state,mapping_state,count] of [['CONTROLLED_TEST_POSTED','MAPPING_READY_FOR_REVIEW',84],['CONTROLLED_TEST_POSTED','MAPPING_MISSING',1153],['SOURCE_STAGED','MAPPING_READY_FOR_REVIEW',10],['SOURCE_STAGED','MAPPING_MISSING',38]]){
+    for(let i=0;i<count;i++)rows.push({source_record_hash:sha(rows.length),accounting_date:'2026-01-15',amount:'1.0000',import_state,mapping_state});
+  }
+  const pack=buildExceptionWorkpack(inventory({rows})),cross=pack.draft_mapping_cross_table;
+  assert.equal(cross.total_rows,1285);assert.equal(cross.four_cell_complete,true);
+  assert.deepEqual([cross.cells.draft_record_present.mapping_ready,cross.cells.draft_record_present.mapping_missing,cross.cells.source_staged_no_draft.mapping_ready,cross.cells.source_staged_no_draft.mapping_missing],[84,1153,10,38]);
+  assert.equal(cross.row_totals.draft_record_present,1237);assert.equal(cross.row_totals.source_staged_no_draft,48);
+  assert.equal(cross.column_totals.mapping_missing,1191);assert.equal(cross.column_totals.mapping_ready,94);
+  assert.equal(cross.no_draft_cause,'NOT_DETERMINED_BY_INVENTORY');
+});
+
+test('cross table does not invent a mapping or Draft state for formal-posted, ambiguous or unknown rows',()=>{
+  const rows=[{source_record_hash:sha(1),import_state:'CONTROLLED_TEST_POSTED',mapping_state:'FORMAL_MAPPING_POSTED'},{source_record_hash:sha(2),import_state:'SOURCE_STAGED',mapping_state:'MAPPING_AMBIGUOUS'},{source_record_hash:sha(3),import_state:'OTHER',mapping_state:'OTHER'}];
+  const cross=buildDraftMappingCrossTable(rows);
+  assert.equal(cross.four_cell_complete,false);assert.equal(cross.cells.draft_record_present.formal_posted_mapping_not_exposed,1);
+  assert.equal(cross.cells.source_staged_no_draft.mapping_ambiguous,1);assert.equal(cross.cells.unknown_import_state.unknown,1);
+  assert.equal(Object.values(cross.row_totals).reduce((a,b)=>a+b,0),3);
+});
+
+test('duplicate or invalid source identities cannot yield a complete four-cell population',()=>{
+  const row={source_record_hash:sha(1),import_state:'SOURCE_STAGED',mapping_state:'MAPPING_MISSING'};
+  assert.equal(buildDraftMappingCrossTable([row,{...row}]).four_cell_complete,false);
+  assert.equal(buildDraftMappingCrossTable([{...row,source_record_hash:'bad'}]).population_identity_unique,false);
+  assert.equal(buildDraftMappingCrossTable([{...row,mapping_state:'__proto__'}]).cells.source_staged_no_draft.unknown,1);
 });

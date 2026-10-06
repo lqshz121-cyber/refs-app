@@ -18,6 +18,25 @@ const COUNT_KEYS=['source_record_count','controlled_test_posted_count','formal_m
 const cents=value=>{if(typeof value!=='string'||!MONEY.test(value))return null;const negative=value.startsWith('-');const [whole,fraction]=value.replace('-','').split('.');const n=BigInt(whole)*10000n+BigInt(fraction);return negative?-n:n;};
 const money=value=>{const negative=value<0n;const abs=negative?-value:value;const whole=abs/10000n,fraction=abs%10000n;return `${negative?'-':''}${whole}.${String(fraction).padStart(4,'0')}`;};
 
+export function buildDraftMappingCrossTable(rows){
+  const empty=()=>({mapping_ready:0,mapping_missing:0,mapping_ambiguous:0,formal_posted_mapping_not_exposed:0,unknown:0});
+  const cells={draft_record_present:empty(),source_staged_no_draft:empty(),unknown_import_state:empty()};
+  const columns={MAPPING_READY_FOR_REVIEW:'mapping_ready',MAPPING_MISSING:'mapping_missing',MAPPING_AMBIGUOUS:'mapping_ambiguous',FORMAL_MAPPING_POSTED:'formal_posted_mapping_not_exposed'};
+  for(const row of rows){
+    const axis=row.import_state==='CONTROLLED_TEST_POSTED'?'draft_record_present':row.import_state==='SOURCE_STAGED'?'source_staged_no_draft':'unknown_import_state';
+    cells[axis][Object.hasOwn(columns,row.mapping_state)?columns[row.mapping_state]:'unknown']++;
+  }
+  const rowTotals=Object.fromEntries(Object.entries(cells).map(([key,value])=>[key,Object.values(value).reduce((a,b)=>a+b,0)]));
+  const columnTotals=Object.fromEntries(Object.keys(empty()).map(key=>[key,Object.values(cells).reduce((sum,value)=>sum+value[key],0)]));
+  const hashes=rows.map(row=>row.source_record_hash);
+  const identityValid=hashes.every(value=>HASH.test(value||''))&&new Set(hashes).size===hashes.length;
+  return {schema_version:'WBS_H1_DRAFT_MAPPING_CROSS_TABLE_V1',cells,row_totals:rowTotals,column_totals:columnTotals,total_rows:rows.length,
+    population_identity_unique:identityValid,
+    four_cell_complete:identityValid&&rowTotals.unknown_import_state===0&&columnTotals.mapping_ambiguous===0&&columnTotals.formal_posted_mapping_not_exposed===0&&columnTotals.unknown===0,
+    draft_axis_evidence:'Inventory import_state reflects wbs_test_import_draft row presence, not independent journal posting verification',
+    no_draft_cause:'NOT_DETERMINED_BY_INVENTORY',accounting_authority:'NONE'};
+}
+
 export function buildExceptionWorkpack(pages,{queueLimit=50,largeAbs='1000000.0000'}={}){
   if(!Array.isArray(pages)||!pages.length)throw new Error('pages must be a non-empty array of inventory pages');
   if(!Number.isSafeInteger(queueLimit)||queueLimit<1||queueLimit>1000)throw new Error('queueLimit must be 1..1000');
@@ -57,6 +76,9 @@ export function buildExceptionWorkpack(pages,{queueLimit=50,largeAbs='1000000.00
     for(const key of ['source_record_count','controlled_test_posted_count','formal_mapping_posted_count','mapping_missing_count','mapping_ready_count','mapping_ambiguous_count'])if(declaredMonth[key]!==m[key])monthMismatches.push({period_code:declaredMonth.period_code,key,declared:declaredMonth[key],recomputed:m[key]});
     if(cents(String(declaredMonth.source_amount))!==m.source_amount)monthMismatches.push({period_code:declaredMonth.period_code,key:'source_amount',declared:declaredMonth.source_amount,recomputed:money(m.source_amount)});}
   const complete=rows.length===declared.source_record_count;
+  const crossTable=buildDraftMappingCrossTable(rows);
+  crossTable.inventory_population_verified=complete&&controlMismatches.length===0&&monthMismatches.length===0&&pageErrors.length===0;
+  crossTable.four_cell_complete=crossTable.four_cell_complete&&crossTable.inventory_population_verified;
   const queue=[];for(const [code,items] of Object.entries(exceptions))for(const item of items){if(queue.length>=queueLimit)break;if(code==='MAPPING_MISSING')continue;queue.push({code,...item});}
   // MAPPING_MISSING is the bulk population; it enters the queue only as a count + first N so a reviewer sees the shape without 1,000 rows.
   for(const item of exceptions.MAPPING_MISSING.slice(0,Math.max(0,queueLimit-queue.length)))queue.push({code:'MAPPING_MISSING',...item});
@@ -66,6 +88,7 @@ export function buildExceptionWorkpack(pages,{queueLimit=50,largeAbs='1000000.00
     control:{declared,recomputed,mismatches:controlMismatches,reconciled:complete&&controlMismatches.length===0&&monthMismatches.length===0&&pageErrors.length===0},
     months:MONTHS.map(m=>({period_code:m,...byMonth[m],source_amount:money(byMonth[m].source_amount)})),month_mismatches:monthMismatches,
     exception_counts:Object.fromEntries(Object.entries(exceptions).map(([k,v])=>[k,v.length])),
+    draft_mapping_cross_table:crossTable,
     review_queue:queue,review_queue_truncated:Object.values(exceptions).reduce((a,v)=>a+v.length,0)>queue.length,
     accounting_authority:'NONE',can_create_draft:false,can_review:false,can_approve:false,can_post:false,auto_post:false
   });
