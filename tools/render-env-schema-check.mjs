@@ -8,7 +8,7 @@
 import {readFileSync,readdirSync,existsSync} from 'node:fs';
 const files=['render.yaml','render.integrations.yaml'].filter(existsSync);
 const services=[];
-for(const f of files){const text=readFileSync(f,'utf8');for(const block of text.split(/\n  - type: /).slice(1)){const type=block.split('\n')[0].trim();const name=(block.match(/\n\s+name: (\S+)/)||[])[1];const vars=[...block.matchAll(/- key: (\S+)\n\s+(sync: false|value: ?(.*)|fromService:)/g)].map(m=>({key:m[1],kind:m[2].startsWith('sync')?'secret':m[2].startsWith('from')?'linked':'value',value:m[3]?.trim().replace(/^"|"$/g,'')}));services.push({file:f,type,name,vars});}}
+for(const f of files){const text=readFileSync(f,'utf8').replace(/\r\n/g,'\n');for(const block of text.split(/\n  - type: /).slice(1)){const type=block.split('\n')[0].trim();const name=(block.match(/\n\s+name: (\S+)/)||[])[1];const vars=[...block.matchAll(/- key: (\S+)\n\s+(sync: false|value: ?(.*)|fromService:)/g)].map(m=>({key:m[1],kind:m[2].startsWith('sync')?'secret':m[2].startsWith('from')?'linked':'value',value:m[3]?.trim().replace(/^"|"$/g,'')}));services.push({file:f,type,name,vars});}}
 const problems=[],info=[];
 const secretish=/SECRET|TOKEN|PASSWORD|PRIVATE|_KEY_ID$|ACCESS_KEY|DATABASE_URL$|PUBLISH_URL$|CA_PEM$/;
 for(const s of services){

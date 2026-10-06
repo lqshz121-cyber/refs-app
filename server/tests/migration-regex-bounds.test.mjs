@@ -5,7 +5,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readdirSync,readFileSync} from 'node:fs';
 import {join} from 'node:path';
-const root=new URL('../db/migrations/',import.meta.url).pathname;
+import {fileURLToPath} from 'node:url';
+const root=fileURLToPath(new URL('../db/migrations/',import.meta.url));
 // A migration that is later repaired stays in the chain unchanged; the repair is named here and
 // must itself be present, so the allowance cannot outlive the fix.
 const REPAIRED={'387_webhook_subscription_authoritative.sql':'442_webhook_endpoint_path_regex_bound.sql'};

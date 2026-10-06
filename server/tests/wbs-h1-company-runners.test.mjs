@@ -1,10 +1,61 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {reconcileWbsH1CompanyActorGrants,selectWbsH1GrantRoles,wbsH1GrantExpiry,wbsH1RoleBundle} from '../tools/reconcile-wbs-h1-company-actor-grants.mjs';
-import {classifyWbsH1SettingsScope,decideWbsH1AccountingSettingsForScopes,settingsDecisionIdempotencyKey} from '../tools/decide-wbs-h1-accounting-settings.mjs';
+import {classifyWbsH1SettingsScope,decideWbsH1AccountingSettingsForScopes,settingsDecisionIdempotencyKey,runStagingSettingsOperation,assertSettingsDatabaseEndpoints,StagingWbsH1SettingsKernel} from '../tools/decide-wbs-h1-accounting-settings.mjs';
 
 const T='6fb25daf-0799-4805-bede-be54230da33c';
 const E1='11111111-1111-4111-a111-111111111111',E2='22222222-2222-4222-a222-222222222222';
+
+test('WH1R-6 deployment denial prevents settings work and mismatched connections are rejected',async()=>{
+  let worked=false;
+  const denied={async query(){return {rows:[{asserted:false}]};}};
+  await assert.rejects(()=>runStagingSettingsOperation(denied,{},async()=>{worked=true;}),{code:'DEPLOYMENT_IDENTITY_DENIED'});
+  assert.equal(worked,false);
+  let issued=false,connected=false;
+  const guarded=new StagingWbsH1SettingsKernel({async connect(){connected=true;assert.fail('runtime must not connect after denial');}},{sessionProvider:async()=>{issued=true;assert.fail('context must not be issued after denial');}},{},denied);
+  await assert.rejects(()=>guarded.inSession(async()=>assert.fail('denied work must not run')),{code:'DEPLOYMENT_IDENTITY_DENIED'});
+  assert.deepEqual([issued,connected],[false,false]);
+  const calls=[];
+  const allowed={async query(sql,args){calls.push({sql,args});return {rows:[{asserted:true}]};}};
+  const target={installationId:T,expectedDatabase:'isolated_test'};
+  assert.equal(await runStagingSettingsOperation(allowed,target,async()=>42),42);
+  assert.deepEqual(calls[0].args,[T,'isolated_test']);
+  const config=Object.fromEntries(['databaseUrl','contextIssuerDatabaseUrl','migrationDatabaseUrl','grantSyncDatabaseUrl'].map(key=>[key,'postgresql://role:password@localhost:55432/isolated_test']));
+  assert.doesNotThrow(()=>assertSettingsDatabaseEndpoints(config));
+  assert.throws(()=>assertSettingsDatabaseEndpoints({...config,grantSyncDatabaseUrl:'postgresql://role:password@localhost:55432/other_test'}),/same database endpoint/);
+});
+
+test('WH1R-7 version reads are retried only on serialization failure and failures preserve remaining grants',async()=>{
+  let reads=0,writes=0;
+  const sync={async currentVersion({entityId}){
+    reads++;
+    if(reads===1)throw Object.assign(new Error('serialization'),{code:'40001'});
+    if(entityId===E2)throw Object.assign(new Error('connection unavailable'),{code:'08006'});
+    return 0;
+  },async reconcile(){writes++;return {idempotent:false};}};
+  const result=await reconcileWbsH1CompanyActorGrants({grantSync:sync,tenantId:T,entities:[{entity_id:E1,company_code:'OPAA'},{entity_id:E2,company_code:'OPBB'}],actors:{importer:'importer'},roles:['importer'],humanValidUntil:'2026-10-07T00:00:00.000Z'});
+  assert.equal(result.status,'WBS_H1_COMPANY_GRANTS_PARTIAL');
+  assert.deepEqual([reads,writes,result.reconciled,result.failed],[3,1,1,1]);
+  assert.equal(result.failures[0].code,'08006');
+});
+
+test('WH1R-8 failed approvals have one final outcome while the plan remains available',async()=>{
+  const kernel={async readWbsH1AccountingSettingsProposal(){return {status:'READY_FOR_HUMAN_REVIEW',exception_count:0,ready_rule_count:1,proposal_hash:'sha256:x'};},async readWbsH1AccountingSettingsDecision(){return null;},async decideWbsH1AccountingSettings(){throw Object.assign(new Error('proposal drift'),{code:'23514'});}};
+  const result=await decideWbsH1AccountingSettingsForScopes({scopes:[{tenant_id:T,entity_id:E1,company_code:'OPAA',period_id:E2,period_code:'2026-01'}],kernel,reason:'regression test approval'});
+  assert.deepEqual(result.plan_counts,{APPROVABLE:1});
+  assert.deepEqual(result.counts,{FAILED:1});
+  assert.equal(Object.values(result.counts).reduce((a,b)=>a+b,0),result.scope_count);
+  assert.equal(result.approved_now,0);
+});
+
+test('WH1R-9 exception worklist retains more than fifty missing accounts and ambiguous rules',async()=>{
+  const rules=Array.from({length:70},(_,i)=>({decision:'MAPPING_MISSING',detail:`COST-${i}`}));
+  rules.push({decision:'MAPPING_AMBIGUOUS',detail:'LEGAL'});
+  const kernel={async readWbsH1AccountingSettingsProposal(){return {status:'EXCEPTION',exception_count:71,ready_rule_count:0,proposal_hash:'sha256:x',rules};},async readWbsH1AccountingSettingsDecision(){return null;},async decideWbsH1AccountingSettings(){assert.fail('exceptions must not be approved');}};
+  const result=await decideWbsH1AccountingSettingsForScopes({scopes:[{tenant_id:T,entity_id:E1,company_code:'OPAA',period_id:E2,period_code:'2026-01'}],kernel,reason:'regression test exception',dryRun:true});
+  assert.equal(result.exception_companies[0].missing_details.length,70);
+  assert.deepEqual(result.exception_companies[0].ambiguous_details,['LEGAL']);
+});
 
 test('WH1R-1 role bundles are the frozen startup/test-import bundles; settingsController is the WBS_H1_SETTINGS_CONTROLLER role',()=>{
   assert.deepEqual(wbsH1RoleBundle('importer'),{authorityClass:'SERVICE',permissions:['WBS.TEST.IMPORT']});
@@ -93,10 +144,12 @@ test('WH1R-5 settings runner: dry run decides nothing, real run approves APPROVA
   assert.equal(plan.status,'WBS_H1_SETTINGS_DECISION_PLAN_PARTIAL');
   assert.deepEqual(plan.counts,{APPROVABLE:1,ALREADY_APPROVED:1,EXCEPTION:2,FAILED:1});
   assert.equal(decisions.length,0);
-  assert.deepEqual(plan.exception_companies,[{company_code:'OPBB',periods:['2026-01','2026-02'],exceptions:{MAPPING_MISSING:1,ACCOUNT_NOT_READY:0,MAPPING_AMBIGUOUS:0},missing_details:['LEGAL','TAX'],not_ready_accounts:[]}]);
+  assert.deepEqual(plan.exception_companies,[{company_code:'OPBB',periods:['2026-01','2026-02'],exceptions:{MAPPING_MISSING:1,ACCOUNT_NOT_READY:0,MAPPING_AMBIGUOUS:0},missing_details:['LEGAL','TAX'],not_ready_accounts:[],ambiguous_details:[]}]);
   assert.equal(plan.failures[0].code,'42501');
   const real=await decideWbsH1AccountingSettingsForScopes({scopes:scopes.slice(0,4),kernel,reason});
   assert.equal(real.status,'WBS_H1_SETTINGS_DECISIONS_COMPLETE');
+  assert.deepEqual(real.counts,{APPROVED:1,ALREADY_APPROVED:1,EXCEPTION:2});
+  assert.equal(Object.values(real.counts).reduce((a,b)=>a+b,0),real.scope_count);
   assert.deepEqual([real.approved_now,decisions.length,decisions[0].outcome,decisions[0].expectedProposalHash],[1,1,'APPROVED','sha256:'+'1'.repeat(64)]);
   assert.equal(decisions[0].idempotencyKey,settingsDecisionIdempotencyKey('OPAA','2026-01','sha256:'+'1'.repeat(64)));
   const again=await decideWbsH1AccountingSettingsForScopes({scopes:scopes.slice(0,4),kernel,reason});

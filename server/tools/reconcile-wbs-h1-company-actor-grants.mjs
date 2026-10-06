@@ -68,8 +68,8 @@ export async function reconcileWbsH1CompanyActorGrants({grantSync,tenantId,entit
       const bundle=wbsH1RoleBundle(role),actorId=actors[role],validUntil=bundle.authorityClass==='SERVICE'?null:humanValidUntil;
       let completed=false,lastError=null;
       for(let attempt=0;attempt<3&&!completed;attempt++){
-        const expectedVersion=await grantSync.currentVersion({tenantId,entityId:entity.entity_id,actorId});
         try{
+          const expectedVersion=await grantSync.currentVersion({tenantId,entityId:entity.entity_id,actorId});
           const result=await grantSync.reconcile({tenantId,entityId:entity.entity_id,actorId,permissions:bundle.permissions,authorityClass:bundle.authorityClass,validUntil,expectedVersion,idempotencyKey:`wbs-h1-company-${role}-grant-v1-${entity.company_code}-${expectedVersion}-${(validUntil||'service').slice(0,13).replace(/[-:T]/g,'')}`});
           completed=true;summary.reconciled++;if(result?.idempotent===true)summary.idempotent++;
         }catch(error){lastError=error;if(error?.code!=='40001'||attempt===2)break;}

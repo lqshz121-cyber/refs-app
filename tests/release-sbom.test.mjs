@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
-const read=p=>readFileSync(new URL(`../${p}`,import.meta.url),'utf8');
+const read=p=>readFileSync(new URL(`../${p}`,import.meta.url),'utf8').replace(/\r\n/g,'\n');
 test('release-sbom tool emits CycloneDX for root and server, stamps the git SHA, and fails closed on ESBOMPROBLEMS',()=>{
   const s=read('tools/release-sbom.mjs');
   assert.match(s,/'sbom','--sbom-format','cyclonedx','--omit','dev'/);assert.match(s,/refs:git_sha/);assert.match(s,/REFS_RELEASE_SBOM_MANIFEST_V1/);

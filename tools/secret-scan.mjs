@@ -8,6 +8,7 @@
 // Exit codes: 0 clean, 2 findings, 3 could not run (no git range, no diff).
 import {execFileSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
+import {pathToFileURL} from 'node:url';
 
 const args=process.argv.slice(2);
 const opt=(name,fallback)=>{const i=args.indexOf(name);return i>=0&&args[i+1]?args[i+1]:fallback;};
@@ -67,7 +68,7 @@ function addedLinesFromDiff(diff){
   return out;
 }
 
-if(import.meta.url===`file://${process.argv[1]}`){
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   let lines;
   try{
     if(fileArg)lines=readFileSync(fileArg,'utf8').split('\n').map((text,i)=>({path:fileArg,lineNo:i+1,text}));

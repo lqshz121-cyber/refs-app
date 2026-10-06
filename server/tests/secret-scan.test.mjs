@@ -2,6 +2,8 @@
 // A scanner that produces noise gets switched off, so the allowlist is tested as hard as the rules.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {fileURLToPath} from 'node:url';
+import {spawnSync} from 'node:child_process';
 import {scanLines,RULES,ALLOW} from '../../tools/secret-scan.mjs';
 
 const line=(text,path='x.mjs',lineNo=1)=>({path,lineNo,text});
@@ -72,10 +74,25 @@ test('the allow marker exempts only the line it sits on, and only when it is rea
 test('the allow marker is confined to test fixtures',async()=>{
   // A marker outside a test directory would be a production line excusing itself.
   const {execFileSync}=await import('node:child_process');
-  const root=new URL('../../',import.meta.url).pathname;
+  const root=fileURLToPath(new URL('../../',import.meta.url));
   const out=execFileSync('git',['grep','-ln','secret-scan: allow','--','*.mjs','*.js','*.ts','*.sql','*.yml'],
     {cwd:root,encoding:'utf8'}).trim().split('\n').filter(Boolean);
   const offenders=out.filter(f=>!/(^|\/)tests?\//.test(f)&&f!=='tools/secret-scan.mjs');
   assert.deepEqual(offenders,[],`the allow marker must not appear outside tests: ${offenders.join(', ')}`);
 });
 
+test('CLI executes on filesystem paths including Windows paths and fails closed without input',()=>{
+  const root=fileURLToPath(new URL('../../',import.meta.url));
+  const scanner=fileURLToPath(new URL('../../tools/secret-scan.mjs',import.meta.url));
+  const missing=spawnSync(process.execPath,[scanner],{cwd:root,encoding:'utf8'});
+  assert.equal(missing.status,3);
+  assert.match(missing.stderr,/pass --range/);
+  const packageFile=fileURLToPath(new URL('../package.json',import.meta.url));
+  const scanned=spawnSync(process.execPath,[scanner,'--file',packageFile,'--json'],{cwd:root,encoding:'utf8'});
+  assert.equal(scanned.status,0,scanned.stderr);
+  const receipt=JSON.parse(scanned.stdout);
+  assert.ok(receipt.scanned_lines>1);
+  assert.deepEqual(receipt.findings,[]);
+  const unreadable=spawnSync(process.execPath,[scanner,'--file',packageFile+'.missing'],{cwd:root,encoding:'utf8'});
+  assert.equal(unreadable.status,3);
+});

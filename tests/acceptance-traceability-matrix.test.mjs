@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
 const root=new URL('../',import.meta.url);
-const matrix=readFileSync(new URL('ACCEPTANCE-TRACEABILITY-MATRIX.md',root),'utf8');
+const matrix=readFileSync(new URL('ACCEPTANCE-TRACEABILITY-MATRIX.md',root),'utf8').replace(/\r\n/g,'\n');
 test('every referenced test file and runbook exists',()=>{
   const body=matrix.split('\n## H. Receipt index')[0];
   const refs=[...body.matchAll(/`((?:server\/)?(?:tests|db\/migrations|runtime|api)\/[\w./-]+\.(?:mjs|js|jsx|json|sql)|[\w-]+\.md|server\/[\w-]+\.md|verify-[\w-]+\.mjs|\.github\/workflows\/[\w-]+\.yml|render(?:\.integrations)?\.yaml|index\.html)`/g)].map(m=>m[1]);

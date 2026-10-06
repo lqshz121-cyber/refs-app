@@ -6,10 +6,11 @@ import {execFileSync} from 'node:child_process';
 import {writeFileSync,mkdtempSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-const run=(matrix)=>{const d=mkdtempSync(join(tmpdir(),'gng-'));const p=join(d,'m.md');writeFileSync(p,matrix);let out,code=0;try{out=execFileSync(process.execPath,[new URL('../tools/go-no-go-report.mjs',import.meta.url).pathname,p,'--json'],{encoding:'utf8'});}catch(e){out=e.stdout;code=e.status;}return {code,report:JSON.parse(out)};};
+import {fileURLToPath} from 'node:url';
+const run=(matrix)=>{const d=mkdtempSync(join(tmpdir(),'gng-'));const p=join(d,'m.md');writeFileSync(p,matrix);let out,code=0;try{out=execFileSync(process.execPath,[fileURLToPath(new URL('../tools/go-no-go-report.mjs',import.meta.url)),p,'--json'],{encoding:'utf8'});}catch(e){out=e.stdout;code=e.status;}return {code,report:JSON.parse(out)};};
 const head='| ID | Requirement | Code | Test / Doc | SHA | Offline read-back | Live read-back | Status | Owner |\n|---|---|---|---|---|---|---|---|---|\n';
 test('the real matrix currently yields NO-GO with named blockers (production is not approved)',()=>{
-  const {code,report}=(()=>{let out,code=0;try{out=execFileSync(process.execPath,[new URL('../tools/go-no-go-report.mjs',import.meta.url).pathname,new URL('../ACCEPTANCE-TRACEABILITY-MATRIX.md',import.meta.url).pathname,'--json'],{encoding:'utf8'});}catch(e){out=e.stdout;code=e.status;}return {code,report:JSON.parse(out)};})();
+  const {code,report}=(()=>{let out,code=0;try{out=execFileSync(process.execPath,[fileURLToPath(new URL('../tools/go-no-go-report.mjs',import.meta.url)),fileURLToPath(new URL('../ACCEPTANCE-TRACEABILITY-MATRIX.md',import.meta.url)),'--json'],{encoding:'utf8'});}catch(e){out=e.stdout;code=e.status;}return {code,report:JSON.parse(out)};})();
   assert.equal(report.decision,'NO-GO');assert.equal(code,3);assert.ok(report.blockers.length>0);
 });
 test('a P0 row without LIVE_VERIFIED is a blocker; GAP/BLOCKED rows are blockers; DONE without Owner tick is a blocker',()=>{

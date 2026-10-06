@@ -9,7 +9,8 @@ import {readFileSync} from 'node:fs';
 
 const root=new URL('../',import.meta.url);
 const html=readFileSync(new URL('index.html',root),'utf8');
-const render=readFileSync(new URL('render.yaml',root),'utf8');
+// Git's Windows checkout uses CRLF; the header parser must not skip all services.
+const render=readFileSync(new URL('render.yaml',root),'utf8').replace(/\r\n/g,'\n');
 
 const staticServices=[...render.matchAll(/- type: web\n\s+name: (\S+)\n\s+runtime: static([\s\S]*?)(?=\n  - type: |\s*$)/g)].map(m=>({name:m[1],body:m[2]}));
 const cspOf=body=>{const m=body.match(/name: Content-Security-Policy\n\s+value: "([^"]+)"/);return m?m[1]:null;};
