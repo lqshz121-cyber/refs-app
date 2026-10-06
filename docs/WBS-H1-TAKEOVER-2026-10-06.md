@@ -2,6 +2,16 @@
 
 基线为 ee35b223af2f02147aad9c4c7e98d181e440b55e。本次补丁需要通过验证并形成候选提交后，才能用于 staging。适用范围为 2026 H1；生产不在范围内。Cowork 已拒绝的远程 Shell 操作继续由 Owner 执行。
 
+## 当前发布条件
+
+Owner 已在本会话直接授权本地验证通过后推送候选分支、部署 refs-accounting-api-staging 并执行单公司单期试点；试点验收后仍须另行确认扩批。此授权不包含生产，也不解除远程 Shell 的既有操作限制。
+
+当前不能部署并执行写入试点：迁移 275 的 retained source 与 human Draft evidence 尚未接入正式重分类命令和 inventory 读回。原重分类 CLI 使用通用手工凭证并在过账后独立写 source_link；现已删除这两处管理连接写入，改为引用 APPROVED 设置提案调用正式 WBS H1 重分类命令，并在每次内核操作前核验 staging 身份。候选选择暂时仍只支持历史 import_draft，选定范围存在现代 receipt 时明确拒绝，不得将零条历史候选报为完成。
+
+单公司、单 H1 期间和明确的试点 reason 都必须显式指定。映射到 610000 不等于已完成：仍可能需要把测试供应商调整到真实供应商。相关纯逻辑测试 21/21、零跳过；这不是现代链路的数据库验收。
+
+下一步以新增迁移接入现代证据，保留精确来源、日期、金额、供应商与附件验证，禁止伪造 legacy trace 或修改已应用迁移。必须实测当前导入、设置批准、正式重分类、过账、报表和幂等重放，并验证 up/down 与升级。确认 maker 具有正式 WBS.H1.PAYABLE.DRAFT 权限且与 settings controller 分离；不得静默扩大启动授权包。
+
 ## 工具变化
 
 - 授权版本读取错误会计入失败并保留批次汇总；仅 40001 最多尝试三次。
@@ -18,7 +28,7 @@
 4. 先选一家公司一期导入；保留来源数量、金额和执行回执。
 5. 先运行设置裁定 dry run，检查例外，再运行允许范围内的设置批准。
 6. 设置批准后才运行重分类 dry run 和重分类。迁移 269 的 refs_create_wbs_h1_payable_reclass_draft 必须引用 APPROVED 设置决定，且设置决定者不能与 Draft maker 相同。
-7. 检查 TB、报表、610000 残留、来源与凭证追溯，重放证明没有重复记账，然后扩大到十家公司与后续批次。
+7. 检查 TB、报表、610000 残留、来源与凭证追溯，重放证明没有重复记账；验收后向 Owner 提交回执，取得扩批确认后才扩大范围。
 
 导入和重分类可能执行完整提交、审核、批准、过账流程，属于 staging 会计写入。设置批准不会把有例外的提案强制转绿。命令须在已部署本次候选的实例中运行。
 
@@ -55,6 +65,6 @@ printf 'node_exit_code=%s\n' "$rc"
 - 根目录 npm test 的本次完整运行到 security-surface 时因 CRLF 解析失败而退出 1；修复后从该组起，包含 traceability、boot-guard、GO/NO-GO、SBOM、Render schema、staging readback 和 evidence client 的全部剩余测试链退出 0。前段测试已在完整运行中通过；没有把分段复测写成整条命令退出 0。
 - git diff --check：通过；提交前暂存差异密钥扫描：零发现。
 
-数据库验证阻塞：Docker Desktop 后端在 sailor-ingest.sock 的重命名步骤启动失败，Linux engine pipe 不存在。仅尝试停止/重新启动 Docker 相关进程；未重置 Docker、未删除卷。重命名该 socket 被 Windows 拒绝；后续清理同一 socket 的操作被自动审批策略拒绝，已停止该修复路径并重新打开 Docker Desktop，没有换方式绕过。需要 Owner 修复 Docker 启动后再跑规定的 fresh PG15/16，以及 staging PG18 对应的专项工具实测。
+数据库验证已恢复：Owner 修复 Docker 后，company runner 的 fresh PG15/16/18 专项各 1/1、零跳过；历史重分类期间筛选的 fresh PG15/16/18 专项各 1/1、零跳过。后者明确制造 pre-275 测试证据，只证明历史兼容，不证明现代导入链路。PG15/16 完整套件仍运行中；server 完整期间筛选后复测退出 0，但仍有跳过，不能替代 fresh 数据库验收。根目录完整 npm test 重跑和 build 均退出 0，build 来源 cd61d4a1，最终候选仍需重新固定并验证。Render 当前未有可用的已登录操作会话。
 
 恢复后顺序：数据库零跳过验证 → 固定候选 SHA → Owner 部署 staging → 只读读回与单公司单期试点 → 设置批准 → 重分类 → 验证后扩批。48 行原因、四格交叉表、22 个科目 / 影响 1248 行及 236/237 公司差集均仍需真实数据证据，不能从历史文档补算。

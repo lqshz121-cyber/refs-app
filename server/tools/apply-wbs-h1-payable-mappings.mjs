@@ -3,7 +3,7 @@ import {createPool} from '../runtime/db.mjs';
 import {pathToFileURL} from 'node:url';
 import {runtimeConfig} from '../runtime/config.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
-import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
+import {StagingWbsH1SettingsKernel,assertSettingsDatabaseEndpoints} from './decide-wbs-h1-accounting-settings.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA=/^sha256:[0-9a-f]{64}$/;
@@ -30,7 +30,9 @@ export function resolveWbsH1PayableMapping(row){
   if(!['','Vendor','Project'].includes(supplementary))return Object.freeze({status:'MAPPING_UNSUPPORTED_MEMBER',reason:`The mapped supplementary dimension ${supplementary} is not safely available in the sanitized test source.`,row});
   if(supplementary==='Project'&&!projectCode)return Object.freeze({status:'MAPPING_SCOPE_MISMATCH',reason:'The WBS Project mapping requires an authoritative retained project code.',row});
   if(allowedProjects.length&&(!projectCode||!allowedProjects.includes(projectCode)))return Object.freeze({status:'MAPPING_SCOPE_MISMATCH',reason:'The unique WBS mapping does not cover the retained project.',row});
-  return Object.freeze({status:accountCode==='610000'?'ALREADY_MAPPED':'READY',accountCode,accountName,requiresVendor:supplementary==='Vendor',requiresProject:supplementary==='Project',settingId:text(row.wbs_setting_id),row});
+  // Even a retained 610000 debit can require the formal synthetic-to-real
+  // vendor adjustment. Account equality is not proof of completed mapping.
+  return Object.freeze({status:'READY',accountCode,accountName,requiresVendor:supplementary==='Vendor',requiresProject:supplementary==='Project',settingId:text(row.wbs_setting_id),row});
 }
 
 export async function applyWbsH1PayableMappings({rows,prepare,complete,onProgress=()=>{}}={}){
@@ -86,30 +88,56 @@ export const CANDIDATE_SQL=`WITH source_rows AS (
 )
 SELECT * FROM planned WHERE source_record_hash>$3 ORDER BY source_record_hash LIMIT $4`;
 
+// Never synthesize account master or lineage in the CLI. The authoritative
+// command checks approved Settings, exact source evidence and maker/controller
+// separation and creates Draft + source link + audit + outbox atomically.
+export async function prepareAuthoritativeWbsH1Mapping({decision,kernel,reason}){
+  const row=decision.row;
+  const scope={tenantId:row.tenant_id,entityId:row.entity_id,periodId:row.period_id};
+  let proposalRow=null;
+  for(let offset=0;;offset+=200){
+    const page=await kernel.readWbsH1PayableAccountingProposal({...scope,limit:200,offset});
+    if(page.settings_outcome!=='APPROVED'||!SHA.test(page.settings_decision_hash||''))throw new Error('WBS H1 mapping requires approved Settings');
+    if(!Number.isSafeInteger(page.source_record_count)||page.source_record_count<0||!Array.isArray(page.rows))throw new Error('Invalid authoritative WBS H1 proposal page');
+    proposalRow=page.rows.find(item=>item.source_record_hash===row.source_record_hash);
+    if(proposalRow||offset+200>=page.source_record_count)break;
+    if(page.rows.length!==200)throw new Error('Incomplete authoritative WBS H1 proposal page');
+  }
+  if(!proposalRow||proposalRow.status!=='READY_FOR_CONTROLLER_REVIEW'||!SHA.test(proposalRow.proposal_hash||''))throw new Error('WBS H1 mapping proposal is absent or exceptional');
+  const idempotency=`wbs-h1-formal-map:${row.source_record_hash.slice(7)}`;
+  const draft=await kernel.createWbsH1PayableReclassDraft({...scope,sourceRecordHash:row.source_record_hash,proposalHash:proposalRow.proposal_hash,reason,idempotencyKey:`${idempotency}:draft`});
+  return {decision,draft,idempotency};
+}
+
 async function main(){
   const required=['REFS_WBS_TEST_IMPORT_TENANT_ID',...ACTORS.map(role=>`REFS_WBS_TEST_IMPORT_${role.toUpperCase()}_ACTOR_ID`)];for(const key of required)if(!process.env[key])throw new Error(`${key} is required`);
   const tenantId=process.env.REFS_WBS_TEST_IMPORT_TENANT_ID,companyCode=process.env.REFS_WBS_H1_MAPPING_COMPANY?.trim().toUpperCase()||null,startAfter=process.env.REFS_WBS_H1_MAPPING_START_AFTER||'sha256:'+'0'.repeat(64),limit=integer(process.env.REFS_WBS_H1_MAPPING_LIMIT||100,'REFS_WBS_H1_MAPPING_LIMIT',{min:1,max:500});
   if(!UUID.test(tenantId)||companyCode!==null&&!COMPANY.test(companyCode)||!SHA.test(startAfter))throw new Error('WBS H1 mapping selection is invalid');
   const periodCode=wbsH1MappingPeriod(process.env.REFS_WBS_H1_MAPPING_PERIOD);
-  const config=runtimeConfig(process.env),admin=await createPool({databaseUrl:config.migrationDatabaseUrl,applicationName:'refs-wbs-h1-mapping-admin',max:2}),runtime=await createPool({databaseUrl:config.databaseUrl,applicationName:'refs-wbs-h1-mapping-runtime',max:4}),issuerPool=await createPool({databaseUrl:config.contextIssuerDatabaseUrl,applicationName:'refs-wbs-h1-mapping-issuer',max:2});
+  if(!companyCode||!periodCode)throw new Error('Mapping pilot requires an explicit company and single H1 period; expansion is not authorized');
+  const reason=text(process.env.REFS_WBS_H1_MAPPING_REASON);
+  if(reason.length<8||reason.length>2000)throw new Error('REFS_WBS_H1_MAPPING_REASON must document the authorized pilot (8..2000 characters)');
   const actorIds=Object.fromEntries(ACTORS.map(role=>[role,process.env[`REFS_WBS_TEST_IMPORT_${role.toUpperCase()}_ACTOR_ID`]]));
-  const kernelFor=role=>new PostgresAccountingKernel(runtime,{sessionProvider:()=>new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,tenantId,actorId:actorIds[role]})}).issue({tenantId})});
+  if(new Set(Object.values(actorIds)).size!==ACTORS.length)throw new Error('Mapping workflow actors must be distinct');
+  const config=runtimeConfig(process.env),admin=await createPool({databaseUrl:config.migrationDatabaseUrl,applicationName:'refs-wbs-h1-mapping-admin',max:2}),runtime=await createPool({databaseUrl:config.databaseUrl,applicationName:'refs-wbs-h1-mapping-runtime',max:4}),issuerPool=await createPool({databaseUrl:config.contextIssuerDatabaseUrl,applicationName:'refs-wbs-h1-mapping-issuer',max:2});
+  let guardPool;
+  const target={installationId:process.env.REFS_EXPECTED_INSTALLATION_ID||null,expectedDatabase:process.env.REFS_EXPECTED_DATABASE_NAME||null};
+  const kernelFor=role=>new StagingWbsH1SettingsKernel(runtime,{sessionProvider:()=>new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,tenantId,actorId:actorIds[role]})}).issue({tenantId})},target,{query:(...args)=>guardPool.query(...args)});
   const maker=kernelFor('maker'),submitter=kernelFor('submitter'),reviewer=kernelFor('reviewer'),approver=kernelFor('approver'),poster=kernelFor('poster');
   try{
+    assertSettingsDatabaseEndpoints(config);
+    guardPool=await createPool({databaseUrl:config.grantSyncDatabaseUrl,applicationName:'refs-wbs-h1-mapping-guard',max:1});
+    const modern=(await admin.query(`SELECT count(*)::int AS receipt_count FROM wbs_test_payable_source_receipt r
+      JOIN entity e ON e.tenant_id=r.tenant_id AND e.entity_id=r.entity_id
+      JOIN accounting_period p ON p.tenant_id=r.tenant_id AND p.entity_id=r.entity_id AND p.period_id=r.period_id
+      WHERE r.tenant_id=$1 AND e.entity_code=$2 AND p.ledger_code='PRIMARY' AND p.period_code=$3`,[tenantId,companyCode,periodCode])).rows[0];
+    if(modern.receipt_count>0)throw new Error('Modern retained-source reclassification is not yet validated; refusing to omit these receipts or claim mapping completion');
     const rows=(await admin.query(CANDIDATE_SQL,[tenantId,companyCode,startAfter,limit,periodCode])).rows;
     if(process.env.REFS_WBS_H1_MAPPING_DRY_RUN==='1'){
       const counts={};for(const row of rows){const status=resolveWbsH1PayableMapping(row).status;counts[status]=(counts[status]||0)+1;}
       process.stdout.write(`${JSON.stringify({status:'WBS_H1_PAYABLE_MAPPING_PLAN',company_code:companyCode,period_code:periodCode,row_count:rows.length,counts,next_start_after:rows.at(-1)?.source_record_hash??startAfter})}\n`);return;
     }
-    const prepare=async decision=>{
-      const row=decision.row,memberType=decision.requiresVendor?'VENDOR':null;
-      await admin.query(`INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type,active) VALUES($1,$2,$3,$4,$5,$6,true) ON CONFLICT DO NOTHING`,[tenantId,row.entity_id,decision.accountCode,decision.accountName,decision.requiresVendor,memberType]);
-      const account=(await admin.query(`SELECT requires_member,required_member_type,active FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code=$3`,[tenantId,row.entity_id,decision.accountCode])).rows[0];
-      if(!account?.active||account.requires_member!==decision.requiresVendor||account.required_member_type!==memberType)throw new Error(`REFS account master conflicts with WBS setting ${decision.settingId}`);
-      const amount=row.amount,suffix=row.source_record_hash.slice(7,27).toUpperCase(),idempotency=`wbs-h1-map:${row.source_record_hash.slice(7,39)}`;
-      const draft=await maker.createManualJournal({tenantId,entityId:row.entity_id,periodId:row.period_id,journalNumber:`WBS-MAP-${suffix}`,journalDate:row.accounting_date,currency:'USD',description:`Apply WBS Payable setting ${decision.settingId}`,attachmentIds:[row.attachment_id],idempotencyKey:`${idempotency}:draft`,lines:[{line_no:1,account_code:decision.accountCode,debit_amount:amount,credit_amount:'0.0000',member_ref:decision.requiresVendor?row.member_ref:null,description:`WBS setting ${decision.settingId}: ${decision.accountName}`,dimensions:{project_ref:row.project_code||null,cost_code_ref:row.cost_code||null}},{line_no:2,account_code:'610000',debit_amount:'0.0000',credit_amount:amount,member_ref:null,description:'Reverse controlled-import placeholder expense',dimensions:{project_ref:row.project_code||null,cost_code_ref:row.cost_code||null}}]});
-      return {decision,draft,idempotency};
-    };
+    const prepare=decision=>prepareAuthoritativeWbsH1Mapping({decision,kernel:maker,reason});
     const complete=async item=>{
       const {decision,draft,idempotency}=item,row=decision.row,journalId=draft.journal_entry_id;
       let state=(await admin.query('SELECT status::text,revision FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[tenantId,row.entity_id,journalId])).rows[0];
@@ -117,11 +145,12 @@ async function main(){
       state=(await admin.query('SELECT status::text,revision FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[tenantId,row.entity_id,journalId])).rows[0];if(state.status==='PENDING_REVIEW')await reviewer.transitionJournal({tenantId,entityId:row.entity_id,journalEntryId:journalId,action:'REVIEW',expectedRevision:Number(state.revision),idempotencyKey:`${idempotency}:review`});
       state=(await admin.query('SELECT status::text,revision FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[tenantId,row.entity_id,journalId])).rows[0];if(state.status==='PENDING_APPROVAL')await approver.transitionJournal({tenantId,entityId:row.entity_id,journalEntryId:journalId,action:'APPROVE',expectedRevision:Number(state.revision),idempotencyKey:`${idempotency}:approve`});
       state=(await admin.query('SELECT status::text,revision FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[tenantId,row.entity_id,journalId])).rows[0];if(state.status==='APPROVED')await poster.postJournal({tenantId,entityId:row.entity_id,periodId:row.period_id,journalEntryId:journalId,expectedRevision:Number(state.revision),idempotencyKey:`${idempotency}:post`});
-      await admin.query(`INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,journal_entry_id,created_by) VALUES($1,$2,'SOURCE_TO_JE',$3,$4,$5) ON CONFLICT DO NOTHING`,[tenantId,row.entity_id,row.source_document_id,journalId,actorIds.maker]);
+      state=(await admin.query('SELECT status::text FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[tenantId,row.entity_id,journalId])).rows[0];
+      if(state?.status!=='POSTED')throw new Error('WBS H1 formal mapping did not reach POSTED');
       return {status:'WBS_H1_MAPPING_POSTED',company_code:row.company_code,source_record_hash:row.source_record_hash,journal_entry_id:journalId,mapped_account_code:decision.accountCode,idempotent:draft.idempotent===true};
     };
     const summary=await applyWbsH1PayableMappings({rows,prepare,complete,onProgress:row=>process.stdout.write(`${JSON.stringify(row)}\n`)});process.stdout.write(`${JSON.stringify({...summary,next_start_after:rows.at(-1)?.source_record_hash??startAfter})}\n`);
-  }finally{await Promise.allSettled([admin.end(),runtime.end(),issuerPool.end()]);}
+  }finally{await Promise.allSettled([admin.end(),runtime.end(),issuerPool.end(),guardPool?.end()]);}
 }
 
 if(import.meta.url===pathToFileURL(process.argv[1]).href)main().catch(error=>{process.stderr.write(`${JSON.stringify({status:'WBS_H1_PAYABLE_MAPPING_FAILED',code:error.code||'UNEXPECTED',message:error.message})}\n`);process.exitCode=1;});
