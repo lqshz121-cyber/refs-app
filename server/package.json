@@ -6,7 +6,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test:wbs-h1-company-runners": "node --test tests/wbs-h1-company-runners.test.mjs",
+    "test:wbs-h1-company-runners": "node --test tests/wbs-h1-company-runners.test.mjs tests/wbs-h1-inventory-exception-workpack.test.mjs",
     "wbs:h1:reconcile-company-grants": "node tools/reconcile-wbs-h1-company-actor-grants.mjs",
     "wbs:h1:decide-settings": "node tools/decide-wbs-h1-accounting-settings.mjs",
     "test:wbs-accounting-settings-proposal": "node --test tests/wbs-accounting-settings-proposal.test.mjs tests/wbs-h1-accounting-settings-proposal.test.mjs tests/wbs-h1-accounting-settings-proposal-http.test.mjs",
