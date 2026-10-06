@@ -3,8 +3,8 @@
   "checkpoint_date": "2026-10-06",
   "baseline_sha": "ee35b223af2f02147aad9c4c7e98d181e440b55e",
   "hardening_sha": "79103ffe",
-  "latest_code_sha": "0b16cd79",
-  "progress_checkpoint_utc": "2026-10-06T11:10:12Z",
+  "inventory_code_sha": "0b16cd79",
+  "progress_checkpoint_utc": "2026-10-06T11:19:40Z",
   "scope": "Local isolated PostgreSQL validation and public staging readiness readback; no remote writes",
   "staging_readback": {
     "observed_at_utc": "2026-10-06T10:54:07Z",
@@ -32,6 +32,8 @@
   "pg16_company_runners": {"exit_code": 0, "tests": 1, "pass": 1, "fail": 0, "skipped": 0, "verification_mode": "PATTERN", "log": "server/takeover-pg16-runners-test.log", "fixture_container_and_volume_removed": true},
   "root_complete_test_rerun": {"exit_code": 0, "nonzero_skipped_summaries_observed": false, "log": "takeover-root-final-test.log"},
   "server_complete_test_rerun": {"exit_code": 0, "main_tests": 919, "main_pass": 919, "skipped_group_counts": [284,5,5,18], "log": "server/takeover-server-final-test.log", "does_not_prove_fresh_database_acceptance": true},
+  "server_default_hook_rerun": {"exit_code": 0, "inventory_and_runner_pretest_pass": 16, "log": "server/takeover-server-hook-test.log", "before_mapping_period_selection_change": true},
+  "mapping_single_period_scope": {"state": "real PG18 fixture passed; cross-version verification pending", "env": "REFS_WBS_H1_MAPPING_PERIOD", "allowed": "2026-01 through 2026-06", "predicate": "same staged period, accounting date month, and PRIMARY accounting period", "unit_tests_with_runners_and_inventory": {"pass": 20, "fail": 0, "skipped": 0}, "unit_log": "server/takeover-period-scope-test.log", "real_pg18_result": {"exit_code": 0, "pass": 1, "fail": 0, "skipped": 0, "mode": "PATTERN"}, "real_pg18_log": "server/takeover-pg18-period-scope-test.log", "pilot_requires_explicit_company_and_period": true},
   "latest_build": {"source_sha": "cd61d4a1", "exit_code": 0, "runtime_deployment_assets": "PASS", "log": "takeover-build-final.log"},
   "candidate_diff_secret_scan": {"range": "ee35b223..cd61d4a1", "exit_code": 0, "scanned_lines": 337, "findings": []},
   "staging_authorization": {"source": "Direct human reply to deployment-scope question in this thread", "push_candidate_branch_after_local_gates_pass": true, "deploy_refs_accounting_api_staging_after_local_gates_pass": true, "single_company_single_period_pilot": true, "expansion_requires_further_confirmation": true, "production_changes": false},
@@ -39,7 +41,7 @@
   "running_at_checkpoint": [
     {"gate": "fresh PG15 full kernel and accounting-settings workflow", "session_id": 52007, "log": "server/takeover-pg15-test.log", "source": "79103ffe before new runner integration test"},
     {"gate": "fresh PG16 full kernel and accounting-settings workflow", "session_id": 64959, "log": "server/takeover-pg16-test.log", "source": "79103ffe before new runner integration test"},
-    {"gate": "server npm test complete rerun with inventory cross-table tests wired into the default pretest", "session_id": 2569, "log": "server/takeover-server-hook-test.log", "source": "local package script change after cd61d4a1"}
+    {"gate": "single-period reclassification SQL on fresh PG15 then PG16 followed by complete server npm test", "session_id": 81566, "logs": ["server/takeover-pg15-period-scope-test.log", "server/takeover-pg16-period-scope-test.log", "server/takeover-server-period-final-test.log"]}
   ],
   "inventory_cross_table": {
     "commit": "0b16cd79",

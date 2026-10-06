@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {applyWbsH1PayableMappings,resolveWbsH1PayableMapping} from '../tools/apply-wbs-h1-payable-mappings.mjs';
+import {applyWbsH1PayableMappings,resolveWbsH1PayableMapping,wbsH1MappingPeriod,CANDIDATE_SQL} from '../tools/apply-wbs-h1-payable-mappings.mjs';
+
+test('single-period mapping selection validates H1 and binds stage, accounting date and PRIMARY period',()=>{
+  assert.equal(wbsH1MappingPeriod(undefined),null);assert.equal(wbsH1MappingPeriod(' 2026-01 '),'2026-01');
+  for(const value of ['','2026-07','2025-12','2026-1',1])assert.throws(()=>wbsH1MappingPeriod(value),/one 2026 H1 period/);
+  assert.match(CANDIDATE_SQL,/b\.period_code=\$5/);assert.match(CANDIDATE_SQL,/sd\.accounting_date>=/);
+  assert.match(CANDIDATE_SQL,/sd\.accounting_date</);assert.match(CANDIDATE_SQL,/p\.ledger_code='PRIMARY' AND p\.period_code=\$5/);
+});
 
 const row=(overrides={})=>({tenant_id:'11111111-1111-4111-8111-111111111111',entity_id:'22222222-2222-4222-8222-222222222222',period_id:'33333333-3333-4333-8333-333333333333',journal_entry_id:'44444444-4444-4444-8444-444444444444',source_document_id:'55555555-5555-4555-8555-555555555555',attachment_id:'66666666-6666-4666-8666-666666666666',source_record_hash:'sha256:'+'a'.repeat(64),company_code:'OPPO',mapping_match_count:1,mapped_account_code:'641000',mapped_account_name:'Electric expense',mapped_supplementary:'',mapped_project_codes:'',wbs_setting_id:'42',project_code:'',cost_code:'71E701',...overrides});
 

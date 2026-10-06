@@ -13,6 +13,7 @@ import {serializeOutboxEvent} from '../runtime/outbox-wire-contract.mjs';
 import {createAccountingApi} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
+import {CANDIDATE_SQL as WBS_H1_MAPPING_CANDIDATE_SQL} from '../tools/apply-wbs-h1-payable-mappings.mjs';
 import {reconcileWbsH1CompanyActorGrants,wbsH1GrantExpiry} from '../tools/reconcile-wbs-h1-company-actor-grants.mjs';
 import {StagingWbsH1SettingsKernel,decideWbsH1AccountingSettingsForScopes} from '../tools/decide-wbs-h1-accounting-settings.mjs';
 import {ADDITIONAL_WORKFLOW_ROLES} from '../runtime/additional-workflow-roles.mjs';
@@ -7432,6 +7433,10 @@ pgTest('separate humans take one approved WBS H1 Payable mapping from Draft thro
   await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name,active) VALUES($1,$2,'REAL-WBS-VENDOR','VENDOR','Real WBS vendor',true),($1,$2,'WRONG-TEST-VENDOR','VENDOR','Wrong test vendor',true)",[ids.tenantId,ids.entityId]);
   await adminPool.query(`INSERT INTO wbs_h1_payable_mapping_source_stage(tenant_id,entity_id,company_code,period_code,wbs_uuid,source_record_hash,accounting_date,amount,project_code,cost_code,vendor_no,source_fact_hash,provider_content_hash,captured_at) VALUES($1,$2,$3,'2026-01','WBS-HUMAN-DRAFT-1',$4,'2026-01-15','125.0000','P-100','0LD067','REAL-WBS-VENDOR',$5,$6,'2026-08-22T12:00:00Z')`,[ids.tenantId,ids.entityId,ids.sourceEntityId,sourceHash,hash('h1-human-draft-fact'),hash('h1-human-draft-provider')]);
   for(const setting of [[1,'Debit','0LD067','P-100','164100','CWIP - Land','Project',hash('h1-human-draft-debit')],[2,'Credit','','','291001','Accounts Payable','Vendor',hash('h1-human-draft-credit')]])await adminPool.query(`INSERT INTO wbs_h1_accounting_setting_stage(tenant_id,company_code,setting_id,setting_type,category,business_type,detail,project_codes,journal_code,account_name,supplementary,effective_from,effective_to,setting_hash) VALUES($1,$2,$3,$4,'Payable',4,$5,$6,$7,$8,$9,'2026-01-01','2026-12-31',$10)`,[ids.tenantId,ids.sourceEntityId,...setting]);
+  const candidateArgs=[ids.tenantId,ids.sourceEntityId,'sha256:'+'0'.repeat(64),100];
+  assert.equal((await adminPool.query(WBS_H1_MAPPING_CANDIDATE_SQL,[...candidateArgs,'2026-01'])).rows.length,1);
+  assert.equal((await adminPool.query(WBS_H1_MAPPING_CANDIDATE_SQL,[...candidateArgs,'2026-02'])).rows.length,0);
+  assert.equal((await adminPool.query(WBS_H1_MAPPING_CANDIDATE_SQL,[...candidateArgs,null])).rows.length,1);
   const controller=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'h1-settings-controller',['WBS.AUTOREC.VIEW','WBS.H1.SETTINGS.DECIDE'])}),settings=await controller.readWbsH1AccountingSettingsProposal({tenantId:ids.tenantId,entityId:ids.entityId,periodId});
   await controller.decideWbsH1AccountingSettings({tenantId:ids.tenantId,entityId:ids.entityId,periodId,expectedProposalHash:settings.proposal_hash,outcome:'APPROVED',reason:'Controller approved the exact WBS debit and credit Settings.',idempotencyKey:'h1-human-draft-settings'});
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'h1-reclass-maker',['WBS.AUTOREC.VIEW','WBS.H1.PAYABLE.DRAFT','GL.JE.CREATE'])}),proposal=await maker.readWbsH1PayableAccountingProposal({tenantId:ids.tenantId,entityId:ids.entityId,periodId,limit:50,offset:0});assert.equal(proposal.ready_count,1);

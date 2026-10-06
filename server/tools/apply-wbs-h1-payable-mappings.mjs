@@ -15,6 +15,12 @@ const integer=(value,name,{min,max})=>{const parsed=Number(value);if(!Number.isS
 const text=value=>typeof value==='string'?value.trim():'';
 const projectList=value=>text(value)===''?[]:text(value).split(',').map(item=>item.trim()).filter(Boolean);
 
+export function wbsH1MappingPeriod(value){
+  if(value===undefined||value===null)return null;
+  if(typeof value!=='string'||!/^2026-0[1-6]$/.test(value.trim()))throw new Error('REFS_WBS_H1_MAPPING_PERIOD must be one 2026 H1 period');
+  return value.trim();
+}
+
 export function resolveWbsH1PayableMapping(row){
   if(!row||!UUID.test(row.entity_id||'')||!UUID.test(row.period_id||'')||!UUID.test(row.journal_entry_id||'')||!UUID.test(row.source_document_id||'')||!UUID.test(row.attachment_id||'')||!SHA.test(row.source_record_hash||'')||!COMPANY.test(row.company_code||''))throw new Error('WBS H1 mapping candidate identity is invalid');
   const matchCount=Number(row.mapping_match_count),accountCode=text(row.mapped_account_code),accountName=text(row.mapped_account_name),supplementary=text(row.mapped_supplementary),projectCode=text(row.project_code),allowedProjects=projectList(row.mapped_project_codes);
@@ -45,7 +51,7 @@ export async function applyWbsH1PayableMappings({rows,prepare,complete,onProgres
   return Object.freeze({...summary,status:summary.exception_count?'WBS_H1_PAYABLE_MAPPING_PARTIAL':'WBS_H1_PAYABLE_MAPPING_COMPLETE',exceptions:Object.freeze({...summary.exceptions})});
 }
 
-const CANDIDATE_SQL=`WITH source_rows AS (
+export const CANDIDATE_SQL=`WITH source_rows AS (
   SELECT d.tenant_id::text,d.entity_id::text,e.entity_code AS company_code,d.period_id::text,
     d.source_record_hash,d.source_document_id::text,d.attachment_id::text,d.journal_entry_id::text,
     sd.accounting_date::text,sd.gross_amount::text AS amount,b.project_code,coalesce(c.cost_code,b.cost_code) AS cost_code,
@@ -59,6 +65,9 @@ const CANDIDATE_SQL=`WITH source_rows AS (
     AND b.accounting_date=sd.accounting_date AND b.amount=sd.gross_amount
   LEFT JOIN wbs_h1_payable_cost_code_stage c ON c.tenant_id=b.tenant_id AND c.entity_id=b.entity_id AND c.source_record_hash=b.source_record_hash
   WHERE d.tenant_id=$1 AND ($2::text IS NULL OR e.entity_code=$2)
+    AND ($5::text IS NULL OR (b.period_code=$5
+      AND sd.accounting_date>=($5||'-01')::date AND sd.accounting_date<(($5||'-01')::date+interval '1 month')
+      AND d.period_id IN (SELECT p.period_id FROM accounting_period p WHERE p.tenant_id=d.tenant_id AND p.entity_id=d.entity_id AND p.ledger_code='PRIMARY' AND p.period_code=$5)))
 ), planned AS (
   SELECT s.*,m.mapping_match_count,m.wbs_setting_id,m.mapped_account_code,m.mapped_account_name,
     m.mapped_supplementary,m.mapped_project_codes
@@ -81,15 +90,16 @@ async function main(){
   const required=['REFS_WBS_TEST_IMPORT_TENANT_ID',...ACTORS.map(role=>`REFS_WBS_TEST_IMPORT_${role.toUpperCase()}_ACTOR_ID`)];for(const key of required)if(!process.env[key])throw new Error(`${key} is required`);
   const tenantId=process.env.REFS_WBS_TEST_IMPORT_TENANT_ID,companyCode=process.env.REFS_WBS_H1_MAPPING_COMPANY?.trim().toUpperCase()||null,startAfter=process.env.REFS_WBS_H1_MAPPING_START_AFTER||'sha256:'+'0'.repeat(64),limit=integer(process.env.REFS_WBS_H1_MAPPING_LIMIT||100,'REFS_WBS_H1_MAPPING_LIMIT',{min:1,max:500});
   if(!UUID.test(tenantId)||companyCode!==null&&!COMPANY.test(companyCode)||!SHA.test(startAfter))throw new Error('WBS H1 mapping selection is invalid');
+  const periodCode=wbsH1MappingPeriod(process.env.REFS_WBS_H1_MAPPING_PERIOD);
   const config=runtimeConfig(process.env),admin=await createPool({databaseUrl:config.migrationDatabaseUrl,applicationName:'refs-wbs-h1-mapping-admin',max:2}),runtime=await createPool({databaseUrl:config.databaseUrl,applicationName:'refs-wbs-h1-mapping-runtime',max:4}),issuerPool=await createPool({databaseUrl:config.contextIssuerDatabaseUrl,applicationName:'refs-wbs-h1-mapping-issuer',max:2});
   const actorIds=Object.fromEntries(ACTORS.map(role=>[role,process.env[`REFS_WBS_TEST_IMPORT_${role.toUpperCase()}_ACTOR_ID`]]));
   const kernelFor=role=>new PostgresAccountingKernel(runtime,{sessionProvider:()=>new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,tenantId,actorId:actorIds[role]})}).issue({tenantId})});
   const maker=kernelFor('maker'),submitter=kernelFor('submitter'),reviewer=kernelFor('reviewer'),approver=kernelFor('approver'),poster=kernelFor('poster');
   try{
-    const rows=(await admin.query(CANDIDATE_SQL,[tenantId,companyCode,startAfter,limit])).rows;
+    const rows=(await admin.query(CANDIDATE_SQL,[tenantId,companyCode,startAfter,limit,periodCode])).rows;
     if(process.env.REFS_WBS_H1_MAPPING_DRY_RUN==='1'){
       const counts={};for(const row of rows){const status=resolveWbsH1PayableMapping(row).status;counts[status]=(counts[status]||0)+1;}
-      process.stdout.write(`${JSON.stringify({status:'WBS_H1_PAYABLE_MAPPING_PLAN',row_count:rows.length,counts,next_start_after:rows.at(-1)?.source_record_hash??startAfter})}\n`);return;
+      process.stdout.write(`${JSON.stringify({status:'WBS_H1_PAYABLE_MAPPING_PLAN',company_code:companyCode,period_code:periodCode,row_count:rows.length,counts,next_start_after:rows.at(-1)?.source_record_hash??startAfter})}\n`);return;
     }
     const prepare=async decision=>{
       const row=decision.row,memberType=decision.requiresVendor?'VENDOR':null;
