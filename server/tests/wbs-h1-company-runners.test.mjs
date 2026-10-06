@@ -6,6 +6,14 @@ import {classifyWbsH1SettingsScope,decideWbsH1AccountingSettingsForScopes,settin
 const T='6fb25daf-0799-4805-bede-be54230da33c';
 const E1='11111111-1111-4111-a111-111111111111',E2='22222222-2222-4222-a222-222222222222';
 
+test('reclass maker is an explicit finite role without silently widening the AP maker bundle',()=>{
+  const reclass=wbsH1RoleBundle('reclassMaker'),maker=wbsH1RoleBundle('maker');
+  assert.equal(reclass.authorityClass,'DRAFT');assert.ok(reclass.permissions.includes('WBS.H1.PAYABLE.DRAFT'));
+  assert.equal(reclass.permissions.includes('GL.JE.POST'),false);assert.equal(maker.permissions.includes('WBS.H1.PAYABLE.DRAFT'),false);
+  assert.equal(selectWbsH1GrantRoles().includes('reclassMaker'),false);
+  assert.deepEqual(selectWbsH1GrantRoles('reclassMaker'),['reclassMaker']);
+});
+
 test('WH1R-6 deployment denial prevents settings work and mismatched connections are rejected',async()=>{
   let worked=false;
   const denied={async query(){return {rows:[{asserted:false}]};}};

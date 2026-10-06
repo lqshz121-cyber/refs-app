@@ -29,10 +29,14 @@ const ACTOR=/^[^\u0000-\u001f\u007f]{1,200}$/;
 
 // Same authority classes as reconcileWbsTestImportActorGrants (runtime/wbs-test-import-service.mjs).
 const TEST_IMPORT_AUTHORITY=Object.freeze({importer:'SERVICE',reconciliationStarter:'DRAFT',maker:'DRAFT',paymentMaker:'PAYMENT',matchMaker:'DRAFT',submitter:'SUBMIT',reviewer:'REVIEW',approver:'APPROVE',poster:'POST',clearer:'DRAFT',reopener:'REOPEN'});
-const ENV_ROLE=Object.freeze({reconciliationStarter:'RECONCILIATION_STARTER',paymentMaker:'PAYMENT_MAKER',matchMaker:'MATCH_MAKER',settingsController:'SETTINGS_CONTROLLER'});
+const ENV_ROLE=Object.freeze({reconciliationStarter:'RECONCILIATION_STARTER',paymentMaker:'PAYMENT_MAKER',matchMaker:'MATCH_MAKER',settingsController:'SETTINGS_CONTROLLER',reclassMaker:'RECLASS_MAKER'});
 const DEFAULT_ROLES=Object.freeze(['importer','maker','submitter','reviewer','approver','poster']);
 
 export function wbsH1RoleBundle(role){
+  if(role==='reclassMaker'){
+    const definition=AUTHORITATIVE_WORKFLOW_ROLES.WBS_H1_PAYABLE_DRAFT_MAKER;
+    return Object.freeze({authorityClass:definition.authorityClass,permissions:[...definition.permissions]});
+  }
   if(role==='settingsController'){
     const definition=AUTHORITATIVE_WORKFLOW_ROLES.WBS_H1_SETTINGS_CONTROLLER;
     return Object.freeze({authorityClass:definition.authorityClass,permissions:[...definition.permissions]});

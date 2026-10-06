@@ -9,7 +9,8 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const SHA=/^sha256:[0-9a-f]{64}$/;
 const COMPANY=/^[A-Z0-9][A-Z0-9_:-]{0,63}$/;
 const ACCOUNT=/^[A-Z0-9][A-Z0-9._-]{0,63}$/i;
-const ACTORS=['maker','submitter','reviewer','approver','poster'];
+const ACTORS=['reclassMaker','submitter','reviewer','approver','poster'];
+const actorEnv=role=>`REFS_WBS_TEST_IMPORT_${role==='reclassMaker'?'RECLASS_MAKER':role.toUpperCase()}_ACTOR_ID`;
 
 const integer=(value,name,{min,max})=>{const parsed=Number(value);if(!Number.isSafeInteger(parsed)||parsed<min||parsed>max)throw new Error(`${name} must be between ${min} and ${max}`);return parsed;};
 const text=value=>typeof value==='string'?value.trim():'';
@@ -58,7 +59,7 @@ export const CANDIDATE_SQL=`WITH source_rows AS (
     d.source_record_hash,d.source_document_id::text,d.attachment_id::text,d.journal_entry_id::text,
     sd.accounting_date::text,sd.gross_amount::text AS amount,b.project_code,coalesce(c.cost_code,b.cost_code) AS cost_code,
     jl.member_ref
-  FROM wbs_test_import_draft d
+  FROM wbs_h1_controlled_import_trace d
   JOIN entity e ON e.tenant_id=d.tenant_id AND e.entity_id=d.entity_id
   JOIN source_document sd ON sd.tenant_id=d.tenant_id AND sd.entity_id=d.entity_id AND sd.source_document_id=d.source_document_id
   JOIN journal_line jl ON jl.tenant_id=d.tenant_id AND jl.entity_id=d.entity_id AND jl.journal_entry_id=d.journal_entry_id AND jl.account_code='291001' AND jl.credit_amount=sd.gross_amount
@@ -91,7 +92,7 @@ SELECT * FROM planned WHERE source_record_hash>$3 ORDER BY source_record_hash LI
 // Never synthesize account master or lineage in the CLI. The authoritative
 // command checks approved Settings, exact source evidence and maker/controller
 // separation and creates Draft + source link + audit + outbox atomically.
-export async function prepareAuthoritativeWbsH1Mapping({decision,kernel,reason}){
+export async function readAuthoritativeWbsH1MappingProposal({decision,kernel}){
   const row=decision.row;
   const scope={tenantId:row.tenant_id,entityId:row.entity_id,periodId:row.period_id};
   let proposalRow=null;
@@ -104,38 +105,43 @@ export async function prepareAuthoritativeWbsH1Mapping({decision,kernel,reason})
     if(page.rows.length!==200)throw new Error('Incomplete authoritative WBS H1 proposal page');
   }
   if(!proposalRow||proposalRow.status!=='READY_FOR_CONTROLLER_REVIEW'||!SHA.test(proposalRow.proposal_hash||''))throw new Error('WBS H1 mapping proposal is absent or exceptional');
+  if(proposalRow.proposed_lines?.[0]?.account_code!==decision.accountCode)throw new Error('Raw WBS mapping candidate differs from the current authoritative proposal');
+  return proposalRow;
+}
+
+export async function prepareAuthoritativeWbsH1Mapping({decision,kernel,reason}){
+  const row=decision.row,proposalRow=await readAuthoritativeWbsH1MappingProposal({decision,kernel});
+  const scope={tenantId:row.tenant_id,entityId:row.entity_id,periodId:row.period_id};
   const idempotency=`wbs-h1-formal-map:${row.source_record_hash.slice(7)}`;
   const draft=await kernel.createWbsH1PayableReclassDraft({...scope,sourceRecordHash:row.source_record_hash,proposalHash:proposalRow.proposal_hash,reason,idempotencyKey:`${idempotency}:draft`});
   return {decision,draft,idempotency};
 }
 
 async function main(){
-  const required=['REFS_WBS_TEST_IMPORT_TENANT_ID',...ACTORS.map(role=>`REFS_WBS_TEST_IMPORT_${role.toUpperCase()}_ACTOR_ID`)];for(const key of required)if(!process.env[key])throw new Error(`${key} is required`);
+  const required=['REFS_WBS_TEST_IMPORT_TENANT_ID',...ACTORS.map(actorEnv)];for(const key of required)if(!process.env[key])throw new Error(`${key} is required`);
   const tenantId=process.env.REFS_WBS_TEST_IMPORT_TENANT_ID,companyCode=process.env.REFS_WBS_H1_MAPPING_COMPANY?.trim().toUpperCase()||null,startAfter=process.env.REFS_WBS_H1_MAPPING_START_AFTER||'sha256:'+'0'.repeat(64),limit=integer(process.env.REFS_WBS_H1_MAPPING_LIMIT||100,'REFS_WBS_H1_MAPPING_LIMIT',{min:1,max:500});
   if(!UUID.test(tenantId)||companyCode!==null&&!COMPANY.test(companyCode)||!SHA.test(startAfter))throw new Error('WBS H1 mapping selection is invalid');
   const periodCode=wbsH1MappingPeriod(process.env.REFS_WBS_H1_MAPPING_PERIOD);
   if(!companyCode||!periodCode)throw new Error('Mapping pilot requires an explicit company and single H1 period; expansion is not authorized');
   const reason=text(process.env.REFS_WBS_H1_MAPPING_REASON);
   if(reason.length<8||reason.length>2000)throw new Error('REFS_WBS_H1_MAPPING_REASON must document the authorized pilot (8..2000 characters)');
-  const actorIds=Object.fromEntries(ACTORS.map(role=>[role,process.env[`REFS_WBS_TEST_IMPORT_${role.toUpperCase()}_ACTOR_ID`]]));
+  const actorIds=Object.fromEntries(ACTORS.map(role=>[role,process.env[actorEnv(role)]]));
   if(new Set(Object.values(actorIds)).size!==ACTORS.length)throw new Error('Mapping workflow actors must be distinct');
   const config=runtimeConfig(process.env),admin=await createPool({databaseUrl:config.migrationDatabaseUrl,applicationName:'refs-wbs-h1-mapping-admin',max:2}),runtime=await createPool({databaseUrl:config.databaseUrl,applicationName:'refs-wbs-h1-mapping-runtime',max:4}),issuerPool=await createPool({databaseUrl:config.contextIssuerDatabaseUrl,applicationName:'refs-wbs-h1-mapping-issuer',max:2});
   let guardPool;
   const target={installationId:process.env.REFS_EXPECTED_INSTALLATION_ID||null,expectedDatabase:process.env.REFS_EXPECTED_DATABASE_NAME||null};
   const kernelFor=role=>new StagingWbsH1SettingsKernel(runtime,{sessionProvider:()=>new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,tenantId,actorId:actorIds[role]})}).issue({tenantId})},target,{query:(...args)=>guardPool.query(...args)});
-  const maker=kernelFor('maker'),submitter=kernelFor('submitter'),reviewer=kernelFor('reviewer'),approver=kernelFor('approver'),poster=kernelFor('poster');
+  const maker=kernelFor('reclassMaker'),submitter=kernelFor('submitter'),reviewer=kernelFor('reviewer'),approver=kernelFor('approver'),poster=kernelFor('poster');
   try{
     assertSettingsDatabaseEndpoints(config);
     guardPool=await createPool({databaseUrl:config.grantSyncDatabaseUrl,applicationName:'refs-wbs-h1-mapping-guard',max:1});
-    const modern=(await admin.query(`SELECT count(*)::int AS receipt_count FROM wbs_test_payable_source_receipt r
-      JOIN entity e ON e.tenant_id=r.tenant_id AND e.entity_id=r.entity_id
-      JOIN accounting_period p ON p.tenant_id=r.tenant_id AND p.entity_id=r.entity_id AND p.period_id=r.period_id
-      WHERE r.tenant_id=$1 AND e.entity_code=$2 AND p.ledger_code='PRIMARY' AND p.period_code=$3`,[tenantId,companyCode,periodCode])).rows[0];
-    if(modern.receipt_count>0)throw new Error('Modern retained-source reclassification is not yet validated; refusing to omit these receipts or claim mapping completion');
     const rows=(await admin.query(CANDIDATE_SQL,[tenantId,companyCode,startAfter,limit,periodCode])).rows;
     if(process.env.REFS_WBS_H1_MAPPING_DRY_RUN==='1'){
-      const counts={};for(const row of rows){const status=resolveWbsH1PayableMapping(row).status;counts[status]=(counts[status]||0)+1;}
-      process.stdout.write(`${JSON.stringify({status:'WBS_H1_PAYABLE_MAPPING_PLAN',company_code:companyCode,period_code:periodCode,row_count:rows.length,counts,next_start_after:rows.at(-1)?.source_record_hash??startAfter})}\n`);return;
+      const counts={};for(const row of rows){const decision=resolveWbsH1PayableMapping(row);let status=decision.status;
+        if(status==='READY'){await readAuthoritativeWbsH1MappingProposal({decision,kernel:maker});status='APPROVED_SETTINGS_PROPOSAL_READY';}
+        counts[status]=(counts[status]||0)+1;
+      }
+      process.stdout.write(`${JSON.stringify({status:'WBS_H1_PAYABLE_MAPPING_PLAN',accounting_authority:'NONE',company_code:companyCode,period_code:periodCode,row_count:rows.length,counts,next_start_after:rows.at(-1)?.source_record_hash??startAfter})}\n`);return;
     }
     const prepare=decision=>prepareAuthoritativeWbsH1Mapping({decision,kernel:maker,reason});
     const complete=async item=>{

@@ -6,11 +6,13 @@
 
 Owner 已在本会话直接授权本地验证通过后推送候选分支、部署 refs-accounting-api-staging 并执行单公司单期试点；试点验收后仍须另行确认扩批。此授权不包含生产，也不解除远程 Shell 的既有操作限制。
 
-当前不能部署并执行写入试点：迁移 275 的 retained source 与 human Draft evidence 尚未接入正式重分类命令和 inventory 读回。原重分类 CLI 使用通用手工凭证并在过账后独立写 source_link；现已删除这两处管理连接写入，改为引用 APPROVED 设置提案调用正式 WBS H1 重分类命令，并在每次内核操作前核验 staging 身份。候选选择暂时仍只支持历史 import_draft，选定范围存在现代 receipt 时明确拒绝，不得将零条历史候选报为完成。
+当前不能部署并执行写入试点：最终候选的完整验证仍未通过。新增迁移 447、448、449 接入现代 retained source 与 human Draft evidence，分别修复正式重分类、inventory 读回和来源确认；没有修改已应用迁移或补造 legacy trace。原 CLI 的管理连接科目写入和过账后 source_link 写入已删除，改为引用 APPROVED 设置提案调用正式 WBS H1 重分类命令，并在每次内核操作前核验 staging 身份。
 
-单公司、单 H1 期间和明确的试点 reason 都必须显式指定。映射到 610000 不等于已完成：仍可能需要把测试供应商调整到真实供应商。相关纯逻辑测试 21/21、零跳过；这不是现代链路的数据库验收。
+单公司、单 H1 期间和明确的试点 reason 都必须显式指定。映射到 610000 不等于已完成：仍可能需要把测试供应商调整到真实供应商。纯逻辑测试 24/24、零跳过；fresh PG16 的现代链路和迁移往返升级专项 2/2、零跳过，但最终代码还需完整回归。首次专项确认旧来源确认函数拒绝现代证据，第二次暴露了过账后 Draft 引用清空的差异；修复后通过，不将失败运行记成通过。
 
-下一步以新增迁移接入现代证据，保留精确来源、日期、金额、供应商与附件验证，禁止伪造 legacy trace 或修改已应用迁移。必须实测当前导入、设置批准、正式重分类、过账、报表和幂等重放，并验证 up/down 与升级。确认 maker 具有正式 WBS.H1.PAYABLE.DRAFT 权限且与 settings controller 分离；不得静默扩大启动授权包。
+重分类使用显式 reclassMaker 角色和 REFS_WBS_TEST_IMPORT_RECLASS_MAKER_ACTOR_ID，授予现有正式 WBS_H1_PAYABLE_DRAFT_MAKER 权限包；默认启动授权包没有扩大。该身份须与设置裁定、提交、审核、批准和过账身份分离。inventory 分开呈现现代 Draft 与实际 Posted 状态，并保留原始 mapping_match_count，正式过账标记不再遮蔽四格的映射轴。
+
+下一步冻结候选到独立验证目录，完成 fresh PG15/16 全量、跨版本现代链路、完整 CLI 主入口和本地回归。早先两套完整 PG 运行均为 279/283，四项 MIGRATION_MANIFEST_MISMATCH：运行期间目录新增迁移而进程仍持有旧清单；退出码 1，不作为数据库验收通过。新运行不得与继续编辑共用源码目录。
 
 ## 工具变化
 

@@ -17,14 +17,19 @@ const HASH=/^sha256:[0-9a-f]{64}$/;
 const COUNT_KEYS=['source_record_count','controlled_test_posted_count','formal_mapping_posted_count','mapping_missing_count','mapping_ready_count','mapping_ambiguous_count'];
 const cents=value=>{if(typeof value!=='string'||!MONEY.test(value))return null;const negative=value.startsWith('-');const [whole,fraction]=value.replace('-','').split('.');const n=BigInt(whole)*10000n+BigInt(fraction);return negative?-n:n;};
 const money=value=>{const negative=value<0n;const abs=negative?-value:value;const whole=abs/10000n,fraction=abs%10000n;return `${negative?'-':''}${whole}.${String(fraction).padStart(4,'0')}`;};
+const mappingState=row=>Object.hasOwn(row,'mapping_match_count')?
+  Number.isSafeInteger(row.mapping_match_count)&&row.mapping_match_count>=0?
+    row.mapping_match_count===0?'MAPPING_MISSING':row.mapping_match_count===1?'MAPPING_READY_FOR_REVIEW':'MAPPING_AMBIGUOUS':'UNKNOWN':row.mapping_state;
+const formallyPosted=row=>row.mapping_state==='FORMAL_MAPPING_POSTED'||row.import_state==='FORMAL_MAPPING_POSTED';
 
 export function buildDraftMappingCrossTable(rows){
   const empty=()=>({mapping_ready:0,mapping_missing:0,mapping_ambiguous:0,formal_posted_mapping_not_exposed:0,unknown:0});
   const cells={draft_record_present:empty(),source_staged_no_draft:empty(),unknown_import_state:empty()};
   const columns={MAPPING_READY_FOR_REVIEW:'mapping_ready',MAPPING_MISSING:'mapping_missing',MAPPING_AMBIGUOUS:'mapping_ambiguous',FORMAL_MAPPING_POSTED:'formal_posted_mapping_not_exposed'};
   for(const row of rows){
-    const axis=row.import_state==='CONTROLLED_TEST_POSTED'?'draft_record_present':row.import_state==='SOURCE_STAGED'?'source_staged_no_draft':'unknown_import_state';
-    cells[axis][Object.hasOwn(columns,row.mapping_state)?columns[row.mapping_state]:'unknown']++;
+    const axis=['CONTROLLED_TEST_POSTED','CONTROLLED_TEST_DRAFT'].includes(row.import_state)?'draft_record_present':row.import_state==='SOURCE_STAGED'?'source_staged_no_draft':'unknown_import_state';
+    const state=mappingState(row);
+    cells[axis][Object.hasOwn(columns,state)?columns[state]:'unknown']++;
   }
   const rowTotals=Object.fromEntries(Object.entries(cells).map(([key,value])=>[key,Object.values(value).reduce((a,b)=>a+b,0)]));
   const columnTotals=Object.fromEntries(Object.keys(empty()).map(key=>[key,Object.values(cells).reduce((sum,value)=>sum+value[key],0)]));
@@ -33,7 +38,7 @@ export function buildDraftMappingCrossTable(rows){
   return {schema_version:'WBS_H1_DRAFT_MAPPING_CROSS_TABLE_V1',cells,row_totals:rowTotals,column_totals:columnTotals,total_rows:rows.length,
     population_identity_unique:identityValid,
     four_cell_complete:identityValid&&rowTotals.unknown_import_state===0&&columnTotals.mapping_ambiguous===0&&columnTotals.formal_posted_mapping_not_exposed===0&&columnTotals.unknown===0,
-    draft_axis_evidence:'Inventory import_state reflects wbs_test_import_draft row presence, not independent journal posting verification',
+    draft_axis_evidence:'Inventory import_state reflects legacy import or modern human Draft evidence; Draft presence is independent of mapping readiness',
     no_draft_cause:'NOT_DETERMINED_BY_INVENTORY',accounting_authority:'NONE'};
 }
 
@@ -62,13 +67,13 @@ export function buildExceptionWorkpack(pages,{queueLimit=50,largeAbs='1000000.00
     const month=typeof row.accounting_date==='string'?row.accounting_date.slice(0,7):'';
     const inH1=MONTHS.includes(month)&&/^\d{4}-\d{2}-\d{2}$/.test(row.accounting_date)&&row.accounting_date>='2026-01-01'&&row.accounting_date<='2026-06-30';
     if(!inH1)push('DATE_OUT_OF_H1',row);
-    if(row.mapping_state==='MAPPING_MISSING')push('MAPPING_MISSING',row);
-    if(row.mapping_state==='MAPPING_AMBIGUOUS')push('MAPPING_AMBIGUOUS',row);
+    if(mappingState(row)==='MAPPING_MISSING')push('MAPPING_MISSING',row);
+    if(mappingState(row)==='MAPPING_AMBIGUOUS')push('MAPPING_AMBIGUOUS',row);
     if(row.import_state==='SOURCE_STAGED')push('SOURCE_STAGED_NO_DRAFT',row);
-    if(row.import_state==='FORMAL_MAPPING_POSTED'&&row.mapping_state==='MAPPING_MISSING')push('FORMAL_POSTED_WITH_MAPPING_MISSING',row);
-    if(inH1){const m=byMonth[month];m.source_record_count++;if(c!==null)m.source_amount+=c;if(row.import_state==='CONTROLLED_TEST_POSTED')m.controlled_test_posted_count++;if(row.import_state==='FORMAL_MAPPING_POSTED')m.formal_mapping_posted_count++;if(row.mapping_state==='MAPPING_MISSING')m.mapping_missing_count++;if(row.mapping_state==='MAPPING_READY_FOR_REVIEW')m.mapping_ready_count++;if(row.mapping_state==='MAPPING_AMBIGUOUS')m.mapping_ambiguous_count++;}
+    if(formallyPosted(row)&&mappingState(row)==='MAPPING_MISSING')push('FORMAL_POSTED_WITH_MAPPING_MISSING',row);
+    if(inH1){const m=byMonth[month];m.source_record_count++;if(c!==null)m.source_amount+=c;if(row.import_state==='CONTROLLED_TEST_POSTED')m.controlled_test_posted_count++;if(formallyPosted(row))m.formal_mapping_posted_count++;if(mappingState(row)==='MAPPING_MISSING')m.mapping_missing_count++;if(mappingState(row)==='MAPPING_READY_FOR_REVIEW')m.mapping_ready_count++;if(mappingState(row)==='MAPPING_AMBIGUOUS')m.mapping_ambiguous_count++;}
   }
-  const recomputed={source_record_count:rows.length,source_amount:money(sum),controlled_test_posted_count:rows.filter(r=>r.import_state==='CONTROLLED_TEST_POSTED').length,formal_mapping_posted_count:rows.filter(r=>r.import_state==='FORMAL_MAPPING_POSTED').length,mapping_missing_count:exceptions.MAPPING_MISSING.length,mapping_ready_count:rows.filter(r=>r.mapping_state==='MAPPING_READY_FOR_REVIEW').length,mapping_ambiguous_count:exceptions.MAPPING_AMBIGUOUS.length};
+  const recomputed={source_record_count:rows.length,source_amount:money(sum),controlled_test_posted_count:rows.filter(r=>r.import_state==='CONTROLLED_TEST_POSTED').length,formal_mapping_posted_count:rows.filter(formallyPosted).length,mapping_missing_count:exceptions.MAPPING_MISSING.length,mapping_ready_count:rows.filter(r=>mappingState(r)==='MAPPING_READY_FOR_REVIEW').length,mapping_ambiguous_count:exceptions.MAPPING_AMBIGUOUS.length};
   const controlMismatches=[];
   for(const key of [...COUNT_KEYS,'source_amount']){const d=declared[key],r=recomputed[key];if(key==='source_amount'?cents(String(d))!==cents(r):d!==r)controlMismatches.push({key,declared:d,recomputed:r});}
   const monthMismatches=[];

@@ -450,5 +450,8 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"443_forecast_line_amount_regex_fix.sql",up:"42c0c303b86c3036afbdd84dce8be197ad9a55e41f78353d1eb29470388495a1",down:"7c86b88950bdd658cabaf065e73d871367e84f28339c7741060dc36f4738a58e"}),
   Object.freeze({name:"444_latent_plpgsql_runtime_errors.sql",up:"19b416698b964bde79dbac10899f834eceaac32a4c4c28a90d30c3505779c503",down:"47d4f1705f81c8f8456bb45116215af51e74065dd9a7ec47c145c75494298292"}),
   Object.freeze({name:"445_workflow_authority_reachability.sql",up:"c59aed6d9bd1d45de94140aa676b0fff2069cd2867a14062cdb1a51d9cedc0f8",down:"8f146dd80a1b1dbe337945d9702f6d6bcd22b1b5bf6ec0425032ee17a231b55e"}),
-  Object.freeze({name:"446_internal_test_receivable_control_shape.sql",up:"352aec697fea13c8c45f4441d1e6e4977467d04986444668e137ac7bfe168151",down:"10f5c0f37db1992961d4986f12794916cb78a6c1038e12ef7f51856eb088c7c3"})
+  Object.freeze({name:"446_internal_test_receivable_control_shape.sql",up:"352aec697fea13c8c45f4441d1e6e4977467d04986444668e137ac7bfe168151",down:"10f5c0f37db1992961d4986f12794916cb78a6c1038e12ef7f51856eb088c7c3"}),
+  Object.freeze({name:"447_wbs_h1_modern_reclass_trace.sql",up:"5e91c325ed8c327651170880602a906bcb1c4a6404275fb5ec5106f990863585",down:"e6bfc4038ca12ec234b2b25edd4a99f8d90968d728254876de7fa19c0364e89c"}),
+  Object.freeze({name:"448_wbs_h1_modern_inventory_trace.sql",up:"31c51bcecaaf7e188693456409d837936cdaa19e47e10d66b06399d950924bf1",down:"05ce59272eba409be2a04f788485ff279bc74931e09d60ad215d84677c9f770b"}),
+  Object.freeze({name:"449_wbs_h1_modern_source_finalize.sql",up:"37f4c3fcfa6ced3514e10abca5e768e3f692d1970341068a53f905c2c0f3faef",down:"98d36903ffe2a536789ff8346fb2f3917ca3f9cf8053011fb64d2cae786f19b4"})
 ]);

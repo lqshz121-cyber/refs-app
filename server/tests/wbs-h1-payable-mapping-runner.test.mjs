@@ -13,11 +13,11 @@ const row=(overrides={})=>({tenant_id:'11111111-1111-4111-8111-111111111111',ent
 
 test('mapping prepare uses the approved authoritative proposal and only the formal Draft command',async()=>{
   const calls=[],decision=resolveWbsH1PayableMapping(row()),proposalHash='sha256:'+'b'.repeat(64);
-  const page={settings_outcome:'APPROVED',settings_decision_hash:'sha256:'+'c'.repeat(64),source_record_count:1,rows:[{source_record_hash:decision.row.source_record_hash,proposal_hash:proposalHash,status:'READY_FOR_CONTROLLER_REVIEW'}]};
+  const page={settings_outcome:'APPROVED',settings_decision_hash:'sha256:'+'c'.repeat(64),source_record_count:1,rows:[{source_record_hash:decision.row.source_record_hash,proposal_hash:proposalHash,status:'READY_FOR_CONTROLLER_REVIEW',proposed_lines:[{account_code:decision.accountCode}]}]};
   const kernel={readWbsH1PayableAccountingProposal:async()=>page,createWbsH1PayableReclassDraft:async args=>{calls.push(args);return {journal_entry_id:decision.row.journal_entry_id};}};
   const result=await prepareAuthoritativeWbsH1Mapping({decision,kernel,reason:'Authorized single-period pilot'});
   assert.equal(calls.length,1);assert.equal(calls[0].proposalHash,proposalHash);assert.equal(calls[0].sourceRecordHash,decision.row.source_record_hash);assert.equal(result.draft.journal_entry_id,decision.row.journal_entry_id);
-  for(const patch of [{settings_outcome:'NOT_DECIDED'},{settings_decision_hash:null},{rows:[]},{rows:[{...page.rows[0],status:'EXCEPTION'}]},{source_record_count:'1'}]){
+  for(const patch of [{settings_outcome:'NOT_DECIDED'},{settings_decision_hash:null},{rows:[]},{rows:[{...page.rows[0],status:'EXCEPTION'}]},{rows:[{...page.rows[0],proposed_lines:[{account_code:'WRONG'}]}]},{source_record_count:'1'}]){
     await assert.rejects(prepareAuthoritativeWbsH1Mapping({decision,kernel:{...kernel,readWbsH1PayableAccountingProposal:async()=>({...page,...patch})},reason:'Authorized single-period pilot'}));
   }
   assert.equal(calls.length,1,'invalid plans have zero formal writes');

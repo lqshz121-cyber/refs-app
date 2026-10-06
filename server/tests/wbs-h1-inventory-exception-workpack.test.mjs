@@ -17,6 +17,24 @@ function inventory({rows,pageSize=200,tamper=null}){
   const pages=[];for(let offset=0;offset<rows.length;offset+=pageSize)pages.push({schema_version:'WBS_H1_IMPORT_INVENTORY_V1',company_code:'WBTS',currency:'USD',date_from:'2026-01-01',date_to:'2026-06-30',limit:pageSize,offset,totals:declared,months:months.map(fix),rows:rows.slice(offset,offset+pageSize),source_mode:'REAL_WBS_STAGED',accounting_authority:'NONE',can_create_draft:false,can_review:false,can_approve:false,can_post:false});
   return pages;
 }
+test('modern human Draft evidence counts on the Draft axis without claiming it is Posted',()=>{
+  const rows=[{source_record_hash:sha('modern-draft'),accounting_date:'2026-01-15',amount:'1.0000',import_state:'CONTROLLED_TEST_DRAFT',mapping_state:'MAPPING_READY_FOR_REVIEW'}];
+  const pack=buildExceptionWorkpack(inventory({rows}));
+  assert.equal(pack.exception_counts.SOURCE_STAGED_NO_DRAFT,0);
+  assert.equal(pack.control.recomputed.controlled_test_posted_count,0);
+  const cross=buildDraftMappingCrossTable(rows);
+  assert.equal(cross.cells.draft_record_present.mapping_ready,1);assert.equal(cross.four_cell_complete,true);
+});
+
+test('formal Posted flag does not hide the independent mapping count or break control reconciliation',()=>{
+  const rows=[{source_record_hash:sha('formal-posted'),accounting_date:'2026-01-15',amount:'1.0000',import_state:'CONTROLLED_TEST_POSTED',mapping_state:'FORMAL_MAPPING_POSTED',mapping_match_count:1}];
+  const pages=inventory({rows});
+  for(const totals of [pages[0].totals,pages[0].months[0]]){totals.formal_mapping_posted_count=1;totals.mapping_ready_count=1;}
+  const pack=buildExceptionWorkpack(pages);
+  assert.equal(pack.control.reconciled,true);assert.equal(pack.draft_mapping_cross_table.cells.draft_record_present.mapping_ready,1);
+  for(const badCount of [-1,'1',null])assert.equal(buildDraftMappingCrossTable([{...rows[0],mapping_match_count:badCount}]).four_cell_complete,false);
+});
+
 function randomRows(n){
   const rows=[];for(let i=0;i<n;i++){const month=1+randomInt(0,6),day=1+randomInt(0,28);const cents=randomInt(100,50000000)*(randomInt(0,10)===0?-1:1);rows.push({source_record_hash:sha(`row-${i}-${cents}`),accounting_date:`2026-0${month}-${String(day).padStart(2,'0')}`,amount:money(cents),import_state:randomInt(0,20)===0?'SOURCE_STAGED':'CONTROLLED_TEST_POSTED',mapping_state:randomInt(0,10)<9?'MAPPING_MISSING':'MAPPING_READY_FOR_REVIEW',cost_code:'CC',vendor_no:'V',project_code:'P'});}
   return rows;

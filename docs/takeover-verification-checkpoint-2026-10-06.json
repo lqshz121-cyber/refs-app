@@ -36,15 +36,17 @@
   "mapping_single_period_scope": {"state": "real PG18 fixture passed; cross-version verification pending", "env": "REFS_WBS_H1_MAPPING_PERIOD", "allowed": "2026-01 through 2026-06", "predicate": "same staged period, accounting date month, and PRIMARY accounting period", "unit_tests_with_runners_and_inventory": {"pass": 20, "fail": 0, "skipped": 0}, "unit_log": "server/takeover-period-scope-test.log", "real_pg18_result": {"exit_code": 0, "pass": 1, "fail": 0, "skipped": 0, "mode": "PATTERN"}, "real_pg18_log": "server/takeover-pg18-period-scope-test.log", "pilot_requires_explicit_company_and_period": true},
   "mapping_release_safety_gate": {
     "status": "NOT_READY_FOR_STAGING_WRITE_PILOT",
-    "evidence": [
+    "original_findings_before_fix": [
       "apply-wbs-h1-payable-mappings.mjs prepare calls createManualJournal rather than createWbsH1PayableReclassDraft",
       "mapping CLI completes source_link through admin query after journal Post, outside the accounting command transaction",
       "candidate SQL reads only wbs_test_import_draft; current import service retains through wbs_test_payable_source_receipt and wbs_test_payable_draft_evidence introduced by migration 275",
       "migration 269 formal reclass command and migration 265 inventory also rely on the legacy trace"
     ],
     "existing_period_test_scope": "Legacy compatibility fixture explicitly manufactures a pre-275 trace; does not execute mapping CLI main or prove the modern import-to-reclass flow",
-    "local_cli_safety_fix": {"formal_draft_command": true, "admin_account_master_write_removed": true, "post_commit_admin_source_link_write_removed": true, "staging_guard_per_kernel_call": true, "explicit_company_period_reason_required": true, "modern_receipts_refused_until_supported": true, "same_610000_account_not_completion_proof": true, "focused_tests": {"pass": 21, "fail": 0, "skipped": 0}, "modern_flow_verified": false},
-    "next_required_work": ["Replace generic manual-journal mapping path with approved-settings-backed authoritative reclassification", "Support current retained human-draft source evidence without manufacturing legacy traces or editing applied migrations", "Keep source lineage atomic with journal/audit/outbox", "Verify real current import through reclassification and reports with idempotent replay", "Audit inventory visibility of current draft evidence"],
+    "local_cli_safety_fix": {"formal_draft_command": true, "admin_account_master_write_removed": true, "post_commit_admin_source_link_write_removed": true, "staging_guard_per_kernel_call": true, "explicit_company_period_reason_required": true, "modern_trace_projection_supported": true, "same_610000_account_not_completion_proof": true, "dedicated_reclass_maker_role": true, "focused_tests": {"pass": 24, "fail": 0, "skipped": 0}, "modern_pg16_selected_pass": 2, "modern_pg16_selected_skipped": 0, "modern_pg16_log": "server/takeover-pg16-modern-trace-final.log", "actual_cli_main_integration_verified": false},
+    "forward_migrations": ["447_wbs_h1_modern_reclass_trace.sql", "448_wbs_h1_modern_inventory_trace.sql", "449_wbs_h1_modern_source_finalize.sql"],
+    "modern_pg16_failures_before_pass": ["Initial run lacked modern source finalization support and failed 23514", "Second run assumed business draft_journal_entry_id survived Post; native reducer clears it. Fixed association to posted_journal_entry_id; migration roundtrip had passed"],
+    "next_required_work": ["Freeze candidate source for all long gates", "Full PG15/16 and cross-version modern flow verification", "Verify actual CLI main and modern Draft inventory, including no-effect failures", "Final build and local regression", "Authenticated staging readback and scoped accounting acceptance"],
     "deploy_write_pilot_must_wait": true,
     "old_runbook_mapping_write_commands_must_not_run": true
   },
@@ -53,8 +55,8 @@
   "staging_authorization": {"source": "Direct human reply to deployment-scope question in this thread", "push_candidate_branch_after_local_gates_pass": true, "deploy_refs_accounting_api_staging_after_local_gates_pass": true, "single_company_single_period_pilot": true, "expansion_requires_further_confirmation": true, "production_changes": false},
   "render_access_preflight": {"observed_url": "https://dashboard.render.com/login", "authenticated_session_available": false, "browser_control": "Repeated tab-control timeouts; stopped after recovery attempts", "authentication_must_be_completed_by_owner": true, "github_cli_authenticated": true},
   "running_at_checkpoint": [
-    {"gate": "fresh PG15 full kernel and accounting-settings workflow", "session_id": 52007, "log": "server/takeover-pg15-test.log", "source": "79103ffe before new runner integration test"},
-    {"gate": "fresh PG16 full kernel and accounting-settings workflow", "session_id": 64959, "log": "server/takeover-pg16-test.log", "source": "79103ffe before new runner integration test"},
+    {"gate": "fresh PG15 full kernel and accounting-settings workflow", "session_id": 52007, "log": "server/takeover-pg15-test.log", "status": "failed", "exit_code": 1, "pass": 279, "fail": 4, "skipped": 0, "reason": "MIGRATION_MANIFEST_MISMATCH after source directory changed during the running gate", "acceptance_proof": false},
+    {"gate": "fresh PG16 full kernel and accounting-settings workflow", "session_id": 64959, "log": "server/takeover-pg16-test.log", "status": "failed", "exit_code": 1, "pass": 279, "fail": 4, "skipped": 0, "reason": "MIGRATION_MANIFEST_MISMATCH after source directory changed during the running gate", "acceptance_proof": false},
     {"gate": "single-period reclassification SQL on fresh PG15 then PG16 followed by complete server npm test", "session_id": 81566, "status": "completed", "pg15_exit": 0, "pg16_exit": 0, "each_pg_selected_pass": 1, "each_pg_skipped": 0, "server_exit": 0, "server_contains_skipped_tests": true, "logs": ["server/takeover-pg15-period-scope-test.log", "server/takeover-pg16-period-scope-test.log", "server/takeover-server-period-final-test.log"]}
   ],
   "inventory_cross_table": {
