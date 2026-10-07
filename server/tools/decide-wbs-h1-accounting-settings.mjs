@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Staging-only: record the human Settings decision for every WBS company x 2026 H1 period whose
+// Staging-only: plan Settings decisions across WBS company x 2026 H1 scopes; write only the explicitly
+// selected single-company/single-period pilot whose
 // WBS-sourced Payable Debit settings proposal is exception-free (status READY_FOR_HUMAN_REVIEW).
 //
 // The proposal itself is computed by refs_read_wbs_h1_accounting_settings_proposal from the staged
@@ -9,8 +10,8 @@
 // (23514) and the row is reported instead. Exception rows are the WBS-side backlog.
 //
 //   REFS_WBS_H1_SETTINGS_DRY_RUN=1 node tools/decide-wbs-h1-accounting-settings.mjs      (plan only)
-//   node tools/decide-wbs-h1-accounting-settings.mjs                                       (approve)
-//   REFS_WBS_H1_SETTINGS_COMPANY=OPML ...                                                  (one company)
+//   REFS_WBS_H1_SETTINGS_COMPANY=OPML REFS_WBS_H1_SETTINGS_PERIOD=2026-01 node tools/decide-wbs-h1-accounting-settings.mjs (pilot approval)
+//   Omitting company or period is permitted only for dry-run planning, never for writes.
 //
 // Env: DATABASE_URL, MIGRATION_DATABASE_URL, CONTEXT_ISSUER_DATABASE_URL, REFS_WBS_TEST_IMPORT_TENANT_ID,
 // REFS_WBS_TEST_IMPORT_SETTINGS_CONTROLLER_ACTOR_ID (holder of the frozen WBS_H1_SETTINGS_CONTROLLER
@@ -50,6 +51,12 @@ const COMPANY=/^[A-Z0-9][A-Z0-9_:-]{0,63}$/;
 const MONTHS=Object.freeze(Array.from({length:6},(_,index)=>`2026-${String(index+1).padStart(2,'0')}`));
 const DEFAULT_REASON='D-R08-3: Owner-delegated staging approval of the exception-free WBS-sourced Payable Debit settings proposal; rules and accounts come from WBS unchanged.';
 const EXCEPTIONS=Object.freeze(['MAPPING_MISSING','ACCOUNT_NOT_READY','MAPPING_AMBIGUOUS']);
+
+export function assertSettingsPilotScope({companyCode,periodCode,dryRun}){
+  if(companyCode!==null&&!COMPANY.test(companyCode||''))throw new Error('REFS_WBS_H1_SETTINGS_COMPANY is invalid');
+  if(periodCode!==null&&!MONTHS.includes(periodCode))throw new Error('REFS_WBS_H1_SETTINGS_PERIOD must be one 2026 H1 period');
+  if(dryRun!==true&&(!companyCode||!periodCode))throw new Error('Settings pilot requires an explicit company and single H1 period; expansion is not authorized');
+}
 
 export const settingsDecisionIdempotencyKey=(companyCode,periodCode,proposalHash)=>`wbs-h1-settings:${createHash('sha256').update(`${companyCode}|${periodCode}|${proposalHash}`,'utf8').digest('hex').slice(0,40)}`;
 
@@ -122,6 +129,7 @@ async function main(){
   const periodCode=process.env.REFS_WBS_H1_SETTINGS_PERIOD?.trim()||null;
   if(periodCode!==null&&!MONTHS.includes(periodCode))throw new Error('REFS_WBS_H1_SETTINGS_PERIOD must be one 2026 H1 period');
   const reason=(process.env.REFS_WBS_H1_SETTINGS_REASON||DEFAULT_REASON).trim(),dryRun=process.env.REFS_WBS_H1_SETTINGS_DRY_RUN==='1';
+  assertSettingsPilotScope({companyCode,periodCode,dryRun});
   const config=runtimeConfig(process.env);
   assertSettingsDatabaseEndpoints(config);
   const target={installationId:process.env.REFS_EXPECTED_INSTALLATION_ID||null,expectedDatabase:process.env.REFS_EXPECTED_DATABASE_NAME||null};

@@ -1,10 +1,38 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {reconcileWbsH1CompanyActorGrants,selectWbsH1GrantRoles,wbsH1GrantExpiry,wbsH1RoleBundle} from '../tools/reconcile-wbs-h1-company-actor-grants.mjs';
-import {classifyWbsH1SettingsScope,decideWbsH1AccountingSettingsForScopes,settingsDecisionIdempotencyKey,runStagingSettingsOperation,assertSettingsDatabaseEndpoints,StagingWbsH1SettingsKernel} from '../tools/decide-wbs-h1-accounting-settings.mjs';
+import {classifyWbsH1SettingsScope,decideWbsH1AccountingSettingsForScopes,settingsDecisionIdempotencyKey,runStagingSettingsOperation,assertSettingsDatabaseEndpoints,assertSettingsPilotScope,StagingWbsH1SettingsKernel} from '../tools/decide-wbs-h1-accounting-settings.mjs';
 
 const T='6fb25daf-0799-4805-bede-be54230da33c';
 const E1='11111111-1111-4111-a111-111111111111',E2='22222222-2222-4222-a222-222222222222';
+
+test('settings CLI scope guard permits broad read-only plans but rejects unscoped pilot writes',()=>{
+  assert.doesNotThrow(()=>assertSettingsPilotScope({companyCode:null,periodCode:null,dryRun:true}));
+  assert.doesNotThrow(()=>assertSettingsPilotScope({companyCode:'WBPA',periodCode:'2026-01',dryRun:false}));
+  for(const scope of [
+    {companyCode:null,periodCode:null},
+    {companyCode:'WBPA',periodCode:null},
+    {companyCode:null,periodCode:'2026-01'}
+  ])assert.throws(()=>assertSettingsPilotScope({...scope,dryRun:false}),/explicit company and single H1 period/);
+  assert.throws(()=>assertSettingsPilotScope({companyCode:'WBPA,OTHER',periodCode:'2026-01',dryRun:true}),/COMPANY is invalid/);
+  assert.throws(()=>assertSettingsPilotScope({companyCode:'WBPA',periodCode:'2026-07',dryRun:true}),/one 2026 H1 period/);
+});
+
+test('settings CLI rejects omitted company or period before database configuration and connection',()=>{
+  const tool=fileURLToPath(new URL('../tools/decide-wbs-h1-accounting-settings.mjs',import.meta.url));
+  for(const [company,period] of [['',''],['WBPA',''],['','2026-01']]){
+    const env={...process.env,REFS_WBS_TEST_IMPORT_TENANT_ID:T,REFS_WBS_TEST_IMPORT_SETTINGS_CONTROLLER_ACTOR_ID:'pilot-settings-controller',REFS_WBS_H1_SETTINGS_COMPANY:company,REFS_WBS_H1_SETTINGS_PERIOD:period,REFS_WBS_H1_SETTINGS_DRY_RUN:'0'};
+    for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL'])delete env[key];
+    const result=spawnSync(process.execPath,[tool],{env,encoding:'utf8',timeout:10000});
+    assert.equal(result.status,1);
+    const receipt=JSON.parse(result.stderr.trim());
+    assert.equal(receipt.status,'WBS_H1_SETTINGS_DECISIONS_FAILED');
+    assert.match(receipt.message,/explicit company and single H1 period/);
+    assert.equal(result.stdout,'');
+  }
+});
 
 test('reclass maker is an explicit finite role without silently widening the AP maker bundle',()=>{
   const reclass=wbsH1RoleBundle('reclassMaker'),maker=wbsH1RoleBundle('maker');
