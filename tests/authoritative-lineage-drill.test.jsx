@@ -43,6 +43,14 @@ for(const [kind,value,label] of [['JOURNAL',{journal,context:{entityId,periodId}
   assert.match(markup,new RegExp(label));assert.match(markup,/Entity REFS US Staging/);assert.match(markup,/Period August 2026/);assert.doesNotMatch(markup,/>Entity 11111111-1111-4111-8111-111111111111|>Period 22222222-2222-4222-8222-222222222222/);assert.doesNotMatch(markup,/Create|Edit|Post journal|Export/);
 }
 const fallbackMarkup=renderToStaticMarkup(<AuthoritativeLineageDrill config={config} initial={{kind:'JOURNAL',journal,context:{entityId,periodId}}} onExit={()=>{}}/>);
+const sourceFacts={...source,gross_amount:'-1761.8400',status:'RECEIVED',source_system:'WBS',source_module:'bankFeed',source_version:'v1',source_line_count:51,posted_journal_entry_ids:[],lines:Array.from({length:51},(_,index)=>({source_document_line_id:`line-${index}`,source_line_id:`BANK-LINE-${index}`,line_no:index+1,amount:'-1761.8400',direction:'OUTFLOW',party_ref:null,bank_account_ref:'111000',project_ref:'PROJECT-1',property_ref:null,cost_code_ref:null}))};
+const sourceFactsMarkup=renderToStaticMarkup(<AuthoritativeLineageDrill config={displayConfig} initial={{kind:'SOURCE',detail:sourceFacts,context:{entityId,periodId}}} onExit={()=>{}}/>);
+for(const text of ['-1761.8400','RECEIVED','bankFeed','SR-1','BANK-LINE-0','OUTFLOW','111000','PROJECT-1','No POSTED Journal link returned','Source lines 1–50 of 51'])assert.ok(sourceFactsMarkup.includes(text),`actual shared source frame must retain ${text}`);
+assert.equal((sourceFactsMarkup.match(/<tr>/g)||[]).length,51,'only 50 source rows plus header render');
+assert.doesNotMatch(sourceFactsMarkup,/BANK-LINE-50|Open linked Journal/,'hidden page and absent posted links must not be asserted');
+const missingSourceFactsMarkup=renderToStaticMarkup(<AuthoritativeLineageDrill config={displayConfig} initial={{kind:'SOURCE',detail:source,context:{entityId,periodId}}} onExit={()=>{}}/>);
+assert.match(missingSourceFactsMarkup,/No retained source lines returned/);
+assert.match(missingSourceFactsMarkup,/Not returned/,'missing money and metadata cannot be synthesized');
 assert.match(fallbackMarkup,/Entity Configured entity/);assert.match(fallbackMarkup,/Period Configured period/,'missing presentation metadata must remain an honest configured-scope fallback');
 const journalMarkup=renderToStaticMarkup(<AuthoritativeLineageDrill config={displayConfig} initial={{kind:'JOURNAL',journal,context:{entityId,periodId}}} onExit={()=>{}}/>);
 for(const text of ['Review posted journal lines.','READ ONLY','Journal identifiers','Journal ID','Revision','Currency'])assert.match(journalMarkup,new RegExp(text));
