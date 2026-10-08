@@ -8,6 +8,31 @@ const url=`/api/v1/entities/${entityId}/wbs/test-import/payables`,body={periodId
 const request=(overrides={})=>({method:'POST',url,headers:{'idempotency-key':'wbs-test-import-http-0001'},body,...overrides});
 const result=(replay=false)=>({status:'WBS_TEST_PAYABLE_IMPORT_COMPLETE',imported_count:replay?0:1,replayed_count:replay?1:0,posted_count:0,failed_count:0,test_only:true});
 
+test('Bank receipt start binds exact hash to the authenticated starter, not configured role actors',async()=>{
+  const receiptId=periodId,hash=`sha256:${'a'.repeat(64)}`,calls=[],principals=[];
+  const startUrl=`/api/v1/entities/${entityId}/wbs/test-import/bank-receipts/${receiptId}/start-reconciliation`;
+  const retained={wbs_test_bank_import_receipt_id:receiptId,receipt_hash:hash,reconciliation_id:entityId,imported_by:'independent-importer',started_by:'human-starter',status:'DRAFT',idempotent:false};
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'human-starter'}),wbsTestImportServiceFactory:async()=>{throw new Error('must not substitute configured importer or starter');},kernelFactory:async principal=>(principals.push(principal),{startWbsTestBankReconciliation:async args=>(calls.push(args),retained)})});
+  const req=request({url:startUrl,body:{expectedReceiptHash:hash}});
+  const response=await api(req);assert.equal(response.status,201);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.test_only,true);assert.equal(response.body.data.provenance_mode,'CONTROLLED_TEST_UNSIGNED');
+  assert.equal(principals[0].actorId,'human-starter');assert.deepEqual(calls[0],{tenantId,entityId,receiptId,expectedReceiptHash:hash,idempotencyKey:req.headers['idempotency-key']});
+  for(const bad of [{...req,body:{expectedReceiptHash:hash,actorId:'configured-starter'}},{...req,body:{expectedReceiptHash:'bad'}},{...req,headers:{...req.headers,'if-match':'0'}},{...req,url:startUrl+'?actorId=other'}])assert.equal((await api(bad)).status,400);
+  assert.equal(calls.length,1);
+  retained.idempotent=true;assert.equal((await api(req)).status,200);
+  retained.started_by='configured-starter';assert.equal((await api(req)).status,500);
+});
+
+test('Bank receipt start is disabled without wiring and maps database denials without leaking details',async()=>{
+  const req=request({url:`/api/v1/entities/${entityId}/wbs/test-import/bank-receipts/${periodId}/start-reconciliation`,body:{expectedReceiptHash:`sha256:${'a'.repeat(64)}`}});
+  let calls=0;
+  const disabled=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'starter'}),kernelFactory:async()=>{calls++;return {};}});
+  assert.equal((await disabled(req)).status,404);assert.equal(calls,0);
+  for(const [code,status] of [['42501',403],['23505',409],['55000',423]]){
+    const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'starter'}),wbsTestImportServiceFactory:async()=>({}),kernelFactory:async()=>({startWbsTestBankReconciliation:async()=>{throw Object.assign(new Error('private database details'),{code});}})});
+    const response=await api(req);assert.equal(response.status,status);assert.equal(response.headers['cache-control'],'no-store');assert.equal(JSON.stringify(response).includes('private database details'),false);
+  }
+});
+
 test('authenticated test-import route returns only the exact no-store success DTO',async()=>{
   const calls=[],principals=[];const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'authenticated-test-operator'}),kernelFactory:async()=>({}),wbsTestImportServiceFactory:async principal=>(principals.push(principal),{importPayables:async args=>(calls.push(args),result())})});
   const response=await api(request());assert.equal(response.status,201);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(response.body,{ok:true,data:result()});

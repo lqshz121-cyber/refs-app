@@ -15,6 +15,20 @@
     }
   ],
   "paths": {
+    "/entities/{entityId}/wbs/test-import/bank-receipts/{receiptId}/start-reconciliation": {
+      "post": {
+        "operationId":"startWbsTestBankReconciliationFromReceipt",
+        "summary":"Independent human starts test reconciliation from an exact retained Bank receipt",
+        "description":"Staging-only CONTROLLED_TEST_UNSIGNED command. Uses the authenticated actor and BANK.RECONCILIATION.START, not a configured alternate actor. Requires exact OPEN PRIMARY receipt period and immutable receipt hash. Same-actor same-key replay is idempotent; alternate actor and changed key are rejected. Synthetic statement balances are test-only, not formal signed bank statement evidence. Does not Match, Clear or Post.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"},{"name":"receiptId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["expectedReceiptHash"],"properties":{"expectedReceiptHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}}}}},
+        "responses":{
+          "200":{"description":"Exact same-actor same-key test receipt replay","content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsTestBankReceiptStartEnvelope"}}}},
+          "201":{"description":"Test reconciliation started by independent authenticated actor","content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsTestBankReceiptStartEnvelope"}}}},
+          "400":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"423":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/general-ledger/line-identities/{ledgerLineId}": {
       "get": {
         "operationId": "readExactLedgerLineIdentity",
@@ -26617,8 +26631,8 @@
     "/entities/{entityId}/wbs/test-import/bank-transactions": {
       "post": {
         "operationId": "importWbsControlledTestBankTransactions",
-        "summary": "Import bounded WBS Bank observations into a controlled test reconciliation",
-        "description": "Staging-only authenticated bridge. Requires WBS.TEST.IMPORT, the configured tenant/entity/company and one OPEN period. It retains sanitized UNSIGNED_PILOT Bank rows as CONTROLLED_TEST_UNSIGNED source evidence, creates only the fixed WBS_TEST_BANK member, and starts one ordinary DRAFT reconciliation. The Provider-signed admission route is unchanged; this operation never claims signature, formal admission, Match, Review, Sign-off, Journal or posting authority.",
+        "summary": "Retain bounded WBS Bank observations as an immutable controlled test source receipt",
+        "description": "Staging-only authenticated bridge. Requires WBS.TEST.IMPORT, the configured tenant/entity/company and one OPEN period. It retains sanitized UNSIGNED_PILOT Bank rows as CONTROLLED_TEST_UNSIGNED source evidence and returns an immutable FINALIZED receipt. It does not start a reconciliation; an independent authorized human must consume the exact receipt through the separate start command. The Provider-signed admission route is unchanged; this operation never claims signature, formal admission, Match, Review, Sign-off, Journal or posting authority.",
         "parameters": [
           {
             "$ref": "#/components/parameters/EntityId"
@@ -33725,6 +33739,17 @@
       }
     },
     "schemas": {
+      "WbsTestBankReceiptStartEnvelope": {
+        "type":"object","additionalProperties":false,"required":["ok","data"],
+        "properties":{"ok":{"const":true},"data":{
+          "type":"object","additionalProperties":false,
+          "required":["wbs_test_bank_import_receipt_id","receipt_hash","reconciliation_id","imported_by","started_by","status","idempotent","test_only","provenance_mode"],
+          "properties":{
+            "wbs_test_bank_import_receipt_id":{"$ref":"#/components/schemas/Uuid"},"receipt_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"reconciliation_id":{"$ref":"#/components/schemas/Uuid"},
+            "imported_by":{"type":"string","minLength":1},"started_by":{"type":"string","minLength":1},"status":{"type":"string","pattern":"^[A-Z_]{1,32}$"},"idempotent":{"type":"boolean"},"test_only":{"const":true},"provenance_mode":{"const":"CONTROLLED_TEST_UNSIGNED"}
+          }
+        }}
+      },
       "IntercompanyEliminationActionFlags": {
         "type": "object",
         "additionalProperties": false,

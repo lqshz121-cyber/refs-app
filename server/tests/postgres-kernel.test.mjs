@@ -7118,6 +7118,56 @@ pgTest('intercompany elimination migration 373 roundtrips only with no retained 
  const client=await adminPool.connect();try{await client.query('BEGIN');await client.query(strip(down));assert.equal((await client.query("SELECT to_regprocedure('refs_read_intercompany_elimination_batch(uuid,uuid,uuid)') fn")).rows[0].fn,null);await client.query(strip(up));const restored=(await client.query("SELECT to_regprocedure('refs_read_intercompany_elimination_batch(uuid,uuid,uuid)') read_fn,to_regprocedure('refs_intercompany_elimination_batch_payload(uuid,uuid,uuid)') payload_fn,has_function_privilege('refs_app','refs_intercompany_elimination_batch_payload(uuid,uuid,uuid)','EXECUTE') payload_public")).rows[0];assert.ok(restored.read_fn);assert.ok(restored.payload_fn);assert.equal(restored.payload_public,false);}finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });
 
+pgTest('WBS receipt start migration roundtrips without exposing the legacy bypass',async()=>{
+  const name='453_wbs_test_bank_receipt_start_binding.sql';
+  const entry=MIGRATION_MANIFEST.find(row=>row.name===name);
+  const up=await readFile(new URL('../db/migrations/'+name,import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/'+name,import.meta.url),'utf8');
+  assert.equal(createHash('sha256').update(up).digest('hex'),entry.up);
+  assert.equal(createHash('sha256').update(down).digest('hex'),entry.down);
+  const strip=sql=>sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');
+  const client=await adminPool.connect();
+  try{
+    await client.query('BEGIN');await client.query(strip(down));
+    assert.equal((await client.query("SELECT to_regprocedure('refs_start_wbs_test_bank_reconciliation_453(uuid,uuid,uuid,text,text)') fn")).rows[0].fn,null);
+    assert.equal((await client.query("SELECT has_function_privilege('refs_app','refs_start_wbs_test_bank_reconciliation(uuid,uuid,uuid,text,text)','EXECUTE') allowed")).rows[0].allowed,true);
+    await client.query(strip(up));
+    const restored=(await client.query("SELECT has_function_privilege('refs_app','refs_start_wbs_test_bank_reconciliation(uuid,uuid,uuid,text,text)','EXECUTE') wrapper,has_function_privilege('refs_app','refs_start_wbs_test_bank_reconciliation_453(uuid,uuid,uuid,text,text)','EXECUTE') legacy")).rows[0];
+    assert.deepEqual(restored,{wrapper:true,legacy:false});
+  }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('WBS receipt start rejects alternate actor changed key and closed period',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:'VERIFIED_CLEAN'});
+  const observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_bank_transactions',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-18T00:00:00.000Z',provider_content_sha256:'b'.repeat(64),scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-12-31']},record_count:2,rows:[
+    {source_record_hash:`sha256:${'a'.repeat(64)}`,currency:'USD',accounting_date:'2026-07-11',amount:'50.0000',direction:'DEBIT',status:'POSTED'},
+    {source_record_hash:`sha256:${'c'.repeat(64)}`,currency:'USD',accounting_date:'2026-07-12',amount:'30.0000',direction:'DEBIT',status:'POSTED'}
+  ],signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:`sha256:${'d'.repeat(64)}`};
+  const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'receipt-audit-importer',['WBS.TEST.IMPORT'])});
+  const starter=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'receipt-audit-starter',['BANK.RECONCILIATION.START'])});
+  const alternate=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'receipt-audit-alternate',['BANK.RECONCILIATION.START'])});
+  const receipt=await importer.createWbsControlledTestBankScope({...ids,companyCode:'WBPA',observation,bankAccountRef:'WBS_TEST_BANK',idempotencyKey:'receipt-audit-import-one'});
+  const command={tenantId:ids.tenantId,entityId:ids.entityId,receiptId:receipt.wbs_test_bank_import_receipt_id,expectedReceiptHash:receipt.receipt_hash,idempotencyKey:'receipt-audit-start-one'};
+  const concurrent=await Promise.all([starter.startWbsTestBankReconciliation(command),starter.startWbsTestBankReconciliation(command)]);
+  assert.deepEqual(concurrent.map(result=>result.idempotent).sort(),[false,true]);
+  assert.equal(concurrent[0].reconciliation_id,concurrent[1].reconciliation_id);
+  const replay=await starter.startWbsTestBankReconciliation(command);
+  assert.equal(replay.idempotent,true);assert.equal(replay.wbs_test_bank_import_receipt_id,receipt.wbs_test_bank_import_receipt_id);
+  assert.equal(replay.receipt_hash,receipt.receipt_hash);assert.equal(replay.started_by,'receipt-audit-starter');assert.equal(replay.imported_by,'receipt-audit-importer');assert.equal(replay.status,'DRAFT');
+  const outcomes=[];
+  const observe=async(label,operation)=>{try{await operation();outcomes.push({label,rejected:false});}catch(error){outcomes.push({label,rejected:true,code:error.code});}};
+  await observe('alternate_actor',()=>alternate.startWbsTestBankReconciliation(command));
+  await observe('changed_key',()=>starter.startWbsTestBankReconciliation({...command,idempotencyKey:'receipt-audit-start-changed'}));
+  const secondObservation={...observation,observation_hash:`sha256:${'e'.repeat(64)}`,provider_content_sha256:'f'.repeat(64),rows:observation.rows.map((row,index)=>({...row,source_record_hash:`sha256:${String(index+1).repeat(64)}`}))};
+  const second=await importer.createWbsControlledTestBankScope({...ids,companyCode:'WBPA',observation:secondObservation,bankAccountRef:'WBS_TEST_BANK',idempotencyKey:'receipt-audit-import-two'});
+  await adminPool.query("UPDATE accounting_period SET status='CLOSED',closed_by='fixture',closed_at=clock_timestamp() WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3",[ids.tenantId,ids.entityId,ids.periodId]);
+  await observe('closed_period',()=>starter.startWbsTestBankReconciliation({...command,receiptId:second.wbs_test_bank_import_receipt_id,expectedReceiptHash:second.receipt_hash,idempotencyKey:'receipt-audit-start-two'}));
+  console.log('WBS_RECEIPT_START_BOUNDARY_RESULTS '+JSON.stringify(outcomes));
+  assert.deepEqual(outcomes,[{label:'alternate_actor',rejected:true,code:'42501'},{label:'changed_key',rejected:true,code:'23505'},{label:'closed_period',rejected:true,code:'55000'}]);
+  const counts=(await adminPool.query("SELECT (SELECT count(*) FROM reconciliation WHERE tenant_id=$1 AND entity_id=$2)::int reconciliations,(SELECT count(*) FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='WBS_TEST_BANK_RECONCILIATION_STARTED')::int starts",[ids.tenantId,ids.entityId])).rows[0];
+  assert.deepEqual(counts,{reconciliations:1,starts:1});
+});
+
 pgTest('controlled test unsigned WBS Bank rows create isolated source evidence and one ordinary DRAFT reconciliation',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'610000',accountName:'Controlled test Bank offset expense'}]});
   const observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_bank_transactions',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-18T00:00:00.000Z',provider_content_sha256:'b'.repeat(64),scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-12-31']},record_count:2,rows:[

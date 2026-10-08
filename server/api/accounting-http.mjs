@@ -763,6 +763,19 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         assertWbsTestImportResult(result);
         return {status:result.imported_count===0?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='POST'&&parts.length===9&&parts[4]==='wbs'&&parts[5]==='test-import'&&parts[6]==='bank-receipts'&&parts[8]==='start-reconciliation'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['expectedReceiptHash']);
+        if(typeof wbsTestImportServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Immutable receipt start uses its exact receipt hash');
+        const receiptId=requireUuid(parts[7],'receiptId'),expectedReceiptHash=requireSha256(payload.expectedReceiptHash,'expectedReceiptHash'),key=requireIdempotency(headers);
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.startWbsTestBankReconciliation!=='function')throw new AccountingApiError(503,'WBS_TEST_BANK_START_UNAVAILABLE','Controlled test receipt start is unavailable');
+        try{result=await kernel.startWbsTestBankReconciliation({tenantId:principal.tenantId,entityId,receiptId,expectedReceiptHash,idempotencyKey:key});}
+        catch(error){if(error?.code==='42501')throw new AccountingApiError(403,'WBS_TEST_BANK_START_FORBIDDEN','Forbidden');if(error?.code==='23505')throw new AccountingApiError(409,'WBS_TEST_BANK_START_CONFLICT','Receipt start conflicts with its original identity');if(error?.code==='55000')throw new AccountingApiError(423,'WBS_TEST_BANK_RECEIPT_PERIOD_LOCKED','Receipt period is not open');throw error;}
+        const keys=['wbs_test_bank_import_receipt_id','receipt_hash','reconciliation_id','imported_by','started_by','status','idempotent'];
+        if(!result||Object.keys(result).sort().join('|')!==keys.sort().join('|')||result.wbs_test_bank_import_receipt_id!==receiptId||result.receipt_hash!==expectedReceiptHash||result.started_by!==principal.actorId||typeof result.imported_by!=='string'||result.imported_by===principal.actorId||typeof result.idempotent!=='boolean'||typeof result.status!=='string'||! /^[A-Z_]{1,32}$/.test(result.status)||! /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.reconciliation_id||''))throw new Error('Unsafe controlled test receipt start result');
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:{...result,test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED'}}};
+      }
       if(method==='POST'&&parts.length===7&&parts[4]==='wbs'&&parts[5]==='test-import'&&parts[6]==='bank-transactions'){
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['periodId','companyCode','dateFrom','dateTo','limit']);
         if(typeof wbsTestImportServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');

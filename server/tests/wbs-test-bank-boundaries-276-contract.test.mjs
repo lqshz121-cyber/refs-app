@@ -5,6 +5,22 @@ import {WBS_TEST_IMPORT_GRANT_BUNDLES} from '../runtime/wbs-test-import-service.
 
 const read=path=>fs.readFileSync(new URL(path,import.meta.url),'utf8');
 
+test('453 guards exact receipt period and replay identity before the historical start command',()=>{
+  const sql=read('../db/migrations/453_wbs_test_bank_receipt_start_binding.sql');
+  assert.match(sql,/SECURITY DEFINER[\s\S]*SET search_path=pg_catalog,public,pg_temp/);
+  assert.match(sql,/ledger_code='PRIMARY' AND status='OPEN'/);
+  assert.match(sql,/starts_on=receipt.statement_start_date AND ends_on=receipt.statement_end_date FOR SHARE/);
+  assert.match(sql,/actor IS DISTINCT FROM receipt.reconciliation_started_by/);
+  assert.match(sql,/actor_id=actor AND idempotency_key=p_idempotency_key/);
+  assert.match(sql,/'status',retained_status,'idempotent',true/);
+  assert.ok(sql.indexOf("Exact OPEN PRIMARY receipt period required")<sql.indexOf('started:=refs_start_wbs_test_bank_reconciliation_453'));
+  assert.match(sql,/REVOKE ALL ON FUNCTION refs_start_wbs_test_bank_reconciliation_453\(uuid,uuid,uuid,text,text\) FROM PUBLIC,refs_app/);
+  assert.doesNotMatch(sql,/UPDATE accounting_period|INSERT INTO accounting_period|GRANT UPDATE|CREATE TABLE/);
+  const down=read('../db/migrations/down/453_wbs_test_bank_receipt_start_binding.sql');
+  assert.match(down,/DROP FUNCTION refs_start_wbs_test_bank_reconciliation\(uuid,uuid,uuid,text,text\)/);
+  assert.match(down,/RENAME TO refs_start_wbs_test_bank_reconciliation/);
+});
+
 test('276 makes import receipt, reconciliation start, Post, Clear, and Reopen distinct boundaries',()=>{
   assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.importer,['WBS.TEST.IMPORT']);
   assert.deepEqual(WBS_TEST_IMPORT_GRANT_BUNDLES.reconciliationStarter,['BANK.RECONCILIATION.START']);
