@@ -55,7 +55,12 @@ test('WH1R-6 deployment denial prevents settings work and mismatched connections
   const allowed={async query(sql,args){calls.push({sql,args});return {rows:[{asserted:true}]};}};
   const target={installationId:T,expectedDatabase:'isolated_test'};
   assert.equal(await runStagingSettingsOperation(allowed,target,async()=>42),42);
-  assert.deepEqual(calls[0].args,[T,'isolated_test']);
+  assert.deepEqual(calls[0].args,[T,'staging','isolated_test']);
+  assert.equal(calls[0].sql,'SELECT refs_assert_deployment_identity($1,$2,$3) AS asserted');
+  for(const incomplete of [{},{installationId:T},{expectedDatabase:'isolated_test'}]){
+    await assert.rejects(()=>runStagingSettingsOperation(allowed,incomplete,async()=>assert.fail('missing target must not execute')),{code:'DEPLOYMENT_IDENTITY_DENIED'});
+  }
+  assert.equal(calls.length,1,'Missing target identity must deny before database access');
   const config=Object.fromEntries(['databaseUrl','contextIssuerDatabaseUrl','migrationDatabaseUrl','grantSyncDatabaseUrl'].map(key=>[key,'postgresql://role:password@localhost:55432/isolated_test']));
   assert.doesNotThrow(()=>assertSettingsDatabaseEndpoints(config));
   assert.throws(()=>assertSettingsDatabaseEndpoints({...config,grantSyncDatabaseUrl:'postgresql://role:password@localhost:55432/other_test'}),/same database endpoint/);

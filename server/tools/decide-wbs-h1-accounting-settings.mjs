@@ -23,10 +23,16 @@ import {createPool} from '../runtime/db.mjs';
 import {runtimeConfig} from '../runtime/config.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
-import {assertStagingDeploymentTarget} from '../runtime/workflow-role-grant.mjs';
+import {KernelError} from '../runtime/db.mjs';
+
+export async function assertRegisteredSettingsStagingTarget(client,target){
+  if(!target?.installationId||!target?.expectedDatabase)throw new KernelError('DEPLOYMENT_IDENTITY_DENIED','Explicit registered staging installation and database are required');
+  const result=await client.query('SELECT refs_assert_deployment_identity($1,$2,$3) AS asserted',[target.installationId,'staging',target.expectedDatabase]);
+  if(result.rows?.[0]?.asserted!==true)throw new KernelError('DEPLOYMENT_IDENTITY_DENIED','Registered staging database target assertion failed');
+}
 
 export async function runStagingSettingsOperation(client,target,work){
-  await assertStagingDeploymentTarget(client,target);
+  await assertRegisteredSettingsStagingTarget(client,target);
   return work(client);
 }
 
@@ -140,7 +146,7 @@ async function main(){
     createPool({databaseUrl:config.grantSyncDatabaseUrl,applicationName:'refs-wbs-h1-settings-target',max:1})
   ]);
   try{
-    await assertStagingDeploymentTarget(guardPool,target);
+    await assertRegisteredSettingsStagingTarget(guardPool,target);
     const scopes=(await scopePool.query(`SELECT e.tenant_id::text,e.entity_id::text,e.entity_code AS company_code,p.period_id::text,p.period_code
       FROM entity e JOIN accounting_period p ON p.tenant_id=e.tenant_id AND p.entity_id=e.entity_id AND p.ledger_code='PRIMARY'
       WHERE e.tenant_id=$1 AND e.active AND e.source_system='WBS' AND e.source_entity_id=e.entity_code
