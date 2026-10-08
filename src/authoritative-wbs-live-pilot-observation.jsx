@@ -1,6 +1,27 @@
-import React,{useEffect,useState} from 'react';
-import {WBS_LIVE_PILOT_VIEWS,activateAuthoritativeWbsOperatorAccess,activateControlledTestWorkflowAccess,attestAuthoritativeWbsPayableObservation,importAuthoritativeWbsBankToTestReconciliation,importAuthoritativeWbsPayablesToTestAccounting,importAuthoritativeWbsTestRange,refreshAuthoritativeAiWbsExceptionFindings,refreshAuthoritativeWbsLivePilot,refreshAuthoritativeWbsOperatorPayableAttestations,refreshAuthoritativeWbsOperatorPayableExceptionRows,runAuthoritativeWbsTestBankMatch,runAuthoritativeWbsTestBankRangeWorkflow} from './accounting-api.js';
+import React,{useEffect,useRef,useState} from 'react';
+import {startAuthoritativeWbsTestBankReceipt,WBS_LIVE_PILOT_VIEWS,activateAuthoritativeWbsOperatorAccess,activateControlledTestWorkflowAccess,attestAuthoritativeWbsPayableObservation,importAuthoritativeWbsBankToTestReconciliation,importAuthoritativeWbsPayablesToTestAccounting,importAuthoritativeWbsTestRange,refreshAuthoritativeAiWbsExceptionFindings,refreshAuthoritativeWbsLivePilot,refreshAuthoritativeWbsOperatorPayableAttestations,refreshAuthoritativeWbsOperatorPayableExceptionRows,runAuthoritativeWbsTestBankMatch,runAuthoritativeWbsTestBankRangeWorkflow} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
+
+export function WbsTestBankReceiptStart({config,receipt,fetcher}){
+  const [confirmed,setConfirmed]=useState(false);
+  const [state,setState]=useState({phase:'IDLE',result:null,error:null});
+  const generation=useRef(0);
+  useEffect(()=>{generation.current++;setConfirmed(false);setState({phase:'IDLE',result:null,error:null});return()=>{generation.current++;};},[config?.entityId,config?.periodId,receipt?.wbs_test_bank_import_receipt_id,receipt?.receipt_hash]);
+  const start=async()=>{
+    if(!confirmed||state.phase==='LOADING')return;
+    const current=generation.current;setState({phase:'LOADING',result:null,error:null});setConfirmed(false);
+    const result=await startAuthoritativeWbsTestBankReceipt({config,receipt,confirmed:true,fetcher});
+    if(current!==generation.current)return;
+    setState(result.ok?{phase:'READY',result:result.data,error:null}:{phase:'BLOCKED',result:null,error:result});
+  };
+  return <section aria-label="Start separate TEST_ONLY Bank reconciliation">
+    <p>Starting creates a TEST_ONLY reconciliation using synthetic statement balances. It does not match, clear, post, or prove a formal bank statement.</p>
+    <label><input type="checkbox" checked={confirmed} disabled={state.phase==='LOADING'} onChange={event=>setConfirmed(event.target.checked)}/> I confirm this exact test receipt and will use my own independently authorized identity.</label>
+    <button type="button" className="btn" disabled={!confirmed||state.phase==='LOADING'} onClick={start}>{state.phase==='LOADING'?'Starting test reconciliation...':'Start separate test reconciliation'}</button>
+    {state.error&&<StateBlock tone="blocked" title={state.error.code}>{state.error.message} No alternate role will be used. Retry this receipt after resolving the denial.</StateBlock>}
+    {state.result&&<StateBlock tone="success" title="TEST_ONLY reconciliation started"><span>Reconciliation ID: {state.result.reconciliation_id}</span><span> Status: {state.result.status}. Match, review, sign-off and clear remain separate authorized steps.</span></StateBlock>}
+  </section>;
+}
 
 export const WBS_LIVE_PILOT_SURFACE_TOOLS=Object.freeze({
   dashboard:Object.freeze(['list_payables','list_bank_transactions','list_autorec_details','list_autorec_banks','list_journal_entries']),
@@ -116,6 +137,7 @@ export function AuthoritativeWbsLivePilotObservation({config,fetcher=globalThis.
       {testAccessState.phase==='BLOCKED'&&<StateBlock tone="blocked" title={testAccessState.error?.code||'CONTROLLED_TEST_ACCESS_BLOCKED'}>{testAccessState.error?.message||'Controlled test access was not enabled.'}</StateBlock>}
       {testAccessState.phase==='READY'&&<StateBlock tone="success" title="TEST_ONLY workflow access enabled">The signed-in staging identity now has the fixed controlled-test workflow bundle. Retry the exact WBS import.</StateBlock>}
       {testImportState.result&&<><StateBlock tone="success" title="TEST ONLY import complete">{scopedBank?'The server finalized the TEST_ONLY Bank source receipt. No reconciliation or Journal Entry was created; reconciliation start is a separate authorized step.':'The server retained the source and created TEST_ONLY Drafts. Nothing was posted; review, approval, and posting remain separate. These counts are not production WBS admission evidence.'}</StateBlock>{scopedBank?<div className="qbo-toolgrid" aria-label="WBS Bank test import results"><span><i>Transactions</i><b>{testImportState.result.transaction_count}</b></span><span><i>Status</i><b>{testImportState.result.status}</b></span><span><i>Bank account</i><b>{testImportState.result.bank_account_ref}</b></span><span><i>Source receipt ID</i><b>{testImportState.result.wbs_test_bank_import_receipt_id}</b></span></div>:<div className="qbo-toolgrid" aria-label="WBS test import results"><span><i>Imported</i><b>{testImportState.result.imported_count}</b></span><span><i>Replayed</i><b>{testImportState.result.replayed_count}</b></span><span><i>Posted (always 0 on this path)</i><b>{testImportState.result.posted_count}</b></span><span><i>Failed</i><b>{testImportState.result.failed_count}</b></span></div>}</>}
+      {scopedBank&&hasExactAttestationScope&&testImportState.result&&<WbsTestBankReceiptStart key={`${config.entityId}:${config.periodId}:${requestedCompany}:${dateFrom}:${dateTo}:${testImportState.result.receipt_hash}`} config={config} receipt={testImportState.result} fetcher={fetcher}/>}
     </section>}
     {tool==='list_payables'&&<section className="filterbar" aria-label="Operator-attested WBS Payable exception evidence">
       <div><b>Retained exception evidence</b><div className="page-subtitle">Operator-attested and unsigned. It stays outside Raw, Staging, AP Bills, Journals, GL, and Posted totals.</div></div>

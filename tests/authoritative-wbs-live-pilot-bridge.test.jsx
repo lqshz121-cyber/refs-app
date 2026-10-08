@@ -2,12 +2,30 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {accountingApiConfig,importAuthoritativeWbsBankToTestReconciliation,importAuthoritativeWbsPayablesToTestAccounting,importAuthoritativeWbsTestRange,runAuthoritativeWbsTestBankMatch,runAuthoritativeWbsTestBankRangeWorkflow,wbsTestBankImportIdempotencyKey,wbsTestImportIdempotencyKey} from '../src/accounting-api.js';
-import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS,wbsLivePilotErrorGuidance} from '../src/authoritative-wbs-live-pilot-observation.jsx';
+import {startAuthoritativeWbsTestBankReceipt,accountingApiConfig,importAuthoritativeWbsBankToTestReconciliation,importAuthoritativeWbsPayablesToTestAccounting,importAuthoritativeWbsTestRange,runAuthoritativeWbsTestBankMatch,runAuthoritativeWbsTestBankRangeWorkflow,wbsTestBankImportIdempotencyKey,wbsTestImportIdempotencyKey} from '../src/accounting-api.js';
+import {WbsTestBankReceiptStart,AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS,wbsLivePilotErrorGuidance} from '../src/authoritative-wbs-live-pilot-observation.jsx';
 
 const periodId='22222222-2222-4222-8222-222222222222';
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId,baseUrl:'https://accounting.example',getAccessToken:async()=> 'a'.repeat(48),scopePresentation:{entityLabel:'Test entity'}};
 const render=tools=>renderToStaticMarkup(<AuthoritativeWbsLivePilotObservation config={config} tools={tools} fetcher={async()=>{throw new Error('SSR must not call WBS');}}/>);
+const startMarkup=renderToStaticMarkup(<WbsTestBankReceiptStart config={{...config,wbsTestImportMode:'ENABLED'}} receipt={{wbs_test_bank_import_receipt_id:periodId,receipt_hash:`sha256:${'a'.repeat(64)}`}} fetcher={async()=>{throw new Error('Rendering must not start reconciliation');}}/>);
+assert.match(startMarkup,/Start separate test reconciliation/);assert.match(startMarkup,/<button[^>]*disabled/);assert.doesNotMatch(startMarkup,/checked=""/);assert.match(startMarkup,/synthetic statement balances/);assert.match(startMarkup,/independently authorized identity/);
+
+async function testReceiptStartClient(){
+  const receipt={wbs_test_bank_import_receipt_id:periodId,receipt_hash:`sha256:${'a'.repeat(64)}`};
+  const calls=[],enabled={...config,wbsTestImportMode:'ENABLED'};
+  const data={...receipt,reconciliation_id:config.entityId,imported_by:'importer',started_by:'independent-human',status:'DRAFT',idempotent:false,test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED'};
+  let httpStatus=201;
+  const fetcher=async(url,options)=>{calls.push({url,options});return {ok:true,status:httpStatus,json:async()=>({ok:true,data})};};
+  assert.equal((await startAuthoritativeWbsTestBankReceipt({config:enabled,receipt,fetcher})).ok,false);assert.equal(calls.length,0);
+  const started=await startAuthoritativeWbsTestBankReceipt({config:enabled,receipt,confirmed:true,fetcher});assert.equal(started.ok,true);
+  assert.deepEqual(JSON.parse(calls[0].options.body),{expectedReceiptHash:receipt.receipt_hash});
+  assert.ok(calls[0].url.endsWith('/bank-receipts/'+periodId+'/start-reconciliation'));assert.equal(calls[0].options.cache,'no-store');
+  httpStatus=200;data.idempotent=true;assert.equal((await startAuthoritativeWbsTestBankReceipt({config:enabled,receipt,confirmed:true,fetcher})).ok,true);
+  assert.equal(calls[0].options.headers['idempotency-key'],calls[1].options.headers['idempotency-key']);
+  data.started_by=data.imported_by;assert.equal((await startAuthoritativeWbsTestBankReceipt({config:enabled,receipt,confirmed:true,fetcher})).code,'WBS_TEST_BANK_START_PROTOCOL');
+}
+testReceiptStartClient().then(()=>console.log('Bank receipt start: independent identity and exact stable retry')).catch(error=>{console.error(error);process.exitCode=1;});
 
 const dashboard=render(WBS_LIVE_PILOT_SURFACE_TOOLS.dashboard);
 for(const label of ['Payables','Bank transactions','AutoRec details','AutoRec banks','Journal entries'])assert.match(dashboard,new RegExp(`>${label}<`));
