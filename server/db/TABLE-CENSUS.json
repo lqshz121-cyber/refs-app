@@ -1,6 +1,6 @@
 {
   "schema_version": "REFS_TABLE_CENSUS_V1",
-  "migration_head":"450_wbs_h1_payable_vendor_posted_reducer.sql",
+  "migration_head":"451_integration_transaction_bounded_projection.sql",
   "table_count": 250,
   "tables": [
     {

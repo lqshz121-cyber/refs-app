@@ -454,5 +454,6 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"447_wbs_h1_modern_reclass_trace.sql",up:"5e91c325ed8c327651170880602a906bcb1c4a6404275fb5ec5106f990863585",down:"e6bfc4038ca12ec234b2b25edd4a99f8d90968d728254876de7fa19c0364e89c"}),
   Object.freeze({name:"448_wbs_h1_modern_inventory_trace.sql",up:"31c51bcecaaf7e188693456409d837936cdaa19e47e10d66b06399d950924bf1",down:"05ce59272eba409be2a04f788485ff279bc74931e09d60ad215d84677c9f770b"}),
   Object.freeze({name:"449_wbs_h1_modern_source_finalize.sql",up:"37f4c3fcfa6ced3514e10abca5e768e3f692d1970341068a53f905c2c0f3faef",down:"98d36903ffe2a536789ff8346fb2f3917ca3f9cf8053011fb64d2cae786f19b4"}),
-  Object.freeze({name:"450_wbs_h1_payable_vendor_posted_reducer.sql",up:"a83e2e2765cbd58ef3ea340f15556486ece733fb24c791dee8bff3901cab092a",down:"9e2f1c852db56e51c195b4199ff69133ca4befb4083d9ba7e9d673a000a39d26"})
+  Object.freeze({name:"450_wbs_h1_payable_vendor_posted_reducer.sql",up:"a83e2e2765cbd58ef3ea340f15556486ece733fb24c791dee8bff3901cab092a",down:"9e2f1c852db56e51c195b4199ff69133ca4befb4083d9ba7e9d673a000a39d26"}),
+  Object.freeze({name:"451_integration_transaction_bounded_projection.sql",up:"3ebeeb2631d9cd74df60cafa98bfc1f212564a0b4ef1b478c556a0737d5657ab",down:"46e03d2e7e935910fafe75a04a2967be366de4bb7e16c6d734fd46513d078c80"})
 ]);

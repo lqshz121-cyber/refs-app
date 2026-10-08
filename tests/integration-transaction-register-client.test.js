@@ -1,4 +1,18 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readIntegrationTransactionDetail,readIntegrationTransactions} from '../src/integration-transaction-register.js';
+import {integrationReadHttpFailure} from '../src/integration-transaction-register.js';
+test('integration HTTP diagnostics retain safe codes but never raw server messages',async()=>{
+  for(const [status,code] of [[401,'AUTHENTICATION_REQUIRED'],[403,'AUTHORIZATION_DENIED'],[500,'ACCOUNTING_API_SERVER_ERROR'],[429,'ACCOUNTING_API_RATE_LIMITED']]){
+    const result=await integrationReadHttpFailure({status,json:async()=>({code:'INTEGRATION_TRANSACTION_REGISTER_INVALID',message:'private database detail'})});
+    assert.equal(result.code,code);assert.equal(result.status,status);assert.equal(result.serverCode,'INTEGRATION_TRANSACTION_REGISTER_INVALID');assert.doesNotMatch(result.message,/private database/);
+  }
+  const result=await integrationReadHttpFailure({status:500,json:async()=>({code:'unsafe secret value'})});assert.equal(result.serverCode,null);
+});
+test('list and detail surface HTTP 500 safely through the real client paths',async()=>{
+  const fetcher=async()=>({ok:false,status:500,json:async()=>({code:'INTEGRATION_TRANSACTION_REGISTER_INVALID',message:'private query'})});
+  for(const result of [await readIntegrationTransactions({config,fetcher}),await readIntegrationTransactionDetail({config,row,fetcher})]){
+    assert.equal(result.code,'ACCOUNTING_API_SERVER_ERROR');assert.equal(result.status,500);assert.equal(result.serverCode,'INTEGRATION_TRANSACTION_REGISTER_INVALID');assert.doesNotMatch(result.message,/private query/);
+  }
+});
 const id=n=>`${n.repeat(8)}-${n.repeat(4)}-4${n.repeat(3)}-8${n.repeat(3)}-${n.repeat(12)}`,entityId=id('2'),rawEventId=id('3'),config={baseUrl:'https://fixture.example',tenantId:id('1'),entityId,periodId:id('9'),getAccessToken:async()=>'fixture-token-'.repeat(4)},actions={can_setup_connector:false,can_sync_provider:false,can_import:false,can_map:false,can_create_draft:false,can_post:false,can_call_external_action:false};
 const row={raw_event_id:rawEventId,connector_code:'WBS_API',connection_revision:null,source_system:'WBS',source_module:'payable',source_entity_id:'WBPA',source_record_id:'P-1',source_version:'v1',event_type:'UPSERT',transaction_status:'IMPORTED',is_current:true,occurred_at:'2026-09-11T01:00:00Z',received_at:'2026-09-11T01:01:00Z',payload_hash:'sha256:'+'a'.repeat(64),payload_ref:'object://wbs/p-1',correlation_id:'read-1',import_batch_id:id('4'),import_batch_revision:'0',import_status:'SUCCEEDED',request_hash:'sha256:'+'b'.repeat(64),receipt_id:null,receipt_hash:null,outcome_kind:null,source_document_ids:[],staging_item_ids:[],audit_event_ids:[],action_flags:actions},page={schema_version:'INTEGRATION_TRANSACTION_REGISTER_V1',entity_id:entityId,connector_code:null,source_module:null,transaction_status:'ALL',after_id:null,limit:25,read_at:'2026-09-11T01:02:00Z',connections:[],rows:[row],next_id:null,action_flags:actions},response=body=>({ok:true,status:200,json:async()=>body});
 test('client reads exact no-store Integration transaction list and detail',async()=>{const calls=[],fetcher=async(url,options)=>(calls.push({url,...options}),response({ok:true,data:url.endsWith(rawEventId)?row:page}));assert.equal((await readIntegrationTransactions({config,fetcher})).ok,true);assert.equal((await readIntegrationTransactionDetail({config,row,fetcher})).ok,true);assert.match(calls[0].url,/integration-transactions\?status=ALL&limit=25$/);assert.ok(calls.every(call=>call.method==='GET'&&call.cache==='no-store'&&/^Bearer /.test(call.headers.authorization)));});
