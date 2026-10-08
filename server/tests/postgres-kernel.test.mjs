@@ -1155,6 +1155,30 @@ pgTest('WBS Payable sign guard migration restores permissions after down up',asy
   }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
 });
 
+pgTest('WBS original sign evidence upgrades legacy receipts without guessing their sign',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  await adminPool.query("UPDATE account_master SET requires_member=true,required_member_type='VENDOR' WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId]);
+  const name='455_wbs_test_payable_original_sign_evidence.sql',up=await readFile(new URL('../db/migrations/'+name,import.meta.url),'utf8'),down=await readFile(new URL('../db/migrations/down/'+name,import.meta.url),'utf8');
+  const row={source_record_hash:hash('legacy-sign-row'),currency:'USD',accounting_date:'2026-07-11',amount:'12.3000',status:'CLEAR'};
+  const observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_payables',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-18T00:00:00.000Z',provider_content_sha256:'b'.repeat(64),scope:{company_codes:['WBPA'],date_range:['2026-07-01','2026-07-31']},record_count:1,rows:[row],signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash('legacy-sign-observation')};
+  const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'legacy-sign-importer',['WBS.TEST.IMPORT'])});
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'legacy-sign-maker',['AP.BILL.CREATE'])});
+  await adminPool.query(down);
+  const retained=await importer.retainWbsTestPayableSource({...ids,observation,row,rowIndex:0,idempotencyKey:'legacy-sign-retain-001'});
+  await adminPool.query(up);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_test_payable_original_sign_evidence WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);
+  await assert.rejects(maker.createWbsTestPayableDraft({...ids,sourceReceiptId:retained.wbs_test_payable_source_receipt_id,expectedReceiptHash:retained.receipt_hash,idempotencyKey:'legacy-sign-draft-001'}),error=>error.code==='55000');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_test_payable_draft_evidence WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);
+  const replay=await importer.retainWbsTestPayableSource({...ids,observation,row,rowIndex:0,idempotencyKey:'legacy-sign-retain-001'});assert.equal(replay.idempotent,true);
+  const fact=(await adminPool.query('SELECT original_amount::text,source_fact_hash,source_facts FROM wbs_test_payable_original_sign_evidence WHERE tenant_id=$1',[ids.tenantId])).rows[0];
+  assert.equal(fact.original_amount,'12.3000');assert.equal(fact.source_facts.row.amount,'12.3000');assert.equal(fact.source_facts.provenance_mode,'UNSIGNED_TEST_ONLY');
+  await assert.rejects(adminPool.query('UPDATE wbs_test_payable_original_sign_evidence SET original_amount=99 WHERE tenant_id=$1',[ids.tenantId]));
+  await assert.rejects(adminPool.query('DELETE FROM wbs_test_payable_original_sign_evidence WHERE tenant_id=$1',[ids.tenantId]));
+  assert.equal((await adminPool.query('SELECT source_fact_hash FROM wbs_test_payable_original_sign_evidence WHERE tenant_id=$1',[ids.tenantId])).rows[0].source_fact_hash,fact.source_fact_hash);
+  const recovered=await maker.createWbsTestPayableDraft({...ids,sourceReceiptId:retained.wbs_test_payable_source_receipt_id,expectedReceiptHash:retained.receipt_hash,idempotencyKey:'legacy-sign-draft-001'});
+  assert.equal(recovered.status,'DRAFT');assert.equal(recovered.can_post,false);
+});
+
 pgTest('WBS TEST IMPORT retains an unsigned Payable before an independent human Draft and standard posting workflow',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null}),other=await seed({status:'DRAFT',attachmentStatus:null});
   await adminPool.query('DELETE FROM journal_line WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,ids.journalId]);
