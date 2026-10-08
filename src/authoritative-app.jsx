@@ -67,7 +67,7 @@ import {AuthoritativeUnitTransferWorkspace} from './authoritative-unit-transfer-
 import {AuthoritativeCashTransferWorkspace} from './authoritative-cash-transfer-workspace.jsx';
 import {createAuthoritativeReadGuard} from './authoritative-read-guard.js';
 import {canResumeFixedAssetAcquisitionJournal,resolveFixedAssetAcquisitionJournalScope} from './fixed-asset-acquisition-workflow.js';
-import {resolveAuthorizedScopeFallback} from './authoritative-scope-selection.js';
+import {resolveAuthorizedScopeFallback,readRetainedScopePreference,retainAuthorizedScopePreference,clearRetainedScopePreference} from './authoritative-scope-selection.js';
 import {bootstrapAuthoritativeIdentity} from './authoritative-identity-bootstrap.js';
 
 const internalNoLoginRuntime = environment => Boolean(
@@ -227,15 +227,25 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const accountingReadGeneration = accountingReadGuard.current.capture();
   useEffect(() => () => accountingReadGuard.current.invalidate(), []);
   const [accessState,setAccessState]=useState({status:'LOADING'});
+  const scopePreferenceChecked=useRef(false);
   const requireAuthentication = useCallback(() => {
     if (authenticationHandlingRef.current) return;
     authenticationHandlingRef.current = true;
     accountingReadGuard.current.invalidate();
+    scopePreferenceChecked.current=false;
+    setSelectedScope(null);setScopeCatalog([]);setAccessState({status:'LOADING'});
+    setSharedAccountingLoaded(false);setScopeRows([]);setScopeMetadata(null);setWorkflowJournalId(null);setDocumentDetail(null);setAdjustmentDetail(null);
     setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] });
     setError({code:'AUTHENTICATION_REQUIRED',message:'The accounting API did not accept the current session. Sign in again to continue.'});
     setRenewalFailure(null); setSessionExpired(false); setPhase('LOGIN_REQUIRED');
   }, []);
   authenticationFailureRef.current = requireAuthentication;
+  useEffect(()=>{
+    if(phase!=='LOGIN_REQUIRED')return;
+    setSharedAccountingLoaded(false);setScopeRows([]);setScopeMetadata(null);
+    setWorkflowJournalId(null);setAgingDetail(null);setReportAgingDetail(null);
+    setReportGeneralLedgerDetail(null);setReportReconciliationDetail(null);setReportCatalogReturn(null);
+  },[phase]);
   // A direct selection of Reports is an explicit catalog entry, not a
   // continuation of the last report drill. React preserves a mounted route
   // when a user selects its already-active navigation item, so keep a small
@@ -462,6 +472,24 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     const isCurrent = accountingReadGuard.current.begin('refresh', accountingReadGeneration);
     if (!isCurrent()) return;
     setDocumentDetail(null); setAdjustmentDetail(null);
+    // Restore only a presentation preference, before business reads, using
+    // fresh authenticated identity and the current server scope catalog.
+    if(!scopePreferenceChecked.current){
+      const preference=await readRetainedScopePreference({environment,config,isCurrent,
+        readIdentity:scope=>refreshCurrentActorAccess({config:scope,fetcher:boundFetcher}),
+        readCatalog:scope=>refreshAuthoritativeScopeCatalog({config:scope,fetcher:boundFetcher}),
+      });
+      if(preference.cancelled||!isCurrent())return;
+      scopePreferenceChecked.current=true;
+      {
+        const retained=preference.selection;
+        if(retained&&(retained.entity_id!==config.entityId||retained.period_id!==config.periodId)){
+          accountingReadGuard.current.invalidate();
+          setSelectedScope(retained);setScopeCatalog([...preference.scopes]);setScopeCatalogStatus('READY');
+          setPhase('AUTHENTICATED');return;
+        }
+      }
+    }
     if (!routeRequiresSharedAccountingBootstrap(route,workflowJournalId)) {
       setError(null);
       setWorkspaceRefreshVersion(current => current + 1);
@@ -483,7 +511,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     setSharedAccountingLoaded(true);
     setWorkspaceRefreshVersion(current => current + 1);
     setPhase('READY');
-  }, [config, boundFetcher, route, accountingReadGeneration, workflowJournalId]);
+  }, [config, boundFetcher, route, accountingReadGeneration, workflowJournalId, environment]);
 
   const refreshAfterControlledTestWorkflow = useCallback(async () => {
     if (!config) return;
@@ -614,7 +642,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       setPhase('IDENTITY_FAILED');
     }
   };
-  const logout = () => { authenticationHandlingRef.current=false; accountingReadGuard.current.invalidate(); oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setDocumentDetail(null); setAdjustmentDetail(null); setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}}); setError(null); setRenewalFailure(null); setSessionExpired(false); setPhase(internalNoLogin?'CHECKING_RELEASE':'LOGIN_REQUIRED'); };
+  const logout = () => { clearRetainedScopePreference(environment);scopePreferenceChecked.current=false;setSelectedScope(null);setScopeCatalog([]);setAccessState({status:'LOADING'});authenticationHandlingRef.current=false; accountingReadGuard.current.invalidate(); oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setDocumentDetail(null); setAdjustmentDetail(null); setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}}); setError(null); setRenewalFailure(null); setSessionExpired(false); setPhase(internalNoLogin?'CHECKING_RELEASE':'LOGIN_REQUIRED'); };
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeChartOfAccounts({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeRows(result.ok?result.rows:[]);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeScope({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeMetadata(result.ok?result.row:null);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};setAccessState({status:'LOADING'});refreshCurrentActorAccess({config,fetcher:boundFetcher}).then(result=>{if(current)setAccessState(result.ok?{status:'READY',row:result.row}:{status:'ERROR',code:result.code,message:result.message});});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
@@ -679,6 +707,10 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const selectPeriodScope=useCallback(periodId=>applyScope(scopeCatalog.find(row=>row.entity_id===config?.entityId&&row.period_id===periodId)),[scopeCatalog,config,applyScope]);
   const scopePresentation=useMemo(()=>authoritativeScopePresentation(config,scopeRows,scopeMetadata),[config,scopeRows,scopeMetadata]);
   const displayConfig=useMemo(()=>({...config,scopePresentation,tenantId:accessState.status==='READY'&&accessState.row?.entity_id===config?.entityId?accessState.row.tenant_id:null}),[config,scopePresentation,accessState]);
+  useEffect(()=>{
+    if(!selectedScope||scopeCatalogStatus!=='READY'||accessState.status!=='READY'||accessState.row.entity_id!==config?.entityId)return;
+    retainAuthorizedScopePreference({environment,owner:{baseUrl:config.baseUrl,tenantId:accessState.row.tenant_id,actorId:accessState.row.actor_id},scopes:scopeCatalog,selection:selectedScope});
+  },[environment,config,selectedScope,scopeCatalogStatus,scopeCatalog,accessState]);
   if (!configured) return <RuntimeErrorPage code="CONFIGURATION_REQUIRED"/>;
   if (typeof environment?.document === 'undefined') return <main className="login-shell"><section className="login-card"><h1>Authoritative accounting</h1><p>Secure OIDC session verification is in progress.</p></section></main>;
   if (phase === 'CHECKING_RELEASE') return <main className="login-shell"><section className="login-card"><h1>Verifying deployment</h1><p>Checking that the authoritative API and this client carry the same release stamp before loading accounting data.</p></section></main>;

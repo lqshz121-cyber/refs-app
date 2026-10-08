@@ -5,6 +5,7 @@ import {AuthoritativeRevenueRecognitionWorkspace} from '../src/authoritative-rev
 import {AuthoritativeActionRequiredWorkspace} from '../src/authoritative-action-required-workspace.jsx';
 import {AuthoritativeMasterDataWorkspace} from '../src/authoritative-master-data-workspace.jsx';
 import assert from 'node:assert/strict';
+import test from 'node:test';
 import fs from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -15,7 +16,7 @@ import { AuthoritativeAccessStatus } from '../src/authoritative-access-status.js
 import { AuthoritativeWorkspaceView, AuthoritativeWorkspaceHeader } from '../src/authoritative-workbench-view.jsx';
 import { AuthoritativeUnavailableWorkspace } from '../src/authoritative-unavailable-workspace.jsx';
 import { watchRetainedRoute } from '../src/authoritative-app.jsx';
-import {resolveAuthorizedScopeFallback} from '../src/authoritative-scope-selection.js';
+import {resolveAuthorizedScopeFallback,retainAuthorizedScopePreference,resolveRetainedScopePreference,clearRetainedScopePreference,readRetainedScopePreference} from '../src/authoritative-scope-selection.js';
 
 
 const allowedScopes=[
@@ -27,6 +28,47 @@ assert.equal(resolveAuthorizedScopeFallback({scopes:allowedScopes,entityId:allow
 assert.equal(resolveAuthorizedScopeFallback({scopes:allowedScopes,entityId:allowedScopes[0].entity_id,periodId:'66666666-6666-4666-8666-666666666666'}),allowedScopes[0],'an unavailable deployment period should fall back within the same authorised company');
 assert.equal(resolveAuthorizedScopeFallback({scopes:allowedScopes,entityId:'77777777-7777-4777-8777-777777777777',periodId:'88888888-8888-4888-8888-888888888888'}),allowedScopes[0],'an unavailable deployment company should fall back to the first database-authorised scope');
 assert.equal(resolveAuthorizedScopeFallback({scopes:[],entityId:'77777777-7777-4777-8777-777777777777',periodId:'88888888-8888-4888-8888-888888888888'}),null,'an empty catalogue cannot invent accounting authority');
+
+const preferenceStore=new Map();
+const preferenceEnvironment={sessionStorage:{getItem:key=>preferenceStore.get(key)||null,setItem:(key,value)=>preferenceStore.set(key,value),removeItem:key=>preferenceStore.delete(key)}};
+const preferenceOwner={baseUrl:'https://api.example.test',tenantId:'99999999-9999-4999-8999-999999999999',actorId:'authenticated-owner'};
+const remember=()=>retainAuthorizedScopePreference({environment:preferenceEnvironment,owner:preferenceOwner,scopes:allowedScopes,selection:allowedScopes[2]});
+const restore=options=>resolveRetainedScopePreference({environment:preferenceEnvironment,owner:preferenceOwner,scopes:allowedScopes,...options});
+assert.equal(remember(),true);
+assert.equal(restore(),allowedScopes[2],'reload preference returns the current authenticated catalog row by identity, not stored evidence');
+assert.deepEqual(Object.keys(JSON.parse([...preferenceStore.values()][0])).sort(),['actorId','baseUrl','entityId','periodId','tenantId','version'],'store only selector identity, never records, tokens, grants, totals or command flags');
+for(const owner of [{...preferenceOwner,actorId:'another-owner'},{...preferenceOwner,tenantId:'88888888-8888-4888-8888-888888888888'},{...preferenceOwner,baseUrl:'https://other.example.test'}]){
+  remember();assert.equal(restore({owner}),null);assert.equal(preferenceStore.size,0,'different principal/tenant/deployment clears the preference');
+}
+remember();assert.equal(restore({scopes:[allowedScopes[0]]}),null);assert.equal(preferenceStore.size,0,'a revoked or removed catalog scope cannot be restored');
+remember();const preferenceKey=[...preferenceStore.keys()][0];const tampered=JSON.parse(preferenceStore.get(preferenceKey));tampered.can_post=true;preferenceStore.set(preferenceKey,JSON.stringify(tampered));assert.equal(restore(),null,'extra stored authority-shaped fields are refused');
+preferenceStore.set(preferenceKey,'not-json');assert.equal(restore(),null);
+assert.equal(retainAuthorizedScopePreference({environment:preferenceEnvironment,owner:preferenceOwner,scopes:[],selection:allowedScopes[2]}),false);
+assert.equal(restore({owner:null}),null,'restoration cannot run before authenticated identity is available');
+remember();clearRetainedScopePreference(preferenceEnvironment);assert.equal(restore(),null,'explicit sign-out removes the tab selector preference');
+const unavailableStorage={sessionStorage:{getItem:()=>{throw new Error('storage unavailable');},setItem:()=>{throw new Error('storage unavailable');},removeItem:()=>{throw new Error('storage unavailable');}}};
+assert.equal(retainAuthorizedScopePreference({environment:unavailableStorage,owner:preferenceOwner,scopes:allowedScopes,selection:allowedScopes[0]}),false);assert.equal(resolveRetainedScopePreference({environment:unavailableStorage,owner:preferenceOwner,scopes:allowedScopes}),null);
+
+test('scope bootstrap reads catalog then self identity before applying a retained selection',async()=>{
+  remember();const calls=[];
+  const result=await readRetainedScopePreference({environment:preferenceEnvironment,config:{baseUrl:preferenceOwner.baseUrl,entityId:'77777777-7777-4777-8777-777777777777'},readCatalog:async()=>{calls.push('catalog');return {ok:true,rows:allowedScopes};},readIdentity:async config=>{calls.push('identity');assert.equal(config.entityId,allowedScopes[0].entity_id,'unavailable deployment default must not prevent a current authorized identity read');return {ok:true,row:{tenant_id:preferenceOwner.tenantId,actor_id:preferenceOwner.actorId}};}});
+  assert.deepEqual(calls,['catalog','identity']);assert.equal(result.selection,allowedScopes[2]);
+});
+test('scope bootstrap discards delayed results after logout or scope invalidation',async()=>{
+  for(const invalidateAt of ['catalog','identity']){
+    remember();let current=true;let identityCalls=0;
+    const result=await readRetainedScopePreference({environment:preferenceEnvironment,config:{baseUrl:preferenceOwner.baseUrl,entityId:allowedScopes[0].entity_id},isCurrent:()=>current,readCatalog:async()=>{if(invalidateAt==='catalog')current=false;return {ok:true,rows:allowedScopes};},readIdentity:async()=>{identityCalls++;current=false;return {ok:true,row:{tenant_id:preferenceOwner.tenantId,actor_id:preferenceOwner.actorId}};}});
+    assert.equal(result.cancelled,true);assert.equal(result.selection,null);assert.equal(identityCalls,invalidateAt==='catalog'?0:1);
+  }
+});
+test('scope bootstrap does not apply an old actor preference or manufacture identity after failure',async()=>{
+  remember();const config={baseUrl:preferenceOwner.baseUrl,entityId:allowedScopes[0].entity_id};
+  const readCatalog=async()=>({ok:true,rows:allowedScopes});
+  const changed=await readRetainedScopePreference({environment:preferenceEnvironment,config,readCatalog,readIdentity:async()=>({ok:true,row:{tenant_id:preferenceOwner.tenantId,actor_id:'new-actor'}})});
+  assert.equal(changed.selection,null);assert.equal(preferenceStore.size,0);
+  remember();const failed=await readRetainedScopePreference({environment:preferenceEnvironment,config,readCatalog,readIdentity:async()=>({ok:false,code:'ACCOUNTING_API_UNREACHABLE'})});
+  assert.equal(failed.selection,null);assert.equal(preferenceStore.size,1,'transient API failure must not rewrite an unverified preference');
+});
 
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the production catalog keeps the complete major workspace taxonomy discoverable');
 assert.ok(AUTHORITATIVE_ROUTES.includes('project-cost-cwip'));
