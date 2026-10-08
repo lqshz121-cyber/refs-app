@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {AuthoritativeWbsH1ImportWorkspace} from '../src/authoritative-wbs-h1-import-workspace.jsx';
+import {AuthoritativeWbsH1ImportWorkspace,wbsH1ImportStateLabel} from '../src/authoritative-wbs-h1-import-workspace.jsx';
 import {refreshAuthoritativeWbsH1ImportInventory,refreshAuthoritativeWbsH1AccountingSettingsProposal,readAuthoritativeWbsH1AccountingSettingsDecision,decideAuthoritativeWbsH1AccountingSettings,refreshAuthoritativeWbsH1PayableAccountingProposal,createAuthoritativeWbsH1PayableReclassDraft} from '../src/accounting-api.js';
 
 const entityId='11111111-1111-4111-8111-111111111111',periodId='22222222-2222-4222-8222-222222222222',config={baseUrl:'https://api.example.test',entityId,periodId,getAccessToken:async()=> 'abcdefghijklmnop'};
@@ -17,6 +17,25 @@ const scopedMarkup=renderToStaticMarkup(<AuthoritativeWbsH1ImportWorkspace confi
 assert.match(scopedMarkup,/All companies/);assert.match(scopedMarkup,/Loading company population/);assert.match(scopedMarkup,/Missing companies are not treated as zero|authorized WBS company/);
 
 async function verifyClient(){
+  assert.equal(wbsH1ImportStateLabel('CONTROLLED_TEST_DRAFT'),'Controlled test Draft — not posted');
+  assert.equal(wbsH1ImportStateLabel('CONTROLLED_TEST_POSTED'),'Controlled test posted');
+  assert.equal(wbsH1ImportStateLabel('SOURCE_STAGED'),'Imported source only');
+  assert.equal(wbsH1ImportStateLabel('UNKNOWN'),'Import state unavailable');
+  // Migration 448 adds exact mapping counts and distinguishes retained Drafts from Posted rows.
+  // Keep legacy staging reads valid, but do not accept unknown fields or contradictory counts.
+  const readRows=rows=>refreshAuthoritativeWbsH1ImportInventory({config,fetcher:async()=>({ok:true,json:async()=>({ok:true,data:{...data,rows}})})});
+  for(const import_state of ['SOURCE_STAGED','CONTROLLED_TEST_DRAFT','CONTROLLED_TEST_POSTED']){
+    const row={...data.rows[0],import_state,mapping_match_count:0};
+    const result=await readRows([row]);assert.equal(result.ok,true);assert.equal(result.data.rows[0].import_state,import_state);assert.equal(result.data.rows[0].mapping_match_count,0);assert.equal(Object.isFrozen(result.data.rows[0]),true);
+  }
+  for(const [mapping_state,mapping_match_count] of [['MAPPING_READY_FOR_REVIEW',1],['MAPPING_AMBIGUOUS',2],['FORMAL_MAPPING_POSTED',0]])assert.equal((await readRows([{...data.rows[0],mapping_state,mapping_match_count}])).ok,true);
+  for(const change of [
+    {mapping_match_count:-1},{mapping_match_count:0.5},{mapping_match_count:'0'},{mapping_match_count:null},
+    {mapping_match_count:1},{mapping_state:'MAPPING_READY_FOR_REVIEW',mapping_match_count:0},
+    {mapping_state:'MAPPING_AMBIGUOUS',mapping_match_count:1},
+    {mapping_match_count:0,import_state:'UNKNOWN'},{mapping_match_count:0,can_post:true},
+    {import_state:'CONTROLLED_TEST_DRAFT'}
+  ])assert.equal((await readRows([{...data.rows[0],...change}])).code,'WBS_H1_IMPORT_INVENTORY_PROTOCOL');
   let call;const result=await refreshAuthoritativeWbsH1ImportInventory({config,limit:50,offset:0,fetcher:async(url,options)=>{call={url,options};return {ok:true,json:async()=>({ok:true,data})};}});
   assert.equal(result.ok,true);assert.match(call.url,/\/wbs\/h1-import-inventory\?limit=50&offset=0$/);assert.equal(call.options.method,'GET');assert.equal(call.options.cache,'no-store');assert.equal('body' in call.options,false);
   const denied=await refreshAuthoritativeWbsH1ImportInventory({config,limit:50,offset:0,fetcher:async()=>({ok:false,status:403,json:async()=>({ok:false,code:'WBS_READ_ACCESS_REQUIRED',message:'Forbidden'})})});assert.equal(denied.code,'WBS_READ_ACCESS_REQUIRED');assert.equal(denied.status,403);
