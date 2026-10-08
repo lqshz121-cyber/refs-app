@@ -32,16 +32,30 @@ export async function createPool(options={}){
 
 export async function withTransaction(pool,work,{isolation='SERIALIZABLE'}={}){
   const client=await pool.connect();
+  // pg-pool removes its idle error listener while a client is checked out.
+  // Own disconnects through release; a lost connection must never look like a
+  // successful transaction or return to the reusable pool.
+  let connectionError=null;
+  const onConnectionError=error=>{connectionError ||= error;};
+  const assertConnected=()=>{if(connectionError)throw connectionError;};
+  client.on?.('error',onConnectionError);
   try{
     await client.query('BEGIN');
+    assertConnected();
     await client.query(`SET TRANSACTION ISOLATION LEVEL ${isolation}`);
+    assertConnected();
     const value=await work(client);
+    assertConnected();
     await client.query('COMMIT');
+    assertConnected();
     return value;
   }catch(error){
     try{await client.query('ROLLBACK');}catch{}
     throw error;
-  }finally{client.release();}
+  }finally{
+    try{client.release(connectionError||undefined);}
+    finally{client.removeListener?.('error',onConnectionError);}
+  }
 }
 
 // onAttemptError(error) runs after EVERY failed attempt -- including a failure raised by COMMIT

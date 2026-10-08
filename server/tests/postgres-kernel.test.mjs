@@ -5,7 +5,7 @@ import {createHash,generateKeyPairSync,randomUUID,sign} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {spawn} from 'node:child_process';import {fileURLToPath} from 'node:url';
 import {runtimeConfig} from '../runtime/config.mjs';
-import {createPool} from '../runtime/db.mjs';
+import {createPool,withTransaction} from '../runtime/db.mjs';
 import {migrateDown,migrateUp} from '../runtime/migrations.mjs';
 import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
 import {validateClaimedOutboxEvent} from '../runtime/outbox-dispatcher.mjs';
@@ -80,6 +80,23 @@ before(async()=>{
     if(adminPool)await adminPool.end().catch(()=>{});
     adminPool=null;runtimePool=null;issuerPool=null;
   }
+});
+
+pgTest('checked-out transaction backend termination rejects safely and reconnects without retained writes',async()=>{
+  const pool=await createPool({databaseUrl:config.migrationDatabaseUrl,applicationName:'refs-disconnect-regression',max:1});
+  try{
+    await assert.rejects(withTransaction(pool,async client=>{
+      await client.query('CREATE TEMP TABLE refs_disconnect_probe(value integer)');
+      await client.query('INSERT INTO refs_disconnect_probe VALUES (1)');
+      const {rows:[{pid}]}=await client.query('SELECT pg_backend_pid() pid');
+      const disconnected=new Promise(resolve=>client.once('error',resolve));
+      assert.equal((await adminPool.query('SELECT pg_terminate_backend($1) terminated',[pid])).rows[0].terminated,true);
+      await disconnected;
+      return 'must not succeed';
+    }),error=>['57P01','ECONNRESET'].includes(error.code)||error.message==='Connection terminated unexpectedly');
+    const {rows:[row]}=await pool.query("SELECT 1 alive, to_regclass('pg_temp.refs_disconnect_probe') retained");
+    assert.equal(row.alive,1);assert.equal(row.retained,null);
+  }finally{await pool.end();}
 });
 
 pgTest('WBS H1 local snapshot import atomically rejects drift and replays immutable receipts',async()=>{

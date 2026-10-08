@@ -5,6 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createPool} from '../runtime/db.mjs';
+import './db-transaction-disconnect.test.mjs';
 
 const ENV={DATABASE_URL:'postgresql://refs_runtime:x@127.0.0.1:1/refs_kernel_test',MIGRATION_DATABASE_URL:'postgresql://refs_migrator:x@127.0.0.1:1/refs_kernel_test',CONTEXT_ISSUER_DATABASE_URL:'postgresql://refs_context_issuer:x@127.0.0.1:1/refs_kernel_test',GRANT_SYNC_DATABASE_URL:'postgresql://refs_grant_sync:x@127.0.0.1:1/refs_kernel_test'};
 for(const [k,v] of Object.entries(ENV))process.env[k]=process.env[k]||v;
