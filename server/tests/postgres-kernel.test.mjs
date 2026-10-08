@@ -1175,6 +1175,20 @@ pgTest('WBS original sign evidence upgrades legacy receipts without guessing the
   await assert.rejects(adminPool.query('UPDATE wbs_test_payable_original_sign_evidence SET original_amount=99 WHERE tenant_id=$1',[ids.tenantId]));
   await assert.rejects(adminPool.query('DELETE FROM wbs_test_payable_original_sign_evidence WHERE tenant_id=$1',[ids.tenantId]));
   assert.equal((await adminPool.query('SELECT source_fact_hash FROM wbs_test_payable_original_sign_evidence WHERE tenant_id=$1',[ids.tenantId])).rows[0].source_fact_hash,fact.source_fact_hash);
+  const signArtifacts=async()=> (await adminPool.query(`SELECT
+    (SELECT count(*)::int FROM wbs_test_payable_original_sign_evidence WHERE tenant_id=$1) facts,
+    (SELECT count(*)::int FROM wbs_test_payable_draft_evidence WHERE tenant_id=$1) drafts,
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type NOT IN ('RUNTIME_CONTEXT_ISSUED','RUNTIME_CONTEXT_REVOKED')) audits,
+    (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox`,[ids.tenantId])).rows[0];
+  const beforeRejectedReplay=await signArtifacts();
+  for(const alteredRow of [{...row,amount:'99.0000'},{...row,source_record_hash:hash('different-legacy-sign-row')}]){
+    await assert.rejects(importer.retainWbsTestPayableSource({...ids,observation,row:alteredRow,rowIndex:0,idempotencyKey:'legacy-sign-retain-001'}),error=>error.code==='22023');
+    assert.deepEqual(await signArtifacts(),beforeRejectedReplay,'row inconsistent with observation must have no effects');
+    await assert.rejects(importer.retainWbsTestPayableSource({...ids,observation:{...observation,rows:[alteredRow]},row:alteredRow,rowIndex:0,idempotencyKey:'legacy-sign-retain-001'}),error=>error.code==='23505');
+    assert.deepEqual(await signArtifacts(),beforeRejectedReplay,'changed source replay must leave facts, Draft, audit and outbox unchanged');
+  }
+  await assert.rejects(maker.createWbsTestPayableDraft({...ids,sourceReceiptId:retained.wbs_test_payable_source_receipt_id,expectedReceiptHash:hash('wrong-legacy-sign-receipt'),idempotencyKey:'legacy-sign-wrong-hash-001'}),error=>error.code==='55000');
+  assert.deepEqual(await signArtifacts(),beforeRejectedReplay,'wrong receipt hash must have no accounting or evidence effects');
   const recovered=await maker.createWbsTestPayableDraft({...ids,sourceReceiptId:retained.wbs_test_payable_source_receipt_id,expectedReceiptHash:retained.receipt_hash,idempotencyKey:'legacy-sign-draft-001'});
   assert.equal(recovered.status,'DRAFT');assert.equal(recovered.can_post,false);
 });
