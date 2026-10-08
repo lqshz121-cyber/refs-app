@@ -15,7 +15,7 @@ export function AuthoritativeBillPaymentsWorkspace({config,access=null,fetcher=g
   const openJournal=async row=>{if(busy)return;setBusy(true);setDetailError(null);returnId.current=row.payment_occurrence_id;try{const result=await readBillPaymentJournal({config,row,fetcher});if(result.ok)setDetail(result.journal);else setDetailError(result.message);}finally{setBusy(false);}};
   if(detail)return <AuthoritativeLineageDrill config={config} fetcher={fetcher} initial={{kind:'JOURNAL',journal:detail,context:{entityId:config.entityId,periodId:config.periodId,journalId:detail.journal_entry_id,journalRevision:detail.revision,journalCurrency:detail.currency}}} onExit={()=>setDetail(null)}/>;
   const canReadJournal=access?.entity_id===config?.entityId&&access?.session_refresh_required===false&&access?.permissions?.includes('GL.JE.VIEW');
-  return <AuthoritativeWorkspaceView className="authoritative-bill-payments-workspace">
+  return <AuthoritativeWorkspaceView area={workspaceTitle} className="authoritative-bill-payments-workspace">
     <AuthoritativeWorkspaceHeader eyebrow="Expenses" title={workspaceTitle} description={workspaceDescription} status="Read-only register"/>
     <div className="filter-bar"><button type="button" className="btn" onClick={onBack}>{backLabel}</button><span>{config?.scopePresentation?.entityLabel||'Selected company'} · {config?.scopePresentation?.periodLabel||'Selected period'}</span><button type="button" className="btn" disabled={state.phase==='LOADING'} onClick={()=>{setCursors([null]);setRefresh(value=>value+1);}}>Refresh</button></div>
     {state.phase==='LOADING'?<StateBlock tone="loading" title={`Loading ${workspaceTitle}`}>Reading retained payment, Bill, Journal, ledger, bank-match, and audit references.</StateBlock>:null}
