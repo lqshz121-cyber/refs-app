@@ -155,6 +155,7 @@ assert.match(source,/disabled=\{commandInFlight\|\|!reasonReady\}/,'Clearance an
 assert.match(source,/createAuthoritativeReconciliationAdjustmentDraft/,'An adjustment Draft must use the authoritative reconciliation command client');
 assert.match(source,/Prepare adjustment Draft/,'Only a selected server worksheet source may initiate an adjustment Draft');
 assert.match(source,/Posted adjustment clearance is BLOCKED until the API returns separate posted adjustment evidence/,'The ordinary worksheet row must keep adjustment clearance blocked until separate verified evidence exists');
+assert.match(source,/hasPostedAdjustmentEvidence\(item\)\?'Posted adjustment evidence is retained in the separate table below\. Clearance still requires a controller reason and authorization\.'/,'An eligible posted adjustment must point to its retained evidence without claiming missing evidence or relaxing authorization');
 assert.match(source,/setAuthoritativeReconciliationAdjustmentClearance/,'The UI must use the separate authoritative adjustment-clearance command only after the evidence contract is present');
 assert.match(source,/hasPostedAdjustmentEvidence/,'Posted adjustment controls must require server-verified Posted JE evidence instead of inferring it from a bank row');
 assert.match(source,/Posted adjustment clearance evidence/,'Verified adjustment evidence must be rendered separately from ordinary Match clearance');

@@ -26,16 +26,24 @@ test('every ERROR render either uses AuthoritativeReadFailure or surfaces the er
     lines.forEach((line,index)=>{
       if(!/phase==='ERROR'/.test(line))return;
       const window=lines.slice(index,index+2).join('\n');
-      if(!/AuthoritativeReadFailure|ReadError|error\?\.code|error\.code|diagnostic|phase!=='ERROR'|!=='ERROR'|readFailure/.test(window))offenders.push(`${name}:${index+1}`);
+      if(!/AuthoritativeReadFailure|BankReadFailure|ReadError|error\?\.code|error\.code|diagnostic|phase!=='ERROR'|!=='ERROR'|readFailure/.test(window))offenders.push(`${name}:${index+1}`);
     });
   }
   // Known remaining ad-hoc renders (detail panels and asset sub-views) are listed here so a regression on any register
   // fails loudly while the backlog stays visible; shrink this list, never grow it.
-  const backlog=new Set(["authoritative-accrual-workspace.jsx:35","authoritative-asset-acquisition.jsx:31","authoritative-asset-depreciation.jsx:69","authoritative-asset-disposal.jsx:28","authoritative-bank-workspace.jsx:232","authoritative-bank-workspace.jsx:328","authoritative-bank-workspace.jsx:368","authoritative-bank-workspace.jsx:382","authoritative-bank-workspace.jsx:393","authoritative-capitalization-panel.jsx:15","authoritative-cash-transfer-workspace.jsx:33","authoritative-cash-transfer-workspace.jsx:49","authoritative-construction-loan-panel.jsx:17","authoritative-expense-panel.jsx:14","authoritative-fixed-asset-movements.jsx:33","authoritative-recurring-transactions-workspace.jsx:5","authoritative-revenue-recognition-workspace.jsx:18","authoritative-rules-workspace.jsx:7"]);
+  const backlog=new Set(["authoritative-accrual-workspace.jsx:35","authoritative-asset-acquisition.jsx:31","authoritative-asset-depreciation.jsx:69","authoritative-asset-disposal.jsx:28","authoritative-capitalization-panel.jsx:15","authoritative-cash-transfer-workspace.jsx:33","authoritative-cash-transfer-workspace.jsx:49","authoritative-construction-loan-panel.jsx:17","authoritative-expense-panel.jsx:14","authoritative-fixed-asset-movements.jsx:33","authoritative-recurring-transactions-workspace.jsx:5","authoritative-revenue-recognition-workspace.jsx:18","authoritative-rules-workspace.jsx:7"]);
   const unexpected=offenders.filter(item=>!backlog.has(item));
   assert.deepEqual(unexpected,[],`ad-hoc ERROR renders outside the recorded backlog: ${unexpected.join(', ')}`);
   const resolved=[...backlog].filter(item=>!offenders.includes(item));
   assert.deepEqual(resolved,[],`backlog entries now resolved — remove them from the list: ${resolved.join(', ')}`);
+});
+
+test('the recognized bank read diagnostic actually retains the failure code',()=>{
+  const bank=src('authoritative-bank-workspace.jsx');
+  const diagnostic=bank.slice(bank.indexOf('const BankReadFailure='),bank.indexOf('const BankReadMetadata='));
+  assert.match(diagnostic,/error\?\.code\|\|'ACCOUNTING_API_UNAVAILABLE'/);
+  assert.match(diagnostic,/bankReadFailure\(error,subject\)/);
+  assert.match(diagnostic,/Retry authoritative read/);
 });
 
 test('the shared diagnostic names every failure code the API client can emit',async()=>{
