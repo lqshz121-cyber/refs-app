@@ -5,6 +5,8 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {AuthoritativeSourceDocumentsWorkspace,authoritativeSourceScopeLabels} from '../src/authoritative-source-documents-workspace.jsx';
 import {AuthoritativeSourceDocumentsView} from '../src/authoritative-source-documents-view.jsx';
+import {pageBankTransactionEvidence} from '../src/bank-transaction-pagination.js';
+import {AuthoritativeReadFailure,authoritativeReadFailurePhase} from '../src/authoritative-read-state.jsx';
 
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222',baseUrl:'https://api.example',getAccessToken:async()=> 'a'.repeat(48)};
 assert.deepEqual(authoritativeSourceScopeLabels({...config,scopePresentation:{entityLabel:'Wan Pacific Real Estate Development LLC',periodLabel:'2026-08'}}),{entity:'Wan Pacific Real Estate Development LLC',period:'2026-08'});
@@ -12,6 +14,26 @@ assert.deepEqual(authoritativeSourceScopeLabels(config),{entity:'Configured enti
 const markup=renderToStaticMarkup(<AuthoritativeSourceDocumentsWorkspace config={config} fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})}/>);
 assert.match(markup,/Loading authoritative Source Document evidence/);
 const source=fs.readFileSync(path.join(process.cwd(),'src','authoritative-source-documents-workspace.jsx'),'utf8');
+const population=Array.from({length:9851},(_,index)=>({source_document_id:`document-${index}`}));
+assert.equal(pageBankTransactionEvidence(population,1).rows.length,50);
+const lastPage=pageBankTransactionEvidence(population,999);
+assert.equal(lastPage.currentPage,198);assert.equal(lastPage.rows.length,1);assert.equal(lastPage.rows[0].source_document_id,'document-9850');
+assert.equal(pageBankTransactionEvidence(population.filter(row=>row.source_document_id==='document-9850'),198).rows[0].source_document_id,'document-9850','full-population filters must still find last-page evidence');
+assert.equal(pageBankTransactionEvidence([],198).currentPage,1);
+assert.match(source,/pagination\.rows\.map/);assert.doesNotMatch(source,/\{rows\.map/);
+assert.match(source,/documentCounts\(state\.rows\)/,'KPIs must retain the full returned population');
+assert.match(source,/detailReturnRef\.current\.page=pagination\.currentPage/);
+assert.match(source,/setPage\(context\?\.page\|\|1\)/);
+assert.match(source,/Entity-wide register across all periods/);
+assert.match(source,/Selected workflow period \(not a list filter\)/);
+assert.match(source,/error:\{\.\.\.result,message:failure/,'failed list reads must retain their error code');
+assert.match(source,/if\(state.phase==='ERROR'\)return <AuthoritativeReadFailure/);
+for(const [code,label,phase] of [['AUTHORIZATION_DENIED','NO_PERMISSION','BLOCKED'],['ACCOUNTING_API_UNREACHABLE','SERVICE_UNREACHABLE','ERROR'],['ACCOUNTING_API_SERVER_ERROR','SERVICE_ERROR','ERROR']]){
+  const error={code,message:'Synthetic read failure'};
+  assert.equal(authoritativeReadFailurePhase(error),phase);
+  const errorMarkup=renderToStaticMarkup(<AuthoritativeReadFailure state={{phase:authoritativeReadFailurePhase(error),error}} onRetry={()=>{}}/>);
+  assert.match(errorMarkup,new RegExp(label));assert.match(errorMarkup,new RegExp(code));
+}
 const presentation=fs.readFileSync(path.join(process.cwd(),'src','authoritative-source-documents-view.jsx'),'utf8');
 const app=fs.readFileSync(path.join(process.cwd(),'src','authoritative-app.jsx'),'utf8');
 const sourceRoute=app.slice(app.indexOf("route === 'source-documents'"),app.indexOf("route === 'chart-of-accounts'"));
