@@ -1,6 +1,6 @@
 {
   "schema_version": "REFS_TABLE_CENSUS_V1",
-  "migration_head":"453_wbs_test_bank_receipt_start_binding.sql",
+  "migration_head":"454_wbs_test_payable_sign_guard.sql",
   "table_count": 250,
   "tables": [
     {

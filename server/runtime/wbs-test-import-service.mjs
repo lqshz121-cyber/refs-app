@@ -60,6 +60,9 @@ function assertSelection({tenantId,entityId,periodId,companyCode,dateFrom,dateTo
 
 function assertRow(row){
   if(!exactObject(row,['source_record_hash','currency','accounting_date','amount','status'])||!SHA256.test(row.source_record_hash||'')||row.currency!=='USD'||!date(row.accounting_date)||!MONEY4.test(row.amount||'')||row.amount==='0.0000'||row.amount==='-0.0000'||typeof row.status!=='string'||row.status.length<1||row.status.length>64)fail('WBS_TEST_IMPORT_ROW_INVALID','Sanitized WBS Payable row is incomplete or unsafe for the test-import path.');
+  // A signed negative source amount is not evidence of an ordinary positive bill.
+  // Keep the original observation intact; do not guess credit/reversal semantics.
+  if(row.amount.startsWith('-'))fail('WBS_TEST_PAYABLE_SIGN_UNRESOLVED','Negative WBS Payables require verified source sign semantics before creating accounting Drafts. No amount will be converted to its absolute value.');
 }
 
 function assertBankRow(row){

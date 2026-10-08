@@ -1141,6 +1141,20 @@ pgTest('WBS Final-1 Controller167 persists five-domain signed controls and exact
   const controller167=(await adminPool.query(`SELECT (SELECT count(*)::int FROM wbs_final1_signed_control_total WHERE tenant_id=$1) controls,(SELECT count(*)::int FROM wbs_final1_signed_business_source_row WHERE tenant_id=$1) business,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger`,[ids.tenantId])).rows[0];assert.deepEqual(controller167,{controls:6,business:3,journals:0,ledger:0});
 });
 
+pgTest('WBS Payable sign guard migration restores permissions after down up',async()=>{
+  const name='454_wbs_test_payable_sign_guard.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name);
+  const up=await readFile(new URL('../db/migrations/'+name,import.meta.url),'utf8'),down=await readFile(new URL('../db/migrations/down/'+name,import.meta.url),'utf8');
+  assert.equal(createHash('sha256').update(up).digest('hex'),entry.up);assert.equal(createHash('sha256').update(down).digest('hex'),entry.down);
+  const strip=sql=>sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,''),client=await adminPool.connect();
+  try{
+    await client.query('BEGIN');await client.query(strip(down));
+    assert.equal((await client.query("SELECT to_regprocedure('refs_retain_wbs_test_payable_source_454(uuid,uuid,uuid,jsonb,jsonb,integer,text,text)') fn")).rows[0].fn,null);
+    await client.query(strip(up));
+    const permissions=(await client.query("SELECT has_function_privilege('refs_app','refs_retain_wbs_test_payable_source(uuid,uuid,uuid,jsonb,jsonb,integer,text,text)','EXECUTE') wrapper,has_function_privilege('refs_app','refs_retain_wbs_test_payable_source_454(uuid,uuid,uuid,jsonb,jsonb,integer,text,text)','EXECUTE') legacy")).rows[0];
+    assert.deepEqual(permissions,{wrapper:true,legacy:false});
+  }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
 pgTest('WBS TEST IMPORT retains an unsigned Payable before an independent human Draft and standard posting workflow',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null}),other=await seed({status:'DRAFT',attachmentStatus:null});
   await adminPool.query('DELETE FROM journal_line WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,ids.journalId]);
@@ -1148,7 +1162,7 @@ pgTest('WBS TEST IMPORT retains an unsigned Payable before an independent human 
   await adminPool.query("UPDATE account_master SET requires_member=false,required_member_type=NULL WHERE account_code='291001' AND ((tenant_id=$1 AND entity_id=$2) OR (tenant_id=$3 AND entity_id=$4))",[ids.tenantId,ids.entityId,other.tenantId,other.entityId]);
   await adminPool.query("UPDATE entity SET source_system='REFS_STAGE1',source_entity_id='LEGACY-WBPA' WHERE tenant_id=$1 AND entity_id=$2",[ids.tenantId,ids.entityId]);
   const otherEntityBinding=(await adminPool.query('SELECT source_system,source_entity_id FROM entity WHERE tenant_id=$1 AND entity_id=$2',[other.tenantId,other.entityId])).rows[0];
-  const rows=Array.from({length:10},(_,index)=>({source_record_hash:hash(`wbs-test-payable-row-${index}`),currency:'USD',accounting_date:index===0?'2025-02-15':`2025-03-${String(index+1).padStart(2,'0')}`,amount:index===0?'-12.3000':'1.0000',status:'CLEAR'})),row=rows[0];
+  const rows=Array.from({length:10},(_,index)=>({source_record_hash:hash(`wbs-test-payable-row-${index}`),currency:'USD',accounting_date:index===0?'2025-02-15':`2025-03-${String(index+1).padStart(2,'0')}`,amount:index===0?'12.3000':'1.0000',status:'CLEAR'})),row=rows[0];
   const observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_payables',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-18T00:00:00.000Z',provider_content_sha256:createHash('sha256').update('provider-content').digest('hex'),scope:{company_codes:['WBPA'],date_range:['2025-01-01','2025-12-31']},record_count:10,rows,signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash('wbs-test-observation')};
   const untouchedAccount=(await adminPool.query("SELECT account_name,requires_member,required_member_type,active FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='120200'",[ids.tenantId,ids.entityId])).rows[0];
   const counts=async()=>(await adminPool.query(`SELECT
@@ -1164,6 +1178,11 @@ pgTest('WBS TEST IMPORT retains an unsigned Payable before an independent human 
     (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1) receipts`,[ids.tenantId])).rows[0];
   const noApKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-test-no-ap',['WBS.TEST.IMPORT'])});
   const before=await counts();
+  const negativeRow={...row,amount:'-12.3000',source_record_hash:hash('negative-sign-boundary')};
+  const negativeObservation={...observation,rows:[negativeRow,...rows.slice(1)],observation_hash:hash('negative-sign-observation')};
+  await assert.rejects(noApKernel.retainWbsTestPayableSource({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,observation:negativeObservation,row:negativeRow,rowIndex:0,idempotencyKey:'negative-sign-boundary-0001'}),error=>error.code==='22023');
+  assert.deepEqual(await counts(),before);
+  assert.equal((await adminPool.query("SELECT has_function_privilege('refs_app','refs_retain_wbs_test_payable_source_454(uuid,uuid,uuid,jsonb,jsonb,integer,text,text)','EXECUTE') allowed")).rows[0].allowed,false);
   const retained=await noApKernel.retainWbsTestPayableSource({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,observation,row,rowIndex:0,idempotencyKey:'wbs-test-retain-0001'});
   assert.equal(retained.status,'RETAINED');assert.equal(retained.test_only,true);assert.equal(retained.can_create_draft,false);
   const retainedCounts=await counts();assert.equal(retainedCounts.business_documents,before.business_documents);assert.equal(retainedCounts.journals,before.journals);

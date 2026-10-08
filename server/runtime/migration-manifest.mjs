@@ -456,5 +456,6 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"449_wbs_h1_modern_source_finalize.sql",up:"37f4c3fcfa6ced3514e10abca5e768e3f692d1970341068a53f905c2c0f3faef",down:"98d36903ffe2a536789ff8346fb2f3917ca3f9cf8053011fb64d2cae786f19b4"}),
   Object.freeze({name:"450_wbs_h1_payable_vendor_posted_reducer.sql",up:"a83e2e2765cbd58ef3ea340f15556486ece733fb24c791dee8bff3901cab092a",down:"9e2f1c852db56e51c195b4199ff69133ca4befb4083d9ba7e9d673a000a39d26"}),
   Object.freeze({name:"451_integration_transaction_bounded_projection.sql",up:"3ebeeb2631d9cd74df60cafa98bfc1f212564a0b4ef1b478c556a0737d5657ab",down:"46e03d2e7e935910fafe75a04a2967be366de4bb7e16c6d734fd46513d078c80"}),
-  Object.freeze({name:"453_wbs_test_bank_receipt_start_binding.sql",up:"fd35b52331dd746d634e88318e807294c25a3730c5f43cfdd0381f3bf222275b",down:"2d4cfb49a49c41b578799d2bcfc2d449326499f76950a9716633475517bbae34"})
+  Object.freeze({name:"453_wbs_test_bank_receipt_start_binding.sql",up:"fd35b52331dd746d634e88318e807294c25a3730c5f43cfdd0381f3bf222275b",down:"2d4cfb49a49c41b578799d2bcfc2d449326499f76950a9716633475517bbae34"}),
+  Object.freeze({name:"454_wbs_test_payable_sign_guard.sql",up:"af708455fb6cf68ea0aec6f53b50ece249fce21d1dcb48680666d01a98c7489c",down:"bafb28f9d41047654db01ecbd972c53ae09b771fe5e73936c0b26b04eb28b6ae"})
 ]);

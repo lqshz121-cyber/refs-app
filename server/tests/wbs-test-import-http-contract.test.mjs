@@ -33,6 +33,11 @@ test('Bank receipt start is disabled without wiring and maps database denials wi
   }
 });
 
+test('unresolved Payable source sign is actionable422 and is never reported as a completed import',async()=>{
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'operator'}),kernelFactory:async()=>({}),wbsTestImportServiceFactory:async()=>({importPayables:async()=>{throw new WbsTestImportError('WBS_TEST_PAYABLE_SIGN_UNRESOLVED','Negative WBS Payables require verified source sign semantics before creating accounting Drafts. No amount will be converted to its absolute value.');}})});
+  const response=await api(request());assert.equal(response.status,422);assert.equal(response.body.ok,false);assert.equal(response.body.code,'WBS_TEST_PAYABLE_SIGN_UNRESOLVED');assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data,undefined);
+});
+
 test('authenticated test-import route returns only the exact no-store success DTO',async()=>{
   const calls=[],principals=[];const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'authenticated-test-operator'}),kernelFactory:async()=>({}),wbsTestImportServiceFactory:async principal=>(principals.push(principal),{importPayables:async args=>(calls.push(args),result())})});
   const response=await api(request());assert.equal(response.status,201);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(response.body,{ok:true,data:result()});

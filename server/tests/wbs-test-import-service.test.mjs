@@ -33,10 +33,14 @@ test('service retains with SERVICE importer then creates only a human AP Draft f
   assert.deepEqual(calls[1][2],{tenantId,entityId,sourceReceiptId:uuid(1),expectedReceiptHash:receiptHash,idempotencyKey:`${input.idempotencyKey}:${'a'.repeat(24)}:draft`});
 });
 
-test('retains exact signed non-zero Provider amount without lifecycle authority',async()=>{
+test('unresolved negative Payable blocks the whole bounded observation before any persistence',async()=>{
   const row={source_record_hash:`sha256:${'e'.repeat(64)}`,currency:'USD',accounting_date:'2026-08-11',amount:'-12.3000',status:'CLEAR'};
-  const {service,calls}=harness({rows:[row]});await service.importPayables(input);
-  assert.equal(calls[0][2].row.amount,'-12.3000');assert.equal(calls[0][2].row.source_record_hash,row.source_record_hash);assert.equal(calls.length,2);
+  const positive={...row,source_record_hash:`sha256:${'f'.repeat(64)}`,amount:'25.0000'};
+  for(const rows of [[row],[positive,row],[row,positive]]){
+    const {service,calls}=harness({rows});
+    await assert.rejects(service.importPayables(input),error=>error.code==='WBS_TEST_PAYABLE_SIGN_UNRESOLVED');
+    assert.equal(calls.length,0);assert.equal(row.amount,'-12.3000');assert.equal(row.source_record_hash,`sha256:${'e'.repeat(64)}`);
+  }
 });
 
 test('counts immutable source receipt replay and still stops at Draft',async()=>{
