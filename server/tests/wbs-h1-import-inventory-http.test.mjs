@@ -18,6 +18,16 @@ test('WBS H1 inventory is an exact no-store GET and rejects anti-mock action dri
   response=await deniedApi({method:'GET',url:path,body:null,headers:{}});assert.equal(response.status,403);assert.equal(response.body.code,'WBS_READ_ACCESS_REQUIRED');assert.equal(response.body.message,'Forbidden');
 });
 
+test('HTTP inventory accepts exact modern Draft rows and still rejects mapping count drift',async()=>{
+  const totals={...counts,source_record_count:1,source_amount:'1.0000',mapping_missing_count:1};
+  let result={...data,totals,months:data.months.map((month,index)=>index===0?{...month,...totals}:month),rows:[{source_record_hash:'sha256:'+'a'.repeat(64),accounting_date:'2026-01-15',amount:'1.0000',project_code:null,cost_code:'100',vendor_no:'V-1',import_state:'CONTROLLED_TEST_DRAFT',mapping_state:'MAPPING_MISSING',mapping_match_count:0}]};
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'reader'}),kernelFactory:async()=>({readWbsH1ImportInventory:async()=>result})});
+  const request={method:'GET',url:`/api/v1/entities/${entityId}/wbs/h1-import-inventory?limit=50&offset=0`,body:null,headers:{}};
+  const response=await api(request);assert.equal(response.status,200);assert.equal(response.body.data.rows[0].import_state,'CONTROLLED_TEST_DRAFT');assert.equal(response.body.data.can_post,false);
+  result={...result,rows:[{...result.rows[0],mapping_match_count:1}]};
+  assert.equal((await api(request)).status,502);
+});
+
 test('a non-WBS entity (kernel P0002) is 404 WBS_H1_COMPANY_SCOPE_NOT_FOUND, not a 502 protocol failure (H01-F2)',async()=>{
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'reader'}),kernelFactory:async()=>({readWbsH1ImportInventory:async()=>{const error=new Error('WBS H1 company scope is unavailable');error.code='P0002';throw error;}})});
   const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/wbs/h1-import-inventory?limit=5`,body:null,headers:{}});

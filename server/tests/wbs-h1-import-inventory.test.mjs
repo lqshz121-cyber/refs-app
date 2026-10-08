@@ -8,6 +8,14 @@ const hash=`sha256:${'a'.repeat(64)}`;
 const counts={source_record_count:1,source_amount:'125.0000',controlled_test_posted_count:0,formal_mapping_posted_count:0,mapping_missing_count:1,mapping_ready_count:0,mapping_ambiguous_count:0};
 const inventory={schema_version:'WBS_H1_IMPORT_INVENTORY_V1',company_code:'SUCF',currency:'USD',date_from:'2026-01-01',date_to:'2026-06-30',limit:50,offset:0,totals:counts,months:Array.from({length:6},(_,index)=>({period_code:`2026-${String(index+1).padStart(2,'0')}`,...counts,source_record_count:index===0?1:0,source_amount:index===0?'125.0000':'0.0000',mapping_missing_count:index===0?1:0})),rows:[{source_record_hash:hash,accounting_date:'2026-01-15',amount:'125.0000',project_code:null,cost_code:'100',vendor_no:'V-1',import_state:'SOURCE_STAGED',mapping_state:'MAPPING_MISSING'}],source_mode:'REAL_WBS_STAGED',accounting_authority:'NONE',can_create_draft:false,can_review:false,can_approve:false,can_post:false};
 
+test('modern inventory rows retain exact mapping count and unposted Draft state',()=>{
+  const modern={...inventory,rows:inventory.rows.map(row=>({...row,mapping_match_count:0,import_state:'CONTROLLED_TEST_DRAFT'}))};
+  assert.equal(assertWbsH1ImportInventory(modern,{limit:50,offset:0}),modern);
+  for(const patch of [{mapping_match_count:-1},{mapping_match_count:1},{mapping_match_count:0,extra:true},{import_state:'APPROVED'}]){
+    assert.throws(()=>assertWbsH1ImportInventory({...modern,rows:[{...modern.rows[0],...patch}]},{limit:50,offset:0}),/INVALID/);
+  }
+});
+
 test('265 exposes a scoped, read-only company H1 inventory without accounting actions',async()=>{
   const up=await readFile(new URL('../db/migrations/265_wbs_h1_import_inventory_read.sql',import.meta.url),'utf8');
   for(const token of ["refs_assert_scope(p_tenant,p_entity,'WBS.AUTOREC.VIEW')",'wbs_h1_payable_mapping_source_stage','wbs_h1_accounting_setting_stage','CONTROLLED_TEST_POSTED','FORMAL_MAPPING_POSTED',"'source_mode','REAL_WBS_STAGED'","'accounting_authority','NONE'","'can_create_draft',false","'can_post',false",'REVOKE ALL','GRANT EXECUTE'])assert.match(up,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));

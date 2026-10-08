@@ -7324,6 +7324,25 @@ pgTest('WBS H1 import inventory reads exact company source rows and exposes zero
   const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-h1-inventory-denied',['AP.VIEW'])});await assert.rejects(denied.readWbsH1ImportInventory({tenantId:ids.tenantId,entityId:ids.entityId,limit:50,offset:0}),error=>error.code==='42501');
 });
 
+pgTest('WBS H1 inventory diagnostic reads 1285 retained source rows without manufacturing accounting lineage',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  await adminPool.query(`INSERT INTO wbs_h1_payable_mapping_source_stage
+    (tenant_id,entity_id,company_code,period_code,wbs_uuid,source_record_hash,accounting_date,amount,project_code,cost_code,vendor_no,source_fact_hash,provider_content_hash,captured_at)
+    SELECT $1,$2,$3,'2026-06','inventory-volume-'||n,'sha256:'||encode(digest('inventory-volume-'||n,'sha256'),'hex'),
+      DATE '2026-06-15',1.0000,NULL,'100','V-1',$4,$5,clock_timestamp()
+    FROM generate_series(1,1285) n`,[ids.tenantId,ids.entityId,ids.sourceEntityId,hash('inventory-volume-fact'),hash('inventory-volume-provider')]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'inventory-volume-reader',['WBS.AUTOREC.VIEW'])});
+  const started=performance.now();
+  const result=await reader.readWbsH1ImportInventory({tenantId:ids.tenantId,entityId:ids.entityId,limit:50,offset:0});
+  console.log(JSON.stringify({diagnostic:'inventory-1285-source-only',elapsed_ms:Math.round(performance.now()-started),rows:result.totals.source_record_count}));
+  assert.equal(result.totals.source_record_count,1285);
+  assert.equal(result.totals.source_amount,'1285.0000');
+  assert.equal(result.totals.controlled_test_posted_count,0);
+  assert.equal(result.rows.length,50);
+  assert.ok(result.rows.every(row=>row.import_state==='SOURCE_STAGED'&&row.mapping_match_count===0));
+  assert.equal(result.can_post,false);
+});
+
 pgTest('WBS H1 company runners use real staging grants and guarded settings decisions with idempotent replay',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null,extraAccounts:[{accountCode:'164100',accountName:'CWIP - Land'}]}),periodId=randomUUID(),installationId=randomUUID();
   const database=(await adminPool.query('SELECT current_database() AS name')).rows[0].name;

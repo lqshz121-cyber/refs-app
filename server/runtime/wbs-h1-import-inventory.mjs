@@ -7,7 +7,16 @@ const optionalText=(value,max=128)=>value===null||typeof value==='string'&&value
 const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).sort().join('|')===[...keys].sort().join('|');
 const COUNT_KEYS=['source_record_count','source_amount','controlled_test_posted_count','formal_mapping_posted_count','mapping_missing_count','mapping_ready_count','mapping_ambiguous_count'];
 const counts=value=>exact(value,COUNT_KEYS)&&MONEY.test(value.source_amount||'')&&COUNT_KEYS.filter(key=>key!=='source_amount').every(key=>Number.isSafeInteger(value[key])&&value[key]>=0);
-const row=value=>exact(value,['source_record_hash','accounting_date','amount','project_code','cost_code','vendor_no','import_state','mapping_state'])&&SHA.test(value.source_record_hash||'')&&DATE.test(value.accounting_date||'')&&MONEY.test(value.amount||'')&&optionalText(value.project_code)&&optionalText(value.cost_code)&&optionalText(value.vendor_no)&&['SOURCE_STAGED','CONTROLLED_TEST_POSTED'].includes(value.import_state)&&['MAPPING_MISSING','MAPPING_READY_FOR_REVIEW','MAPPING_AMBIGUOUS','FORMAL_MAPPING_POSTED'].includes(value.mapping_state);
+const ROW_KEYS=['source_record_hash','accounting_date','amount','project_code','cost_code','vendor_no','import_state','mapping_state'];
+const row=value=>{
+  const modern=exact(value,[...ROW_KEYS,'mapping_match_count']);
+  if(!modern&&!exact(value,ROW_KEYS))return false;
+  if(modern&&(!Number.isSafeInteger(value.mapping_match_count)||value.mapping_match_count<0
+    ||value.mapping_state==='MAPPING_MISSING'&&value.mapping_match_count!==0
+    ||value.mapping_state==='MAPPING_READY_FOR_REVIEW'&&value.mapping_match_count!==1
+    ||value.mapping_state==='MAPPING_AMBIGUOUS'&&value.mapping_match_count<=1))return false;
+  return SHA.test(value.source_record_hash||'')&&DATE.test(value.accounting_date||'')&&MONEY.test(value.amount||'')&&optionalText(value.project_code)&&optionalText(value.cost_code)&&optionalText(value.vendor_no)&&['SOURCE_STAGED','CONTROLLED_TEST_POSTED',...(modern?['CONTROLLED_TEST_DRAFT']:[])].includes(value.import_state)&&['MAPPING_MISSING','MAPPING_READY_FOR_REVIEW','MAPPING_AMBIGUOUS','FORMAL_MAPPING_POSTED'].includes(value.mapping_state);
+};
 
 export function assertWbsH1ImportInventory(value,{limit,offset}={}){
   const keys=['schema_version','company_code','currency','date_from','date_to','limit','offset','totals','months','rows','source_mode','accounting_authority','can_create_draft','can_review','can_approve','can_post'];
