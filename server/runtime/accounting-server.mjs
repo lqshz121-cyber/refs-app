@@ -366,7 +366,10 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
       }
     }):undefined,
     wbsReadServiceFactory:principal=>createWbsInboundAutoRecHttpReadService({kernel:kernelFor(principal)}),
-    wbsLivePilotServiceFactory:wbsLivePilotClient?principal=>createWbsLivePilotReadService({client:wbsLivePilotClient,authorize:scope=>kernelFor(principal).assertWbsAutoRecView(scope)}):undefined,
+    // Observation GETs carry existing read grants only when unrelated invalid
+    // write authorities prevent full context issuance. Scope permission still
+    // runs in PostgreSQL; import and all command factories remain strict.
+    wbsLivePilotServiceFactory:wbsLivePilotClient?principal=>createWbsLivePilotReadService({client:wbsLivePilotClient,authorize:scope=>kernelFor(principal,{allowReadFallback:true}).assertWbsAutoRecView(scope)}):undefined,
     // O05: FULL_WORKFLOW internal test only — reports per-role grant readiness and master-data prerequisites; never widens grants.
     internalTestWorkflowReadinessServiceFactory:internalTestKernelFactory&&internalTest?.actors?(()=>{const service=createInternalTestWorkflowReadinessService({tenantId:internalTest.tenantId,actors:internalTest.actors,kernelForActor:internalTestKernelFactory});return principal=>({readiness:({entityId})=>{if(principal?.tenantId!==internalTest.tenantId)throw Object.assign(new Error('Forbidden'),{code:'42501'});return service.read({entityId});}});})():undefined,
     wbsTestImportServiceFactory:wbsTestImport?principal=>{

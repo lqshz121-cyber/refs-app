@@ -2897,6 +2897,35 @@ pgTest('production reads fall back to existing read grants while invalid write a
   await assert.rejects(issuer.issue({tenantId:ids.tenantId,readOnly:true}),error=>error.code==='42501');
 });
 
+pgTest('WBS observation GET isolates read authority without granting imports, posting or another company',async()=>{
+  const ids=await seed({status:'DRAFT'}),other=await seed({tenantId:ids.tenantId}),actor='auth0|wbs-reader-invalid-write';
+  await adminPool.query(`INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission,authority_class,valid_until)
+    VALUES($1,$2,$3,'WBS.AUTOREC.VIEW','ANALYSIS',clock_timestamp()+interval '1 hour'),
+          ($1,$2,$3,'AI.ANALYSIS.EXPLAIN','LEGACY',NULL)`,[ids.tenantId,actor,ids.entityId]);
+  const principal={trusted:true,actorId:actor,tenantId:ids.tenantId};
+  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>principal});
+  await assert.rejects(issuer.issue({tenantId:ids.tenantId}),error=>error.code==='42501'&&error.message==='Human write authority requires a finite exact-role grant');
+  let providerReads=0;
+  const client={initialize:async()=>{},listTools:async()=>{},readView:async({toolName})=>{providerReads++;return {tool:toolName,contract_version:'WBS-REFS-MCP-V1',environment:'production',captured_at:'2026-06-30T10:00:00.000Z',source:{system:'WBS',view:toolName},scope:{company_codes:['WBPA'],date_range:[]},record_count:0,content_sha256:canonicalRequestHash([]).slice(7),cursor_next:null,etl_notice:null,rows:[]};}};
+  const server=createProductionAccountingServer({runtimePool,issuerPool,authenticator:{authenticate:async()=>principal},wbsLivePilotClient:client});
+  await new Promise((resolve,reject)=>server.listen(0,'127.0.0.1',error=>error?reject(error):resolve()));
+  try{
+    const base=`http://127.0.0.1:${server.address().port}/api/v1/entities`;
+    const query='/wbs/live-pilot?tool=list_autorec_banks&limit=10&company_code=WBPA';
+    const response=await fetch(`${base}/${ids.entityId}${query}`);
+    assert.equal(response.status,200);const observation=(await response.json()).data;
+    assert.equal(observation.status,'NOT_ADMITTED');assert.equal(observation.signature_verified,false);
+    for(const flag of ['can_import','can_create_transaction','can_match','can_allocate','can_create_draft','can_approve','can_post','can_reverse'])assert.equal(observation[flag],false);
+    assert.equal(providerReads,1);
+    assert.equal((await fetch(`${base}/${other.entityId}${query}`)).status,403);assert.equal(providerReads,1);
+    await adminPool.query("UPDATE runtime_actor_grant SET revoked_at=clock_timestamp() WHERE tenant_id=$1 AND actor_id=$2 AND permission='WBS.AUTOREC.VIEW'",[ids.tenantId,actor]);
+    assert.equal((await fetch(`${base}/${ids.entityId}${query}`)).status,403);assert.equal(providerReads,1);
+    assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[ids.journalId])).rows[0].status,'DRAFT');
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[ids.journalId])).rows[0].n,0);
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM runtime_actor_grant WHERE tenant_id=$1 AND actor_id=$2',[ids.tenantId,actor])).rows[0].n,2,'the reader must not reconcile or widen grants');
+  }finally{await new Promise(resolve=>server.close(resolve));}
+});
+
 pgTest('additional formal role catalog matches database authority and scopes every grant and revocation',async()=>{
   const ids=await seed({status:'PENDING_REVIEW'}),foreign=await seed({tenantId:ids.tenantId,status:'DRAFT'});
   const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
