@@ -15,6 +15,46 @@
     }
   ],
   "paths": {
+    "/entities/{entityId}/general-ledger/line-identities/{ledgerLineId}": {
+      "get": {
+        "operationId": "readExactLedgerLineIdentity",
+        "summary": "Resolve a posted ledger identity through the selected report period end",
+        "description": "GL.JE.VIEW required. Retains report period separately from actual journal period; returns no command or raw provider data.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name": "ledgerLineId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}},
+          {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Exact immutable identity, Cache-Control: no-store",
+            "content": {"application/json": {"schema": {
+              "type": "object", "additionalProperties": false, "required": ["ok", "data"],
+              "properties": {
+                "ok": {"const": true},
+                "data": {
+                  "type": "object", "additionalProperties": false,
+                  "required": ["entity_id", "report_period_id", "journal_period_id", "journal_entry_id", "journal_line_id", "ledger_line_id", "journal_date", "report_period_end"],
+                  "properties": {
+                    "entity_id": {"$ref": "#/components/schemas/Uuid"},
+                    "report_period_id": {"$ref": "#/components/schemas/Uuid"},
+                    "journal_period_id": {"$ref": "#/components/schemas/Uuid"},
+                    "journal_entry_id": {"$ref": "#/components/schemas/Uuid"},
+                    "journal_line_id": {"$ref": "#/components/schemas/Uuid"},
+                    "ledger_line_id": {"$ref": "#/components/schemas/Uuid"},
+                    "journal_date": {"type": "string", "format": "date"},
+                    "report_period_end": {"type": "string", "format": "date"}
+                  }
+                }
+              }
+            }}}
+          },
+          "401": {"description": "Authentication required"},
+          "403": {"description": "GL.JE.VIEW denied"},
+          "404": {"description": "Identity absent or outside report scope"}
+        }
+      }
+    },
     "/entities/{entityId}/intercompany-eliminations": {
       "get": {
         "operationId": "readIntercompanyEliminationRegister",

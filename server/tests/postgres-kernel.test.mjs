@@ -82,6 +82,38 @@ before(async()=>{
   }
 });
 
+pgTest('exact ledger identity resolves multiple posted journals and historical report support without crossing scope',async()=>{
+  const ids=await seed();
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'identity-poster',['GL.JE.POST'])});
+  await poster.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'identity-post-first'});
+  const otherJournalId=randomUUID();
+  await adminPool.query(`INSERT INTO journal_entry(journal_entry_id,tenant_id,entity_id,period_id,journal_number,journal_type,status,journal_date,currency,created_by,reviewed_by,approved_by)
+    VALUES($1,$2,$3,$4,'IDENTITY-SECOND','MANUAL','APPROVED','2026-07-20','USD','maker','reviewer','approver')`,[otherJournalId,ids.tenantId,ids.entityId,ids.periodId]);
+  await adminPool.query(`INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref,dimensions)
+    SELECT tenant_id,entity_id,period_id,$2,line_no,account_code,debit_amount,credit_amount,member_ref,dimensions FROM journal_line WHERE journal_entry_id=$1`,[ids.journalId,otherJournalId]);
+  await adminPool.query(`INSERT INTO source_link(tenant_id,entity_id,link_type,journal_entry_id,attachment_id,created_by)
+    VALUES($1,$2,'JE_ATTACHMENT',$3,$4,'maker')`,[ids.tenantId,ids.entityId,otherJournalId,ids.attachmentId]);
+  await poster.postJournal({...ids,journalEntryId:otherJournalId,expectedRevision:0,idempotencyKey:'identity-post-second'});
+  const reportPeriod=randomUUID(),earlierPeriod=randomUUID();
+  for(const [id,code,start,end] of [[reportPeriod,'2026-08','2026-08-01','2026-08-31'],[earlierPeriod,'2026-06','2026-06-01','2026-06-30']])await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,$4,$5,$6,'OPEN')",[id,ids.tenantId,ids.entityId,code,start,end]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'identity-reader',['GL.JE.VIEW'])});
+  const lines=(await adminPool.query('SELECT ledger_line_id,journal_entry_id,journal_line_id FROM ledger_line WHERE tenant_id=$1 AND entity_id=$2 ORDER BY ledger_line_id',[ids.tenantId,ids.entityId])).rows;
+  assert.equal(lines.length,4);
+  for(const line of lines){
+    const identity=await reader.readLedgerLineIdentity({...ids,periodId:reportPeriod,ledgerLineId:line.ledger_line_id});
+    assert.equal(identity.report_period_id,reportPeriod);assert.equal(identity.journal_period_id,ids.periodId);
+    assert.equal(identity.journal_entry_id,line.journal_entry_id);assert.equal(identity.journal_line_id,line.journal_line_id);
+    const detail=await reader.getJournalEntryDetail({...ids,periodId:identity.journal_period_id,journalEntryId:identity.journal_entry_id});
+    assert.ok(detail.lines.some(item=>item.journal_line_id===line.journal_line_id&&item.ledger_line_id===line.ledger_line_id));
+  }
+  await assert.rejects(reader.readLedgerLineIdentity({...ids,periodId:earlierPeriod,ledgerLineId:lines[0].ledger_line_id}),{code:'P0002'});
+  await assert.rejects(reader.readLedgerLineIdentity({...ids,periodId:reportPeriod,ledgerLineId:randomUUID()}),{code:'P0002'});
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'identity-no-view',['GL.REPORT.VIEW'])});
+  await assert.rejects(denied.readLedgerLineIdentity({...ids,periodId:reportPeriod,ledgerLineId:lines[0].ledger_line_id}),{code:'42501'});
+  await assert.rejects(reader.readLedgerLineIdentity({...ids,entityId:randomUUID(),periodId:reportPeriod,ledgerLineId:lines[0].ledger_line_id}),{code:'42501'});
+  assert.equal((await adminPool.query('SELECT count(*)::integer AS n FROM ledger_line WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n,4);
+});
+
 pgTest('checked-out transaction backend termination rejects safely and reconnects without retained writes',async()=>{
   const pool=await createPool({databaseUrl:config.migrationDatabaseUrl,applicationName:'refs-disconnect-regression',max:1});
   try{

@@ -1,5 +1,5 @@
 import React,{useEffect,useRef,useState} from 'react';
-import {readAuthoritativeJournalEntryDetail,readAuthoritativeSourceDocumentDetail,refreshAuthoritativeFinancialStatements,refreshAuthoritativeGeneralLedger} from './accounting-api.js';
+import {readAuthoritativeJournalEntryDetail,readAuthoritativeLedgerLineIdentity,readAuthoritativeSourceDocumentDetail,refreshAuthoritativeFinancialStatements} from './accounting-api.js';
 import {adaptProviderTraceForUi} from './provider-trace-adapter.js';
 import {StateBlock} from './ui.jsx';
 import {exactLineageIdSet,journalLineMatchesLedger} from './domain/accounting-lineage.ts';
@@ -8,21 +8,25 @@ const MONEY4=/^-?(?:0|[1-9][0-9]{0,15})\.\d{4}$/;
 const money=value=>typeof value==='string'&&MONEY4.test(value)?value:'Not returned';
 const ids=value=>Array.isArray(value)?value:[];
 const includesAll=(haystack,needles)=>needles.every(value=>haystack.includes(value));
-const LEDGER_PAGE_SIZE=200,LEDGER_RESULT_CAP=10000;
 export {exactLineageIdSet,journalLineMatchesLedger};
 const journalContext=(config,journal)=>({entityId:config.entityId,periodId:config.periodId,journalId:journal.journal_entry_id,journalRevision:journal.revision,journalCurrency:journal.currency});
-export const reportRowContainsLedger=(report,row)=>Boolean(report&&row&&report.period_id===row.period_id&&report.account_code===row.account_code&&(report.currency==null||report.currency===row.currency)&&ids(report.journal_entry_ids).includes(row.journal_entry_id)&&ids(report.journal_line_ids).includes(row.journal_line_id)&&ids(report.ledger_line_ids).includes(row.ledger_line_id)&&includesAll(ids(report.source_document_ids),ids(row.source_document_ids)));
+export const reportRowContainsLedger=(report,row)=>Boolean(report&&row&&report.period_id===(row.report_period_id??row.period_id)&&report.account_code===row.account_code&&(report.currency==null||report.currency===row.currency)&&ids(report.journal_entry_ids).includes(row.journal_entry_id)&&ids(report.journal_line_ids).includes(row.journal_line_id)&&ids(report.ledger_line_ids).includes(row.ledger_line_id)&&includesAll(ids(report.source_document_ids),ids(row.source_document_ids)));
 export const createLineageRequestGuard=()=>{let version=0;return {start:()=>++version,isCurrent:token=>token===version,invalidate:()=>++version};};
-export async function readExactAuthoritativeLedgerLine({config,accountCode=null,ledgerLineId,fetcher=globalThis.fetch,readJournal=readAuthoritativeJournalEntryDetail,journalEntryId=null,journalLineId=null}={}){
-  if(!config||typeof ledgerLineId!=='string'||!ledgerLineId||typeof journalEntryId!=='string'||!journalEntryId||typeof journalLineId!=='string'||!journalLineId)return {ok:false,message:'The retained ledger-line identity is unavailable.'};
-  const result=await readJournal({config,journalEntryId,fetcher});
+export async function readExactAuthoritativeLedgerLine({config,accountCode=null,ledgerLineId,fetcher=globalThis.fetch,readJournal=readAuthoritativeJournalEntryDetail,readIdentity=readAuthoritativeLedgerLineIdentity}={}){
+  if(!config||typeof ledgerLineId!=='string'||!ledgerLineId)return {ok:false,message:'The retained ledger-line identity is unavailable.'};
+  const binding=await readIdentity({config,ledgerLineId,fetcher});
+  if(!binding.ok)return binding;
+  const identity=binding.identity;
+  if(identity.entity_id!==config.entityId||identity.report_period_id!==config.periodId||identity.ledger_line_id!==ledgerLineId)return {ok:false,message:'The ledger identity is outside the selected evidence scope.'};
+  const result=await readJournal({config:{...config,periodId:identity.journal_period_id},journalEntryId:identity.journal_entry_id,fetcher});
   if(!result.ok)return result;
   const journal=result.journal;
-  if(journal.status!=='POSTED')return {ok:false,message:'The retained Journal is not posted.'};
-  const row=journal.lines.find(line=>line.journal_line_id===journalLineId&&line.ledger_line_id===ledgerLineId);
-  if(!row)return {ok:false,message:'The Journal did not retain the selected ledger-line identity.'};
+  if(journal.status!=='POSTED'||journal.entity_id!==config.entityId||journal.period_id!==identity.journal_period_id||journal.journal_entry_id!==identity.journal_entry_id||journal.journal_date!==identity.journal_date)return {ok:false,message:'The retained Journal did not match the posted ledger identity.'};
+  const matches=journal.lines.filter(line=>line.journal_line_id===identity.journal_line_id&&line.ledger_line_id===ledgerLineId);
+  if(matches.length!==1)return {ok:false,message:'The Journal did not retain exactly one selected ledger-line identity.'};
+  const row=matches[0];
   if(accountCode!==null&&row.account_code!==accountCode)return {ok:false,message:'The Journal ledger line is outside the selected account.'};
-  return {ok:true,row:{period_id:journal.period_id,account_code:row.account_code,currency:journal.currency,journal_date:journal.journal_date,journal_entry_id:journal.journal_entry_id,journal_number:journal.journal_number,journal_line_id:row.journal_line_id,ledger_line_id:row.ledger_line_id,journal_revision:journal.revision,member_ref:row.member_ref,description:row.description,debit_amount:row.debit_amount,credit_amount:row.credit_amount,source_document_ids:[...row.source_document_ids]}};
+  return {ok:true,row:{period_id:journal.period_id,report_period_id:config.periodId,account_code:row.account_code,currency:journal.currency,journal_date:journal.journal_date,journal_entry_id:journal.journal_entry_id,journal_number:journal.journal_number,journal_line_id:row.journal_line_id,ledger_line_id:row.ledger_line_id,journal_revision:journal.revision,member_ref:row.member_ref,description:row.description,debit_amount:row.debit_amount,credit_amount:row.credit_amount,source_document_ids:[...row.source_document_ids]}};
 }
 const providerValue=value=>value===null||value===undefined||value===''?'Not supplied by Provider':String(value);
 const ProviderValue=({value})=>{const text=providerValue(value);const display=text.length>64?`${text.slice(0,61)}...`:text;return <b title={display===text?undefined:text}>{display}</b>;};
@@ -59,35 +63,36 @@ export function AuthoritativeLineageDrill({config,fetcher=globalThis.fetch,initi
   const back=()=>stack.length===1?onExit():setStack(current=>current.slice(0,-1));
   const readJournal=async(journalEntryId,expected={})=>{
     const token=beginRead();
-    const result=await readAuthoritativeJournalEntryDetail({config,journalEntryId,fetcher});
+    const journalConfig={...config,periodId:expected.ledgerRow?.period_id??expected.journalPeriodId??config.periodId};
+    const result=await readAuthoritativeJournalEntryDetail({config:journalConfig,journalEntryId,fetcher});
     if(!requestGuard.current.isCurrent(token))return;
     if(!result.ok){fail(token,result.message);return;}
     const journal=result.journal;
     const lines=journal.lines||[];
-    const exact=journal.entity_id===config.entityId&&journal.period_id===config.periodId
+    const exact=journal.entity_id===journalConfig.entityId&&journal.period_id===journalConfig.periodId
       &&(!expected.sourceDocumentId||lines.some(line=>line.source_document_ids.includes(expected.sourceDocumentId)))
       &&(!expected.ledgerRow||lines.some(line=>journalLineMatchesLedger(journal,line,expected.ledgerRow)));
     if(!exact){fail(token,'The Journal detail did not retain the immutable entity, period, account, currency, MONEY4 debit and credit, line, ledger, and exact source relationship used to open it.');return;}
-    push({kind:'JOURNAL',journal,context:journalContext(config,journal)},token);
+    push({kind:'JOURNAL',journal,context:{...journalContext(config,journal),journalPeriodId:journal.period_id}},token);
   };
   const readLedger=async(journal,line)=>{
     if(!line.ledger_line_id){block('This Journal line is not POSTED and has no immutable ledger-line identity.');return;}
     const token=beginRead();
-    const result=await refreshAuthoritativeGeneralLedger({config,accountCode:line.account_code,query:journal.journal_number,limit:200,offset:0,fetcher});
+    const result=await readExactAuthoritativeLedgerLine({config,accountCode:line.account_code,ledgerLineId:line.ledger_line_id,fetcher});
     if(!requestGuard.current.isCurrent(token))return;
     if(!result.ok){fail(token,result.message);return;}
-    const matches=result.rows.filter(row=>journalLineMatchesLedger(journal,line,row));
+    const matches=[result.row].filter(row=>journalLineMatchesLedger(journal,line,row));
     if(matches.length!==1){fail(token,'The General Ledger read did not return exactly one line matching the frozen Journal Entry, Journal Line, ledger line, account, currency, MONEY4 debit and credit, exact source set, entity, and period.');return;}
     push({kind:'GL',row:matches[0],context:{entityId:config.entityId,periodId:config.periodId,journalEntryId:journal.journal_entry_id,journalLineId:line.journal_line_id,ledgerLineId:line.ledger_line_id}},token);
   };
-  const readSource=async(sourceDocumentId,expectedJournalId)=>{
+  const readSource=async(sourceDocumentId,expectedJournalId,journalPeriodId=null)=>{
     const token=beginRead();
     const result=await readAuthoritativeSourceDocumentDetail({config,sourceDocumentId,fetcher});
     if(!requestGuard.current.isCurrent(token))return;
     if(!result.ok){fail(token,result.message);return;}
     const detail=result.detail;
     if(detail.source_document_id!==sourceDocumentId||(expectedJournalId&&!detail.posted_journal_entry_ids.includes(expectedJournalId))){fail(token,'The Source Document detail did not retain the exact source-to-Journal relationship used to open it.');return;}
-    push({kind:'SOURCE',detail,context:{entityId:config.entityId,periodId:config.periodId,sourceDocumentId,sourceRevision:detail.source_document_revision,payloadHash:detail.payload_hash}},token);
+    push({kind:'SOURCE',detail,context:{entityId:config.entityId,periodId:config.periodId,journalPeriodId,sourceDocumentId,sourceRevision:detail.source_document_revision,payloadHash:detail.payload_hash}},token);
   };
   const readReports=async row=>{
     const token=beginRead();
@@ -100,9 +105,8 @@ export function AuthoritativeLineageDrill({config,fetcher=globalThis.fetch,initi
   };
   const readLedgerFromReport=async(row,ledgerLineId)=>{
     if(!row.ledger_line_ids.includes(ledgerLineId)){block('The selected ledger line is outside the immutable report row.');return;}
-    const journalEntryId=ids(row.journal_entry_ids).find(Boolean),journalLineId=ids(row.journal_line_ids).find(Boolean);
     const token=beginRead();
-    let result;try{result=await readExactAuthoritativeLedgerLine({config,accountCode:row.account_code,ledgerLineId,fetcher,journalEntryId,journalLineId});}catch{fail(token,'The immutable General Ledger evidence could not be read. Refresh the report and retry.');return;}
+    let result;try{result=await readExactAuthoritativeLedgerLine({config,accountCode:row.account_code,ledgerLineId,fetcher});}catch{fail(token,'The immutable General Ledger evidence could not be read. Refresh the report and retry.');return;}
     if(!requestGuard.current.isCurrent(token))return;
     if(!result.ok){fail(token,result.message);return;}
     const item=result.row;
@@ -111,10 +115,9 @@ export function AuthoritativeLineageDrill({config,fetcher=globalThis.fetch,initi
   };
   const readLedgerFromEvidence=async(evidence,ledgerLineId)=>{
     if(!ids(evidence?.ledger_line_ids).includes(ledgerLineId)){block('The selected ledger line is outside the immutable evidence row.');return;}
-    const journalEntryId=ids(evidence?.journal_entry_ids).find(Boolean),journalLineId=ids(evidence?.journal_line_ids).find(Boolean);
     const token=beginRead();
     const accountCode=typeof evidence.account_code==='string'&&evidence.account_code?evidence.account_code:null;
-    let result;try{result=await readExactAuthoritativeLedgerLine({config,accountCode,ledgerLineId,fetcher,journalEntryId,journalLineId});}catch{fail(token,'The immutable General Ledger evidence could not be read. Return to the current evidence and retry.');return;}
+    let result;try{result=await readExactAuthoritativeLedgerLine({config,accountCode,ledgerLineId,fetcher});}catch{fail(token,'The immutable General Ledger evidence could not be read. Return to the current evidence and retry.');return;}
     if(!requestGuard.current.isCurrent(token))return;
     if(!result.ok){fail(token,result.message);return;}
     const item=result.row;
@@ -123,10 +126,12 @@ export function AuthoritativeLineageDrill({config,fetcher=globalThis.fetch,initi
   };
   if(read.phase==='LOADING')return <section className="full-bleed qbo-transaction-report authoritative-evidence-page"><StateBlock tone="loading" title="Loading details">Refreshing linked records. Navigation resumes when this read completes.</StateBlock></section>;
   if(read.phase==='BLOCKED')return <section className="full-bleed qbo-transaction-report authoritative-evidence-page"><div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={clearBlocked}>Back to current evidence</button><span title={`Entity ID: ${config.entityId}; Period ID: ${config.periodId}`}>Entity {entityLabel} | Period {periodLabel}</span></div><StateBlock tone="blocked" title="BLOCKED - immutable lineage mismatch">{read.error.message}</StateBlock></section>;
-  const presentedFrame={...frame,context:{...frame.context,entityLabel,periodLabel}};
-  if(frame.kind==='JOURNAL')return <JournalFrame frame={presentedFrame} back={back} readLedger={readLedger} readSource={readSource}/>;
-  if(frame.kind==='GL')return <LedgerFrame frame={presentedFrame} back={back} readJournal={readJournal} readSource={readSource} readReports={readReports}/>;
-  if(frame.kind==='SOURCE')return <SourceFrame frame={presentedFrame} back={back} readJournal={readJournal}/>;
+  const actualJournalPeriod=frame.journal?.period_id??(frame.kind==='GL'?frame.row.period_id:null)??frame.context?.journalPeriodId;
+  const presentedPeriod=actualJournalPeriod&&actualJournalPeriod!==config.periodId?`${periodLabel} (report); historical Journal period ${actualJournalPeriod}`:periodLabel;
+  const presentedFrame={...frame,context:{...frame.context,entityLabel,periodLabel:presentedPeriod}};
+  if(frame.kind==='JOURNAL')return <JournalFrame frame={presentedFrame} back={back} readLedger={readLedger} readSource={(id,journalId)=>readSource(id,journalId,frame.journal.period_id)}/>;
+  if(frame.kind==='GL')return <LedgerFrame frame={presentedFrame} back={back} readJournal={readJournal} readSource={(id,journalId)=>readSource(id,journalId,frame.row.period_id)} readReports={readReports}/>;
+  if(frame.kind==='SOURCE')return <SourceFrame frame={presentedFrame} back={back} readJournal={(id,expected)=>readJournal(id,{...expected,journalPeriodId:frame.context?.journalPeriodId})}/>;
   if(frame.kind==='REPORT_CHOOSER')return <ReportChooser frame={presentedFrame} back={back} open={row=>{requestGuard.current.invalidate();push({kind:'REPORT',row,context:{entityId:config.entityId,periodId:config.periodId,report:row.statement_type,accountCode:row.account_code,section:row.statement_section,ledgerLineId:frame.ledger.ledger_line_id}});}}/>;
   if(frame.kind==='EVIDENCE')return <EvidenceFrame frame={presentedFrame} back={back} readLedger={readLedgerFromEvidence}/>;
   return <ReportFrame frame={presentedFrame} back={back} readLedger={readLedgerFromReport}/>;

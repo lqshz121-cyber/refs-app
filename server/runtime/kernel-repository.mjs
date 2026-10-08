@@ -2613,6 +2613,26 @@ export class PostgresAccountingKernel{
     )).rows.map(row=>({...row,...(row.period_start===undefined?{}:{period_start:publicDate(row.period_start)}),...(row.period_end===undefined?{}:{period_end:publicDate(row.period_end)}),...(row.journal_date===undefined?{}:{journal_date:publicDate(row.journal_date)})})));
   }
 
+  async readLedgerLineIdentity({tenantId,entityId,periodId,ledgerLineId}){
+    return this.inSession(async client=>{
+      await client.query("SELECT refs_assert_scope($1,$2,'GL.JE.VIEW')",[tenantId,entityId]);
+      const rows=(await client.query(`SELECT j.entity_id,$3::uuid AS report_period_id,
+        j.period_id AS journal_period_id,j.journal_entry_id,jl.journal_line_id,l.ledger_line_id,
+        to_char(j.journal_date,'YYYY-MM-DD') AS journal_date,
+        to_char(p.ends_on,'YYYY-MM-DD') AS report_period_end
+        FROM public.ledger_line l
+        JOIN public.journal_entry j ON j.tenant_id=l.tenant_id AND j.entity_id=l.entity_id
+          AND j.period_id=l.period_id AND j.journal_entry_id=l.journal_entry_id
+        JOIN public.journal_line jl ON jl.tenant_id=l.tenant_id AND jl.entity_id=l.entity_id
+          AND jl.period_id=l.period_id AND jl.journal_entry_id=l.journal_entry_id AND jl.journal_line_id=l.journal_line_id
+        JOIN public.accounting_period p ON p.tenant_id=l.tenant_id AND p.entity_id=l.entity_id AND p.period_id=$3
+        WHERE l.tenant_id=$1 AND l.entity_id=$2 AND l.ledger_line_id=$4
+          AND j.status='POSTED' AND j.journal_date<=p.ends_on`,[tenantId,entityId,periodId,ledgerLineId])).rows;
+      if(rows.length!==1)throw new KernelError('P0002','Ledger identity was not found');
+      return rows[0];
+    });
+  }
+
   async listGeneralLedger({tenantId,entityId,periodId,accountCode=null,query=null,limit=50,offset=0}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_general_ledger($1,$2,$3,$4,$5,$6,$7)',[tenantId,entityId,periodId,accountCode,query,limit,offset]

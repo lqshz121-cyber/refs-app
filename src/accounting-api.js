@@ -556,6 +556,20 @@ export async function readAuthoritativeJournalEntryDetail({config,journalEntryId
   }catch{return unreachable('The browser could not complete the authoritative Journal Entry detail read; no HTTP response was produced.');}
 }
 
+export async function readAuthoritativeLedgerLineIdentity({config,ledgerLineId,fetcher=globalThis.fetch}={}){
+  if(!config||!UUID.test(config.entityId||'')||!UUID.test(config.periodId||'')||!UUID.test(ledgerLineId||'')||typeof fetcher!=='function')return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Ledger identity requires an exact entity, report period, and ledger line.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const params=new URLSearchParams({periodId:config.periodId});
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/general-ledger/line-identities/${ledgerLineId}?${params}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response,'LEDGER_LINE_IDENTITY');
+    const body=await response.json(),row=body?.ok===true?body.data:null;
+    const keys=['entity_id','report_period_id','journal_period_id','journal_entry_id','journal_line_id','ledger_line_id','journal_date','report_period_end'];
+    if(!row||Object.keys(row).length!==keys.length||keys.some(key=>!Object.hasOwn(row,key))||row.entity_id!==config.entityId||row.report_period_id!==config.periodId||row.ledger_line_id!==ledgerLineId||['journal_period_id','journal_entry_id','journal_line_id'].some(key=>!UUID.test(row[key]||''))||!validDate(row.journal_date)||!validDate(row.report_period_end)||row.journal_date>row.report_period_end||config.scopePresentation?.periodEnd&&row.report_period_end!==config.scopePresentation.periodEnd)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or cross-scope ledger identity.'};
+    return {ok:true,identity:{...row}};
+  }catch{return unreachable('The browser could not complete the authoritative ledger identity read; no HTTP response was produced.');}
+}
+
 export async function refreshAuthoritativeBankTransactions({config,bankAccountRef,from=null,through=null,limit=100,offset=0,fetcher=globalThis.fetch}={}){
   const account=String(bankAccountRef||'').trim();
   if(!config||!UUID.test(config.entityId||'')||typeof fetcher!=='function'||!BANK_ACCOUNT_REF.test(account)||from!==null&&!validDate(from)||through!==null&&!validDate(through)||from&&through&&from>through||!Number.isSafeInteger(limit)||limit<1||limit>200||!Number.isSafeInteger(offset)||offset<0||offset>10000)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Bank transaction scope requires a valid entity, account, date range, page size, and offset.'};

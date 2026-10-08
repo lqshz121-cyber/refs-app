@@ -1433,6 +1433,20 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         result=await kernel.listAccountRegister({tenantId:principal.tenantId,entityId,periodId,accountCode});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===7&&parts[4]==='general-ledger'&&parts[5]==='line-identities'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Ledger identity reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId']);
+        const periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId'),ledgerLineId=requireUuid(parts[6],'ledgerLineId');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.readLedgerLineIdentity!=='function')throw new AccountingApiError(503,'LEDGER_IDENTITY_UNAVAILABLE','Ledger identity reader is unavailable');
+        try{result=await kernel.readLedgerLineIdentity({tenantId:principal.tenantId,entityId,periodId,ledgerLineId});}
+        catch(error){if(error?.code==='P0002')throw new AccountingApiError(404,'LEDGER_IDENTITY_NOT_FOUND','Ledger identity was not found');throw error;}
+        const identityKeys=['entity_id','journal_date','journal_entry_id','journal_line_id','journal_period_id','ledger_line_id','report_period_end','report_period_id'];
+        const calendarDate=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&!Number.isNaN(Date.parse(value))&&new Date(value).toISOString().slice(0,10)===value;
+        if(!exactKeys(result,identityKeys)||result.entity_id!==entityId||result.report_period_id!==periodId||result.ledger_line_id!==ledgerLineId||['journal_period_id','journal_entry_id','journal_line_id'].some(key=>!UUID.test(result[key]||''))||!calendarDate(result.journal_date)||!calendarDate(result.report_period_end)||result.journal_date>result.report_period_end)throw new AccountingApiError(502,'LEDGER_IDENTITY_RESPONSE_INVALID','Ledger identity reader returned invalid or cross-scope evidence');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===6&&parts[4]==='general-ledger'&&parts[5]==='entries'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
         if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','If-Match is not used by read operations');
