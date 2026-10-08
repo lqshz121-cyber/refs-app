@@ -191,6 +191,10 @@ export class HttpVirusScanner{
 
 export class AttachmentEvidenceService{
   constructor({storage,scanner,uploaderKernelFactory,scannerKernelFactory}={}){if(!storage||!scanner||typeof uploaderKernelFactory!=='function'||typeof scannerKernelFactory!=='function')throw new Error('Attachment service dependencies are required');this.storage=storage;this.scanner=scanner;this.uploaderKernelFactory=uploaderKernelFactory;this.scannerKernelFactory=scannerKernelFactory;}
+  async readReceiptFile(principal,args){
+    const {ReceiptFileService}=await import('./receipt-file.mjs');
+    return new ReceiptFileService({storage:this.storage,kernelFactory:p=>this.uploaderKernelFactory(p,{allowReadFallback:true})}).read(principal,args);
+  }
   async reserve(principal,args){
     const kernel=await this.uploaderKernelFactory(principal);
     if(typeof kernel.findAttachmentReservation!=='function')throw storageFailure('ATTACHMENT_RESERVATION_LOOKUP_UNAVAILABLE','STATE');

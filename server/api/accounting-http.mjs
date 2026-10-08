@@ -1050,6 +1050,26 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
         if(!validReceiptRegister(result,{entityId,...selection}))throw new AccountingApiError(500,'RECEIPT_REGISTER_INVALID','Receipts did not match their scope');
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===7&&parts[4]==='receipts'&&parts[6]==='file'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Receipt file reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const receiptId=requireUuid(parts[5],'receiptId');
+        if(typeof attachmentServiceFactory!=='function')throw new AccountingApiError(503,'RECEIPT_FILE_UNAVAILABLE','Receipt file storage is unavailable');
+        const service=await attachmentServiceFactory(principal);
+        if(typeof service?.readReceiptFile!=='function')throw new AccountingApiError(503,'RECEIPT_FILE_UNAVAILABLE','Receipt file storage is unavailable');
+        let artifact;
+        try{artifact=await service.readReceiptFile(principal,{entityId,receiptId});}catch(error){
+          if(['42501','AUTHORIZATION_DENIED'].includes(error?.code))throw new AccountingApiError(403,'RECEIPT_FILE_SCOPE_DENIED','Receipt file access is denied');
+          if(error?.code==='P0002')throw new AccountingApiError(404,'RECEIPT_NOT_FOUND','Receipt is absent or outside the company');
+          if(error?.code==='RECEIPT_FILE_UNAVAILABLE')throw new AccountingApiError(503,error.code,'A retained provider object is unavailable');
+          if(error?.code==='RECEIPT_FILE_TOO_LARGE')throw new AccountingApiError(413,error.code,'Receipt exceeds the download limit');
+          throw error;
+        }
+        if(!Buffer.isBuffer(artifact?.content)||artifact.receiptId!==receiptId||!UUID.test(artifact.attachmentId||'')||!/^sha256:[0-9a-f]{64}$/.test(artifact.contentHash||'')||typeof artifact.filename!=='string'||!artifact.filename||typeof artifact.storageVersion!=='string'||!artifact.storageVersion)throw new AccountingApiError(500,'RECEIPT_FILE_RESULT_INVALID','Receipt file evidence is invalid');
+        const filename=encodeURIComponent(artifact.filename).replace(/'/g,'%27');
+        return {status:200,headers:{'content-type':'application/octet-stream','content-disposition':`attachment; filename*=UTF-8''${filename}`,'cache-control':'no-store','x-content-type-options':'nosniff','x-receipt-id':receiptId,'x-receipt-attachment-id':artifact.attachmentId,'x-receipt-content-hash':artifact.contentHash,'x-receipt-object-version':encodeURIComponent(artifact.storageVersion)},rawBody:artifact.content};
+      }
       if(method==='GET'&&parts.length===6&&parts[4]==='receipts'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Receipt reads do not accept command headers');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
@@ -3542,7 +3562,7 @@ export function createAccountingApi({authenticate,kernelFactory,readKernelFactor
   };
 }
 
-const corsHeaders=(origin,allowedOrigins)=>origin&&allowedOrigins.has(origin)?{'access-control-allow-origin':origin,'access-control-allow-credentials':'true','access-control-allow-methods':'GET, POST, OPTIONS','access-control-allow-headers':'authorization, content-type, idempotency-key, if-match, cache-control','access-control-max-age':'600','vary':'Origin'}:{};
+const corsHeaders=(origin,allowedOrigins)=>origin&&allowedOrigins.has(origin)?{'access-control-allow-origin':origin,'access-control-allow-credentials':'true','access-control-allow-methods':'GET, POST, OPTIONS','access-control-allow-headers':'authorization, content-type, idempotency-key, if-match, cache-control','access-control-expose-headers':'x-receipt-id, x-receipt-attachment-id, x-receipt-content-hash, x-receipt-object-version','access-control-max-age':'600','vary':'Origin'}:{};
 
 export function createAccountingHttpServer({authenticate,kernelFactory,readKernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsTestImportServiceFactory,internalTestWorkflowReadinessServiceFactory=null,controlledTestAiWorkflowServiceFactory,wbsAdmittedPayableServiceFactory,wbsProviderSignedPayableServiceFactory,wbsProviderFinal1RetainedEvidenceServiceFactory,wbsOperatorAttestedPayableServiceFactory,aiAnalysisExplanationServiceFactory,aiAccrualCandidateAnalysisServiceFactory,aiInvoiceAccountingClassificationServiceFactory,aiAccountingDecisionPacketServiceFactory,aiVendorInvoiceAnomalyServiceFactory,aiVendorInvoiceFrequencyAnomalyServiceFactory,aiVendorInvoiceAmountDropAnomalyServiceFactory,aiVendorInvoiceNearDuplicateServiceFactory,aiManualJournalRiskServiceFactory,aiBankDuplicatePaymentServiceFactory,aiBankUnusualPaymentServiceFactory,aiBankPayeeVendorMismatchServiceFactory,aiVendorAccountingTreatmentDriftServiceFactory,aiInvoiceSourceSupportReviewServiceFactory,aiVendorAccountCodingDriftServiceFactory,aiApInvoiceCutoffReviewServiceFactory,aiVendorPaymentTermsDriftServiceFactory,aiNewVendorMaterialInvoiceReviewServiceFactory,aiVendorMonthlySpendAnomalyServiceFactory,aiFullControllerScanServiceFactory,aiFullControllerModelServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,stage1SelfWbsOperatorUpgradeServiceFactory,stage1SelfControlledTestWorkflowUpgradeServiceFactory,maxBodyBytes=1024*1024,healthCheck,releaseSha=null,allowedOrigins=[],internalTest=null,internalTestPrincipalRouter=null}={}){
   const allowed=new Set(allowedOrigins);

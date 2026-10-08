@@ -23861,6 +23861,24 @@
         }
       }
     },
+    "/entities/{entityId}/receipts/{receiptId}/file": {
+      "get": {
+        "operationId": "readReceiptFile",
+        "summary": "Download one exact verified-clean receipt object",
+        "description": "Requires the same company-scoped GL.JE.VIEW as receipt detail. Reads only the retained S3 object version after authorization; rejects pending and test-only objects. Verifies retained byte count and SHA-256 before returning inert attachment bytes, maximum 25 MiB. No query, request body or command headers. No accounting mutation or upload authority.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"receiptId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "responses": {
+          "200": {"description":"Verified attachment bytes with no-store, nosniff, safe Content-Disposition and x-receipt-id / x-receipt-attachment-id / x-receipt-content-hash / percent-encoded x-receipt-object-version identity headers","content":{"application/octet-stream":{"schema":{"type":"string","format":"binary"}}}},
+          "400":{"description":"Invalid read query, body or command headers"},
+          "401":{"description":"Authentication required"},
+          "403":{"description":"Receipt scope denied"},
+          "404":{"description":"Receipt absent or outside company"},
+          "413":{"description":"File exceeds the bounded download limit"},
+          "500":{"description":"Retained object size/hash or identity mismatch; no file returned"},
+          "503":{"description":"Provider storage or real retained object unavailable"}
+        }
+      }
+    },
     "/entities/{entityId}/receipts/{receiptId}": {
       "get": {
         "operationId": "readReceiptDetail",
