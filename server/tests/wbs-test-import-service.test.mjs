@@ -11,9 +11,10 @@ const input={tenantId,entityId,periodId,companyCode:'WBPA',dateFrom:'2026-01-01'
 const retained=idempotent=>({wbs_test_payable_source_receipt_id:uuid(1),receipt_hash:receiptHash,source_document_id:uuid(2),attachment_id:uuid(3),status:'RETAINED',idempotent,test_only:true,provenance_mode:'UNSIGNED_TEST_ONLY',can_create_draft:false,can_submit:false,can_review:false,can_approve:false,can_post:false});
 const draft=(idempotent=false,overrides={})=>({wbs_test_payable_source_receipt_id:uuid(1),receipt_hash:receiptHash,business_document_id:uuid(4),journal_entry_id:uuid(5),status:'DRAFT',revision:0,idempotent,test_only:true,provenance_mode:'UNSIGNED_TEST_ONLY',can_submit:false,can_review:false,can_approve:false,can_post:false,...overrides});
 
-function harness({rows,mutateRetained,mutateDraft}={}){
+function harness({rows,mutateRetained,mutateDraft,periodError=null}={}){
   const calls=[],kernels={};
   for(const [role,actor] of Object.entries(actors))kernels[actor]={
+    async assertWbsTestImportPeriod(){if(periodError)throw periodError;},
     async retainWbsTestPayableSource(args){calls.push([role,'retain',args]);return mutateRetained?.(args)||retained(false);},
     async createWbsTestPayableDraft(args){calls.push([role,'draft',args]);return mutateDraft?.(args)||draft();},
     async transitionJournal(args){calls.push([role,args.action,args]);throw new Error('journal lifecycle must not be called');},
@@ -31,6 +32,22 @@ test('service retains with SERVICE importer then creates only a human AP Draft f
   assert.deepEqual(calls.map(([role,action])=>[role,action]),[['importer','retain'],['maker','draft']]);
   assert.equal(calls[0][2].observation.status,'NOT_ADMITTED');
   assert.deepEqual(calls[1][2],{tenantId,entityId,sourceReceiptId:uuid(1),expectedReceiptHash:receiptHash,idempotencyKey:`${input.idempotencyKey}:${'a'.repeat(24)}:draft`});
+});
+
+test('database period rejection prevents every Payable retention call',async()=>{
+  const periodError=Object.assign(new Error('period mismatch'),{code:'WBS_TEST_IMPORT_SCOPE_DENIED'});
+  const {service,calls}=harness({periodError});
+  await assert.rejects(service.importPayables(input),error=>error===periodError);
+  assert.equal(calls.length,0);
+});
+
+test('validates every Payable source date before retaining the first row',async()=>{
+  const row={source_record_hash:`sha256:${'a'.repeat(64)}`,currency:'USD',accounting_date:'2026-08-11',amount:'12.3000',status:'CLEAR'};
+  for(const accounting_date of ['2025-12-31','2027-01-01']){
+    const {service,calls}=harness({rows:[row,{...row,source_record_hash:`sha256:${'e'.repeat(64)}`,accounting_date}]});
+    await assert.rejects(service.importPayables(input),error=>error.code==='WBS_TEST_IMPORT_SCOPE_DENIED');
+    assert.equal(calls.length,0);
+  }
 });
 
 test('unresolved negative Payable blocks the whole bounded observation before any persistence',async()=>{

@@ -11,13 +11,21 @@ const input={tenantId,entityId,periodId,companyCode:'WBPA',dateFrom:'2026-01-01'
 const output={wbs_test_bank_import_receipt_id:'00000001-0000-4000-8000-000000000001',receipt_hash:`sha256:${'d'.repeat(64)}`,bank_source_ids:['00000003-0000-4000-8000-000000000001'],bank_account_ref:'WBS_TEST_BANK',statement_ending_date:'2026-08-11',transaction_count:1,status:'FINALIZED',provenance_mode:'CONTROLLED_TEST_UNSIGNED',test_only:true,idempotent:false,can_import:false,can_match:false,can_create_draft:false,can_post:false};
 
 function harness({observed=observation(),result=output,authorizeBank=async()=>{}}={}){
-  const calls=[];const service=createWbsTestImportService({scope,authorizeBank:async args=>{calls.push(['authorize',args]);return authorizeBank(args);},pilotService:{async readObservation(args){calls.push(['read',args]);return observed;}},kernelForActor:actor=>({async createWbsControlledTestBankScope(args){calls.push(['create',actor,args]);return result;}})});return {service,calls};
+const calls=[];const service=createWbsTestImportService({scope,authorizeBank:async args=>{calls.push(['authorize',args]);return authorizeBank(args);},pilotService:{async readObservation(args){calls.push(['read',args]);return observed;}},kernelForActor:actor=>({async assertWbsTestImportPeriod(){},async createWbsControlledTestBankScope(args){calls.push(['create',actor,args]);return result;}})});return {service,calls};
 }
 
 test('retains a bounded Bank observation as one immutable FINALIZED receipt without reconciliation',async()=>{
   const {service,calls}=harness();assert.deepEqual(await service.importBankTransactions(input),output);
   assert.deepEqual(calls[0],['authorize',{tenantId,entityId}]);assert.deepEqual(calls[1],['read',{tenantId,entityId,tool:'list_bank_transactions',limit:10,company_code:'WBPA',date_from:'2026-01-01',date_to:'2026-12-31'}]);
   assert.equal(calls[2][1],actors.importer);assert.equal(calls[2][2].bankAccountRef,'WBS_TEST_BANK');assert.deepEqual(calls[2][2].observation,observation());
+});
+
+test('validates every Bank source date before creating the import receipt',async()=>{
+  for(const accounting_date of ['2025-12-31','2027-01-01']){
+    const {service,calls}=harness({observed:observation([rows[0],{...rows[0],source_record_hash:`sha256:${'e'.repeat(64)}`,accounting_date}])});
+    await assert.rejects(service.importBankTransactions(input),error=>error.code==='WBS_TEST_IMPORT_SCOPE_DENIED');
+    assert.equal(calls.some(call=>call[0]==='create'),false);
+  }
 });
 
 test('fails before the kernel on scope, authorization, row and result violations',async()=>{

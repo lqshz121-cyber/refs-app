@@ -183,8 +183,10 @@ export function createWbsTestImportService({pilotService,kernelForActor,authoriz
       assertWbsLivePilotResult(observation,{entityId,tool:'list_payables',limit});
       if(observation.scope?.company_codes?.length!==1||observation.scope.company_codes[0]!==companyCode||observation.scope?.date_range?.[0]!==dateFrom||observation.scope.date_range[1]!==dateTo)fail('WBS_TEST_IMPORT_SCOPE_DENIED','Provider observation did not retain the configured test-import scope.');
       if(observation.rows.length===0)fail('WBS_TEST_IMPORT_EMPTY','The bounded WBS Payables observation contains no rows to import.');
-      const hashes=new Set();for(const row of observation.rows){assertRow(row);if(hashes.has(row.source_record_hash))fail('WBS_TEST_IMPORT_ROW_INVALID','Provider observation contains a duplicate sanitized Payable identity.');hashes.add(row.source_record_hash);}
+      const hashes=new Set();for(const row of observation.rows){assertRow(row);if(row.accounting_date<dateFrom||row.accounting_date>dateTo)fail('WBS_TEST_IMPORT_SCOPE_DENIED','Provider Payable source date is outside the requested range.');if(hashes.has(row.source_record_hash))fail('WBS_TEST_IMPORT_ROW_INVALID','Provider observation contains a duplicate sanitized Payable identity.');hashes.add(row.source_record_hash);}
       const kernelSet=kernels();assertPayableKernels(kernelSet);
+      if(typeof kernelSet.importer.assertWbsTestImportPeriod!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Exact test-import period guard is unavailable.');
+      await kernelSet.importer.assertWbsTestImportPeriod({tenantId,entityId,periodId,dateFrom,dateTo,rows:observation.rows});
       const {imported,replayed,posted}=await importPayableObservation({tenantId,entityId,periodId,observation,idempotencyKey,kernelSet});
       return Object.freeze(assertWbsTestImportResult({status:'WBS_TEST_PAYABLE_IMPORT_COMPLETE',imported_count:imported,replayed_count:replayed,posted_count:posted,failed_count:0,test_only:true}));
     },
@@ -198,9 +200,11 @@ export function createWbsTestImportService({pilotService,kernelForActor,authoriz
       assertWbsLivePilotResult(observation,{entityId,tool:'list_bank_transactions',limit});
       if(observation.scope?.company_codes?.length!==1||observation.scope.company_codes[0]!==companyCode||observation.scope?.date_range?.[0]!==dateFrom||observation.scope.date_range[1]!==dateTo)fail('WBS_TEST_IMPORT_SCOPE_DENIED','Provider Bank observation did not retain the configured test-import scope.');
       if(observation.rows.length===0)fail('WBS_TEST_IMPORT_EMPTY','The bounded WBS Bank observation contains no rows to import.');
-      const hashes=new Set();for(const row of observation.rows){assertBankRow(row);if(hashes.has(row.source_record_hash))fail('WBS_TEST_BANK_ROW_INVALID','Provider observation contains a duplicate sanitized Bank identity.');hashes.add(row.source_record_hash);}
+      const hashes=new Set();for(const row of observation.rows){assertBankRow(row);if(row.accounting_date<dateFrom||row.accounting_date>dateTo)fail('WBS_TEST_IMPORT_SCOPE_DENIED','Provider Bank source date is outside the requested range.');if(hashes.has(row.source_record_hash))fail('WBS_TEST_BANK_ROW_INVALID','Provider observation contains a duplicate sanitized Bank identity.');hashes.add(row.source_record_hash);}
       const importer=kernelForActor(actors.importer);
       if(!importer||typeof importer.createWbsControlledTestBankScope!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Controlled test Bank import receipt kernel is unavailable.');
+      if(typeof importer.assertWbsTestImportPeriod!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Exact test-import period guard is unavailable.');
+      await importer.assertWbsTestImportPeriod({tenantId,entityId,periodId,dateFrom,dateTo,rows:observation.rows});
       const receipt=await importer.createWbsControlledTestBankScope({tenantId,entityId,periodId,companyCode,observation,bankAccountRef:'WBS_TEST_BANK',idempotencyKey});
       return Object.freeze(assertWbsControlledTestBankResult(receipt));
     },

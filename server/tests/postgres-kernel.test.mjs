@@ -82,6 +82,118 @@ before(async()=>{
   }
 });
 
+pgTest('WBS exact period guard migration roundtrips without changing historical retention or privileges',async()=>{
+  const name='452_wbs_test_exact_period_guard.sql',entry=MIGRATION_MANIFEST.find(row=>row.name===name),bodies={};
+  for(const direction of ['up','down']){
+    const sql=await readFile(new URL('../db/migrations/'+(direction==='down'?'down/':'')+name,import.meta.url),'utf8');
+    assert.equal(createHash('sha256').update(sql).digest('hex'),entry[direction]);
+    bodies[direction]=sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');
+  }
+  const client=await adminPool.connect(),signature='refs_assert_wbs_test_exact_period(uuid,uuid,uuid,jsonb)';
+  const historical="SELECT pg_get_functiondef('refs_retain_wbs_test_payable_source(uuid,uuid,uuid,jsonb,jsonb,integer,text,text)'::regprocedure) body";
+  try{
+    await client.query('BEGIN');
+    const legacy=(await client.query(historical)).rows[0].body;
+    const before=(await client.query('SELECT pg_get_functiondef($1::regprocedure) body',[signature])).rows[0].body;
+    await client.query(bodies.down);
+    assert.equal((await client.query('SELECT to_regprocedure($1) oid',[signature])).rows[0].oid,null);
+    assert.equal((await client.query(historical)).rows[0].body,legacy);
+    await client.query(bodies.up);
+    assert.equal((await client.query('SELECT pg_get_functiondef($1::regprocedure) body',[signature])).rows[0].body,before);
+    assert.equal((await client.query("SELECT has_function_privilege('refs_app',$1,'EXECUTE') allowed",[signature])).rows[0].allowed,true);
+    assert.equal((await client.query('SELECT count(*)::integer n FROM pg_proc p CROSS JOIN LATERAL aclexplode(p.proacl) a WHERE p.oid=$1::regprocedure AND a.grantee=0 AND a.privilege_type=\'EXECUTE\'',[signature])).rows[0].n,0);
+    assert.equal((await client.query("SELECT has_table_privilege('refs_app','accounting_period','UPDATE') allowed")).rows[0].allowed,false);
+    assert.equal((await client.query(historical)).rows[0].body,legacy);
+  }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
+pgTest('WBS exact period guard rejects cross-period Payable and Bank persistence before retained writes',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'exact-period-importer',['WBS.TEST.IMPORT'])});
+  const period=(await adminPool.query('SELECT starts_on::text,ends_on::text FROM accounting_period WHERE period_id=$1',[ids.periodId])).rows[0];
+  const row={accounting_date:'2025-02-15'},observation={rows:[row]};
+  const counts=async()=> (await adminPool.query(`SELECT
+    (SELECT count(*)::integer FROM wbs_test_payable_source_receipt WHERE tenant_id=$1) retained,
+    (SELECT count(*)::integer FROM source_document WHERE tenant_id=$1) sources,
+    (SELECT count(*)::integer FROM ledger_line WHERE tenant_id=$1) ledger,
+    (SELECT count(*)::integer FROM idempotency_receipt WHERE tenant_id=$1) idempotency`,[ids.tenantId])).rows[0];
+  const before=await counts();
+  await assert.rejects(kernel.assertWbsTestImportPeriod({...ids,dateFrom:'2026-01-01',dateTo:'2026-12-31',rows:[{accounting_date:period.starts_on}]}),{code:'WBS_TEST_IMPORT_SCOPE_DENIED'});
+  await assert.rejects(kernel.assertWbsTestImportPeriod({...ids,dateFrom:period.starts_on,dateTo:period.ends_on,rows:[{accounting_date:period.starts_on},row]}),{code:'22023'});
+  await kernel.assertWbsTestImportPeriod({...ids,dateFrom:period.starts_on,dateTo:period.ends_on,rows:[{accounting_date:period.starts_on},{accounting_date:period.ends_on}]});
+  await assert.rejects(kernel.retainWbsTestPayableSource({...ids,row,observation,rowIndex:0,idempotencyKey:'exact-period-payable-reject'}),{code:'22023'});
+  await assert.rejects(kernel.createWbsControlledTestBankScope({...ids,companyCode:'WBPA',observation,bankAccountRef:'WBS_TEST_BANK',idempotencyKey:'exact-period-bank-reject'}),{code:'22023'});
+  assert.deepEqual(await counts(),before);
+  for(const accounting_date of [period.starts_on,period.ends_on])await kernel.inSession(client=>client.query('SELECT refs_assert_wbs_test_exact_period($1,$2,$3,$4::jsonb)',[ids.tenantId,ids.entityId,ids.periodId,JSON.stringify([{accounting_date}])]));
+  await assert.rejects(kernel.inSession(client=>client.query('SELECT refs_assert_wbs_test_exact_period($1,$2,$3,$4::jsonb)',[ids.tenantId,randomUUID(),ids.periodId,JSON.stringify([{accounting_date:period.starts_on}])])),{code:'42501'});
+  assert.deepEqual(await counts(),before);
+});
+
+pgTest('WBS exact period guard serializes concurrent closure and rejects closed-period resume without evidence writes',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'exact-period-race-importer',['WBS.TEST.IMPORT'])});
+  const selected=(await adminPool.query('SELECT starts_on::text,ends_on::text FROM accounting_period WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3',[ids.tenantId,ids.entityId,ids.periodId])).rows[0];
+  const input={...ids,dateFrom:selected.starts_on,dateTo:selected.ends_on,rows:[{accounting_date:selected.starts_on}]};
+  const counts=async()=>(await adminPool.query(`SELECT
+    (SELECT count(*)::int FROM source_document WHERE tenant_id=$1) sources,
+    (SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,
+    (SELECT count(*)::int FROM wbs_test_bank_import_receipt WHERE tenant_id=$1) bank_receipts,
+    (SELECT count(*)::int FROM wbs_test_payable_source_receipt WHERE tenant_id=$1) payable_receipts,
+    (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1) idempotency`,[ids.tenantId])).rows[0];
+  const before=await counts(),closer=await adminPool.connect();
+  try{
+    await importer.inSession(async client=>{
+      await client.query('SELECT refs_assert_wbs_test_exact_period($1,$2,$3,$4::jsonb)',[ids.tenantId,ids.entityId,ids.periodId,JSON.stringify(input.rows)]);
+      await closer.query('BEGIN');
+      await closer.query("SET LOCAL lock_timeout='100ms'");
+      await assert.rejects(closer.query("UPDATE accounting_period SET status='SOFT_CLOSED',closed_by='concurrent-controller',closed_at=now(),version=version+1 WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3",[ids.tenantId,ids.entityId,ids.periodId]),{code:'55P03'});
+      await closer.query('ROLLBACK');
+    });
+    const closed=await closer.query("UPDATE accounting_period SET status='SOFT_CLOSED',closed_by='concurrent-controller',closed_at=now(),version=version+1 WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3 RETURNING status",[ids.tenantId,ids.entityId,ids.periodId]);
+    assert.equal(closed.rows[0].status,'SOFT_CLOSED');
+    await assert.rejects(importer.assertWbsTestImportPeriod(input),{code:'55000'});
+    await assert.rejects(importer.createWbsControlledTestBankScope({...ids,companyCode:'WBPA',observation:{rows:input.rows},bankAccountRef:'WBS_TEST_BANK',idempotencyKey:'closed-period-resume'}),{code:'55000'});
+    assert.deepEqual(await counts(),before);
+  }finally{await closer.query('ROLLBACK').catch(()=>{});closer.release();}
+});
+
+pgTest('WBS Bank chunk and finalization reject intervening period closure then resume the exact immutable checkpoint',async()=>{
+  for(const closeBeforeTransaction of [2,3]){
+    const ids=await seed({status:'DRAFT',attachmentStatus:null});
+    const period=(await adminPool.query('SELECT starts_on::text,ends_on::text FROM accounting_period WHERE period_id=$1',[ids.periodId])).rows[0];
+    const rows=[{source_record_hash:hash(`bank-close-${closeBeforeTransaction}`),currency:'USD',accounting_date:period.starts_on,amount:'1.0000',direction:'DEBIT',status:'POSTED'}];
+    const observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_bank_transactions',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-19T00:00:00.000Z',provider_content_sha256:createHash('sha256').update(`bank-close-provider-${closeBeforeTransaction}`).digest('hex'),scope:{company_codes:['WBPA'],date_range:[period.starts_on,period.ends_on]},record_count:1,rows,signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash(`bank-close-observation-${closeBeforeTransaction}`)};
+    const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,`bank-close-importer-${closeBeforeTransaction}`,['WBS.TEST.IMPORT'])});
+    const input={...ids,companyCode:'WBPA',observation,bankAccountRef:'WBS_TEST_BANK',idempotencyKey:`bank-close-resume-${closeBeforeTransaction}`};
+    const counts=async()=>(await adminPool.query(`SELECT
+      (SELECT count(*)::int FROM source_document WHERE tenant_id=$1) sources,
+      (SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,
+      (SELECT count(*)::int FROM wbs_test_bank_import_receipt WHERE tenant_id=$1) receipts,
+      (SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger`,[ids.tenantId])).rows[0];
+    const before=await counts(),original=importer.inSession.bind(importer);let transactions=0;
+    importer.inSession=async work=>{
+      if(++transactions===closeBeforeTransaction)await adminPool.query("UPDATE accounting_period SET status='SOFT_CLOSED',closed_by='checkpoint-controller',closed_at=now(),version=version+1 WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3",[ids.tenantId,ids.entityId,ids.periodId]);
+      return original(work);
+    };
+    await assert.rejects(importer.createWbsControlledTestBankScope(input),{code:'55000'});
+    assert.deepEqual(await counts(),before);
+    const partial=(await adminPool.query(`SELECT
+      (SELECT count(*)::int FROM wbs_test_bank_import_stage WHERE tenant_id=$1) stages,
+      (SELECT count(*)::int FROM wbs_test_bank_import_stage_chunk WHERE tenant_id=$1) chunks`,[ids.tenantId])).rows[0];
+    assert.deepEqual(partial,{stages:1,chunks:closeBeforeTransaction===2?0:1});
+    importer.inSession=original;
+    await assert.rejects(importer.createWbsControlledTestBankScope(input),{code:'55000'});
+    assert.deepEqual(await counts(),before);
+    await adminPool.query("UPDATE accounting_period SET status='OPEN',closed_by=NULL,closed_at=NULL,version=version+1 WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3",[ids.tenantId,ids.entityId,ids.periodId]);
+    const result=await importer.createWbsControlledTestBankScope(input);
+    assert.equal(result.status,'FINALIZED');assert.equal(result.transaction_count,1);
+    const after=await counts();assert.deepEqual(after,{sources:before.sources+1,bank:before.bank+1,receipts:before.receipts+1,ledger:before.ledger});
+    const replay=await importer.createWbsControlledTestBankScope(input);
+    assert.equal(replay.idempotent,true);assert.equal(replay.wbs_test_bank_import_receipt_id,result.wbs_test_bank_import_receipt_id);assert.equal(replay.receipt_hash,result.receipt_hash);
+    assert.deepEqual(await counts(),after);
+  }
+});
+
 pgTest('exact ledger identity resolves multiple posted journals and historical report support without crossing scope',async()=>{
   const ids=await seed();
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'identity-poster',['GL.JE.POST'])});
@@ -1200,8 +1312,11 @@ pgTest('WBS TEST IMPORT retains an unsigned Payable before an independent human 
   await adminPool.query("UPDATE account_master SET requires_member=false,required_member_type=NULL WHERE account_code='291001' AND ((tenant_id=$1 AND entity_id=$2) OR (tenant_id=$3 AND entity_id=$4))",[ids.tenantId,ids.entityId,other.tenantId,other.entityId]);
   await adminPool.query("UPDATE entity SET source_system='REFS_STAGE1',source_entity_id='LEGACY-WBPA' WHERE tenant_id=$1 AND entity_id=$2",[ids.tenantId,ids.entityId]);
   const otherEntityBinding=(await adminPool.query('SELECT source_system,source_entity_id FROM entity WHERE tenant_id=$1 AND entity_id=$2',[other.tenantId,other.entityId])).rows[0];
-  const rows=Array.from({length:10},(_,index)=>({source_record_hash:hash(`wbs-test-payable-row-${index}`),currency:'USD',accounting_date:index===0?'2025-02-15':`2025-03-${String(index+1).padStart(2,'0')}`,amount:index===0?'12.3000':'1.0000',status:'CLEAR'})),row=rows[0];
-  const observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_payables',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-18T00:00:00.000Z',provider_content_sha256:createHash('sha256').update('provider-content').digest('hex'),scope:{company_codes:['WBPA'],date_range:['2025-01-01','2025-12-31']},record_count:10,rows,signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash('wbs-test-observation')};
+  // New writes must retain actual source dates in the selected period. The
+  // separate exact-period regression rejects historical out-of-period inputs;
+  // this positive workflow fixture must no longer depend on silent clamping.
+  const rows=Array.from({length:10},(_,index)=>({source_record_hash:hash(`wbs-test-payable-row-${index}`),currency:'USD',accounting_date:`2026-07-${String(index+1).padStart(2,'0')}`,amount:index===0?'12.3000':'1.0000',status:'CLEAR'})),row=rows[0];
+const observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_payables',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-18T00:00:00.000Z',provider_content_sha256:createHash('sha256').update('provider-content').digest('hex'),scope:{company_codes:['WBPA'],date_range:['2026-07-01','2026-07-31']},record_count:10,rows,signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash('wbs-test-observation')};
   const untouchedAccount=(await adminPool.query("SELECT account_name,requires_member,required_member_type,active FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='120200'",[ids.tenantId,ids.entityId])).rows[0];
   const counts=async()=>(await adminPool.query(`SELECT
     (SELECT count(*)::int FROM import_batch WHERE tenant_id=$1) import_batches,
@@ -1249,9 +1364,9 @@ pgTest('WBS TEST IMPORT retains an unsigned Payable before an independent human 
     JOIN source_link sl ON sl.tenant_id=d.tenant_id AND sl.entity_id=d.entity_id AND sl.source_document_id=d.source_document_id AND sl.link_type='SOURCE_ATTACHMENT'
     JOIN attachment a ON a.tenant_id=sl.tenant_id AND a.attachment_id=sl.attachment_id
     WHERE d.tenant_id=$1 AND d.entity_id=$2 AND d.source_document_id=$3`,[ids.tenantId,ids.entityId,retained.source_document_id])).rows[0];
-  assert.equal(source.business_date,'2025-02-15');assert.equal(source.accounting_date,'2026-07-01');assert.equal(source.status,'READY_FOR_DRAFT');
+  assert.equal(source.business_date,'2026-07-01');assert.equal(source.accounting_date,'2026-07-01');assert.equal(source.status,'READY_FOR_DRAFT');
   assert.equal(source.gross_amount,'12.3000');assert.equal(source.line_amount,'12.3000');
-  assert.equal(source.external_dimension_refs.original_accounting_date,'2025-02-15');assert.equal(source.external_dimension_refs.posting_accounting_date,'2026-07-01');
+  assert.equal(source.external_dimension_refs.original_accounting_date,'2026-07-01');assert.equal(source.external_dimension_refs.posting_accounting_date,'2026-07-01');
   assert.equal(source.external_dimension_refs.schema_version,'WBS_TEST_IMPORT_LINE_V2');assert.equal(source.external_dimension_refs.provenance_mode,'UNSIGNED_TEST_ONLY');
   assert.equal(source.scan_status,'CLEAN');assert.equal(source.finalization_status,'VERIFIED_CLEAN');assert.match(source.storage_ref,/^object:\/\/refs-test-only\//);
   const accounting=(await adminPool.query(`SELECT b.accounting_date::text business_accounting_date,b.status business_status,j.journal_date::text journal_date,j.status::text journal_status

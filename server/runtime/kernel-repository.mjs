@@ -306,8 +306,17 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async assertWbsTestImportPeriod({tenantId,entityId,periodId,dateFrom,dateTo,rows}){
+    return this.inSession(async client=>{
+      await client.query('SELECT refs_assert_wbs_test_exact_period($1,$2,$3,$4::jsonb)',[tenantId,entityId,periodId,JSON.stringify(rows)]);
+      const period=requireRow(await client.query('SELECT starts_on::text AS starts_on,ends_on::text AS ends_on FROM accounting_period WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3',[tenantId,entityId,periodId]),'WBS_TEST_IMPORT_SCOPE_DENIED','Exact test-import period is unavailable');
+      if(dateFrom!==period.starts_on||dateTo!==period.ends_on)throw new KernelError('WBS_TEST_IMPORT_SCOPE_DENIED','Test-import request must match the exact selected period dates');
+    });
+  }
+
   async retainWbsTestPayableSource({tenantId,entityId,periodId,observation,row,rowIndex,idempotencyKey}){
     return this.inSession(async client=>{
+      await client.query('SELECT refs_assert_wbs_test_exact_period($1,$2,$3,$4::jsonb)',[tenantId,entityId,periodId,JSON.stringify([row])]);
       const payload=[tenantId,entityId,periodId,JSON.stringify(observation),JSON.stringify(row),rowIndex];
       const requestHash=requireRow(await client.query(
         'SELECT refs_retain_wbs_test_payable_source_hash($1,$2,$3,$4::jsonb,$5::jsonb,$6) AS request_hash',payload
@@ -334,6 +343,7 @@ export class PostgresAccountingKernel{
 
   async createWbsControlledTestBankScope({tenantId,entityId,periodId,companyCode,observation,bankAccountRef,idempotencyKey}){
     const begin=await this.inSession(async client=>{
+      await client.query('SELECT refs_assert_wbs_test_exact_period($1,$2,$3,$4::jsonb)',[tenantId,entityId,periodId,JSON.stringify(observation?.rows??null)]);
       const payload=[tenantId,entityId,periodId,companyCode,JSON.stringify(observation),bankAccountRef];
       const requestHash=requireRow(await client.query(
         'SELECT refs_create_wbs_controlled_test_bank_scope_hash($1,$2,$3,$4,$5::jsonb,$6) AS request_hash',payload
@@ -349,13 +359,17 @@ export class PostgresAccountingKernel{
     const stop=Math.min(begin.chunk_count,begin.next_chunk_index+20);
     for(let chunkIndex=begin.next_chunk_index;chunkIndex<stop;chunkIndex++){
       const chunk=rows.slice(chunkIndex*100,(chunkIndex+1)*100);
-      await this.inSession(async client=>requireRow(await client.query(
+      await this.inSession(async client=>{
+        await client.query('SELECT refs_assert_wbs_test_exact_period($1,$2,$3,$4::jsonb)',[tenantId,entityId,periodId,JSON.stringify(chunk)]);
+        return requireRow(await client.query(
         'SELECT refs_append_wbs_test_bank_staged_chunk($1,$2,$3,$4,$5::jsonb,$6) AS result',
         [tenantId,entityId,begin.stage_id,chunkIndex,JSON.stringify(chunk),`${idempotencyKey}:chunk:${chunkIndex}`]
-      ),'WBS_TEST_BANK_APPEND_FAILED','Controlled test Bank staged chunk was not retained').result);
+        ),'WBS_TEST_BANK_APPEND_FAILED','Controlled test Bank staged chunk was not retained').result;
+      });
     }
     if(stop<begin.chunk_count)return {...begin,next_chunk_index:stop,idempotent:false};
     return this.inSession(async client=>{
+      await client.query('SELECT refs_assert_wbs_test_exact_period($1,$2,$3,$4::jsonb)',[tenantId,entityId,periodId,JSON.stringify(rows)]);
       await client.query("SELECT set_config('statement_timeout',$1,true)",[WBS_TEST_BANK_FINALIZE_STATEMENT_TIMEOUT]);
       return requireRow(await client.query(
         'SELECT refs_finalize_wbs_test_bank_import_receipt($1,$2,$3) AS result',[tenantId,entityId,begin.stage_id]
