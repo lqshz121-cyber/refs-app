@@ -7688,6 +7688,9 @@ pgTest('WBS H1 company runners use real staging grants and guarded settings deci
   assert.deepEqual(replay.counts,{ALREADY_APPROVED:1});assert.equal(replay.approved_now,0);
   const countSql="SELECT (SELECT count(*)::int FROM runtime_auth_context) contexts,(SELECT count(*)::int FROM wbs_h1_accounting_settings_human_decision WHERE tenant_id=$1) decisions,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger";
   const before=(await adminPool.query(countSql,[ids.tenantId])).rows[0];
+  await assert.rejects(()=>decideWbsH1AccountingSettingsForScopes({scopes:[...scopes,...scopes],kernel,reason}),/exactly one scope/);
+  await assert.rejects(()=>decideWbsH1AccountingSettingsForScopes({scopes:[{...scopes[0],period_code:'2026-07'}],kernel,reason}),/one 2026 H1 period/);
+  assert.deepEqual((await adminPool.query(countSql,[ids.tenantId])).rows[0],before,'Rejected expansion must not issue contexts, decisions or ledger writes');
   const denied=new StagingWbsH1SettingsKernel(runtimePool,{sessionProvider:()=>issuer.issue({tenantId:ids.tenantId})},{...target,installationId:randomUUID()},grantSyncPool);
   const result=await decideWbsH1AccountingSettingsForScopes({scopes,kernel:denied,reason});
   assert.deepEqual(result.counts,{FAILED:1});assert.equal(result.approved_now,0);

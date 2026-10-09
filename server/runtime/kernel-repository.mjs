@@ -604,6 +604,14 @@ export class PostgresAccountingKernel{
     return true;
   }
 
+  async assertBoundedWbsBankImportRequest({tenantId,entityId,periodId,companyCode,dateFrom,dateTo,limit}){
+    await this.inSession(client=>client.query(
+      'SELECT refs_assert_bounded_wbs_bank_import_request($1,$2,$3,$4,$5::date,$6::date,$7::integer)',
+      [tenantId,entityId,periodId,companyCode,dateFrom,dateTo,limit]
+    ));
+    return true;
+  }
+
   async assertWbsOperatorPayableAttest({tenantId,entityId}){
     await this.inSession(client=>client.query("SELECT refs_assert_scope($1,$2,'WBS.PAYABLE.OPERATOR_ATTEST')",[tenantId,entityId]));
     return true;

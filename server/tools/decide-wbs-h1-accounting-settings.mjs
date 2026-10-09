@@ -84,6 +84,10 @@ export function classifyWbsH1SettingsScope({proposal,decision}){
 export async function decideWbsH1AccountingSettingsForScopes({scopes,kernel,reason,dryRun=false,onProgress=()=>{}}){
   if(!Array.isArray(scopes)||typeof kernel?.readWbsH1AccountingSettingsProposal!=='function'||typeof kernel?.readWbsH1AccountingSettingsDecision!=='function'||typeof kernel?.decideWbsH1AccountingSettings!=='function')throw new Error('WBS H1 settings decision runner configuration is invalid');
   if(typeof reason!=='string'||reason.trim().length<8||reason.trim().length>2000)throw new Error('Settings decision reason must be 8..2000 characters');
+  if(dryRun!==true){
+    if(scopes.length!==1)throw new Error('Settings pilot requires exactly one scope; expansion is not authorized');
+    assertSettingsPilotScope({companyCode:scopes[0]?.company_code??null,periodCode:scopes[0]?.period_code??null,dryRun:false});
+  }
   const summary={status:dryRun?'WBS_H1_SETTINGS_DECISION_PLAN':'WBS_H1_SETTINGS_DECISIONS_COMPLETE',dry_run:dryRun,scope_count:scopes.length,counts:{},plan_counts:{},approved_now:0,failed:0,exception_companies:[],failures:[]};
   const bump=key=>{summary.counts[key]=(summary.counts[key]||0)+1;};
   // Exceptions are folded per company (the WBS-side backlog is per company, not per month).

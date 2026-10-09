@@ -1,6 +1,6 @@
 {
   "schema_version": "REFS_TABLE_CENSUS_V1",
-  "migration_head":"455_wbs_test_payable_original_sign_evidence.sql",
+  "migration_head":"457_bank_request_settings_view.sql",
   "table_count": 251,
   "tables": [
     {"name":"wbs_test_payable_original_sign_evidence","created_by":"455_wbs_test_payable_original_sign_evidence.sql"},

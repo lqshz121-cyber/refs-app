@@ -17,6 +17,6 @@ test('original amount evidence is scoped append-only TEST_ONLY and bound to exac
 test('original sign migration is registered with exact up/down hashes and one new census table',()=>{
   const entry=MIGRATION_MANIFEST.find(row=>row.name===name);assert.ok(entry);
   for(const [direction,path] of [['up','../db/migrations/'],['down','../db/migrations/down/']])assert.equal(createHash('sha256').update(read(path+name)).digest('hex'),entry[direction]);
-  const census=JSON.parse(read('../db/TABLE-CENSUS.json'));assert.equal(census.migration_head,name);assert.equal(census.table_count,251);assert.equal(census.tables.filter(row=>row.name==='wbs_test_payable_original_sign_evidence'&&row.created_by===name).length,1);
+  const census=JSON.parse(read('../db/TABLE-CENSUS.json'));assert.equal(census.migration_head,MIGRATION_MANIFEST.at(-1).name);assert.ok(MIGRATION_MANIFEST.findIndex(row=>row.name===census.migration_head)>=MIGRATION_MANIFEST.findIndex(row=>row.name===name));assert.equal(census.table_count,251);assert.equal(census.tables.filter(row=>row.name==='wbs_test_payable_original_sign_evidence'&&row.created_by===name).length,1);
   const down=read('../db/migrations/down/'+name);assert.ok(down.includes('RENAME TO refs_create_wbs_test_payable_draft'));assert.ok(down.includes('DROP TABLE wbs_test_payable_original_sign_evidence'));
 });

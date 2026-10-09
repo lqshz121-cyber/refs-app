@@ -1,4 +1,5 @@
 import {pathToFileURL} from 'node:url';
+import {boundedBankRequestConfig} from './bounded-bank-request-authorizer.mjs';
 import {readFile} from 'node:fs/promises';
 import {createPool} from './db.mjs';import {runtimeConfig} from './config.mjs';
 import {OidcJwtAuthenticator,RemoteJwksResolver} from '../api/oidc-authenticator.mjs';
@@ -122,6 +123,8 @@ export function accountingServerConfig(env=process.env){
     if(!UUID.test(env.REFS_WBS_TEST_IMPORT_TENANT_ID||'')||!UUID.test(env.REFS_WBS_TEST_IMPORT_ENTITY_ID||'')||!/^[A-Z0-9][A-Z0-9_:-]{0,63}$/.test(env.REFS_WBS_TEST_IMPORT_COMPANY_CODE||'')||new Set(Object.values(actors)).size!==actorKeys.length)throw new Error('REFS_WBS_TEST_IMPORT scope and actors must be canonical and distinct');
     wbsTestImport={tenantId:env.REFS_WBS_TEST_IMPORT_TENANT_ID,entityId:env.REFS_WBS_TEST_IMPORT_ENTITY_ID,companyCode:env.REFS_WBS_TEST_IMPORT_COMPANY_CODE,actors};
   }
+  const boundedBankRequest=boundedBankRequestConfig(env,wbsTestImport);
+  if(boundedBankRequest)wbsTestImport={...wbsTestImport,boundedBankRequest};
   let controlledTestAiWorkflow=null;
   if(controlledTestAiMode==='ENABLED'){
     if(String(env.REFS_DEPLOYMENT_ENV||'').trim().toLowerCase()!=='staging')throw new Error('REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE may be enabled only in staging');

@@ -80,10 +80,11 @@ const rollbackSql=()=>readFile(new URL('../db/migrations/down/374_accounting_set
 // the reverse-order prefix: roll back 412 - the only later migration that touches this CHECK -
 // inside the same transaction before exercising down/374.
 // Later migrations that widen the same additive-authority check must be rolled back first, newest
-// first: 445 (saved-view VIEW), 441 (workflow VIEW authorities), then 412 (recurring schedule VIEW).
+// first: 457 (bounded Bank request/settings VIEW), 445 (saved-view VIEW),
+// 441 (workflow VIEW authorities), then 412 (recurring schedule VIEW).
 const rollbackSharedCheckPrefixSql=async()=>{
   const read=name=>readFile(new URL('../db/migrations/down/'+name,import.meta.url),'utf8');
-  return (await Promise.all(['445_workflow_authority_reachability.sql','441_workflow_view_additive_authority.sql','412_recurring_scheduler_read_authority_fix.sql'].map(read)))
+  return (await Promise.all(['457_bank_request_settings_view.sql','445_workflow_authority_reachability.sql','441_workflow_view_additive_authority.sql','412_recurring_scheduler_read_authority_fix.sql'].map(read)))
     .map(sql=>sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'')).join('\n');
 };
 const stripTransaction=sql=>sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');

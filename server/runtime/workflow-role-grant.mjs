@@ -1,6 +1,8 @@
 import {KernelError} from './db.mjs';
 import {PostgresGrantSync} from './grant-sync.mjs';
 import {ADDITIONAL_WORKFLOW_ROLES} from './additional-workflow-roles.mjs';
+import {SETTINGS_MAPPING_READ_ROLE} from './settings-mapping-read-role.mjs';
+import {BANK_REQUEST_SETTINGS_ROLE,BANK_REQUEST_ACCOUNTING_VIEW_ROLE} from './bank-request-settings-role.mjs';
 import {RemoteJwksResolver,OidcJwtAuthenticator} from '../api/oidc-authenticator.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -16,6 +18,10 @@ export const AUTHORITATIVE_WORKFLOW_ROLES=Object.freeze({
   ...Object.fromEntries(Object.entries(ADDITIONAL_WORKFLOW_ROLES).map(([name,definition])=>[name,role(definition.authorityClass,[...(definition.permission.startsWith('RECURRING.SCHEDULE.')?[]:READ),...(definition.permission.startsWith('ACCOUNTING.SETTINGS.WORKFLOW.')&&definition.permission!=='ACCOUNTING.SETTINGS.WORKFLOW.VIEW'?['ACCOUNTING.SETTINGS.WORKFLOW.VIEW']:[]),definition.permission])])),
   RECURRING_SCHEDULE_VIEWER:role('READ',[...READ,'RECURRING.SCHEDULE.VIEW']),
   ACCOUNTING_SETTINGS_WORKFLOW_VIEWER:role('READ',[...READ,'ACCOUNTING.SETTINGS.WORKFLOW.VIEW']),
+  ACCOUNTING_SETTINGS_MAPPING_VIEWER:SETTINGS_MAPPING_READ_ROLE,
+  WBS_BANK_IMPORT_REQUESTER:role('BANK_IMPORT_REQUEST',['WBS.AUTOREC.VIEW','WBS.TEST.BANK.IMPORT.REQUEST']),
+  WBS_BANK_IMPORT_REQUESTER_SETTINGS_VIEWER:BANK_REQUEST_SETTINGS_ROLE,
+  WBS_BANK_IMPORT_REQUESTER_ACCOUNTING_VIEWER:BANK_REQUEST_ACCOUNTING_VIEW_ROLE,
   COUNTERPARTY_MAKER:role('DRAFT',[...READ,'MASTER.COUNTERPARTY.PROPOSE']),
   COUNTERPARTY_APPROVER:role('APPROVE',[...READ,'MASTER.COUNTERPARTY.APPROVE']),
   WBS_SNAPSHOT_IMPORTER_SERVICE:role('SERVICE',['WBS.SNAPSHOT.IMPORT'],{principalKind:'SERVICE'}),
@@ -104,6 +110,7 @@ export const WORKFLOW_SOD_GROUPS=Object.freeze([
 ]);
 const stageByPermission=new Map(WORKFLOW_SOD_GROUPS.flatMap((group,index)=>group.map(permission=>[permission,index])));
 const additionalAuthorityByPermission=new Map(Object.values(ADDITIONAL_WORKFLOW_ROLES).map(({permission,authorityClass})=>[permission,authorityClass]));
+additionalAuthorityByPermission.set('WBS.TEST.BANK.IMPORT.REQUEST','BANK_IMPORT_REQUEST');
 for(const [permission,authorityClass] of additionalAuthorityByPermission)if(!stageByPermission.has(permission))stageByPermission.set(permission,`native:${authorityClass}`);
 
 export function assertWorkflowRoleSafety(definition){

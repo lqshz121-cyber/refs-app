@@ -6,6 +6,7 @@ import {AttachmentEvidenceService} from './attachment-storage.mjs';
 import {createWbsInboundAutoRecHttpReadService} from './wbs-inbound-autorec-http-read-service.mjs';
 import {grantStage1SelfReadAccess,upgradeStage1ControlledTestWorkflowAccess,upgradeStage1WbsOperatorAccess,upgradeStage1WbsReadAccess} from './stage1-bootstrap.mjs';
 import {createWbsLivePilotReadService} from './wbs-live-pilot-read-service.mjs';
+import {createBoundedBankRequestAuthorizer,boundedBankRequestReady} from './bounded-bank-request-authorizer.mjs';
 import {createWbsOperatorAttestedPayableService} from './wbs-operator-attested-payable.mjs';
 import {createWbsAdmittedPayableIngestion} from './wbs-admitted-payable-ingestion.mjs';
 import {createWbsProviderSignedPayableAdmission} from './wbs-provider-signed-payable-admission.mjs';
@@ -329,7 +330,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
   const aiFullControllerModelServiceFactory=aiGateway?principal=>createAiFullControllerModelOrchestrator({scanService:aiFullControllerScanServiceFactory(principal),gateway:aiGateway,kernel:kernelFor(principal),releaseSha}):undefined;
   const server=createAccountingHttpServer({
     maxBodyBytes,releaseSha,
-    healthCheck:async()=>{try{const checks=[runtimePool.query('SELECT 1 AS ready'),issuerPool.query('SELECT 1 AS ready'),runtimePool.query(INSURANCE_PC_MAPPING_READINESS),runtimePool.query(ACCOUNTING_SETTINGS_WORKFLOW_READINESS),runtimePool.query(RECENT_ACCOUNTING_WORKFLOW_READINESS)];if(wbsTestImport)checks.push(runtimePool.query(WBS_TEST_IMPORT_READINESS));if(controlledTestAiWorkflow)checks.push(runtimePool.query(CONTROLLED_TEST_AI_READINESS));if(aiGateway)checks.push(runtimePool.query(AI_FULL_CONTROLLER_MODEL_READINESS));if(attachmentEnabled)checks.push(attachmentStorage.probe(),virusScanner.probe());if(wbsImmutableEvidenceStorage)checks.push(wbsImmutableEvidenceStorage.probeImmutable());const [runtime,issuer,...dependencies]=await Promise.all(checks);return runtime.rowCount===1&&issuer.rowCount===1&&dependencies.every(result=>result===true||result?.rows?.[0]?.ready===true||result===undefined);}catch{return false;}},
+    healthCheck:async()=>{try{const checks=[runtimePool.query('SELECT 1 AS ready'),issuerPool.query('SELECT 1 AS ready'),runtimePool.query(INSURANCE_PC_MAPPING_READINESS),runtimePool.query(ACCOUNTING_SETTINGS_WORKFLOW_READINESS),runtimePool.query(RECENT_ACCOUNTING_WORKFLOW_READINESS)];if(wbsTestImport)checks.push(runtimePool.query(WBS_TEST_IMPORT_READINESS));if(wbsTestImport?.boundedBankRequest)checks.push(boundedBankRequestReady(runtimePool));if(controlledTestAiWorkflow)checks.push(runtimePool.query(CONTROLLED_TEST_AI_READINESS));if(aiGateway)checks.push(runtimePool.query(AI_FULL_CONTROLLER_MODEL_READINESS));if(attachmentEnabled)checks.push(attachmentStorage.probe(),virusScanner.probe());if(wbsImmutableEvidenceStorage)checks.push(wbsImmutableEvidenceStorage.probeImmutable());const [runtime,issuer,...dependencies]=await Promise.all(checks);return runtime.rowCount===1&&issuer.rowCount===1&&dependencies.every(result=>result===true||result?.rows?.[0]?.ready===true||result===undefined);}catch{return false;}},
     authenticate:request=>authenticator.authenticate(request),
     kernelFactory:kernelFor,
     readKernelFactory:principal=>kernelFor(principal,{allowReadFallback:true}),
@@ -375,8 +376,9 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
     wbsTestImportServiceFactory:wbsTestImport?principal=>{
       const kernelForActor=actorId=>kernelFor({trusted:true,tenantId:wbsTestImport.tenantId,actorId});
       const authorizeBank=scope=>kernelFor(principal).assertWbsTestImport(scope);
+      const authorizeBoundedBankRequest=wbsTestImport.boundedBankRequest?createBoundedBankRequestAuthorizer({kernel:kernelFor(principal),scope:wbsTestImport.boundedBankRequest}):null;
       return Object.freeze({
-        ...createWbsTestImportService({scope:wbsTestImport,resolveScope:selection=>kernelFor(principal).resolveWbsTestImportScope(selection),pilotService:createWbsLivePilotReadService({client:wbsLivePilotClient,authorize:scope=>kernelFor(principal).assertWbsAutoRecView(scope)}),authorizeBank,kernelForActor}),
+        ...createWbsTestImportService({scope:wbsTestImport,resolveScope:selection=>kernelFor(principal).resolveWbsTestImportScope(selection),pilotService:createWbsLivePilotReadService({client:wbsLivePilotClient,authorize:scope=>kernelFor(principal).assertWbsAutoRecView(scope)}),authorizeBank,authorizeBoundedBankRequest,kernelForActor}),
         ...createControlledTestBankWorkflowService({scope:{...wbsTestImport,bankAccountRef:'WBS_TEST_BANK',cashAccountCode:'111000',offsetAccountCode:'610000'},authorize:authorizeBank,kernelForActor}),
         runBankMatch:createControlledTestBankMatchService({scope:{...wbsTestImport,bankAccountRef:'WBS_TEST_BANK',cashAccountCode:'111000'},authorize:authorizeBank,kernelForActor}).run
       });

@@ -130,9 +130,10 @@ export async function reconcileWbsTestImportActorGrants({grantSync,scope}={}){
   }
 }
 
-export function createWbsTestImportService({pilotService,kernelForActor,authorizeBank,scope,resolveScope=null}={}){
+export function createWbsTestImportService({pilotService,kernelForActor,authorizeBank,authorizeBoundedBankRequest=null,scope,resolveScope=null}={}){
   if(!pilotService||typeof pilotService.readObservation!=='function'||typeof kernelForActor!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Test-import dependencies are unavailable.');
   if(resolveScope!==null&&typeof resolveScope!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Test-import scope resolver is invalid.');
+  if(authorizeBoundedBankRequest!==null&&typeof authorizeBoundedBankRequest!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Bounded Bank request authorization is invalid.');
   assertConfiguration(scope);
   const actors=Object.freeze(Object.fromEntries(ACTOR_ROLES.map(role=>[role,scope.actors[role].trim()])));
   const kernels=()=>Object.fromEntries(ACTOR_ROLES.map(role=>[role,kernelForActor(actors[role])]));
@@ -193,9 +194,10 @@ export function createWbsTestImportService({pilotService,kernelForActor,authoriz
     async importBankTransactions({tenantId,entityId,periodId,companyCode,dateFrom,dateTo,limit,idempotencyKey}={}){
       const selectedScope=await requestedScope({tenantId,entityId,companyCode});
       assertSelection({tenantId,entityId,periodId,companyCode,dateFrom,dateTo,limit},selectedScope);
-      if(typeof authorizeBank!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Controlled test Bank caller authorization is unavailable.');
+      if(authorizeBoundedBankRequest===null&&typeof authorizeBank!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Controlled test Bank caller authorization is unavailable.');
       if(typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>160)fail('WBS_TEST_IMPORT_IDEMPOTENCY_REQUIRED','A bounded test-import idempotency key is required.');
-      await authorizeBank({tenantId,entityId});
+      if(authorizeBoundedBankRequest!==null)await authorizeBoundedBankRequest({tenantId,entityId,periodId,companyCode,dateFrom,dateTo,limit});
+      else await authorizeBank({tenantId,entityId});
       const observation=await pilotService.readObservation({tenantId,entityId,tool:'list_bank_transactions',limit,company_code:companyCode,date_from:dateFrom,date_to:dateTo});
       assertWbsLivePilotResult(observation,{entityId,tool:'list_bank_transactions',limit});
       if(observation.scope?.company_codes?.length!==1||observation.scope.company_codes[0]!==companyCode||observation.scope?.date_range?.[0]!==dateFrom||observation.scope.date_range[1]!==dateTo)fail('WBS_TEST_IMPORT_SCOPE_DENIED','Provider Bank observation did not retain the configured test-import scope.');

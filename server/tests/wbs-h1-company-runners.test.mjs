@@ -8,6 +8,17 @@ import {classifyWbsH1SettingsScope,decideWbsH1AccountingSettingsForScopes,settin
 const T='6fb25daf-0799-4805-bede-be54230da33c';
 const E1='11111111-1111-4111-a111-111111111111',E2='22222222-2222-4222-a222-222222222222';
 
+test('settings exported writer rejects expansion and invalid period before any kernel access',async()=>{
+  let calls=0;
+  const access=async()=>{calls++;assert.fail('invalid scope must not reach kernel');};
+  const kernel={readWbsH1AccountingSettingsProposal:access,readWbsH1AccountingSettingsDecision:access,decideWbsH1AccountingSettings:access};
+  const scope={tenant_id:T,entity_id:E1,company_code:'WBPA',period_id:E2,period_code:'2026-06'};
+  for(const scopes of [[],[scope,scope],[{...scope,period_code:'2026-07'}],[{...scope,company_code:'WBPA,OTHER'}],[{...scope,period_code:null}]]){
+    await assert.rejects(()=>decideWbsH1AccountingSettingsForScopes({scopes,kernel,reason:'Bounded pilot regression'}));
+  }
+  assert.equal(calls,0);
+});
+
 test('settings CLI scope guard permits broad read-only plans but rejects unscoped pilot writes',()=>{
   assert.doesNotThrow(()=>assertSettingsPilotScope({companyCode:null,periodCode:null,dryRun:true}));
   assert.doesNotThrow(()=>assertSettingsPilotScope({companyCode:'WBPA',periodCode:'2026-01',dryRun:false}));
@@ -187,13 +198,15 @@ test('WH1R-5 settings runner: dry run decides nothing, real run approves APPROVA
   assert.equal(decisions.length,0);
   assert.deepEqual(plan.exception_companies,[{company_code:'OPBB',periods:['2026-01','2026-02'],exceptions:{MAPPING_MISSING:1,ACCOUNT_NOT_READY:0,MAPPING_AMBIGUOUS:0},missing_details:['LEGAL','TAX'],not_ready_accounts:[],ambiguous_details:[]}]);
   assert.equal(plan.failures[0].code,'42501');
-  const real=await decideWbsH1AccountingSettingsForScopes({scopes:scopes.slice(0,4),kernel,reason});
+  await assert.rejects(()=>decideWbsH1AccountingSettingsForScopes({scopes:scopes.slice(0,4),kernel,reason}),/exactly one scope/);
+  assert.equal(decisions.length,0);
+  const real=await decideWbsH1AccountingSettingsForScopes({scopes:scopes.slice(0,1),kernel,reason});
   assert.equal(real.status,'WBS_H1_SETTINGS_DECISIONS_COMPLETE');
-  assert.deepEqual(real.counts,{APPROVED:1,ALREADY_APPROVED:1,EXCEPTION:2});
+  assert.deepEqual(real.counts,{APPROVED:1});
   assert.equal(Object.values(real.counts).reduce((a,b)=>a+b,0),real.scope_count);
   assert.deepEqual([real.approved_now,decisions.length,decisions[0].outcome,decisions[0].expectedProposalHash],[1,1,'APPROVED','sha256:'+'1'.repeat(64)]);
   assert.equal(decisions[0].idempotencyKey,settingsDecisionIdempotencyKey('OPAA','2026-01','sha256:'+'1'.repeat(64)));
-  const again=await decideWbsH1AccountingSettingsForScopes({scopes:scopes.slice(0,4),kernel,reason});
-  assert.deepEqual([again.approved_now,again.counts.ALREADY_APPROVED,decisions.length],[0,2,1]);
+  const again=await decideWbsH1AccountingSettingsForScopes({scopes:scopes.slice(0,1),kernel,reason});
+  assert.deepEqual([again.approved_now,again.counts.ALREADY_APPROVED,decisions.length],[0,1,1]);
   await assert.rejects(()=>decideWbsH1AccountingSettingsForScopes({scopes,kernel,reason:'short'}),/8\.\.2000/);
 });
