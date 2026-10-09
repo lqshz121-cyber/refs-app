@@ -5,6 +5,7 @@ import {PostgresAccountingKernel} from './kernel-repository.mjs';
 import {AttachmentEvidenceService} from './attachment-storage.mjs';
 import {createWbsInboundAutoRecHttpReadService} from './wbs-inbound-autorec-http-read-service.mjs';
 import {grantStage1SelfReadAccess,upgradeStage1ControlledTestWorkflowAccess,upgradeStage1WbsOperatorAccess,upgradeStage1WbsReadAccess} from './stage1-bootstrap.mjs';
+import {createPreauthorizedBankAccess} from './preauthorized-bank-access.mjs';
 import {createWbsLivePilotReadService} from './wbs-live-pilot-read-service.mjs';
 import {createBoundedBankRequestAuthorizer,boundedBankRequestReady} from './bounded-bank-request-authorizer.mjs';
 import {createWbsOperatorAttestedPayableService} from './wbs-operator-attested-payable.mjs';
@@ -97,7 +98,7 @@ export function createProductionAiAccountingDecisionPacketServiceFactory({kernel
   };
 }
 
-export function createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant,stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade,stage1SelfControlledTestWorkflowUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsTestImport,controlledTestAiWorkflow,wbsProviderSignedTrust,wbsProviderSignedServiceActorId,aiGateway,runtimeLoginAllowlist=['refs_runtime'],maxBodyBytes,releaseSha,allowedOrigins=[],internalTest=null,internalTestPrincipalRouter=null}={}){
+export function createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,preauthorizedBankAccess,stage1SelfGrant,stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade,stage1SelfControlledTestWorkflowUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsTestImport,controlledTestAiWorkflow,wbsProviderSignedTrust,wbsProviderSignedServiceActorId,aiGateway,runtimeLoginAllowlist=['refs_runtime'],maxBodyBytes,releaseSha,allowedOrigins=[],internalTest=null,internalTestPrincipalRouter=null}={}){
   if(!runtimePool||!issuerPool||typeof authenticator?.authenticate!=='function')throw new Error('Production accounting server requires runtime pool, isolated issuer pool and authenticator');
   const attachmentEnabled=Boolean(attachmentStorage||virusScanner||scannerServiceActorId);
   if(attachmentEnabled&&(!attachmentStorage||!virusScanner||!scannerServiceActorId))throw new Error('Attachment integration requires object storage, virus scanner and scanner identity together');
@@ -107,7 +108,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
   if(Boolean(wbsProviderSignedTrust)!==Boolean(wbsProviderSignedServiceActorId))throw new Error('Provider signed WBS admission requires pinned trust and service actor identity together');
   if(Boolean(wbsImmutableEvidenceStorage)!==Boolean(wbsProviderSignedTrust))throw new Error('Final-1 retained evidence requires immutable WBS storage, pinned trust, and service actor together');
   if(aiGateway!=null&&typeof aiGateway.analyzeJson!=='function')throw new Error('AI gateway must expose analyzeJson when configured');
-  if((stage1SelfGrant!=null||stage1SelfWbsReadUpgrade!=null||stage1SelfWbsOperatorUpgrade!=null||stage1SelfControlledTestWorkflowUpgrade!=null)&&!grantSyncPool)throw new Error('Stage 1 self-grant requires the isolated grant-sync pool');
+  if((preauthorizedBankAccess!=null||stage1SelfGrant!=null||stage1SelfWbsReadUpgrade!=null||stage1SelfWbsOperatorUpgrade!=null||stage1SelfControlledTestWorkflowUpgrade!=null)&&!grantSyncPool)throw new Error('Stage 1 self-grant requires the isolated grant-sync pool');
   if(wbsTestImport&&!wbsLivePilotClient)throw new Error('WBS test import requires the configured live-pilot client');
   const initialReadSession=createInitialReadSessionFactory({tenantId:stage1SelfGrant?.tenantId,initializeReadAccess:stage1SelfGrant?({actorId,idempotencyKey})=>grantStage1SelfReadAccess(grantSyncPool,{...stage1SelfGrant,actorId,idempotencyKey}):undefined});
   const kernelFor=(principal,{allowReadFallback=false}={})=>{const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>principal});return new PostgresAccountingKernel(runtimePool,{runtimeLoginAllowlist,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,sessionProvider:initialReadSession({principal,issue:()=>issueAccountingReadContext(issuer,{tenantId:principal.tenantId,allowReadFallback})}),sessionRevoker:(session,{reason})=>issuer.revoke({contextToken:session.contextToken,reason})});};
@@ -334,6 +335,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
     authenticate:request=>authenticator.authenticate(request),
     kernelFactory:kernelFor,
     readKernelFactory:principal=>kernelFor(principal,{allowReadFallback:true}),
+    preauthorizedBankAccessServiceFactory:preauthorizedBankAccess?principal=>createPreauthorizedBankAccess({pool:grantSyncPool,config:preauthorizedBankAccess,principal}):undefined,
     stage1SelfGrantServiceFactory:stage1SelfGrant?principal=>({
       grant:async({entityId,idempotencyKey})=>{
         if(principal.tenantId!==stage1SelfGrant.tenantId||entityId!==stage1SelfGrant.entityId){

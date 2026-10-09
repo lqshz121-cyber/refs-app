@@ -461,6 +461,33 @@ export async function refreshAuthoritativeDocuments({config,fetcher=globalThis.f
   try{const [bills,invoices,apAdjustments,arAdjustments]=await Promise.all([readPeriodPages({config,path:'/ap/bills',operation:'AP_BILLS',authorization,fetcher}),readPeriodPages({config,path:'/ar/invoices',operation:'AR_INVOICES',authorization,fetcher}),readPeriodPages({config,path:'/ap/adjustments',operation:'AP_ADJUSTMENTS',authorization,fetcher}),readPeriodPages({config,path:'/ar/adjustments',operation:'AR_ADJUSTMENTS',authorization,fetcher})]);const refused=[bills,invoices,apAdjustments,arAdjustments].find(result=>!result.ok);if(refused)return refused;const apBills=bills.data.map(row=>documentRow(row,'AP_BILL',config.periodId)),arInvoices=invoices.data.map(row=>documentRow(row,'AR_INVOICE',config.periodId)),apRows=apAdjustments.data.map(row=>adjustmentRow(row,'AP',config.periodId)),arRows=arAdjustments.data.map(row=>adjustmentRow(row,'AR',config.periodId)),documentIds=[...apBills,...arInvoices].map(row=>row?.business_document_id),adjustmentIds=[...apRows,...arRows].map(row=>row?.business_adjustment_id);if([...apBills,...arInvoices,...apRows,...arRows].some(row=>row===null)||new Set(documentIds).size!==documentIds.length||new Set(adjustmentIds).size!==adjustmentIds.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid, cross-period, or duplicate AP/AR evidence row.'};return {ok:true,ap:{bills:apBills,adjustments:apRows,dupBlocked:0,scope:bills.scope,adjustmentsScope:apAdjustments.scope},ar:{invoices:arInvoices,adjustments:arRows,scope:invoices.scope,adjustmentsScope:arAdjustments.scope}};}catch{return unreachable('The browser could not complete the authoritative accounting read; no HTTP response was produced.');}
 }
 
+export const PREAUTHORIZED_BANK_READ_PERMISSIONS=Object.freeze(['AI.ACCOUNTING.SETTINGS.VIEW','AI.AMORTIZATION.VIEW','AP.VIEW','AR.VIEW','ACCOUNTING.SETTINGS.WORKFLOW.VIEW','BANK.VIEW','GL.JE.VIEW','GL.REPORT.VIEW','WBS.AUTOREC.VIEW','WBS.TEST.BANK.IMPORT.REQUEST'].sort());
+export async function readPreauthorizedBankAccess({config,fetcher=globalThis.fetch}={}){
+  if(!config||!UUID.test(config.entityId||'')||typeof fetcher!=='function')return notConfigured();
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/access/preauthorized-bank-read-grant`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response,'PREAUTHORIZED_BANK_ACCESS');
+    const body=await response.json(),data=body?.data;
+    if(body?.ok!==true||!data||Object.keys(data).length!==5||data.role!=='WBS_BANK_IMPORT_REQUESTER_ACCOUNTING_VIEWER'||data.entityId!==config.entityId||!Number.isSafeInteger(data.expectedVersion)||data.expectedVersion<0||!validTimestamp(data.validUntil)||data.permissionCount!==10)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Administrator activation policy is invalid or cross-company.'};
+    return {ok:true,data};
+  }catch{return unreachable('Administrator activation policy could not be read; no grant was requested.');}
+}
+export async function activatePreauthorizedBankAccess({config,fetcher=globalThis.fetch,idempotencyKey,confirmed=false}={}){
+  if(!config||!UUID.test(config.entityId||'')||typeof fetcher!=='function'||confirmed!==true||typeof idempotencyKey!=='string'||!/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey))return {ok:false,code:'PREAUTHORIZED_ACCESS_CONFIRMATION_REQUIRED',message:'Confirm the fixed administrator-approved access before activation.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/access/preauthorized-bank-read-grant/activate`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:'{}'});
+    if(!response.ok)return await failure(response,'PREAUTHORIZED_BANK_ACCESS');
+    const body=await response.json(),data=body?.data;
+    if(body?.ok!==true||!data||Object.keys(data).length!==5||data.role!=='WBS_BANK_IMPORT_REQUESTER_ACCOUNTING_VIEWER'||!Number.isSafeInteger(data.version)||data.version<1||!validTimestamp(data.validUntil)||data.permissionCount!==10||typeof data.idempotent!=='boolean')return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Administrator activation returned an invalid grant receipt.'};
+    const access=await refreshCurrentActorAccess({config,fetcher});if(!access.ok)return access;
+    const effective=[...access.row.permissions].sort();
+    if(access.row.session_refresh_required||access.row.grant_set_version!==data.version||effective.length!==10||effective.some((p,i)=>p!==PREAUTHORIZED_BANK_READ_PERMISSIONS[i]))return {ok:false,code:'PREAUTHORIZED_ACCESS_READBACK_MISMATCH',message:'The effective grant differs from the activation receipt. Refresh your authenticated session and verify access; no accounting command was run.'};
+    return {ok:true,data,access:access.row};
+  }catch{return unreachable('Access activation or its authoritative readback could not complete. Retry the same activation key; no accounting command was requested.');}
+}
+
 export async function activateAuthoritativeReadAccess({config,fetcher=globalThis.fetch,idempotencyKey}={}){
   if(!config||typeof fetcher!=='function'||typeof idempotencyKey!=='string'||idempotencyKey.length<8)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Reader activation requires an authoritative scope.'};
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();

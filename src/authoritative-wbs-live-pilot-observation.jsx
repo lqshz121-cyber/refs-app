@@ -1,6 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {startAuthoritativeWbsTestBankReceipt,WBS_LIVE_PILOT_VIEWS,activateAuthoritativeWbsOperatorAccess,attestAuthoritativeWbsPayableObservation,importAuthoritativeWbsBankToTestReconciliation,importAuthoritativeWbsPayablesToTestAccounting,importAuthoritativeWbsTestRange,refreshAuthoritativeAiWbsExceptionFindings,refreshAuthoritativeWbsLivePilot,refreshAuthoritativeWbsOperatorPayableAttestations,refreshAuthoritativeWbsOperatorPayableExceptionRows,runAuthoritativeWbsTestBankMatch,runAuthoritativeWbsTestBankRangeWorkflow} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
+import {PreauthorizedBankAccess} from './preauthorized-bank-access.jsx';
 
 export function WbsTestBankReceiptStart({config,receipt,fetcher}){
   const [confirmed,setConfirmed]=useState(false);
@@ -106,6 +107,7 @@ export function AuthoritativeWbsLivePilotObservation({config,fetcher=globalThis.
   const runH1BankWorkflow=async()=>{const reconciliations=h1ImportState.result?.bank?.reconciliations;if(!reconciliations?.length||h1BankWorkflowState.phase==='LOADING')return;setH1BankWorkflowState({phase:'LOADING',result:null,error:null});const result=await runAuthoritativeWbsTestBankRangeWorkflow({config,reconciliations,fetcher});setH1BankWorkflowState(result.ok?{phase:'READY',result:result.data,error:null}:{phase:'BLOCKED',result:null,error:result});};
   const runBankMatch=async()=>{if(bankMatchState.phase==='LOADING')return;setBankMatchState({phase:'LOADING',result:null,error:null});const result=await runAuthoritativeWbsTestBankMatch({config,fetcher});setBankMatchState(result.ok?{phase:'READY',result:result.data,error:null}:{phase:'BLOCKED',result:null,error:result});};
   return <section className="report-workbench authoritative-wbs-live-pilot-observation" aria-label={title}>
+    {config?.wbsTestImportMode==='ENABLED'&&scopedBank&&<PreauthorizedBankAccess config={config} fetcher={fetcher}/>}
     <div className="report-workbench-head"><div><b>WBS connection</b><div className="page-subtitle">Read-only WBS evidence for the signed-in company.</div></div><div className="authoritative-wbs-live-pilot-status" aria-label="Live WBS connection status"><span className={`badge ${liveStatusTone}`}>{liveStatus}</span><span className="badge badge-muted">READ ONLY</span></div></div>
     <p className="muted sm" aria-label="Production WBS observation boundary">UNSIGNED PILOT · NOT ADMITTED · NOT POSTABLE · No demo or browser-stored data</p>
     <div className="qbo-toolgrid" aria-label="Live WBS connection facts"><span><i>Last API read</i><b>{observation?.captured_at||'Not yet read'}</b></span><span><i>Rows</i><b>{observation?.record_count??'Unavailable'}</b></span><span><i>Entity</i><b>{config?.scopePresentation?.entityLabel||'Entity name unavailable'}</b></span><span><i>Period</i><b>{scopeDates?`${dateFrom} to ${dateTo}`:'Provider current scope'}</b></span></div>

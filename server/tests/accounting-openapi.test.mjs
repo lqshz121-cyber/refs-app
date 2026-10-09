@@ -204,6 +204,20 @@ test('identity and server-computed request hash are absent from all public reque
   assert.equal(final1Schema.properties.receipt.additionalProperties,false,'Final-1 signed scope is verified evidence, never caller authority');
 });
 
+test('administrator-fixed Bank activation documents closed finite receipts without caller authority',()=>{
+  const path='/entities/{entityId}/access/preauthorized-bank-read-grant';
+  const read=contract.paths[path].get,activate=contract.paths[path+'/activate'].post;
+  assert.equal(read.responses['200'].$ref,'#/components/responses/PreauthorizedBankPolicyOk');
+  assert.deepEqual(activate.parameters.map(p=>p.$ref),['#/components/parameters/EntityId','#/components/parameters/IdempotencyKey']);
+  assert.deepEqual(activate.requestBody.content['application/json'].schema,{type:'object',additionalProperties:false,maxProperties:0});
+  for(const [name,fields] of [['PreauthorizedBankPolicyEnvelope',['role','entityId','expectedVersion','validUntil','permissionCount']],['PreauthorizedBankActivationEnvelope',['role','version','validUntil','permissionCount','idempotent']]]){
+    const envelope=contract.components.schemas[name],data=envelope.properties.data;
+    assert.equal(envelope.additionalProperties,false);assert.deepEqual(envelope.required,['ok','data']);assert.equal(data.additionalProperties,false);assert.deepEqual(data.required,fields);assert.equal(data.properties.permissionCount.const,10);assert.equal(data.properties.role.const,'WBS_BANK_IMPORT_REQUESTER_ACCOUNTING_VIEWER');
+  }
+  for(const name of ['PreauthorizedBankPolicyOk','PreauthorizedBankActivationOk'])assert.equal(contract.components.responses[name].headers['Cache-Control'].schema.const,'no-store');
+  for(const status of ['200','201'])assert.equal(activate.responses[status].$ref,'#/components/responses/PreauthorizedBankActivationOk');
+  for(const status of ['400','403','404','409','503','default'])assert.equal(activate.responses[status].$ref,'#/components/responses/Problem');
+});
 test('all responses are no-store and use a structured success or problem envelope',()=>{
   assert.equal(contract.components.responses.CommandCreated.headers['Cache-Control'].schema.const,'no-store');
   assert.equal(contract.components.responses.CommandCreated.headers.ETag.schema.pattern,'^\\"[0-9]+\\"$');

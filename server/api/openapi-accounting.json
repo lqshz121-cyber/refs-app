@@ -29866,6 +29866,46 @@
         }
       }
     },
+    "/entities/{entityId}/access/preauthorized-bank-read-grant": {
+      "get": {
+        "operationId": "readPreauthorizedBankReadAccess",
+        "summary": "Read the finite administrator-approved activation policy for the authenticated subject",
+        "description": "Does not grant permissions or imply current grant effectiveness. Returns only the exact authenticated entity policy after staging target verification; Cache-Control no-store.",
+        "parameters": [{ "$ref": "#/components/parameters/EntityId" }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/PreauthorizedBankPolicyOk" },
+          "403": { "$ref": "#/components/responses/Problem" },
+          "404": { "$ref": "#/components/responses/Problem" },
+          "503": { "$ref": "#/components/responses/Problem" },
+          "default": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/entities/{entityId}/access/preauthorized-bank-read-grant/activate": {
+      "post": {
+        "operationId": "activatePreauthorizedBankReadAccess",
+        "summary": "Activate an administrator-fixed finite staging Bank request and read bundle",
+        "description": "Disabled by default. Only the authenticated subject and entity fixed in staging deployment configuration may activate the exact ten-permission HUMAN bundle. The administrator pins expected grant revision, database identity and expiry of at most 23 hours. No actor, role, permissions, expiry, query fields or If-Match override is accepted. No SERVICE, approval or posting authority is granted.",
+        "parameters": [
+          { "$ref": "#/components/parameters/EntityId" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "maxProperties": 0 } } }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/PreauthorizedBankActivationOk" },
+          "201": { "$ref": "#/components/responses/PreauthorizedBankActivationOk" },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "403": { "$ref": "#/components/responses/Problem" },
+          "404": { "$ref": "#/components/responses/Problem" },
+          "409": { "$ref": "#/components/responses/Problem" },
+          "503": { "$ref": "#/components/responses/Problem" },
+          "default": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
     "/entities/{entityId}/access/self-service-read-grant/activate": {
       "post": {
         "operationId": "activateStage1SelfServiceReadAccess",
@@ -33739,6 +33779,32 @@
       }
     },
     "schemas": {
+      "PreauthorizedBankPolicyEnvelope": {
+        "type":"object","additionalProperties":false,"required":["ok","data"],
+        "properties":{"ok":{"const":true},"data":{
+          "type":"object","additionalProperties":false,"required":["role","entityId","expectedVersion","validUntil","permissionCount"],
+          "properties":{
+            "role":{"const":"WBS_BANK_IMPORT_REQUESTER_ACCOUNTING_VIEWER"},
+            "entityId":{"type":"string","format":"uuid"},
+            "expectedVersion":{"type":"integer","minimum":0},
+            "validUntil":{"type":"string","format":"date-time"},
+            "permissionCount":{"const":10}
+          }
+        }}
+      },
+      "PreauthorizedBankActivationEnvelope": {
+        "type":"object","additionalProperties":false,"required":["ok","data"],
+        "properties":{"ok":{"const":true},"data":{
+          "type":"object","additionalProperties":false,"required":["role","version","validUntil","permissionCount","idempotent"],
+          "properties":{
+            "role":{"const":"WBS_BANK_IMPORT_REQUESTER_ACCOUNTING_VIEWER"},
+            "version":{"type":"integer","minimum":1},
+            "validUntil":{"type":"string","format":"date-time"},
+            "permissionCount":{"const":10},
+            "idempotent":{"type":"boolean"}
+          }
+        }}
+      },
       "WbsTestBankReceiptStartEnvelope": {
         "type":"object","additionalProperties":false,"required":["ok","data"],
         "properties":{"ok":{"const":true},"data":{
@@ -72386,6 +72452,16 @@
       }
     },
     "responses": {
+      "PreauthorizedBankPolicyOk": {
+        "description":"Fixed administrator policy for the exact authenticated subject and company; not a grant or effective-access assertion.",
+        "headers":{"Cache-Control":{"schema":{"const":"no-store"}}},
+        "content":{"application/json":{"schema":{"$ref":"#/components/schemas/PreauthorizedBankPolicyEnvelope"}}}
+      },
+      "PreauthorizedBankActivationOk": {
+        "description":"Fixed finite ten-permission grant receipt; 201 first activation, 200 idempotent replay. Effective access must be read back independently, especially after revocation.",
+        "headers":{"Cache-Control":{"schema":{"const":"no-store"}}},
+        "content":{"application/json":{"schema":{"$ref":"#/components/schemas/PreauthorizedBankActivationEnvelope"}}}
+      },
       "WbsH1AccountingSettingsHumanDecisionOk": {
         "description": "Closed Controller Settings-only decision receipt.",
         "headers": {

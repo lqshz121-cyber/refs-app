@@ -4,6 +4,11 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {startAuthoritativeWbsTestBankReceipt,accountingApiConfig,importAuthoritativeWbsBankToTestReconciliation,importAuthoritativeWbsPayablesToTestAccounting,importAuthoritativeWbsTestRange,runAuthoritativeWbsTestBankMatch,runAuthoritativeWbsTestBankRangeWorkflow,wbsTestBankImportIdempotencyKey,wbsTestImportIdempotencyKey} from '../src/accounting-api.js';
 import {WbsTestBankReceiptStart,AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS,wbsLivePilotErrorGuidance} from '../src/authoritative-wbs-live-pilot-observation.jsx';
+import {PreauthorizedBankAccess} from '../src/preauthorized-bank-access.jsx';
+const approvalMarkup=renderToStaticMarkup(<PreauthorizedBankAccess config={{entityId:'1cfa5b82-7f38-461e-aa58-f94c5f824292'}} fetcher={async()=>assert.fail('SSR must not activate or fetch')}/>);
+assert.match(approvalMarkup,/Checking administrator authorization/);
+assert.match(approvalMarkup,/No service execution, reconciliation start, approval or posting permission/);
+assert.doesNotMatch(approvalMarkup,/<button/);
 
 const periodId='22222222-2222-4222-8222-222222222222';
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId,baseUrl:'https://accounting.example',getAccessToken:async()=> 'a'.repeat(48),scopePresentation:{entityLabel:'Test entity'}};

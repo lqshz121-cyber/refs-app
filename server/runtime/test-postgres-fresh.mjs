@@ -125,7 +125,7 @@ try{
     }
     // Access fixtures need independent deployment identities; never reuse the
     // kernel suite database for unregistered/staging/production fence cases.
-    for(const [profile,targetEnvironment] of [['settings-read-role','staging'],['bank-request','staging'],['bank-request','production'],['bank-request-combined','staging'],['bank-request-accounting-view','staging']]){
+    for(const [profile,targetEnvironment] of [['settings-read-role','staging'],['bank-request','staging'],['bank-request','production'],['bank-request-combined','staging'],['bank-request-accounting-view','staging'],['preauthorized-bank-access','staging']]){
       await run(process.execPath,[resolve(serverRoot,'../tools/analysis/postgres-release-gap-gate.mjs'),composeEnv.POSTGRES_IMAGE||'postgres:16-alpine',serverRoot],{
         ...testEnv,REFS_LOCAL_GAP_PROFILE:profile,REFS_LOCAL_BANK_REQUEST_TARGET_ENV:targetEnvironment
       });
