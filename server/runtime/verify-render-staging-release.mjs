@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {readBuildStamp} from './read-build-stamp.mjs';
 
 const SHA = /^[0-9a-f]{40}$/i;
 const origin = value => {
@@ -33,10 +34,10 @@ export async function verifyRenderStagingRelease({releaseSha, apiBaseUrl, webOri
   assert.equal(ready?.ok, true); assert.equal(ready?.status, 'ready'); assert.ok(sameRelease(ready?.release), 'readiness release differs');
   assert.equal(buildResponse.status, 200, 'web build stamp did not load');
   const buildText = await buildResponse.text();
-  const match = buildText.match(/window\.__BUILD\s*=\s*(\{[^\n;]+\})/);
-  assert.ok(match, 'web build stamp is missing');
-  const build = JSON.parse(match[1]);
+  const build = readBuildStamp(buildText);
   assert.ok(sameRelease(build?.sha), 'web build release differs');
+  assert.equal(build?.channel, 'AUTHORITATIVE', 'staging web channel must be authoritative');
+  assert.equal(build?.authoritative, true, 'staging web must explicitly declare authority');
   assert.equal(anonymous.status, 401, 'anonymous accounting scopes request must stay unauthorized');
   return {ok:true,release:expected,api:{live:live.release,ready:ready.release},web:build.sha,anonymousStatus:anonymous.status};
 }
