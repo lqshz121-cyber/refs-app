@@ -34,6 +34,19 @@ async function main(){
   const proposalRow={statement_type:'TRIAL_BALANCE',statement_section:'ALL_ACCOUNTS',classification_basis:'ACCOUNT_CODE_PREFIX_AND_BANK_MEMBER',account_code:'111000',account_name:'Operating Cash',opening_debit:'100.0000',opening_credit:'0.0000',period_debit:'25.0000',period_credit:'5.0000',ending_debit:'125.0000',ending_credit:'5.0000',display_balance:'120.0000',journal_entry_ids:row.journal_entry_ids,journal_line_ids:row.journal_line_ids,ledger_line_ids:row.ledger_line_ids,source_document_ids:row.source_document_ids,row_hash:`sha256:${'f'.repeat(64)}`};
   const proposal=await readAuthoritativeFinancialStatementSnapshotProposal({config,proposalId,fetcher:async()=>new Response(JSON.stringify({ok:true,data:{...proposalItem,schema_version:'FINANCIAL_STATEMENT_SNAPSHOT_PROPOSAL_V1',rows:[proposalRow]}}),{status:200})});
   assert.equal(proposal.ok,true);assert.equal(proposal.data.rows[0].display_balance,'120.0000');
+  const emptyFlow={...proposalRow,statement_type:'INCOME_STATEMENT',statement_section:'EXPENSES',account_code:'620000',period_debit:'0.0000',period_credit:'0.0000',display_balance:'0.0000',journal_entry_ids:[],journal_line_ids:[],ledger_line_ids:[],source_document_ids:[]};
+  const readFlow=async candidate=>readAuthoritativeFinancialStatementSnapshotProposal({config,proposalId,fetcher:async()=>new Response(JSON.stringify({ok:true,data:{...proposalItem,schema_version:'FINANCIAL_STATEMENT_SNAPSHOT_PROPOSAL_V1',rows:[candidate]}}),{status:200})});
+  for(const statement_type of ['INCOME_STATEMENT','CASH_FLOW'])assert.equal((await readFlow({...emptyFlow,statement_type})).ok,true,'zero period flow must not require historical vouchers');
+  for(const candidate of [
+    {...emptyFlow,statement_type:'TRIAL_BALANCE'},
+    {...emptyFlow,statement_type:'BALANCE_SHEET'},
+    {...emptyFlow,period_debit:'1.0000'},
+    {...emptyFlow,period_credit:'1.0000'},
+    {...emptyFlow,display_balance:'1.0000'},
+    {...emptyFlow,source_document_ids:proposalRow.source_document_ids},
+    {...emptyFlow,journal_entry_ids:proposalRow.journal_entry_ids},
+    {...proposalRow,ledger_line_ids:[]}
+  ])assert.equal((await readFlow(candidate)).code,'STATEMENT_SNAPSHOT_PROPOSAL_PROTOCOL','missing or partial nonzero/balance evidence must fail closed');
   const prepareKey=await financialStatementSnapshotPrepareIdempotencyKey({config,statementRows:[row]});assert.match(prepareKey,/^statement-snapshot-prepare:[0-9a-f]{64}$/);assert.equal(await financialStatementSnapshotPrepareIdempotencyKey({config,statementRows:[row]}),prepareKey);
   let command=await prepareAuthoritativeFinancialStatementSnapshot({config,statementRows:[row],idempotencyKey:prepareKey,fetcher:async(url,init)=>{assert.equal(init.headers['idempotency-key'],prepareKey);assert.deepEqual(JSON.parse(init.body),{periodId});return new Response(JSON.stringify({ok:true,data:{financial_statement_snapshot_proposal_id:proposalId,status:'PENDING_APPROVAL',snapshot_hash:proposalItem.snapshot_hash,ledger_evidence_hash:proposalItem.ledger_evidence_hash,prepared_by:'snapshot-maker',idempotent:false}}),{status:201});}});assert.equal(command.ok,true);
   const approveKey=await financialStatementSnapshotApprovalIdempotencyKey({config,proposal:proposal.data});assert.match(approveKey,/^statement-snapshot-approve:[0-9a-f]{64}$/);

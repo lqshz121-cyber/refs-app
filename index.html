@@ -1184,6 +1184,8 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-admitted-actions{align-items:center;justify-content:flex-start;margin:12px 0;}
 .authoritative-admitted-actions .btn,.authoritative-admitted-statements-table .btn,.authoritative-admitted-start .btn{min-height:44px;}
 .authoritative-admitted-statements-table .tbl{min-width:900px;table-layout:fixed;}
+/* Keep sticky wide-table layout and paint inside its keyboard-scrollable region. */
+.authoritative-admitted-statements-table{contain:layout paint;}
 .authoritative-admitted-statements-table th:first-child,.authoritative-admitted-statements-table td:first-child{width:150px;}
 .authoritative-admitted-statements-table th:nth-child(7),.authoritative-admitted-statements-table td:nth-child(7){width:190px;}
 .authoritative-admitted-statements-table th:last-child,.authoritative-admitted-statements-table td:last-child{width:190px;}

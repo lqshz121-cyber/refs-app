@@ -892,7 +892,12 @@ const statementProposalItem=(value,periodId,detail=false)=>{
 };
 const statementProposalRow=value=>{
   const idFields=['journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids'],moneyFields=['opening_debit','opening_credit','period_debit','period_credit','ending_debit','ending_credit','display_balance'];
-  if(!exactObjectKeys(value,STATEMENT_PROPOSAL_ROW_FIELDS)||!['TRIAL_BALANCE','BALANCE_SHEET','INCOME_STATEMENT','CASH_FLOW'].includes(value.statement_type)||typeof value.statement_section!=='string'||!value.statement_section||typeof value.classification_basis!=='string'||!value.classification_basis||!ACCOUNT_CODE.test(value.account_code||'')||typeof value.account_name!=='string'||!value.account_name.trim()||moneyFields.some(field=>!REPORT_MONEY4.test(String(value[field]??'')))||idFields.some(field=>!Array.isArray(value[field])||value[field].some(id=>!UUID.test(id||''))||new Set(value[field]).size!==value[field].length)||value.journal_entry_ids.length<1||value.journal_line_ids.length<1||value.ledger_line_ids.length<1||!SHA256.test(value.row_hash||''))return null;
+  if(!exactObjectKeys(value,STATEMENT_PROPOSAL_ROW_FIELDS)||!['TRIAL_BALANCE','BALANCE_SHEET','INCOME_STATEMENT','CASH_FLOW'].includes(value.statement_type)||typeof value.statement_section!=='string'||!value.statement_section||typeof value.classification_basis!=='string'||!value.classification_basis||!ACCOUNT_CODE.test(value.account_code||'')||typeof value.account_name!=='string'||!value.account_name.trim()||moneyFields.some(field=>!REPORT_MONEY4.test(String(value[field]??'')))||idFields.some(field=>!Array.isArray(value[field])||value[field].some(id=>!UUID.test(id||''))||new Set(value[field]).size!==value[field].length)||!SHA256.test(value.row_hash||''))return null;
+  // A prior-only account has no current-period flow evidence. Historical balances
+  // remain available, but must never be used as current-period voucher lineage.
+  const hasLedgerEvidence=idFields.slice(0,3).every(field=>value[field].length>0);
+  const emptyPeriodFlow=['INCOME_STATEMENT','CASH_FLOW'].includes(value.statement_type)&&idFields.every(field=>value[field].length===0)&&['period_debit','period_credit','display_balance'].every(field=>/^-?0(?:\.0{1,4})?$/.test(String(value[field])));
+  if(!hasLedgerEvidence&&!emptyPeriodFlow)return null;
   return Object.freeze({...value,...Object.fromEntries(moneyFields.map(field=>[field,String(value[field])])),...Object.fromEntries(idFields.map(field=>[field,Object.freeze([...value[field]])]))});
 };
 

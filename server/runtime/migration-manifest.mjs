@@ -461,5 +461,6 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"454_wbs_test_payable_sign_guard.sql",up:"af708455fb6cf68ea0aec6f53b50ece249fce21d1dcb48680666d01a98c7489c",down:"bafb28f9d41047654db01ecbd972c53ae09b771fe5e73936c0b26b04eb28b6ae"}),
   Object.freeze({name:"455_wbs_test_payable_original_sign_evidence.sql",up:"d08c783a8b10d3b489c8d4e1189395bdd5a3235ccecc437393cf47cb3c00f5d9",down:"87c2fefb7c6d434aedb9aa4d433102860fcf60471a914eef4ee75b69da3c3016"}),
   Object.freeze({name:"456_bounded_wbs_bank_import_request.sql",up:"a89d46fb7ae762a3425da80a9b96cb9df6cbf2c45370dc6fb3b7326bda2827ec",down:"e0894706c4ea94ba0f271c6fe5da2b5106d12f90ad21cc27dce000d4796fe5ca"}),
-  Object.freeze({name:"457_bank_request_settings_view.sql",up:"16b43f77da1d7816340a7033ca53a26800689b0501ca0065eecd9bfd38e84d98",down:"56cb950cf25121a6a5c05ef7371141598087ddee34b818d3d25c0cc404446579"})
+  Object.freeze({name:"457_bank_request_settings_view.sql",up:"16b43f77da1d7816340a7033ca53a26800689b0501ca0065eecd9bfd38e84d98",down:"56cb950cf25121a6a5c05ef7371141598087ddee34b818d3d25c0cc404446579"}),
+  Object.freeze({name:"458_financial_statement_period_flow_lineage.sql",up:"906749b36a7c7354b1f1ec97fecc413f60f3e7909c3ac9b5f16e0701a9e31bd3",down:"1ba6656e4761002a6a90c6201efe5a56db263b48dd048fe8415796a83e146e2c"})
 ]);

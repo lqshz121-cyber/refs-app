@@ -19,6 +19,7 @@ for(const label of ['Bank transactions; scroll horizontally to view every column
   assert.match(source,new RegExp(`role="region" tabIndex=\\{0\\} aria-label="${label}"`));
 }
 assert.match(css,/\.table-wrap\{[\s\S]*overflow:auto;[\s\S]*min-width:0;[\s\S]*max-width:100%/);
+assert.match(css,/\.authoritative-admitted-statements-table\{contain:layout paint;\}/,'Signed sticky table overflow must stay local without global overflow hiding');
 assert.match(css,/\.authoritative-bank-evidence-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'Bank queue and reconciliation evidence tables must remain contained after the tablet reset');
 assert.match(css,/@media\(max-width:900px\)\{[\s\S]*\.authoritative-bank-workspace \.table-wrap,[\s\S]*overscroll-behavior-inline:contain/);
 

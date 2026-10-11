@@ -2,7 +2,7 @@ import React from 'react';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {AuthoritativeAdmittedStatements,AuthoritativeBankDetail,AuthoritativeBankTable,AuthoritativeBankWorkspace,AuthoritativeReconciliationDetail,AuthoritativeReconciliationSummary,AuthoritativeReconciliationWorkspace} from '../src/authoritative-bank-workspace.jsx';
+import {canStartReconciliation,AuthoritativeAdmittedStatements,AuthoritativeBankDetail,AuthoritativeBankTable,AuthoritativeBankWorkspace,AuthoritativeReconciliationDetail,AuthoritativeReconciliationSummary,AuthoritativeReconciliationWorkspace} from '../src/authoritative-bank-workspace.jsx';
 import {routeRequiresSharedAccountingBootstrap} from '../src/authoritative-app.jsx';
 
 const config={entityId:'11111111-1111-4111-8111-111111111111'};
@@ -26,6 +26,24 @@ const namedBankInitial=renderToStaticMarkup(<AuthoritativeBankWorkspace config={
 assert.match(namedBankInitial,/Wan Pacific Real Estate Development LLC/);assert.doesNotMatch(namedBankInitial,/Entity 11111111-1111-4111-8111-111111111111/);
 
 const reconciliationInitial=renderToStaticMarkup(<AuthoritativeReconciliationWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
+const startConfig={...config,tenantId:'22222222-2222-4222-8222-222222222222'};
+const startAccess={tenant_id:startConfig.tenantId,entity_id:startConfig.entityId,actor_id:'controller',session_refresh_required:false,permissions:['BANK.RECONCILIATION.START']};
+assert.equal(canStartReconciliation(startConfig,startAccess),true);
+assert.equal(canStartReconciliation(startConfig,{...startAccess,permissions:['*']}),true);
+for(const access of [null,{}, {...startAccess,permissions:['BANK.VIEW']},{...startAccess,permissions:['WBS.BANK.IMPORT.REQUEST']},{...startAccess,permissions:['WBS.TEST.IMPORT']},{...startAccess,tenant_id:'foreign'},{...startAccess,entity_id:'foreign'},{...startAccess,actor_id:''},{...startAccess,session_refresh_required:true},{...startAccess,session_refresh_required:undefined},{...startAccess,permissions:null}]){
+  assert.equal(canStartReconciliation(startConfig,access),false);
+  const markup=renderToStaticMarkup(<AuthoritativeReconciliationWorkspace config={startConfig} currentActorAccess={access} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
+  assert.match(markup,/<button[^>]*disabled=""[^>]*>Start Draft reconciliation<\/button>/);
+  assert.match(markup,/requires current BANK.RECONCILIATION.START access/);
+  assert.match(markup,/Reconciliation history/);
+}
+assert.equal(canStartReconciliation({...startConfig,entityId:'switched-company'},startAccess),false);
+const authorizedStartMarkup=renderToStaticMarkup(<AuthoritativeReconciliationWorkspace config={startConfig} currentActorAccess={startAccess} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
+assert.match(authorizedStartMarkup,/<button type="submit" class="btn btn-primary">Start Draft reconciliation<\/button>/);
+assert.match(source,/if\(!canStartReconciliation\(config,currentActorAccess\)\)return;/);
+assert.match(source,/if\(!row\|\|!canStartReconciliation\(config,currentActorAccess\)\)return;/);
+assert.match(source,/await onStarted\(row,result\.data\);if\(epoch!==readEpoch\.current\|\|requestedScope!==readScope\.current\)return;/,'A company switch or unmount during parent refresh must prevent stale signed-start completion');
+assert.match(source,/disabled=\{!canStart\|\|detail.phase!=='READY'\|\|reason.trim\(\).length<8\}/);
 assert.match(reconciliationInitial,/Reconcile/);assert.match(reconciliationInitial,/Start reconciliation/);assert.match(reconciliationInitial,/Start Draft reconciliation/);assert.match(reconciliationInitial,/Opening balance/);assert.match(reconciliationInitial,/Ending balance/);assert.match(reconciliationInitial,/Controller reason/);assert.match(source,/startAuthoritativeReconciliation\(\{config,\.\.\.startForm,fetcher\}\)/);assert.match(source,/statementEndingBalance/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/Match the books to the bank records\./);assert.doesNotMatch(reconciliationInitial,/Match retained statements to the books\./,'Reconcile must use the observed concise customer-facing language rather than storage terminology');
 assert.match(reconciliationInitial,/Choose an existing statement to review\./);assert.doesNotMatch(reconciliationInitial,/The API rejects missing or cross-scope statement evidence/);
 assert.match(reconciliationInitial,/Reconciliation history/);assert.match(reconciliationInitial,/Loading reconciliation history/);assert.match(reconciliationInitial,/READ ONLY/);

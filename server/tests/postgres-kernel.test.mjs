@@ -849,7 +849,7 @@ async function seed({cashTransferControl=true,status='APPROVED',journalType='MAN
   return {tenantId,entityId,sourceEntityId,periodId,journalId,attachmentId};
 }
 
-async function attachAutoSource(ids,{effectiveFrom='2026-01-01T00:00:00Z',effectiveTo=null,mappingPriority=0,evaluatedAt=null,linkJournal=true,reuseApprovedSnapshots=false,sourceSystem='WBS',sourceModule='bankFeed',sourceRecordPrefix='AUTO'}={}){
+async function attachAutoSource(ids,{effectiveFrom='2026-01-01T00:00:00Z',effectiveTo=null,mappingPriority=0,evaluatedAt=null,linkJournal=true,reuseApprovedSnapshots=false,sourceSystem='WBS',sourceModule='bankFeed',sourceRecordPrefix='AUTO',sourceDate='2026-07-15',sourceAmount=100}={}){
   const batchId=randomUUID(),rawId=randomUUID(),documentId=randomUUID(),ruleId=randomUUID(),stagingId=randomUUID(),recordId=`${sourceRecordPrefix}-${ids.journalId}`;let settingId=randomUUID(),mappingId=randomUUID();
   const inputKeyHash=hash('mapping-key');
   const configHashes=(await adminPool.query("SELECT refs_jsonb_hash('{}'::jsonb) AS setting_hash,refs_jsonb_hash(jsonb_build_object('input_keys','{}'::jsonb,'output_rules','{}'::jsonb)) AS mapping_hash")).rows[0];
@@ -857,7 +857,7 @@ async function attachAutoSource(ids,{effectiveFrom='2026-01-01T00:00:00Z',effect
   await adminPool.query(`INSERT INTO raw_event(raw_event_id,tenant_id,entity_id,import_batch_id,source_system,source_module,source_entity_id,source_record_id,source_version,event_type,occurred_at,payload_hash,payload_ref,correlation_id)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,'1','UPSERT',now(),$9,$10,$8)`,[rawId,ids.tenantId,ids.entityId,batchId,sourceSystem,sourceModule,ids.sourceEntityId,recordId,hash('auto-raw'),`object://raw/${rawId}`]);
   await adminPool.query(`INSERT INTO source_document(source_document_id,tenant_id,entity_id,raw_event_id,source_system,source_module,source_entity_id,source_record_id,source_version,document_type,business_date,accounting_date,currency,gross_amount,source_ref,payload_hash)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,'1','BANK_TRANSACTION','2026-07-15','2026-07-15','USD',100,$9,$10)`,[documentId,ids.tenantId,ids.entityId,rawId,sourceSystem,sourceModule,ids.sourceEntityId,recordId,`${sourceSystem}:${recordId}`,hash('auto-doc')]);
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,'1','BANK_TRANSACTION',$11,$11,'USD',$12,$9,$10)`,[documentId,ids.tenantId,ids.entityId,rawId,sourceSystem,sourceModule,ids.sourceEntityId,recordId,`${sourceSystem}:${recordId}`,hash('auto-doc'),sourceDate,sourceAmount]);
   if(reuseApprovedSnapshots){
     const existingSetting=(await adminPool.query(`SELECT setting_snapshot_id FROM setting_snapshot WHERE tenant_id=$1 AND entity_id=$2 AND family='BANK' AND scope_type='ENTITY' AND scope_key=$2::text AND status IN ('APPROVED','RETIRED') ORDER BY version DESC LIMIT 1`,[ids.tenantId,ids.entityId])).rows[0];
     const existingMapping=(await adminPool.query(`SELECT mapping_snapshot_id FROM mapping_snapshot WHERE tenant_id=$1 AND entity_id=$2 AND family='BANK' AND scope_type='ENTITY' AND scope_key=$2::text AND status IN ('APPROVED','RETIRED') ORDER BY version DESC LIMIT 1`,[ids.tenantId,ids.entityId])).rows[0];
@@ -6328,6 +6328,69 @@ pgTest('Stage 2 test-data chain traces one reconciled bank payment through its p
   assert.equal(snapshot.snapshot_hash,signed.snapshot_hash);assert.match(JSON.stringify(snapshot.snapshot_body),new RegExp(bankSourceId));assert.match(JSON.stringify(snapshot.snapshot_body),new RegExp(match.bank_match_id));
 });
 
+pgTest('period-flow financial statements retain only exact in-period source sets while balances retain history',async()=>{
+  const ids=await seed({extraAccounts:[{accountCode:'610000',accountName:'Expense'},{accountCode:'620000',accountName:'Prior-only expense'}],journalLines:[{lineNo:1,accountCode:'610000',debit:100,credit:0},{lineNo:2,accountCode:'111000',debit:0,credit:100,memberRef:'BANK-1'}]});
+  const currentTrace=await attachAutoSource(ids);
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'period-flow-poster',['GL.JE.POST'])});
+  const post=async row=>poster.postJournal({...row,journalEntryId:row.journalId,expectedRevision:0,idempotencyKey:'period-flow-post-'+row.journalId});
+  await post(ids);
+  const addJournal=async({date,periodCode,amount,account='610000',posted=true,splitAmount=0})=>{
+    const periodId=periodCode==='2026-07'?ids.periodId:randomUUID(),journalId=randomUUID();
+    if(periodId!==ids.periodId)await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,$4,$5,$6,'OPEN')",[periodId,ids.tenantId,ids.entityId,periodCode,periodCode+'-01',periodCode==='2026-06'?'2026-06-30':'2026-08-31']);
+    await adminPool.query("INSERT INTO journal_entry(journal_entry_id,tenant_id,entity_id,period_id,journal_number,journal_type,status,journal_date,currency,created_by,reviewed_by,approved_by) VALUES($1,$2,$3,$4,$5,'MANUAL',$6,$7,'USD','maker',$8,$9)",[journalId,ids.tenantId,ids.entityId,periodId,'FLOW-'+journalId,posted?'APPROVED':'DRAFT',date,posted?'reviewer':null,posted?'approver':null]);
+    await adminPool.query("INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref) VALUES($1,$2,$3,$4,1,$5,$6::numeric-$7::numeric,0,NULL),($1,$2,$3,$4,2,'111000',0,$6,'BANK-1')",[ids.tenantId,ids.entityId,periodId,journalId,account,amount,splitAmount]);
+    if(splitAmount)await adminPool.query("INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount) VALUES($1,$2,$3,$4,3,'610000',$5,0)",[ids.tenantId,ids.entityId,periodId,journalId,splitAmount]);
+    await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,journal_entry_id,attachment_id,created_by) VALUES($1,$2,'JE_ATTACHMENT',$3,$4,'maker')",[ids.tenantId,ids.entityId,journalId,ids.attachmentId]);
+    const row={...ids,periodId,journalId};
+    const trace=await attachAutoSource(row,{reuseApprovedSnapshots:true,sourceDate:date,sourceAmount:amount});
+    if(posted)await post(row);
+    return {...row,trace};
+  };
+  const prior=await addJournal({date:'2026-06-16',periodCode:'2026-06',amount:11,account:'620000',splitAmount:7});
+  const future=await addJournal({date:'2026-08-16',periodCode:'2026-08',amount:13});
+  const draft=await addJournal({date:'2026-07-16',periodCode:'2026-07',amount:17,posted:false});
+  const other=await seed({tenantId:ids.tenantId}),otherTrace=await attachAutoSource(other);
+  const otherPoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(other,'period-flow-other-poster',['GL.JE.POST'])});
+  await otherPoster.postJournal({...other,journalEntryId:other.journalId,expectedRevision:0,idempotencyKey:'period-flow-other-post'});
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'period-flow-reader',['GL.REPORT.VIEW'])});
+  const rows=await reader.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
+  const lineIds=async journalId=>(await adminPool.query('SELECT journal_line_id,ledger_line_id,account_code FROM ledger_line WHERE journal_entry_id=$1',[journalId])).rows;
+  const currentLines=await lineIds(ids.journalId),priorLines=await lineIds(prior.journalId);
+  const exact=(actual,expected)=>assert.deepEqual([...actual].sort(),[...expected].sort());
+  for(const row of rows){
+    for(const excluded of [future,draft,other])assert.ok(!row.journal_entry_ids.includes(excluded.journalId));
+    assert.ok(!row.source_document_ids.includes(future.trace.documentId));assert.ok(!row.source_document_ids.includes(draft.trace.documentId));assert.ok(!row.source_document_ids.includes(otherTrace.documentId));
+    const flow=['INCOME_STATEMENT','CASH_FLOW'].includes(row.statement_type);
+    const contributing=[...currentLines,...(!flow?priorLines:[])].filter(line=>line.account_code===row.account_code);
+    exact(row.journal_line_ids,contributing.map(line=>line.journal_line_id));exact(row.ledger_line_ids,contributing.map(line=>line.ledger_line_id));
+    const current=currentLines.some(line=>line.account_code===row.account_code),historical=!flow&&priorLines.some(line=>line.account_code===row.account_code);
+    exact(row.journal_entry_ids,[...(current?[ids.journalId]:[]),...(historical?[prior.journalId]:[])]);
+    exact(row.source_document_ids,[...(current?[currentTrace.documentId]:[]),...(historical?[prior.trace.documentId]:[])]);
+  }
+  const expense=rows.find(row=>row.statement_type==='INCOME_STATEMENT'&&row.account_code==='610000'),priorOnly=rows.find(row=>row.statement_type==='INCOME_STATEMENT'&&row.account_code==='620000'),cash=rows.find(row=>row.statement_type==='CASH_FLOW');
+  assert.equal(expense.display_balance,'100.0000');assert.equal(priorOnly.display_balance,'0.0000');assert.equal(cash.display_balance,'-100.0000');
+  assert.equal(rows.find(row=>row.statement_type==='TRIAL_BALANCE'&&row.account_code==='111000').display_balance,'-111.0000');
+  assert.equal(rows.find(row=>row.statement_type==='BALANCE_SHEET'&&row.account_code==='620000').display_balance,'-4.0000');
+  assert.equal(rows.find(row=>row.statement_type==='TRIAL_BALANCE'&&row.account_code==='610000').display_balance,'107.0000');
+  const comparison=await reader.getFinancialStatementPeriodComparison({tenantId:ids.tenantId,entityId:ids.entityId,currentPeriodId:ids.periodId,priorPeriodId:prior.periodId});
+  const compared=comparison.find(row=>row.statement_type==='INCOME_STATEMENT'&&row.account_code==='620000');
+  exact(compared.current_source_document_ids,[]);exact(compared.prior_source_document_ids,[prior.trace.documentId]);
+});
+
+pgTest('period-flow lineage migration down and up retain function identity and unchanged privileges',async()=>{
+  const name='458_financial_statement_period_flow_lineage.sql',signature='refs_get_financial_statements(uuid,uuid,uuid)';
+  const client=await adminPool.connect();
+  const definition=async()=>(await client.query('SELECT p.oid::text oid,pg_get_functiondef(p.oid) body,p.proacl::text acl FROM pg_proc p WHERE p.oid=$1::regprocedure',[signature])).rows[0];
+  try{
+    await client.query('BEGIN');const before=await definition();
+    const body=async direction=>(await migrationSql(name,direction)).replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'');
+    await client.query(await body('down'));const legacy=await definition();
+    assert.equal(legacy.oid,before.oid);assert.equal(legacy.acl,before.acl);assert.notEqual(legacy.body,before.body);assert.ok(!legacy.body.includes('period_source_document_ids'));
+    await client.query(await body('up'));assert.deepEqual(await definition(),before);
+    assert.equal((await client.query("SELECT has_function_privilege('refs_app',$1,'EXECUTE') allowed",[signature])).rows[0].allowed,true);
+  }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
+});
+
 pgTest('financial statements read only POSTED ledger evidence with entity, period, and source drill scope',async()=>{
   const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
     extraAccounts:[{accountCode:'610000',accountName:'Operating Expense'}],
@@ -7234,7 +7297,10 @@ pgTest('consolidation reads only an approved immutable two-member scope with exp
     VALUES($1,$2,'291001','IC-100','CREDIT',$3),($1,$4,'120200','IC-100','CREDIT',$5)`,[snapshotId,reporting.entityId,hash('consolidation-map-reporting'),member.entityId,hash('consolidation-map-member')]);
   await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,'GL.REPORT.VIEW')",[reporting.tenantId,actor,reporting.entityId]);
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(reporting,actor,['GL.REPORT.VIEW'])});
-  let rows=await reader.getConsolidation({tenantId:reporting.tenantId,entityId:reporting.entityId,periodId:reporting.periodId,groupRef});
+  const initialReadStarted=Date.now();let initialReadCode=null,rows;
+  try{rows=await reader.getConsolidation({tenantId:reporting.tenantId,entityId:reporting.entityId,periodId:reporting.periodId,groupRef});}
+  catch(error){initialReadCode=error.code||'UNKNOWN';throw error;}
+  finally{console.log('# consolidation initial missing-member-scope read '+JSON.stringify({elapsedMs:Date.now()-initialReadStarted,errorCode:initialReadCode}));}
   assert.deepEqual({status:rows[0].report_status,actual:rows[0].member_actual_amount,elimination:rows[0].elimination_amount},{status:'BLOCKED_MEMBER_SCOPE_REQUIRED',actual:null,elimination:null});
   await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,'GL.REPORT.VIEW')",[reporting.tenantId,actor,member.entityId]);
   rows=await reader.getConsolidation({tenantId:reporting.tenantId,entityId:reporting.entityId,periodId:reporting.periodId,groupRef});
@@ -8320,13 +8386,18 @@ pgTest('sales receipt detail and keyset pages are scoped and remain bounded over
   await adminPool.query('ANALYZE sales_receipt');await adminPool.query('ANALYZE journal_entry');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM sales_receipt WHERE entity_id=$1',[ids.entityId])).rows[0].n,100002);
   const started=Date.now(),first=await get(`${root}?periodId=${ids.periodId}&limit=100`);
+  const firstFinished=Date.now();
   assert.equal(first.status,200,JSON.stringify(first.body));assert.equal(first.body.data.rows.length,100);assert.equal(first.body.data.next_id,'00000000-0000-4000-8000-000000000100');
   const second=await get(`${root}?periodId=${ids.periodId}&limit=100&afterId=${first.body.data.next_id}`);
+  const secondFinished=Date.now();
   assert.equal(second.status,200);assert.equal(second.body.data.rows[0].sales_receipt_id,'00000000-0000-4000-8000-000000000101');
   const tail=await get(`${root}?periodId=${ids.periodId}&limit=100&afterId=00000000-0000-4000-8000-000000100000`);
+  const tailFinished=Date.now();
   assert.equal(tail.status,200);assert.equal(tail.body.data.rows.length,2);assert.equal(tail.body.data.next_id,null);
   const reread=await get(`${root}/${receiptId}`);assert.equal(reread.status,200);assert.deepEqual(reread.body.data,detail.body.data);
-  assert.ok(Date.now()-started<5000,'Four bounded reads over 100001 synthetic records must complete within five seconds');
+  const readsFinished=Date.now();
+  console.log('sales receipt volume read timings',JSON.stringify({first_ms:firstFinished-started,second_ms:secondFinished-firstFinished,tail_ms:tailFinished-secondFinished,detail_ms:readsFinished-tailFinished,total_ms:readsFinished-started}));
+  assert.ok(readsFinished-started<5000,'Four bounded reads over 100001 synthetic records must complete within five seconds');
   await migrateDownThrough(adminPool,'318_sales_receipt_reads.sql');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM sales_receipt WHERE entity_id=$1',[ids.entityId])).rows[0].n,100002);
   await migrateUp(adminPool);assert.equal((await get(`${root}/${receiptId}`)).status,200);
@@ -8535,12 +8606,14 @@ pgTest('counterparty register pages 100001 masters without crossing kind or comp
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'register-volume-reader',['AP.VIEW'])});
   const started=Date.now();
   const first=await reader.readCounterpartyRegister({...ids,kind:'VENDOR',query:'Register performance',limit:100});
+  const firstFinished=Date.now();
   assert.equal(first.rows.length,100);assert.equal(first.next_ref,'REG000100');
   const second=await reader.readCounterpartyRegister({...ids,kind:'VENDOR',query:'Register performance',afterRef:first.next_ref,limit:100});
+  const secondFinished=Date.now();
   assert.equal(second.rows[0].member_ref,'REG000101');assert.equal(second.next_ref,'REG000200');
   const tail=await reader.readCounterpartyRegister({...ids,kind:'VENDOR',query:'Register performance',afterRef:'REG100000',limit:100});
   assert.deepEqual(tail.rows.map(r=>r.member_ref),['REG100001']);assert.equal(tail.next_ref,null);
-  const elapsed=Date.now()-started;console.log('# counterparty register first/second/deep pages over 100001 rows: '+elapsed+'ms');assert.ok(elapsed<5000,'Three register pages must finish within five seconds');
+  const elapsed=Date.now()-started;console.log('# counterparty register first/second/deep pages over 100001 rows: '+elapsed+'ms');console.log('# counterparty register page timings '+JSON.stringify({firstMs:firstFinished-started,secondMs:secondFinished-firstFinished,deepMs:elapsed-(secondFinished-started),totalMs:elapsed}));assert.ok(elapsed<5000,'Three register pages must finish within five seconds');
 });
 
 async function reviewedFixedAssetFixture(sourceVendor=null,{salvageValue='1000.0000',useOriginalSource=true,sourceLineHashOverride=null,policyEffectiveFrom='2026-01-01',policyEffectiveTo=null,policyScopeKey=null,memberTraceOverride=null}={}){

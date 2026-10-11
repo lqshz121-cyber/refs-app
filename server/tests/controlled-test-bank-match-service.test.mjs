@@ -32,6 +32,14 @@ function harness({resolved=fixture(),candidateCount=1}={}){
 
 const input={tenantId,entityId,reason:'Create exact isolated test match',idempotencyKey:'isolated-bank-match-001'};
 
+test('caller authorization denial precedes every delegated actor and accounting action',async()=>{
+  const denied=Object.assign(new Error('service-only test import authority denied'),{code:'42501'});
+  let authorizeCalls=0;
+  const service=createControlledTestBankMatchService({scope,authorize:async value=>{assert.deepEqual(value,{tenantId,entityId});authorizeCalls++;throw denied;},kernelForActor:()=>assert.fail('denied caller must not reach any delegated workflow actor')});
+  await assert.rejects(service.run(input),error=>error===denied);
+  assert.equal(authorizeCalls,1);
+});
+
 test('posts one exact AP payment through distinct payment and match makers before creating one Bank Match',async()=>{
   const {service,calls}=harness();
   const result=await service.run(input);
