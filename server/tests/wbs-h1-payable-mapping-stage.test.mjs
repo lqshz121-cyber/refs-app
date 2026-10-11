@@ -3,6 +3,19 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {normalizeWbsH1PayableMappingRow,stageWbsH1PayableMappingRawPage,stageWbsH1PayableMappingRawPageForTestImport} from '../tools/stage-wbs-h1-payable-mapping-source.mjs';
 import {normalizeWbsH1AccountingSetting,normalizeWbsH1AccountingSettingsPage} from '../tools/stage-wbs-h1-accounting-settings.mjs';
+
+test('observed Debtor setting is not silently renamed and blank Debit accounts remain unresolved',()=>{
+  const observed={id:1,type:'Debtor',category:'Payable',business_type:4,detail:'SOURCE-COST',pj_code:null,journal_code:null,account:null,company_code:'WBPA',start_date:'2026-01-01T00:00:00',end_date:'2026-12-31T00:00:00',supplementary:null};
+  assert.throws(()=>normalizeWbsH1AccountingSetting(observed,{tenantId}),/outside the approved Payable Debit\/Credit mapping shape/);
+  const recognized=normalizeWbsH1AccountingSetting({...observed,type:'Debit'},{tenantId});
+  assert.equal(recognized.setting_type,'Debit');
+  assert.equal(recognized.journal_code,'');
+  assert.equal(recognized.account_name,'');
+  assert.equal(recognized.detail,'SOURCE-COST');
+  assert.equal(recognized.effective_from,'2026-01-01');
+  assert.equal(recognized.can_approve,undefined);
+  assert.equal(recognized.can_post,undefined);
+});
 import {normalizeWbsH1PayableCostCode} from '../tools/stage-wbs-h1-payable-cost-codes.mjs';
 import {normalizeDirectWbsH1PayableMappingRows} from '../tools/stage-wbs-h1-payable-mapping-direct-snapshot.mjs';
 
@@ -51,9 +64,12 @@ test('only exact WBS Payable Debit and Credit settings enter the private stage c
   assert.match(credit.setting_hash,/^sha256:[0-9a-f]{64}$/);assert.notEqual(credit.setting_hash,debit.setting_hash);
   assert.equal(normalizeWbsH1AccountingSetting({id:43,type:'Debit',category:'Payable',business_type:4,detail:'',pj_code:null,journal_code:null,account:null,company_code:'OPPO',start_date:'2026-01-01',end_date:'2026-12-31',supplementary:null},{tenantId}).journal_code,'');
   assert.equal(normalizeWbsH1AccountingSetting({id:44,type:'Debit',category:'Payable',business_type:4,detail:'',pj_code:null,journal_code:null,account:null,company_code:'OPPO',start_date:'0031-01-12',end_date:'2026-12-31',supplementary:null},{tenantId}).effective_from,'0031-01-12');
-  for(const unsafe of [{type:'Direct(Credit)'},{type:'credit'},{category:'Bank'},{business_type:5},{supplementary:'Company'},{supplementary:'Bank'},{journal_code:'unsafe account'}])assert.throws(()=>normalizeWbsH1AccountingSetting({...credit,...unsafe,id:50},{tenantId}));
-  assert.throws(()=>normalizeWbsH1AccountingSetting({...debit,start_date:'2026-02-30'},{tenantId}));
-  assert.throws(()=>normalizeWbsH1AccountingSetting({...credit,end_date:'2025-12-31'},{tenantId}));
+  const creditSource={id:45,type:'Credit',category:'Payable',business_type:4,detail:'',pj_code:null,journal_code:'291001',account:'Accounts Payable',company_code:'OPPO',start_date:'2026-01-01 00:00:00',end_date:'2026-12-31 00:00:00',supplementary:'Vendor'};
+  assert.deepEqual(normalizeWbsH1AccountingSetting(creditSource,{tenantId}),credit,'negative cases must start from a valid raw provider row');
+  for(const unsafe of [{type:'Direct(Credit)'},{type:'credit'},{category:'Bank'},{business_type:5},{supplementary:'Company'},{supplementary:'Bank'},{journal_code:'unsafe account'},{start_date:'2026-02-30'},{end_date:'2025-12-31'}]){
+    assert.throws(()=>normalizeWbsH1AccountingSetting({...creditSource,...unsafe},{tenantId}),/outside the approved Payable Debit\/Credit mapping shape/,JSON.stringify(unsafe));
+    assert.deepEqual(normalizeWbsH1AccountingSetting(creditSource,{tenantId}),credit,'removing only the invalid field must restore the valid contract');
+  }
 });
 
 test('accounting settings page retains a complete Debit/Credit pair and rejects duplicate identities',()=>{

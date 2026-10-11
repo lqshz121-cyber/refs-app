@@ -37,14 +37,27 @@ for(const label of ['Payables','Bank transactions','AutoRec details','AutoRec ba
 for(const boundary of ['READ ONLY','Unsigned pilot','Not admitted','Not postable','No demo or browser-stored data'])assert.match(dashboard,new RegExp(boundary,'i'));
 for(const copy of ['Read-only WBS evidence for the signed-in company.','Select a scope and refresh.','No credentials, raw IDs, accounting records, or actions are exposed.'])assert.match(dashboard,new RegExp(copy.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')),'the default WBS observation must use concise user-facing language');
 assert.match(dashboard,/>Refresh</);
-for(const liveFact of ['Live WBS connection status','Last API read','Rows','Test entity','Period'])assert.match(dashboard,new RegExp(liveFact));
+for(const liveFact of ['Live WBS connection status','Last API read','Rows','Test entity','WBS request range'])assert.match(dashboard,new RegExp(liveFact));
 assert.doesNotMatch(dashboard,/<i>Status<\/i>|<i>Source<\/i>/,'status and source must not be repeated below the connection header');
 
 const payables=render(WBS_LIVE_PILOT_SURFACE_TOOLS.payables);
+assert.match(payables,/WBS request range/);
+assert.match(payables,/Provider current scope/,'an empty company code must not claim a date-scoped request');
+assert.match(payables,/No company\/date filter will be sent/);
+assert.match(payables,/selected REFS period does not constrain this WBS observation/);
+const autoRecObservation=render(['list_autorec_details']);
+assert.match(autoRecObservation,/Provider current scope/);
+assert.match(autoRecObservation,/This observation tool has no company filter; the dates above are not applied/);
+assert.doesNotMatch(autoRecObservation,/aria-label="WBS company code"/);
+assert.match(autoRecObservation,/NOT ADMITTED/i);
+const autoRecBankObservation=render(['list_autorec_banks']);
+assert.match(autoRecBankObservation,/Provider current scope/);
+assert.doesNotMatch(autoRecBankObservation,/No company\/date filter will be sent/,'a date-less tool must not claim that editable dates are omitted');
 assert.match(payables,/WBS read-only view:<\/b> Payables/);
 for(const boundary of ['OPERATOR ATTESTED','UNSIGNED','EXCEPTION REVIEW REQUIRED','NOT POSTED','outside Raw, Staging, AP Bills, Journals, GL, and Posted totals'])assert.match(payables,new RegExp(boundary,'i'));
 assert.match(payables,/Retain as exception evidence/);assert.match(payables,/Refresh retained evidence/);
 const source=fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8');
+assert.match(source,/scopeCompany&&requestedCompany&&scopeDates\?`\$\{dateFrom\} to \$\{dateTo\}`/,'displayed request range must use the same company/date eligibility as the request');
 assert.doesNotMatch(source,/Enable TEST_ONLY workflow access|const enableTestWorkflow|testAccessState/,'denied imports must not offer the retired mixed-authority grant');
 assert.match(source,/separate TEST_ONLY service-import and caller authorization path/);
 assert.match(source,/Human roles cannot receive service-only WBS.TEST.IMPORT permission/);

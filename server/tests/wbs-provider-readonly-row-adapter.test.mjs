@@ -7,6 +7,27 @@ import {buildAutoReconciliationReviewRequest,createWbsInboundDataAdapter} from '
 
 const scope={company_code:'COMPANY-A',currency:'USD'};
 
+test('observed SQL AutoRec shape cannot infer company, posting date, case identity, or release authority',()=>{
+  // Diagnostic source shape, not a signed production receipt or admission fixture.
+  const observed={pd_guid:'OBSERVED-DETAIL',pd_company:'\u0000',pd_owner_company_code:'WBPA',pd_pvguid:'NAVIGATION-NOT-CASE',pd_cbid:'NAVIGATION-NOT-BANK',pd_match_status:'Match',pd_biz_type:'AUTOP',pd_status:'I',pd_clear_date:'2026-06-03T00:00:00',pd_incurred_date:'2026-06-03T00:00:00',pd_transaction_date:'2026-06-02T00:00:00',pd_released_date:null};
+  assert.throws(()=>mapWbsReadonlyProviderRow({sourceTable:'wbsdata.fast_auto_payment_detail',row:observed}),error=>error.code==='WBS_PROVIDER_SCOPE_REQUIRED');
+  const mapped=mapWbsReadonlyProviderRow({sourceTable:'wbsdata.fast_auto_payment_detail',row:observed,scope:{company_code:'WBPA',currency:'USD'}});
+  assert.equal(mapped.detail_company_trace,null);
+  assert.equal(mapped.owner_company_trace,'WBPA');
+  assert.equal(mapped.posting_date,null);
+  // SQL DATETIME is not silently truncated into an accounting DATE.
+  assert.equal(mapped.clear_date,null);
+  assert.equal(mapped.incurred_date,null);
+  assert.equal(mapped.released_date,null);
+  assert.equal(mapped.status,'I');
+  assert.equal(mapped.match_status,'Match');
+  assert.equal(mapped.pd_pv_guid,'NAVIGATION-NOT-CASE');
+  assert.equal(mapped.pb_guid,undefined);
+  assert.equal(mapped.bank_account_ref,undefined);
+  assert.equal(mapped.can_post,undefined);
+  assert.throws(()=>mergeWbsReadonlyResultEvidence({sourceTable:'wbsdata.fast_auto_payment_detail',row:observed,scope:{company_code:'WBPA',currency:'USD'},resultRow:{pd_guid:observed.pd_guid,posting_date:observed.pd_transaction_date}}),error=>error.code==='WBS_PROVIDER_RESULT_FIELD_REQUIRED');
+});
+
 test('observed Payable, Detail, PB, and journal schemas map only into read-only formal provider rows',()=>{
   const payable=mapWbsReadonlyProviderRow({sourceTable:'wbsdata.account_book_payable_info',scope,row:{uuid:'PAY-1',company_code:'COMPANY-A',type:'AUTOC',amount:'100.0000',incurred_date:'2026-08-01',posting_date:'2026-08-02',business_id:'DETAIL-1',cb_id:'RELATION-1'}});
   assert.deepEqual({key:payable.ap_guid,type:payable.ap_type,company:payable.company_code,currency:payable.currency,bank:payable.bank_account_ref,relation:payable.cb_id},{key:'PAY-1',type:'AUTOC',company:'COMPANY-A',currency:'USD',bank:null,relation:'RELATION-1'});
